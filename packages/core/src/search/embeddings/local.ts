@@ -1,7 +1,10 @@
 import type { EmbeddingProvider } from "./provider.js";
 import { getAgentFSHome } from "../../config.js";
 import { join } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync, existsSync } from "node:fs";
+
+// nomic-embed-text-v1.5: 768 dimensions, MIT license, publicly available
+const MODEL_URI = "hf:nomic-ai/nomic-embed-text-v1.5-GGUF:Q8_0";
 
 export class LocalEmbeddingProvider implements EmbeddingProvider {
   readonly name = "local";
@@ -21,7 +24,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
   }
 
   private async _doInit(): Promise<void> {
-    const { getLlama } = await import("node-llama-cpp");
+    const { getLlama, resolveModelFile } = await import("node-llama-cpp");
     this.llama = await getLlama();
 
     const modelsDir = join(getAgentFSHome(), "models");
@@ -29,21 +32,10 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
       mkdirSync(modelsDir, { recursive: true });
     }
 
-    const modelPath = join(modelsDir, "embeddinggemma-300m-Q8_0.gguf");
-
-    if (!existsSync(modelPath)) {
-      // Auto-download from HuggingFace
-      console.log("Downloading embeddinggemma-300M model (~329MB)...");
-      const response = await fetch(
-        "https://huggingface.co/nicoboss/EmbeddingGemma-300M-Q8_0-GGUF/resolve/main/embeddinggemma-300m-q8_0.gguf"
-      );
-      if (!response.ok) {
-        throw new Error(`Failed to download model: ${response.statusText}`);
-      }
-      const data = await response.arrayBuffer();
-      await Bun.write(modelPath, data);
-      console.log("Model downloaded successfully.");
-    }
+    // resolveModelFile handles download + caching automatically
+    console.error("[agent-fs] Resolving local embedding model...");
+    const modelPath = await resolveModelFile(MODEL_URI, modelsDir);
+    console.error("[agent-fs] Model ready:", modelPath);
 
     this.model = await this.llama.loadModel({ modelPath });
     this.embeddingContext = await this.model.createEmbeddingContext();
