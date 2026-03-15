@@ -8,6 +8,8 @@
     "agentfs": "src/index.ts"
   },
   "dependencies": {
-    "@agentfs/core": "workspace:*"
+    "@agentfs/core": "workspace:*",
+    "@agentfs/server": "workspace:*",
+    "commander": "^14.0.3"
   }
 }
