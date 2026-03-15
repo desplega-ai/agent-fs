@@ -20,7 +20,7 @@ jobs:
             os: ubuntu-latest
             artifact: agentfs-linux-arm64
           - target: bun-darwin-x64
-            os: macos-13
+            os: macos-latest
             artifact: agentfs-darwin-x64
           - target: bun-darwin-arm64
             os: macos-latest
