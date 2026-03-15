@@ -51,7 +51,7 @@ describe.skipIf(SKIP)("S3 Integration (MinIO)", () => {
     await s3.putObject(`${prefix}b.txt`, "b");
     await s3.putObject(`${prefix}c.txt`, "c");
 
-    const objects = await s3.listObjects(prefix);
+    const { objects } = await s3.listObjects(prefix);
     expect(objects.length).toBe(3);
     const keys = objects.map((o) => o.key);
     expect(keys).toContain(`${prefix}a.txt`);
@@ -92,7 +92,7 @@ describe.skipIf(SKIP)("S3 Integration (MinIO)", () => {
 
     await s3.deleteObject(key);
 
-    const objects = await s3.listObjects(key);
+    const { objects } = await s3.listObjects(key);
     expect(objects.length).toBe(0);
   });
 

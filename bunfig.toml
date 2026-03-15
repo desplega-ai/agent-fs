@@ -2,5 +2,5 @@
 peer = false
 
 [test]
-coverage = false
+coverageReporter = ["text"]
 coverageThreshold = { line = 60 }
