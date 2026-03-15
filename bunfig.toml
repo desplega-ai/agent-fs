@@ -1,2 +1,6 @@
 [install]
 peer = false
+
+[test]
+coverage = false
+coverageThreshold = { line = 60 }
