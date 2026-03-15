@@ -4,7 +4,7 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "typecheck": "tsc --build",
-    "test": "bun test",
+    "test": "bun test packages/*/src/",
     "build": "bun build --compile packages/cli/src/index.ts --outfile dist/agentfs"
   },
   "devDependencies": {

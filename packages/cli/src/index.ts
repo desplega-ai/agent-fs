@@ -49,6 +49,16 @@ program.addCommand(authCommands(client));
 program.addCommand(daemonCommands());
 program.addCommand(configCommands());
 
+// MCP command
+program
+  .command("mcp")
+  .description("Start MCP server (stdio)")
+  .option("--embedded", "Force embedded mode (no daemon)")
+  .option("--daemon", "Force daemon mode (requires running daemon)")
+  .action(async () => {
+    await import("@agentfs/mcp/src/index.js");
+  });
+
 // Server command (foreground dev mode)
 program
   .command("server")

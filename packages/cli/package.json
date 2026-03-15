@@ -10,6 +10,7 @@
   "dependencies": {
     "@agentfs/core": "workspace:*",
     "@agentfs/server": "workspace:*",
+    "@agentfs/mcp": "workspace:*",
     "commander": "^14.0.3"
   }
 }
