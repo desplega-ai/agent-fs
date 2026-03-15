@@ -3,7 +3,7 @@ import { getUserByApiKey } from "@agentfs/core";
 import type { DB } from "@agentfs/core";
 
 // Paths that don't require authentication
-const PUBLIC_PATHS = ["/auth/register", "/auth/verify", "/health"];
+const PUBLIC_PATHS = ["/auth/register", "/health"];
 
 export function authMiddleware(db: DB) {
   return async (c: Context, next: Next) => {

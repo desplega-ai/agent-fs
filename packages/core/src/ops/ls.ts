@@ -11,8 +11,10 @@ export async function ls(
   const prefix = normalizePrefix(params.path);
   const s3Prefix = getS3Key(ctx.orgId, ctx.driveId, prefix);
 
-  // List from S3
-  const s3Objects = await ctx.s3.listObjects(s3Prefix);
+  // List from S3 with delimiter for efficient immediate-children-only listing
+  const { objects, prefixes } = await ctx.s3.listObjects(s3Prefix, {
+    delimiter: "/",
+  });
 
   // Get metadata from SQLite for files in this drive
   const dbFiles = ctx.db
@@ -29,38 +31,26 @@ export async function ls(
 
   const dbFileMap = new Map(dbFiles.map((f) => [f.path, f]));
 
-  // Build entries — deduplicate directories
   const entries: LsEntry[] = [];
-  const seenDirs = new Set<string>();
 
-  for (const obj of s3Objects) {
-    // Strip the org/drive prefix to get the relative path
+  // Add directories from S3 CommonPrefixes
+  for (const dirPrefix of prefixes) {
+    const dirName = dirPrefix.slice(s3Prefix.length).replace(/\/$/, "");
+    if (dirName) {
+      entries.push({ name: dirName, type: "directory", size: 0 });
+    }
+  }
+
+  // Add files from S3 Contents (direct children only)
+  for (const obj of objects) {
     const relativePath = obj.key.slice(s3Prefix.length);
     if (!relativePath) continue;
 
-    // Check if this is a direct child or nested
-    const slashIdx = relativePath.indexOf("/");
-    if (slashIdx > 0 && slashIdx < relativePath.length - 1) {
-      // Nested — show as directory
-      const dirName = relativePath.slice(0, slashIdx);
-      if (!seenDirs.has(dirName)) {
-        seenDirs.add(dirName);
-        entries.push({ name: dirName, type: "directory", size: 0 });
-      }
-      continue;
-    }
-
-    // Direct child
-    const name = relativePath.endsWith("/")
-      ? relativePath.slice(0, -1)
-      : relativePath;
     const isDir = relativePath.endsWith("/");
+    const name = isDir ? relativePath.slice(0, -1) : relativePath;
 
     if (isDir) {
-      if (!seenDirs.has(name)) {
-        seenDirs.add(name);
-        entries.push({ name, type: "directory", size: 0 });
-      }
+      entries.push({ name, type: "directory", size: 0 });
     } else {
       const fullPath = prefix + name;
       const dbFile = dbFileMap.get(fullPath);

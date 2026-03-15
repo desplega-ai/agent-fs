@@ -126,19 +126,26 @@ export class AgentS3Client {
     };
   }
 
-  async listObjects(prefix: string): Promise<S3Object[]> {
+  async listObjects(
+    prefix: string,
+    options?: { delimiter?: string }
+  ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
     const result = await this.client.send(
       new ListObjectsV2Command({
         Bucket: this.bucket,
         Prefix: prefix,
+        ...(options?.delimiter && { Delimiter: options.delimiter }),
       })
     );
-    return (result.Contents ?? []).map((obj) => ({
-      key: obj.Key!,
-      size: obj.Size ?? 0,
-      lastModified: obj.LastModified ?? new Date(),
-      etag: obj.ETag,
-    }));
+    return {
+      objects: (result.Contents ?? []).map((obj) => ({
+        key: obj.Key!,
+        size: obj.Size ?? 0,
+        lastModified: obj.LastModified ?? new Date(),
+        etag: obj.ETag,
+      })),
+      prefixes: (result.CommonPrefixes ?? []).map((p) => p.Prefix!),
+    };
   }
 
   async headObject(key: string): Promise<HeadObjectResult> {
