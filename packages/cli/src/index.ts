@@ -6,6 +6,8 @@ import { registerOpCommands } from "./commands/ops.js";
 import { authCommands } from "./commands/auth.js";
 import { daemonCommands } from "./commands/daemon.js";
 import { configCommands } from "./commands/config-cmd.js";
+import { driveCommands } from "./commands/drive.js";
+import { initCommand } from "./commands/init.js";
 
 const program = new Command();
 
@@ -48,6 +50,8 @@ registerOpCommands(program, client, getOrgId);
 program.addCommand(authCommands(client));
 program.addCommand(daemonCommands());
 program.addCommand(configCommands());
+program.addCommand(driveCommands(client));
+program.addCommand(initCommand());
 
 // MCP command
 program

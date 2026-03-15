@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { OpContext } from "./types.js";
+import { checkPermission, getRequiredRole } from "../identity/rbac.js";
 import { write } from "./write.js";
 import { cat } from "./cat.js";
 import { edit } from "./edit.js";
@@ -152,11 +153,22 @@ const opRegistry: Record<string, OpDefinition> = {
 export async function dispatchOp(
   ctx: OpContext,
   opName: string,
-  params: unknown
+  params: unknown,
+  opts?: { skipAuth?: boolean }
 ): Promise<unknown> {
   const op = opRegistry[opName];
   if (!op) {
     throw new Error(`Unknown operation: ${opName}`);
+  }
+
+  // RBAC check — enforced at the core dispatcher level
+  if (!opts?.skipAuth) {
+    const requiredRole = getRequiredRole(opName);
+    checkPermission(ctx.db, {
+      userId: ctx.userId,
+      driveId: ctx.driveId,
+      requiredRole,
+    });
   }
 
   const validated = op.schema.parse(params);

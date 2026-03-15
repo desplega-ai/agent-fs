@@ -2,6 +2,7 @@ import type { OpContext, EditParams, EditResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
 import { NotFoundError, EditConflictError } from "../errors.js";
 import { indexFile } from "../search/fts.js";
+import { scheduleEmbedding } from "../search/pipeline.js";
 
 export async function edit(
   ctx: OpContext,
@@ -70,6 +71,13 @@ export async function edit(
 
   // FTS5 index (sync)
   indexFile(ctx.db, { path: params.path, driveId: ctx.driveId, content: newContent });
+
+  // Embedding index (async)
+  scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
+    path: params.path,
+    driveId: ctx.driveId,
+    content: newContent,
+  });
 
   return { version, path: params.path, changes: 1 };
 }

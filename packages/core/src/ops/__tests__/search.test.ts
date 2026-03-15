@@ -37,6 +37,8 @@ beforeAll(async () => {
   db.insert(schema.users).values({ id: USER_ID, email: "search@test.com", apiKeyHash: "test", createdAt: now }).run();
   db.insert(schema.orgs).values({ id: ORG_ID, name: "Test Org", createdAt: now }).run();
   db.insert(schema.drives).values({ id: DRIVE_ID, orgId: ORG_ID, name: "default", isDefault: true, createdAt: now }).run();
+  db.insert(schema.orgMembers).values({ orgId: ORG_ID, userId: USER_ID, role: "admin" }).run();
+  db.insert(schema.driveMembers).values({ driveId: DRIVE_ID, userId: USER_ID, role: "admin" }).run();
 
   ctx = { db, s3, orgId: ORG_ID, driveId: DRIVE_ID, userId: USER_ID };
 

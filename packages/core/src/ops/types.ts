@@ -1,5 +1,6 @@
 import type { AgentS3Client } from "../s3/client.js";
 import type { DB } from "../db/index.js";
+import type { EmbeddingProvider } from "../search/embeddings/provider.js";
 
 export interface OpContext {
   db: DB;
@@ -7,6 +8,7 @@ export interface OpContext {
   orgId: string;
   driveId: string;
   userId: string;
+  embeddingProvider?: EmbeddingProvider | null;
 }
 
 // --- Param types ---

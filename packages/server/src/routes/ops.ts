@@ -1,10 +1,5 @@
 import { Hono } from "hono";
-import {
-  dispatchOp,
-  resolveContext,
-  checkPermission,
-  getRequiredRole,
-} from "@agentfs/core";
+import { dispatchOp, resolveContext } from "@agentfs/core";
 import type { DB, AgentS3Client } from "@agentfs/core";
 import type { AppEnv } from "../types.js";
 
@@ -30,13 +25,7 @@ export function opsRoutes(db: DB, s3: AgentS3Client) {
 
     const resolved = resolveContext(db, { userId: user.id, orgId, driveId });
 
-    const requiredRole = getRequiredRole(op);
-    checkPermission(db, {
-      userId: user.id,
-      driveId: resolved.driveId,
-      requiredRole,
-    });
-
+    // RBAC is enforced inside dispatchOp — no need to check here
     const ctx = {
       db,
       s3,

@@ -1,6 +1,7 @@
 import type { OpContext, WriteParams, WriteResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
 import { indexFile } from "../search/fts.js";
+import { scheduleEmbedding } from "../search/pipeline.js";
 
 export async function write(
   ctx: OpContext,
@@ -25,6 +26,13 @@ export async function write(
 
   // FTS5 index (sync)
   indexFile(ctx.db, { path: params.path, driveId: ctx.driveId, content });
+
+  // Embedding index (async, fire-and-forget)
+  scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
+    path: params.path,
+    driveId: ctx.driveId,
+    content,
+  });
 
   return { version, path: params.path, size };
 }
