@@ -10,6 +10,7 @@ import {
   setConfigValue,
 } from "@agentfs/core";
 import type { OpContext, DB } from "@agentfs/core";
+import type { EmbeddingProvider } from "@agentfs/core/src/search/embeddings/provider.js";
 import { registerTools } from "./tools.js";
 
 export interface McpServerOptions {
@@ -36,10 +37,51 @@ function ensureLocalUser(db: DB): { apiKey: string } {
   return { apiKey: result.apiKey };
 }
 
+/**
+ * Auto-detect and create an embedding provider based on available env vars.
+ * Returns null if no provider can be configured.
+ */
+async function createEmbeddingProvider(): Promise<EmbeddingProvider | null> {
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const { OpenAIEmbeddingProvider } = await import(
+        "@agentfs/core/src/search/embeddings/openai.js"
+      );
+      console.error("[agent-fs] Using OpenAI embedding provider");
+      return new OpenAIEmbeddingProvider(process.env.OPENAI_API_KEY);
+    } catch (e) {
+      console.error("[agent-fs] Failed to load OpenAI provider:", e);
+    }
+  }
+
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const { GeminiEmbeddingProvider } = await import(
+        "@agentfs/core/src/search/embeddings/gemini.js"
+      );
+      console.error("[agent-fs] Using Gemini embedding provider");
+      return new GeminiEmbeddingProvider(process.env.GEMINI_API_KEY);
+    } catch (e) {
+      console.error("[agent-fs] Failed to load Gemini provider:", e);
+    }
+  }
+
+  console.error(
+    "[agent-fs] No embedding provider configured. Set OPENAI_API_KEY or GEMINI_API_KEY for semantic search."
+  );
+  return null;
+}
+
 export function createMcpServer(options: McpServerOptions) {
   const server = new McpServer({
     name: "agent-fs",
     version: "0.1.0",
+  });
+
+  // Embedding provider is resolved once at startup
+  let embeddingProvider: EmbeddingProvider | null = null;
+  const providerReady = createEmbeddingProvider().then((p) => {
+    embeddingProvider = p;
   });
 
   if (options.mode === "embedded") {
@@ -63,6 +105,7 @@ export function createMcpServer(options: McpServerOptions) {
         orgId: resolved.orgId,
         driveId: resolved.driveId,
         userId: user.id,
+        embeddingProvider,
       };
     };
 
@@ -79,7 +122,14 @@ export function createMcpServer(options: McpServerOptions) {
       const user = getUserByApiKey(db, apiKey);
       if (!user) throw new Error("Invalid API key");
       const resolved = resolveContext(db, { userId: user.id });
-      return { db, s3, orgId: resolved.orgId, driveId: resolved.driveId, userId: user.id };
+      return {
+        db,
+        s3,
+        orgId: resolved.orgId,
+        driveId: resolved.driveId,
+        userId: user.id,
+        embeddingProvider,
+      };
     };
 
     registerTools(server, getContext);

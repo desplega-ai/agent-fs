@@ -2,7 +2,6 @@ import { eq, and } from "drizzle-orm";
 import { Database } from "bun:sqlite";
 import { schema } from "../db/index.js";
 import type { OpContext } from "./types.js";
-import type { EmbeddingProvider } from "../search/embeddings/provider.js";
 
 export interface SearchParams {
   query: string;
@@ -23,13 +22,20 @@ export interface SearchResult {
 
 export async function search(
   ctx: OpContext,
-  params: SearchParams,
-  embeddingProvider: EmbeddingProvider
+  params: SearchParams
 ): Promise<SearchResult> {
+  const provider = ctx.embeddingProvider;
+  if (!provider) {
+    return {
+      results: [],
+      hint: "No embedding provider configured. Set OPENAI_API_KEY or enable local embeddings to use semantic search.",
+    } as SearchResult & { hint: string };
+  }
+
   const limit = params.limit ?? 10;
 
   // 1. Embed the query
-  const queryEmbedding = await embeddingProvider.embed(params.query);
+  const queryEmbedding = await provider.embed(params.query);
   const queryVec = new Float32Array(queryEmbedding);
 
   // 2. KNN query via sqlite-vec
@@ -83,7 +89,7 @@ export async function search(
 
     results.push({
       path: chunk.filePath,
-      score: 1 / (1 + vr.distance), // Convert distance to similarity score
+      score: 1 / (1 + vr.distance),
       snippet: chunk.content.slice(0, 200),
       author: file?.author,
       modifiedAt: file?.modifiedAt,

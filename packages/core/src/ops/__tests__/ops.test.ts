@@ -334,15 +334,17 @@ describe.skipIf(SKIP)("recent", () => {
 });
 
 describe.skipIf(SKIP)("op registry", () => {
-  test("all 16 ops are registered", () => {
+  test("all ops are registered", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(18);
+    expect(ops.length).toBe(20);
     expect(ops).toContain("write");
     expect(ops).toContain("cat");
     expect(ops).toContain("edit");
     expect(ops).toContain("ls");
     expect(ops).toContain("revert");
     expect(ops).toContain("recent");
+    expect(ops).toContain("search");
+    expect(ops).toContain("reindex");
   });
 
   test("dispatchOp validates and dispatches", async () => {

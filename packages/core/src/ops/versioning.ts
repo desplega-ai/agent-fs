@@ -1,14 +1,14 @@
 import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext } from "./types.js";
+import { stripLeadingSlash } from "./paths.js";
 
 /**
  * Compute the S3 object key for a file.
  * Format: <orgId>/drives/<driveId>/<path>
  */
 export function getS3Key(orgId: string, driveId: string, path: string): string {
-  // Normalize: strip leading slash from path
-  const normalized = path.startsWith("/") ? path.slice(1) : path;
+  const normalized = stripLeadingSlash(path);
   return `${orgId}/drives/${driveId}/${normalized}`;
 }
 

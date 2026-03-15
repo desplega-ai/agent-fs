@@ -41,11 +41,12 @@ beforeAll(async () => {
   db.insert(schema.users).values({ id: USER_ID, email: "local-embed@test.com", apiKeyHash: "test", createdAt: now }).run();
   db.insert(schema.orgs).values({ id: ORG_ID, name: "Test Org", createdAt: now }).run();
   db.insert(schema.drives).values({ id: DRIVE_ID, orgId: ORG_ID, name: "default", isDefault: true, createdAt: now }).run();
-
-  ctx = { db, s3, orgId: ORG_ID, driveId: DRIVE_ID, userId: USER_ID };
+  db.insert(schema.orgMembers).values({ orgId: ORG_ID, userId: USER_ID, role: "admin" }).run();
+  db.insert(schema.driveMembers).values({ driveId: DRIVE_ID, userId: USER_ID, role: "admin" }).run();
 
   console.log("Initializing local embedding provider (may download model ~329MB)...");
   provider = new LocalEmbeddingProvider();
+  ctx = { db, s3, orgId: ORG_ID, driveId: DRIVE_ID, userId: USER_ID, embeddingProvider: provider };
 });
 
 afterAll(async () => {
@@ -109,17 +110,17 @@ describe.skipIf(SKIP)("Local embedding semantic search", () => {
     }
 
     // Semantic search
-    const authResult = await search(ctx, { query: "how do users sign in", limit: 3 }, provider);
+    const authResult = await search(ctx, { query: "how do users sign in", limit: 3 });
     expect(authResult.results.length).toBeGreaterThan(0);
     console.log("Query: 'how do users sign in' →", authResult.results.map(r => `${r.path} (${r.score.toFixed(3)})`));
     expect(authResult.results[0].path).toBe("/local/auth.md");
 
-    const deployResult = await search(ctx, { query: "kubernetes containers", limit: 3 }, provider);
+    const deployResult = await search(ctx, { query: "kubernetes containers", limit: 3 });
     expect(deployResult.results.length).toBeGreaterThan(0);
     console.log("Query: 'kubernetes containers' →", deployResult.results.map(r => `${r.path} (${r.score.toFixed(3)})`));
     expect(deployResult.results[0].path).toBe("/local/deploy.md");
 
-    const billingResult = await search(ctx, { query: "payment invoices", limit: 3 }, provider);
+    const billingResult = await search(ctx, { query: "payment invoices", limit: 3 });
     expect(billingResult.results.length).toBeGreaterThan(0);
     console.log("Query: 'payment invoices' →", billingResult.results.map(r => `${r.path} (${r.score.toFixed(3)})`));
     expect(billingResult.results[0].path).toBe("/local/billing.md");

@@ -17,6 +17,7 @@ export interface WriteParams {
   path: string;
   content: string;
   message?: string;
+  expectedVersion?: number;
 }
 
 export interface CatParams {

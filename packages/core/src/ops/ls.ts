@@ -2,12 +2,13 @@ import { eq, and, like } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext, LsParams, LsResult, LsEntry } from "./types.js";
 import { getS3Key } from "./versioning.js";
+import { normalizePrefix } from "./paths.js";
 
 export async function ls(
   ctx: OpContext,
   params: LsParams
 ): Promise<LsResult> {
-  const prefix = params.path.endsWith("/") ? params.path : params.path + "/";
+  const prefix = normalizePrefix(params.path);
   const s3Prefix = getS3Key(ctx.orgId, ctx.driveId, prefix);
 
   // List from S3

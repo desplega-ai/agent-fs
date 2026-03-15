@@ -49,9 +49,11 @@ beforeAll(async () => {
   db.insert(schema.users).values({ id: USER_ID, email: "embed@test.com", apiKeyHash: "test", createdAt: now }).run();
   db.insert(schema.orgs).values({ id: ORG_ID, name: "Test Org", createdAt: now }).run();
   db.insert(schema.drives).values({ id: DRIVE_ID, orgId: ORG_ID, name: "default", isDefault: true, createdAt: now }).run();
+  db.insert(schema.orgMembers).values({ orgId: ORG_ID, userId: USER_ID, role: "admin" }).run();
+  db.insert(schema.driveMembers).values({ driveId: DRIVE_ID, userId: USER_ID, role: "admin" }).run();
 
-  ctx = { db, s3, orgId: ORG_ID, driveId: DRIVE_ID, userId: USER_ID };
   provider = new OpenAIEmbeddingProvider(OPENAI_KEY!);
+  ctx = { db, s3, orgId: ORG_ID, driveId: DRIVE_ID, userId: USER_ID, embeddingProvider: provider };
 });
 
 afterAll(() => {
@@ -134,18 +136,18 @@ describe.skipIf(SKIP)("Full embedding pipeline + semantic search", () => {
     }
 
     // Semantic search: "how do users sign in" → should match auth doc
-    const result = await search(ctx, { query: "how do users sign in", limit: 3 }, provider);
+    const result = await search(ctx, { query: "how do users sign in", limit: 3 });
     expect(result.results.length).toBeGreaterThan(0);
     expect(result.results[0].path).toBe("/docs/auth.md");
     expect(result.results[0].score).toBeGreaterThan(0);
 
     // "kubernetes containers" → should match deploy doc
-    const deployResult = await search(ctx, { query: "kubernetes containers infrastructure", limit: 3 }, provider);
+    const deployResult = await search(ctx, { query: "kubernetes containers infrastructure", limit: 3 });
     expect(deployResult.results.length).toBeGreaterThan(0);
     expect(deployResult.results[0].path).toBe("/docs/deploy.md");
 
     // "subscription payments" → should match billing doc
-    const billingResult = await search(ctx, { query: "subscription payments invoices", limit: 3 }, provider);
+    const billingResult = await search(ctx, { query: "subscription payments invoices", limit: 3 });
     expect(billingResult.results.length).toBeGreaterThan(0);
     expect(billingResult.results[0].path).toBe("/docs/billing.md");
   });

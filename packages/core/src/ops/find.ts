@@ -14,6 +14,7 @@ export interface FindMatch {
 
 export interface FindResult {
   matches: FindMatch[];
+  hint?: string;
 }
 
 export async function find(
@@ -26,11 +27,18 @@ export async function find(
     pathPrefix: params.path,
   });
 
-  return {
-    matches: results.map((r) => ({
-      path: r.path,
-      snippet: r.snippet,
-      rank: r.rank,
-    })),
-  };
+  const matches = results.map((r) => ({
+    path: r.path,
+    snippet: r.snippet,
+    rank: r.rank,
+  }));
+
+  if (matches.length === 0) {
+    return {
+      matches,
+      hint: `No exact token matches for "${params.pattern}". Try 'search' for semantic/fuzzy matching.`,
+    };
+  }
+
+  return { matches };
 }

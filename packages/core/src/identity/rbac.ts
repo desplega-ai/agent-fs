@@ -32,6 +32,7 @@ const OP_ROLES: Record<string, Role> = {
   cp: "editor",
   mkdir: "editor",
   revert: "editor",
+  reindex: "admin",
 };
 
 export function getRequiredRole(opName: string): Role {
