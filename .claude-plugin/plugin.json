@@ -7,5 +7,12 @@
   },
   "repository": "https://github.com/desplega-ai/agent-fs",
   "keywords": ["filesystem", "s3", "agents", "search", "versioning", "cli"],
-  "license": "MIT"
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": {
+    "agentfs": {
+      "command": "agentfs",
+      "args": ["mcp", "--embedded"]
+    }
+  }
 }
