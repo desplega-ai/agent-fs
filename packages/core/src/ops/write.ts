@@ -1,5 +1,6 @@
 import type { OpContext, WriteParams, WriteResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
+import { indexFile } from "../search/fts.js";
 
 export async function write(
   ctx: OpContext,
@@ -21,6 +22,9 @@ export async function write(
     size,
     etag: s3Result.etag,
   });
+
+  // FTS5 index (sync)
+  indexFile(ctx.db, { path: params.path, driveId: ctx.driveId, content });
 
   return { version, path: params.path, size };
 }

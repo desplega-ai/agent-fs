@@ -16,6 +16,8 @@ import { log } from "./log.js";
 import { diff } from "./diff.js";
 import { revert } from "./revert.js";
 import { recent } from "./recent.js";
+import { grep } from "./grep.js";
+import { find } from "./find.js";
 
 export interface OpDefinition {
   handler: (ctx: OpContext, params: any) => Promise<any>;
@@ -131,6 +133,20 @@ const opRegistry: Record<string, OpDefinition> = {
       limit: z.number().int().min(1).optional(),
     }),
   },
+  grep: {
+    handler: grep,
+    schema: z.object({
+      pattern: z.string(),
+      path: z.string(),
+    }),
+  },
+  find: {
+    handler: find,
+    schema: z.object({
+      pattern: z.string(),
+      path: z.string().optional(),
+    }),
+  },
 };
 
 export async function dispatchOp(
@@ -156,5 +172,6 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, cat, edit, append, ls, stat, rm, mv, cp, head, tail, mkdir, log, diff, revert, recent };
+export { write, cat, edit, append, ls, stat, rm, mv, cp, head, tail, mkdir, log, diff, revert, recent, grep, find };
+export { search } from "./search.js";
 export type * from "./types.js";

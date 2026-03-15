@@ -1,5 +1,6 @@
 import type { OpContext, RmParams, RmResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
+import { removeFromIndex } from "../search/fts.js";
 
 export async function rm(
   ctx: OpContext,
@@ -16,6 +17,9 @@ export async function rm(
     s3VersionId: "",
     operation: "delete",
   });
+
+  // Remove from FTS5 index
+  removeFromIndex(ctx.db, { path: params.path, driveId: ctx.driveId });
 
   return { path: params.path, deleted: true };
 }

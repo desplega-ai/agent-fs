@@ -6,8 +6,12 @@
   "types": "src/index.ts",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.750.0",
+    "@google/genai": "^1.45.0",
+    "chonkie": "^0.3.0",
     "diff": "^8.0.3",
     "drizzle-orm": "^0.44.0",
+    "node-llama-cpp": "^3.17.1",
+    "openai": "^6.29.0",
     "sqlite-vec": "^0.1.6",
     "zod": "^3.24.0"
   },

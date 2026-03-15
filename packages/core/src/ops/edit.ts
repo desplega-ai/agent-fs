@@ -1,6 +1,7 @@
 import type { OpContext, EditParams, EditResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
 import { NotFoundError, EditConflictError } from "../errors.js";
+import { indexFile } from "../search/fts.js";
 
 export async function edit(
   ctx: OpContext,
@@ -66,6 +67,9 @@ export async function edit(
     size,
     etag: s3Result.etag,
   });
+
+  // FTS5 index (sync)
+  indexFile(ctx.db, { path: params.path, driveId: ctx.driveId, content: newContent });
 
   return { version, path: params.path, changes: 1 };
 }

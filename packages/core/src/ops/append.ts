@@ -1,6 +1,7 @@
 import type { OpContext, AppendParams, AppendResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
 import { NotFoundError } from "../errors.js";
+import { indexFile } from "../search/fts.js";
 
 export async function append(
   ctx: OpContext,
@@ -37,6 +38,9 @@ export async function append(
     size,
     etag: s3Result.etag,
   });
+
+  // FTS5 index (sync)
+  indexFile(ctx.db, { path: params.path, driveId: ctx.driveId, content: newContent });
 
   return { version, size };
 }

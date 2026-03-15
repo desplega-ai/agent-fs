@@ -329,7 +329,7 @@ describe("recent", () => {
 describe("op registry", () => {
   test("all 16 ops are registered", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(16);
+    expect(ops.length).toBe(18);
     expect(ops).toContain("write");
     expect(ops).toContain("cat");
     expect(ops).toContain("edit");
