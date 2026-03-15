@@ -1,6 +1,11 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
-import { setConfigValue } from "@agentfs/core";
+import {
+  setConfigValue,
+  createUser,
+  createDatabase,
+  listUserOrgs,
+} from "@agentfs/core";
 
 export function authCommands(client: ApiClient) {
   const cmd = new Command("auth").description("Authentication commands");
@@ -10,20 +15,32 @@ export function authCommands(client: ApiClient) {
     .argument("<email>", "Email address")
     .description("Register a new user")
     .action(async (email: string) => {
+      // Try daemon first, fall back to direct DB registration
       try {
         const result = await client.post("/auth/register", { email });
-        console.log(`Registered successfully!`);
-        console.log(`API Key: ${result.apiKey}`);
-        console.log(`User ID: ${result.userId}`);
-        console.log(`Org ID: ${result.orgId}`);
-
-        // Save API key and org to config
-        setConfigValue("auth.apiKey", result.apiKey);
-        client.setApiKey(result.apiKey);
-        console.log("\nAPI key saved to config.");
-      } catch (err: any) {
-        console.error(`Error: ${err.message}`);
-        process.exit(1);
+        printRegistration(result, client);
+      } catch {
+        // Daemon not running — register directly against DB
+        try {
+          const db = createDatabase();
+          const result = createUser(db, { email });
+          const orgs = listUserOrgs(db, result.user.id);
+          printRegistration(
+            {
+              apiKey: result.apiKey,
+              userId: result.user.id,
+              orgId: orgs[0]?.id,
+            },
+            client
+          );
+        } catch (err: any) {
+          if (err.message?.includes("UNIQUE")) {
+            console.error("Error: User with this email already exists.");
+          } else {
+            console.error(`Error: ${err.message}`);
+          }
+          process.exit(1);
+        }
       }
     });
 
@@ -41,4 +58,18 @@ export function authCommands(client: ApiClient) {
     });
 
   return cmd;
+}
+
+function printRegistration(
+  result: { apiKey: string; userId: string; orgId: string },
+  client: ApiClient
+) {
+  console.log(`Registered successfully!`);
+  console.log(`API Key: ${result.apiKey}`);
+  console.log(`User ID: ${result.userId}`);
+  console.log(`Org ID: ${result.orgId}`);
+
+  setConfigValue("auth.apiKey", result.apiKey);
+  client.setApiKey(result.apiKey);
+  console.log("\nAPI key saved to config.");
 }
