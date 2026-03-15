@@ -1,6 +1,7 @@
 ---
 date: 2026-03-16
-author: Claude
+planner: Claude
+topic: architecture-cleanup
 status: ready
 source: thoughts/taras/research/2026-03-15-architecture-review.md
 autonomy: critical
@@ -126,8 +127,15 @@ Extract duplicated user auto-bootstrap logic into a single core function. Remove
 **File**: `packages/cli/src/commands/init.ts`
 **Changes**:
 - Replace inline user creation (lines 34-47) with `ensureLocalUser(db)` from core
+- Update the MCP usage message at line 51 from `"Or use MCP directly: agentfs mcp --embedded"` to `"Or use MCP directly: agentfs mcp"` (the `--embedded` flag no longer exists)
 
-#### 6. Add test config dir helper
+#### 6. Remove `--embedded`/`--daemon` CLI flags
+**File**: `packages/cli/src/index.ts`
+**Changes**:
+- Remove `--embedded` and `--daemon` options from the `mcp` subcommand (lines 60-61)
+- Update the `mcp` subcommand action handler to no longer pass mode flags to the MCP server
+
+#### 7. Add test config dir helper
 **File**: `packages/core/src/test-utils.ts`
 **Changes**: Add a `createTestConfigDir()` helper that:
 - Creates a unique temp dir via `tmpdir()` + `Date.now()` + random suffix
@@ -183,7 +191,7 @@ Remove the `head` and `mkdir` operations (confirmed removable in architecture re
 #### 3. Rename `find` → `fts`
 **File**: `packages/core/src/ops/find.ts` — **RENAME** to `packages/core/src/ops/fts.ts`
 - Rename exported function `find` → `fts`
-- Rename types: `FindParams` → `FtsParams`, `FindMatch` → `FtsMatch`, `FindResult` → `FtsResult`
+- Rename types: `FindParams` → `FtsParams`, `FindMatch` → `FtsOpMatch` (avoids collision with `FtsMatch` in `search/fts.ts`), `FindResult` → `FtsResult`
 **File**: `packages/core/src/ops/index.ts`:
 - Change import: `import { fts } from "./fts.js"`
 - Change registry key from `find` to `fts`
@@ -191,8 +199,43 @@ Remove the `head` and `mkdir` operations (confirmed removable in architecture re
 **File**: `packages/core/src/identity/rbac.ts` — Rename `find: "viewer"` → `fts: "viewer"` in `OP_ROLES`
 **File**: `packages/cli/src/commands/ops.ts` — Rename `find` entry to `fts` in `OP_COMMANDS`, update description to `"Full-text content search (FTS5)"`
 
-#### 4. Update any test files
-Check and update any tests that reference `head`, `mkdir`, or `find` operations by name.
+#### 4. Update test files
+The following test files reference `head`, `mkdir`, or `find` by name and must be updated:
+
+**File**: `packages/core/src/ops/__tests__/ops-integration.test.ts`
+**Changes**:
+- Remove `import { head }` and `import { mkdir }` statements
+- Remove the `"head and tail operations"` describe block (tests `head` directly)
+- Remove the `"ls and mkdir operations"` describe block (tests `mkdir` directly)
+- Rename `"find operation"` describe block to `"fts operation"`; update `dispatchOp(ctx, "find", ...)` → `dispatchOp(ctx, "fts", ...)`
+
+**File**: `packages/core/src/ops/__tests__/ops.test.ts`
+**Changes**:
+- Remove `dispatchOp(ctx, "head", ...)` test case
+- Remove `dispatchOp(ctx, "mkdir", ...)` test case
+- Rename `"find operation"` describe block; update `dispatchOp(ctx, "find", ...)` → `dispatchOp(ctx, "fts", ...)`
+
+**File**: `packages/core/src/ops/__tests__/search.test.ts`
+**Changes**:
+- Change `import { find }` from `../find.js` → `import { fts }` from `../fts.js`
+- Rename `"FTS5 find"` describe block → `"FTS5 fts"`
+- Update all `find(ctx, ...)` calls → `fts(ctx, ...)`
+
+**File**: `packages/core/src/ops/__tests__/registry.test.ts`
+**Changes**:
+- Remove `"head"` and `"mkdir"` from expected ops array
+- Rename `"find"` → `"fts"` in expected ops array
+- Update expected count from 20 → 18
+
+**File**: `packages/core/src/__tests__/rbac-mapping.test.ts`
+**Changes**:
+- Remove `"head"` from `viewerOps`, remove `"mkdir"` from `editorOps`
+- Rename `"find"` → `"fts"` in `viewerOps`
+
+**File**: `packages/mcp/src/__tests__/mcp.test.ts`
+**Changes**:
+- Remove `"head"` and `"mkdir"` from expected ops array
+- Rename `"find"` → `"fts"` in expected ops array
 
 ### Success Criteria:
 
@@ -338,7 +381,11 @@ Full descriptions for all 20 ops:
 **File**: `packages/mcp/src/tools.ts`
 **Changes**: Change line 21 from `` `agentfs ${opName}` `` to `def.description`
 
-#### 4. Update CLI to source descriptions from registry
+#### 4. Update MCP tools test
+**File**: `packages/mcp/src/__tests__/tools.test.ts`
+**Changes**: Update the description assertion at line 42 from `tool.description === "agentfs ${tool.name}"` to verify descriptions come from the registry (e.g., `expect(tool.description).toBe(getOpDefinition(tool.name).description)` or simply `expect(tool.description.length).toBeGreaterThan(20)` to ensure rich descriptions).
+
+#### 5. Update CLI to source descriptions from registry
 **File**: `packages/cli/src/commands/ops.ts`
 **Changes**: Instead of duplicating descriptions in `OP_COMMANDS`, look up `getOpDefinition(name).description` for each command's `.description()`. The `OP_COMMANDS` array still needs to define args and options (since those are CLI-specific), but `description` can be removed from the array type and sourced from the registry.
 
@@ -429,12 +476,12 @@ The `drive invite` CLI command invites to the org, not the drive. Fix the naming
 
 ### Changes Required:
 
-#### 1. Rename command
+#### 1. Keep `drive invite` with clarified help text
 **File**: `packages/cli/src/commands/drive.ts`
 **Changes**:
-- Rename the subcommand from `invite` to something that accurately reflects it invites to the *org* (e.g., keep `drive invite` but update help text to say "Invite a user to the organization that owns this drive")
-- OR move the command to `org invite` if an `org` command group exists
-- Update the help text and description to accurately reflect the behavior
+- The description at line 73 already says "Invite a user to the current org", so the help text is already accurate
+- Update the `--help` long description to explicitly note: "This invites the user to the organization that owns the current drive. The user will have access to all drives in the org based on their role."
+- No command rename needed — `drive invite` is the natural UX since users think in terms of drives, and the help text clarifies the org-level scope
 
 ### Success Criteria:
 
@@ -496,3 +543,26 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | bun run packages/mcp/src
 
 - Architecture review: `thoughts/taras/research/2026-03-15-architecture-review.md`
 - Testing coverage plan: `thoughts/taras/plans/2026-03-15-testing-coverage.md`
+
+---
+
+## Review Errata
+
+_Reviewed: 2026-03-16 by Claude_
+
+All findings addressed inline in the plan above. Summary of changes made:
+
+### Resolved
+
+- [x] **Phase 2 test files enumerated** — Replaced vague "update any test files" with explicit list of 6 test files and specific changes for each
+- [x] **Phase 1 CLI flags added** — Added step 6 to remove `--embedded`/`--daemon` from `packages/cli/src/index.ts:60-61`
+- [x] **Phase 1 stale message fixed** — Added `init.ts:51` message update to step 5
+- [x] **Phase 4 tools.test.ts added** — Added step 4 to update the `"agentfs ${tool.name}"` assertion
+- [x] **Frontmatter corrected** — `author` → `planner`, added `topic` field
+- [x] **`FtsMatch` collision avoided** — Changed rename to `FtsOpMatch` instead of `FtsMatch`
+- [x] **Phase 6 specified** — Committed to keeping `drive invite` with clarified long help text (no rename needed)
+- [x] Verified 14/17 codebase claims are fully accurate; 3 have minor line-range offsets (off-by-one) that don't affect correctness
+- [x] `packages/server/` uses generic `dispatchOp()` — no op-name references, no changes needed for op removal/rename
+- [x] `packages/core/src/test-utils.ts` already exists with `createTestDb`, `MockS3Client`, `createTestContext` — the proposed `createTestConfigDir()` addition is compatible
+- [x] No existing `tree.ts` or `glob.ts` files — no conflicts with new ops
+- [x] MCP package has no daemon-specific dependencies — no `package.json` changes needed
