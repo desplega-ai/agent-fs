@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "agentfs": {
+      "command": "bun",
+      "args": ["run", "./packages/mcp/src/index.ts", "--embedded"],
+      "env": {}
+    }
+  }
+}
