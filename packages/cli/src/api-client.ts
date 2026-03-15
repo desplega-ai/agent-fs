@@ -28,7 +28,13 @@ export class ApiClient {
       );
     }
 
-    const body = await res.json();
+    let body: any;
+    try {
+      body = await res.json();
+    } catch {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Unexpected response from daemon (${res.status}): ${text || "empty"}`);
+    }
     if (!res.ok) {
       const msg = body.message ?? body.error ?? "Request failed";
       const suggestion = body.suggestion ? `\n  Suggestion: ${body.suggestion}` : "";

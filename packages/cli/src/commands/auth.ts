@@ -51,9 +51,27 @@ export function authCommands(client: ApiClient) {
       try {
         const result = await client.get("/auth/me");
         console.log(JSON.stringify(result, null, 2));
-      } catch (err: any) {
-        console.error(`Error: ${err.message}`);
-        process.exit(1);
+      } catch {
+        // Daemon not running — look up directly from DB
+        try {
+          const { getConfig, getUserByApiKey, createDatabase, listUserOrgs } = await import("@agentfs/core");
+          const config = getConfig();
+          if (!config.auth.apiKey) {
+            console.error("Not logged in. Run: agentfs auth register <email>");
+            process.exit(1);
+          }
+          const db = createDatabase();
+          const user = getUserByApiKey(db, config.auth.apiKey);
+          if (!user) {
+            console.error("Invalid API key in config.");
+            process.exit(1);
+          }
+          const orgs = listUserOrgs(db, user.id);
+          console.log(JSON.stringify({ ...user, orgs }, null, 2));
+        } catch (err: any) {
+          console.error(`Error: ${err.message}`);
+          process.exit(1);
+        }
       }
     });
 
