@@ -1,0 +1,14 @@
+{
+  "name": "agent-fs",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "typecheck": "tsc --build --noEmit",
+    "test": "bun test",
+    "build": "bun build --compile packages/cli/src/index.ts --outfile dist/agentfs"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "bun-types": "^1.2.0"
+  }
+}
