@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
+import { VERSION } from "@agentfs/core";
 import type { DB, AgentS3Client } from "@agentfs/core";
 import type { AppEnv } from "./types.js";
 import { authMiddleware } from "./middleware/auth.js";
@@ -21,7 +22,7 @@ export function createApp(db: DB, s3: AgentS3Client) {
   app.onError((err, c) => handleError(err, c));
 
   // Health check
-  app.get("/health", (c) => c.json({ ok: true, version: "0.1.0" }));
+  app.get("/health", (c) => c.json({ ok: true, version: VERSION }));
 
   // Routes
   app.route("/auth", authRoutes(db));

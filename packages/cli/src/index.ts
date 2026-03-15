@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { getConfig, listUserOrgs, getUserByApiKey } from "@agentfs/core";
+import { getConfig, listUserOrgs, getUserByApiKey, VERSION } from "@agentfs/core";
 import { ApiClient } from "./api-client.js";
 import { registerOpCommands } from "./commands/ops.js";
 import { authCommands } from "./commands/auth.js";
@@ -14,7 +14,7 @@ const program = new Command();
 program
   .name("agentfs")
   .description("Agent-first filesystem backed by S3")
-  .version("0.1.0")
+  .version(VERSION)
   .option("--org <orgId>", "Override org context")
   .option("--drive <driveId>", "Override drive context");
 

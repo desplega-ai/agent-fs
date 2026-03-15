@@ -49,3 +49,4 @@ export {
   resolveContext,
 } from "./identity/index.js";
 export type { Role, ResolvedContext } from "./identity/index.js";
+export { VERSION } from "./version.js";

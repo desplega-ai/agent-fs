@@ -8,6 +8,7 @@ import {
   createUser,
   listUserOrgs,
   setConfigValue,
+  VERSION,
 } from "@agentfs/core";
 import type { OpContext, DB } from "@agentfs/core";
 import type { EmbeddingProvider } from "@agentfs/core/src/search/embeddings/provider.js";
@@ -75,7 +76,7 @@ async function createEmbeddingProvider(): Promise<EmbeddingProvider | null> {
 export function createMcpServer(options: McpServerOptions) {
   const server = new McpServer({
     name: "agent-fs",
-    version: "0.1.0",
+    version: VERSION,
   });
 
   // Embedding provider is resolved once at startup
