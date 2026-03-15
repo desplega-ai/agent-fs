@@ -1,0 +1,11 @@
+{
+  "name": "agentfs",
+  "description": "Agent-first filesystem CLI — store, search, and version files backed by S3",
+  "version": "0.1.0",
+  "author": {
+    "name": "agentfs"
+  },
+  "repository": "https://github.com/desplega-ai/agent-fs",
+  "keywords": ["filesystem", "s3", "agents", "search", "versioning", "cli"],
+  "license": "MIT"
+}
