@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { isMinioAvailable } from "../../test-utils.js";
 import { createDatabase, schema } from "../../db/index.js";
 import { AgentS3Client } from "../../s3/client.js";
 import type { OpContext } from "../types.js";
@@ -24,6 +25,8 @@ import { recent } from "../recent.js";
 import { dispatchOp, getRegisteredOps } from "../index.js";
 import { EditConflictError, NotFoundError } from "../../errors.js";
 
+const SKIP = !(await isMinioAvailable());
+
 const TEST_DB = join(tmpdir(), `agentfs-ops-test-${Date.now()}.db`);
 const ORG_ID = "test-org";
 const DRIVE_ID = "test-drive";
@@ -33,6 +36,7 @@ let ctx: OpContext;
 let s3: AgentS3Client;
 
 beforeAll(async () => {
+  if (SKIP) return;
   const db = createDatabase(TEST_DB);
   s3 = new AgentS3Client({
     provider: "minio",
@@ -56,6 +60,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+  if (SKIP) return;
   try {
     unlinkSync(TEST_DB);
     unlinkSync(TEST_DB + "-wal");
@@ -63,7 +68,7 @@ afterAll(() => {
   } catch {}
 });
 
-describe("write + cat roundtrip", () => {
+describe.skipIf(SKIP)("write + cat roundtrip", () => {
   test("write creates file and cat reads it back", async () => {
     const result = await write(ctx, {
       path: "/docs/readme.md",
@@ -103,7 +108,7 @@ describe("write + cat roundtrip", () => {
   });
 });
 
-describe("edit", () => {
+describe.skipIf(SKIP)("edit", () => {
   test("edit replaces exact match and creates version", async () => {
     await write(ctx, {
       path: "/docs/editable.md",
@@ -150,7 +155,7 @@ describe("edit", () => {
   });
 });
 
-describe("append", () => {
+describe.skipIf(SKIP)("append", () => {
   test("append adds content to file", async () => {
     await write(ctx, { path: "/docs/append.md", content: "Line 1" });
     const result = await append(ctx, {
@@ -165,7 +170,7 @@ describe("append", () => {
   });
 });
 
-describe("head + tail", () => {
+describe.skipIf(SKIP)("head + tail", () => {
   test("head returns first N lines", async () => {
     await write(ctx, {
       path: "/docs/headtail.txt",
@@ -184,7 +189,7 @@ describe("head + tail", () => {
   });
 });
 
-describe("ls", () => {
+describe.skipIf(SKIP)("ls", () => {
   test("ls lists files in directory", async () => {
     await write(ctx, { path: "/lsdir/a.txt", content: "a" });
     await write(ctx, { path: "/lsdir/b.txt", content: "b" });
@@ -199,7 +204,7 @@ describe("ls", () => {
   });
 });
 
-describe("stat", () => {
+describe.skipIf(SKIP)("stat", () => {
   test("stat returns file metadata", async () => {
     await write(ctx, { path: "/docs/stat.md", content: "stat me" });
 
@@ -211,7 +216,7 @@ describe("stat", () => {
   });
 });
 
-describe("rm", () => {
+describe.skipIf(SKIP)("rm", () => {
   test("rm soft-deletes file", async () => {
     await write(ctx, { path: "/docs/delete-me.txt", content: "bye" });
     const result = await rm(ctx, { path: "/docs/delete-me.txt" });
@@ -224,7 +229,7 @@ describe("rm", () => {
   });
 });
 
-describe("mv", () => {
+describe.skipIf(SKIP)("mv", () => {
   test("mv moves file to new path", async () => {
     await write(ctx, { path: "/docs/moveme.txt", content: "move me" });
     const result = await mv(ctx, {
@@ -242,7 +247,7 @@ describe("mv", () => {
   });
 });
 
-describe("cp", () => {
+describe.skipIf(SKIP)("cp", () => {
   test("cp copies file to new path", async () => {
     await write(ctx, { path: "/docs/copyable.txt", content: "copy me" });
     const result = await cp(ctx, {
@@ -260,7 +265,7 @@ describe("cp", () => {
   });
 });
 
-describe("log + diff + revert", () => {
+describe.skipIf(SKIP)("log + diff + revert", () => {
   test("log returns version history in correct order", async () => {
     await write(ctx, { path: "/docs/versioned.md", content: "v1" });
     await edit(ctx, {
@@ -313,7 +318,7 @@ describe("log + diff + revert", () => {
   });
 });
 
-describe("recent", () => {
+describe.skipIf(SKIP)("recent", () => {
   test("recent returns activity across drive", async () => {
     const result = await recent(ctx, { limit: 10 });
     expect(result.entries.length).toBeGreaterThan(0);
@@ -326,7 +331,7 @@ describe("recent", () => {
   });
 });
 
-describe("op registry", () => {
+describe.skipIf(SKIP)("op registry", () => {
   test("all 16 ops are registered", () => {
     const ops = getRegisteredOps();
     expect(ops.length).toBe(18);

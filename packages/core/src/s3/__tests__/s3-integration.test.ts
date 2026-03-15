@@ -1,12 +1,12 @@
 import { describe, test, expect, beforeAll } from "bun:test";
+import { isMinioAvailable } from "../../test-utils.js";
 import { AgentS3Client } from "../client.js";
 
-// Integration test — requires MinIO running on localhost:9000
-// Skip if MinIO is not available
+const SKIP = !(await isMinioAvailable());
 const MINIO_ENDPOINT = "http://localhost:9000";
 const MINIO_BUCKET = "agentfs";
 
-describe("S3 Integration (MinIO)", () => {
+describe.skipIf(SKIP)("S3 Integration (MinIO)", () => {
   let s3: AgentS3Client;
 
   beforeAll(() => {

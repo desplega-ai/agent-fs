@@ -1,4 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { isMinioAvailable } from "../../test-utils.js";
+const SKIP = !(await isMinioAvailable());
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -18,6 +20,7 @@ const USER_ID = "test-user";
 let ctx: OpContext;
 
 beforeAll(async () => {
+  if (SKIP) return;
   const db = createDatabase(TEST_DB);
   const s3 = new AgentS3Client({
     provider: "minio",
@@ -55,6 +58,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
+  if (SKIP) return;
   try {
     unlinkSync(TEST_DB);
     unlinkSync(TEST_DB + "-wal");
@@ -62,7 +66,7 @@ afterAll(() => {
   } catch {}
 });
 
-describe("FTS5 find", () => {
+describe.skipIf(SKIP)("FTS5 find", () => {
   test("find returns matches for keyword query", async () => {
     const result = await find(ctx, { pattern: "authenticate" });
     expect(result.matches.length).toBeGreaterThan(0);
@@ -81,7 +85,7 @@ describe("FTS5 find", () => {
   });
 });
 
-describe("grep", () => {
+describe.skipIf(SKIP)("grep", () => {
   test("grep returns regex matches with line numbers", async () => {
     const result = await grep(ctx, {
       pattern: "import.*from",
@@ -109,7 +113,7 @@ describe("grep", () => {
   });
 });
 
-describe("FTS5 indexing integration", () => {
+describe.skipIf(SKIP)("FTS5 indexing integration", () => {
   test("write indexes content for FTS5 search", async () => {
     await write(ctx, {
       path: "/docs/guide.md",
