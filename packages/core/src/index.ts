@@ -25,3 +25,27 @@ export {
   IndexingInProgressError,
   ValidationError,
 } from "./errors.js";
+export {
+  dispatchOp,
+  getRegisteredOps,
+  getOpDefinition,
+} from "./ops/index.js";
+export type { OpContext, OpDefinition } from "./ops/index.js";
+export {
+  createUser,
+  getUserByApiKey,
+  getUserByEmail,
+  createOrg,
+  listUserOrgs,
+  getOrg,
+  inviteToOrg,
+  createDrive,
+  listDrives,
+  getDrive,
+  setDriveMember,
+  checkPermission,
+  getRequiredRole,
+  getUserDriveRole,
+  resolveContext,
+} from "./identity/index.js";
+export type { Role, ResolvedContext } from "./identity/index.js";

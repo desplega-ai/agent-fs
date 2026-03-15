@@ -3,7 +3,7 @@
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
-    "typecheck": "tsc --build --noEmit",
+    "typecheck": "tsc --build",
     "test": "bun test",
     "build": "bun build --compile packages/cli/src/index.ts --outfile dist/agentfs"
   },
