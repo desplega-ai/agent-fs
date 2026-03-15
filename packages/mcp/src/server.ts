@@ -5,6 +5,9 @@ import {
   AgentS3Client,
   resolveContext,
   getUserByApiKey,
+  createUser,
+  listUserOrgs,
+  setConfigValue,
 } from "@agentfs/core";
 import type { OpContext, DB } from "@agentfs/core";
 import { registerTools } from "./tools.js";
@@ -12,6 +15,25 @@ import { registerTools } from "./tools.js";
 export interface McpServerOptions {
   mode: "embedded" | "daemon";
   apiKey?: string;
+}
+
+/**
+ * In embedded mode, auto-bootstrap a local user if none exists.
+ * Local mode should just work — no registration ceremony needed.
+ */
+function ensureLocalUser(db: DB): { apiKey: string } {
+  const config = getConfig();
+  if (config.auth.apiKey) {
+    const user = getUserByApiKey(db, config.auth.apiKey);
+    if (user) return { apiKey: config.auth.apiKey };
+  }
+
+  // No valid user — create one automatically
+  console.error("[agent-fs] No local user found, creating one...");
+  const result = createUser(db, { email: "local@agentfs.local" });
+  setConfigValue("auth.apiKey", result.apiKey);
+  console.error("[agent-fs] Local user created automatically.");
+  return { apiKey: result.apiKey };
 }
 
 export function createMcpServer(options: McpServerOptions) {
@@ -24,13 +46,13 @@ export function createMcpServer(options: McpServerOptions) {
     const config = getConfig();
     const db = createDatabase();
     const s3 = new AgentS3Client(config.s3);
-    const apiKey = options.apiKey ?? config.auth.apiKey;
+
+    // Auto-bootstrap local user — no manual registration needed
+    const { apiKey } = options.apiKey
+      ? { apiKey: options.apiKey }
+      : ensureLocalUser(db);
 
     const getContext = (): OpContext => {
-      if (!apiKey) {
-        throw new Error("No API key configured. Run: agentfs auth register <email>");
-      }
-
       const user = getUserByApiKey(db, apiKey);
       if (!user) throw new Error("Invalid API key");
 
@@ -45,10 +67,8 @@ export function createMcpServer(options: McpServerOptions) {
     };
 
     registerTools(server, getContext);
-    console.error("[agent-fs] Running in embedded mode (no daemon needed)");
+    console.error("[agent-fs] Running in embedded mode");
   } else {
-    // Daemon mode — tools call the HTTP API
-    // For now, use embedded mode logic (daemon HTTP proxy can be added later)
     const config = getConfig();
     const db = createDatabase();
     const s3 = new AgentS3Client(config.s3);
