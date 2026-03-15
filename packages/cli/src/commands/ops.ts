@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
+import { isDaemonRunning, embeddedCallOp, getEmbeddedOrgId } from "../embedded.js";
 
 interface OpCommandDef {
   name: string;
@@ -8,9 +9,6 @@ interface OpCommandDef {
   options: Array<{ flag: string; description: string }>;
 }
 
-// Define CLI commands from op definitions
-// Deviation: not auto-generated from Zod schemas (would require Zod-to-Commander mapping).
-// Instead, manually defined but mirrors the op registry.
 const OP_COMMANDS: OpCommandDef[] = [
   { name: "write", description: "Write content to a file", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "File content (reads stdin if omitted)" }, { flag: "-m, --message <msg>", description: "Version message" }] },
   { name: "cat", description: "Read file content", args: [{ name: "path", required: true }], options: [{ flag: "--offset <n>", description: "Line offset" }, { flag: "--limit <n>", description: "Max lines" }] },
@@ -54,7 +52,7 @@ export function registerOpCommands(
     }
 
     cmd.action(async (...actionArgs: any[]) => {
-      const opts = actionArgs[actionArgs.length - 2]; // Commander puts options as second-to-last
+      const opts = actionArgs[actionArgs.length - 2];
       const params: Record<string, any> = { ...opts };
 
       // Map positional args
@@ -82,7 +80,14 @@ export function registerOpCommands(
       }
 
       try {
-        const result = await client.callOp(getOrgId(), def.name, params);
+        let result: any;
+        // Auto-detect: daemon running → HTTP, otherwise → embedded
+        if (await isDaemonRunning()) {
+          result = await client.callOp(getOrgId(), def.name, params);
+        } else {
+          const orgId = getEmbeddedOrgId();
+          result = await embeddedCallOp(orgId, def.name, params);
+        }
         console.log(JSON.stringify(result, null, 2));
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
