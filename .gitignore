@@ -5,6 +5,7 @@ dist/
 *.db-shm
 .env
 .env.*
+!.env.example
 bun.lockb
 *.tsbuildinfo
 # tsc build artifacts (all source is TypeScript)

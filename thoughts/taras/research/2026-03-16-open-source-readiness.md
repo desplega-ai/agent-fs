@@ -3,6 +3,7 @@ date: 2026-03-16T13:30:00Z
 topic: "Open-Source Readiness Assessment"
 researcher: "Claude (with Taras)"
 goal: "Evaluate agent-fs readiness for public open-source release"
+status: reviewed
 ---
 
 # Open-Source Readiness Assessment
@@ -13,13 +14,13 @@ goal: "Evaluate agent-fs readiness for public open-source release"
 
 ## Executive Summary
 
-agent-fs is **functionally complete for a v0.1 open-source release** but has several gaps that would hurt adoption. The core is solid — 27 operations, versioning, RBAC, search, comments — but the developer experience around onboarding, documentation, and deployment needs work. The biggest blockers are: (1) no OpenAPI spec, (2) no docker-compose for easy local setup, (3) README doesn't clearly convey the "agentmail for files" value prop, and (4) no deployment guide for hosted/multi-agent scenarios.
+agent-fs is **functionally complete for a v0.1 open-source release** but has several gaps that would hurt adoption. The core is solid — 26 operations, versioning, RBAC, search, comments — but the developer experience around onboarding, documentation, and deployment needs work. The biggest blockers are: (1) no OpenAPI spec, (2) no docker-compose for easy local setup, (3) README doesn't clearly convey the "agentmail for files" value prop, and (4) no deployment guide for hosted/multi-agent scenarios.
 
 ### Readiness Scorecard
 
 | Area | Score | Status |
 |------|-------|--------|
-| Core functionality | 9/10 | Solid — 27 ops, versioning, RBAC, search |
+| Core functionality | 9/10 | Solid — 26 ops, versioning, RBAC, search |
 | Local "it works" | 7/10 | Works but MinIO docker setup is manual |
 | Onboarding (new user) | 5/10 | Too many steps, unclear quickstart |
 | Remote S3 + OpenAI | 6/10 | Works but undocumented, no validation |
@@ -36,7 +37,7 @@ agent-fs is **functionally complete for a v0.1 open-source release** but has sev
 ### What works well
 
 - **CLI binary** builds and runs on macOS (arm64/x64) and Linux
-- **27 file operations** all pass automated tests (write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex, tree, glob, + 6 comment ops)
+- **26 file operations** all pass automated tests (write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex, tree, glob, + 6 comment ops)
 - **Embedded mode** — CLI auto-detects when no daemon is running and operates in-process (no server needed)
 - **MCP server** — stdio mode works out of the box for Claude Code
 - **Versioning** — full version history with S3 versioning support
@@ -194,7 +195,7 @@ For the "agentmail for files" vision, users need to:
 
 ### What exists
 
-- The operation registry has Zod schemas for all 27 operations
+- The operation registry has Zod schemas for all 26 operations
 - Each op has a description string
 - Error responses are well-structured with codes, messages, and suggestions
 - The API follows a consistent pattern: `POST /orgs/{orgId}/ops` with `{op, ...params}`
@@ -230,7 +231,7 @@ A script that generates an OpenAPI spec from the registry would be straightforwa
 ### MCP Integration (Primary Interface)
 
 **Strengths:**
-- 27 tools auto-registered from core registry
+- 26 tools auto-registered from core registry
 - Rich descriptions on each tool (post-architecture-cleanup)
 - Zod schemas provide parameter validation
 - Auto-bootstrap creates local user (zero-config for agents)
@@ -370,3 +371,31 @@ For open-source launch messaging, position agent-fs as:
 - Traditional file storage (S3, GCS) — different category
 - Knowledge bases (Notion, Confluence) — too broad
 - Vector databases (Pinecone, Weaviate) — search is a feature, not the product
+
+---
+
+## Review Errata
+
+_Reviewed: 2026-03-16 by Claude_
+
+### Critical
+
+- [ ] **Remote S3 + OpenAI not actually tested** — Research goal #3 was "Test it works with remote S3 and OpenAI embeddings," but the assessment is based entirely on code reading. No actual test was run against AWS S3, R2, or a live OpenAI API. The 6/10 score is a confidence estimate, not a measured result. **Action:** `.env.example` created — Taras to provide credentials in `.env`, then run actual E2E tests against remote S3 + OpenAI embeddings and document results.
+
+### Important
+
+- [ ] **Server binds to `127.0.0.1` by default** — Not mentioned in Section 4 (Deployment). The default config at `packages/core/src/config.ts:50-53` binds to `127.0.0.1:7433`, meaning the server won’t accept external connections. Hosted/multi-agent deployments require changing the bind address to `0.0.0.0`. **Action:** Add to deployment section.
+
+### Deferred
+
+- **No file:line code references** — Acknowledged as pedantic for this document type. Low priority.
+- **Windows support** — Build script has plumbing but no CI/install. Shelved for future.
+- **Competitive landscape cross-reference** — Not a problem for now.
+- **Open Questions section** — Will add later.
+- **Database migration strategy** — Not a worry for v0.1 open-source launch.
+
+### Resolved
+
+- [x] Op count corrected: was "27", actual is **26** (20 file/search/system ops + 6 comment ops, verified from `packages/core/src/ops/index.ts:39-253`) — auto-fixed
+- [x] Missing `status` field added to YAML frontmatter — auto-fixed
+- [x] `.env.example` created with all env vars (S3, embedding providers, API keys)
