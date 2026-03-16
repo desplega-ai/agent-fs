@@ -10,7 +10,7 @@ import type { OpContext } from "../types.js";
 import { write } from "../write.js";
 import { rm } from "../rm.js";
 import { grep } from "../grep.js";
-import { find } from "../find.js";
+import { fts } from "../fts.js";
 
 const TEST_DB = join(tmpdir(), `agentfs-search-test-${Date.now()}.db`);
 const ORG_ID = "test-org";
@@ -68,21 +68,21 @@ afterAll(() => {
   } catch {}
 });
 
-describe.skipIf(SKIP)("FTS5 find", () => {
-  test("find returns matches for keyword query", async () => {
-    const result = await find(ctx, { pattern: "authenticate" });
+describe.skipIf(SKIP)("FTS5 fts", () => {
+  test("fts returns matches for keyword query", async () => {
+    const result = await fts(ctx, { pattern: "authenticate" });
     expect(result.matches.length).toBeGreaterThan(0);
     expect(result.matches.some((m) => m.path === "/src/auth.ts")).toBe(true);
   });
 
-  test("find with path filter", async () => {
-    const result = await find(ctx, { pattern: "express", path: "/src" });
+  test("fts with path filter", async () => {
+    const result = await fts(ctx, { pattern: "express", path: "/src" });
     expect(result.matches.length).toBeGreaterThan(0);
     expect(result.matches.every((m) => m.path.startsWith("/src"))).toBe(true);
   });
 
-  test("find returns empty for no matches", async () => {
-    const result = await find(ctx, { pattern: "nonexistentxyzterm" });
+  test("fts returns empty for no matches", async () => {
+    const result = await fts(ctx, { pattern: "nonexistentxyzterm" });
     expect(result.matches.length).toBe(0);
   });
 });
@@ -122,7 +122,7 @@ describe.skipIf(SKIP)("FTS5 indexing integration", () => {
       content: "# Deployment Guide\n\nDeploy the application to Kubernetes using Helm charts.",
     });
 
-    const result = await find(ctx, { pattern: "Kubernetes" });
+    const result = await fts(ctx, { pattern: "Kubernetes" });
     expect(result.matches.some((m) => m.path === "/docs/guide.md")).toBe(true);
   });
 
@@ -130,14 +130,14 @@ describe.skipIf(SKIP)("FTS5 indexing integration", () => {
     await write(ctx, { path: "/tmp/delete-me.txt", content: "uniqueftstesttoken xyzzy" });
 
     // Should be findable
-    let result = await find(ctx, { pattern: "uniqueftstesttoken" });
+    let result = await fts(ctx, { pattern: "uniqueftstesttoken" });
     expect(result.matches.length).toBeGreaterThan(0);
 
     // Delete it
     await rm(ctx, { path: "/tmp/delete-me.txt" });
 
     // Should no longer be findable
-    result = await find(ctx, { pattern: "uniqueftstesttoken" });
+    result = await fts(ctx, { pattern: "uniqueftstesttoken" });
     expect(result.matches.length).toBe(0);
   });
 });

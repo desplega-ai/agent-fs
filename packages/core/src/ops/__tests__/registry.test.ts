@@ -4,13 +4,13 @@ import { getRegisteredOps, getOpDefinition } from "../index.js";
 describe("Op Registry", () => {
   const expectedOps = [
     "write", "cat", "edit", "append", "ls", "stat", "rm", "mv", "cp",
-    "head", "tail", "mkdir", "log", "diff", "revert", "recent",
-    "grep", "find", "search", "reindex",
+    "tail", "log", "diff", "revert", "recent",
+    "grep", "fts", "search", "reindex",
   ];
 
-  test("getRegisteredOps returns all 20 ops", () => {
+  test("getRegisteredOps returns all 18 ops", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(20);
+    expect(ops.length).toBe(18);
     for (const op of expectedOps) {
       expect(ops).toContain(op);
     }

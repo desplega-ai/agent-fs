@@ -10,15 +10,13 @@ import { stat } from "./stat.js";
 import { rm } from "./rm.js";
 import { mv } from "./mv.js";
 import { cp } from "./cp.js";
-import { head } from "./head.js";
 import { tail } from "./tail.js";
-import { mkdir } from "./mkdir.js";
 import { log } from "./log.js";
 import { diff } from "./diff.js";
 import { revert } from "./revert.js";
 import { recent } from "./recent.js";
 import { grep } from "./grep.js";
-import { find } from "./find.js";
+import { fts } from "./fts.js";
 import { search } from "./search.js";
 import { reindex } from "./reindex.js";
 
@@ -89,23 +87,12 @@ const opRegistry: Record<string, OpDefinition> = {
       to: z.string(),
     }),
   },
-  head: {
-    handler: head,
-    schema: z.object({
-      path: z.string(),
-      lines: z.number().int().min(1).optional(),
-    }),
-  },
   tail: {
     handler: tail,
     schema: z.object({
       path: z.string(),
       lines: z.number().int().min(1).optional(),
     }),
-  },
-  mkdir: {
-    handler: mkdir,
-    schema: z.object({ path: z.string() }),
   },
   log: {
     handler: log,
@@ -144,8 +131,8 @@ const opRegistry: Record<string, OpDefinition> = {
       path: z.string(),
     }),
   },
-  find: {
-    handler: find,
+  fts: {
+    handler: fts,
     schema: z.object({
       pattern: z.string(),
       path: z.string().optional(),
@@ -200,5 +187,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, cat, edit, append, ls, stat, rm, mv, cp, head, tail, mkdir, log, diff, revert, recent, grep, find, search, reindex };
+export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex };
 export type * from "./types.js";

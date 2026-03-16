@@ -15,9 +15,7 @@ import { stat } from "../stat.js";
 import { rm } from "../rm.js";
 import { mv } from "../mv.js";
 import { cp } from "../cp.js";
-import { head } from "../head.js";
 import { tail } from "../tail.js";
-import { mkdir } from "../mkdir.js";
 import { log } from "../log.js";
 import { diff } from "../diff.js";
 import { revert } from "../revert.js";
@@ -172,19 +170,13 @@ describe.skipIf(SKIP)("append", () => {
   });
 });
 
-describe.skipIf(SKIP)("head + tail", () => {
-  test("head returns first N lines", async () => {
+describe.skipIf(SKIP)("tail", () => {
+  test("tail returns last N lines", async () => {
     await write(ctx, {
       path: "/docs/headtail.txt",
       content: Array.from({ length: 30 }, (_, i) => `L${i + 1}`).join("\n"),
     });
 
-    const result = await head(ctx, { path: "/docs/headtail.txt", lines: 5 });
-    expect(result.content).toBe("L1\nL2\nL3\nL4\nL5");
-    expect(result.truncated).toBe(true);
-  });
-
-  test("tail returns last N lines", async () => {
     const result = await tail(ctx, { path: "/docs/headtail.txt", lines: 3 });
     expect(result.content).toBe("L28\nL29\nL30");
     expect(result.truncated).toBe(true);
@@ -195,7 +187,7 @@ describe.skipIf(SKIP)("ls", () => {
   test("ls lists files in directory", async () => {
     await write(ctx, { path: "/lsdir/a.txt", content: "a" });
     await write(ctx, { path: "/lsdir/b.txt", content: "b" });
-    await mkdir(ctx, { path: "/lsdir/sub" });
+    await write(ctx, { path: "/lsdir/sub/.keep", content: "" });
 
     const result = await ls(ctx, { path: "/lsdir" });
     const names = result.entries.map((e) => e.name);
@@ -336,7 +328,7 @@ describe.skipIf(SKIP)("recent", () => {
 describe.skipIf(SKIP)("op registry", () => {
   test("all ops are registered", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(20);
+    expect(ops.length).toBe(18);
     expect(ops).toContain("write");
     expect(ops).toContain("cat");
     expect(ops).toContain("edit");

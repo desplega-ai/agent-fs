@@ -2,8 +2,8 @@ import { describe, test, expect } from "bun:test";
 import { getRequiredRole } from "../identity/rbac.js";
 
 describe("getRequiredRole", () => {
-  const viewerOps = ["ls", "cat", "head", "tail", "stat", "grep", "find", "search", "log", "diff", "recent"];
-  const editorOps = ["write", "edit", "append", "rm", "mv", "cp", "mkdir", "revert"];
+  const viewerOps = ["ls", "cat", "tail", "stat", "grep", "fts", "search", "log", "diff", "recent"];
+  const editorOps = ["write", "edit", "append", "rm", "mv", "cp", "revert"];
   const adminOps = ["reindex"];
 
   test.each(viewerOps)("%s requires viewer", (op) => {

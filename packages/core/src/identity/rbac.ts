@@ -15,11 +15,10 @@ const ROLE_LEVELS: Record<Role, number> = {
 const OP_ROLES: Record<string, Role> = {
   ls: "viewer",
   cat: "viewer",
-  head: "viewer",
   tail: "viewer",
   stat: "viewer",
   grep: "viewer",
-  find: "viewer",
+  fts: "viewer",
   search: "viewer",
   log: "viewer",
   diff: "viewer",
@@ -30,7 +29,6 @@ const OP_ROLES: Record<string, Role> = {
   rm: "editor",
   mv: "editor",
   cp: "editor",
-  mkdir: "editor",
   revert: "editor",
   reindex: "admin",
 };
