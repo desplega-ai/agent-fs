@@ -5,6 +5,7 @@
 import { Database } from "bun:sqlite";
 import { platform } from "node:os";
 import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 let initialized = false;
 
@@ -14,9 +15,11 @@ export function ensureCustomSQLite(): void {
 
   if (platform() !== "darwin") return;
 
+  const execDir = dirname(process.execPath);
   const paths = [
-    "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib", // Apple Silicon
-    "/usr/local/opt/sqlite3/lib/libsqlite3.dylib", // Intel Mac
+    join(execDir, "libsqlite3.dylib"), // Next to compiled binary
+    "/opt/homebrew/opt/sqlite/lib/libsqlite3.dylib", // Apple Silicon Homebrew
+    "/usr/local/opt/sqlite3/lib/libsqlite3.dylib", // Intel Mac Homebrew
   ];
 
   for (const p of paths) {

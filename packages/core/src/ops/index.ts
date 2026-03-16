@@ -10,17 +10,17 @@ import { stat } from "./stat.js";
 import { rm } from "./rm.js";
 import { mv } from "./mv.js";
 import { cp } from "./cp.js";
-import { head } from "./head.js";
 import { tail } from "./tail.js";
-import { mkdir } from "./mkdir.js";
 import { log } from "./log.js";
 import { diff } from "./diff.js";
 import { revert } from "./revert.js";
 import { recent } from "./recent.js";
 import { grep } from "./grep.js";
-import { find } from "./find.js";
+import { fts } from "./fts.js";
 import { search } from "./search.js";
 import { reindex } from "./reindex.js";
+import { tree } from "./tree.js";
+import { glob } from "./glob.js";
 import {
   commentAdd,
   commentList,
@@ -31,12 +31,14 @@ import {
 } from "./comment.js";
 
 export interface OpDefinition {
+  description: string;
   handler: (ctx: OpContext, params: any) => Promise<any>;
   schema: z.ZodType;
 }
 
 const opRegistry: Record<string, OpDefinition> = {
   write: {
+    description: "Write or overwrite a file. Creates the file if it doesn't exist, or creates a new version. Use expectedVersion for optimistic concurrency. Returns { version, path, size }.",
     handler: write,
     schema: z.object({
       path: z.string(),
@@ -46,6 +48,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   cat: {
+    description: "Read file content with optional pagination via offset/limit. Returns { content, totalLines, truncated }.",
     handler: cat,
     schema: z.object({
       path: z.string(),
@@ -54,6 +57,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   edit: {
+    description: "Replace a specific string in a file (surgical find-and-replace). Captures the edit intent as a diff summary in version history. Returns { version, path, changes }.",
     handler: edit,
     schema: z.object({
       path: z.string(),
@@ -63,6 +67,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   append: {
+    description: "Append content to the end of an existing file. Creates a new version. Returns { version, size }.",
     handler: append,
     schema: z.object({
       path: z.string(),
@@ -71,18 +76,22 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   ls: {
+    description: "List immediate children of a directory. Returns { entries } where each entry has name, type (file/directory), size, author, modifiedAt.",
     handler: ls,
     schema: z.object({ path: z.string() }),
   },
   stat: {
+    description: "Get file metadata without reading content. Returns path, size, contentType, author, currentVersion, createdAt, modifiedAt, isDeleted, embeddingStatus.",
     handler: stat,
     schema: z.object({ path: z.string() }),
   },
   rm: {
+    description: "Delete a file. Removes from S3, cleans up FTS5 index and vector embeddings. Returns { path, deleted }.",
     handler: rm,
     schema: z.object({ path: z.string() }),
   },
   mv: {
+    description: "Move or rename a file. Preserves version history at the new path. Returns { from, to, version }.",
     handler: mv,
     schema: z.object({
       from: z.string(),
@@ -91,31 +100,23 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   cp: {
+    description: "Copy a file using server-side S3 copy. Creates a new version at the destination. Returns { from, to, version }.",
     handler: cp,
     schema: z.object({
       from: z.string(),
       to: z.string(),
     }),
   },
-  head: {
-    handler: head,
-    schema: z.object({
-      path: z.string(),
-      lines: z.number().int().min(1).optional(),
-    }),
-  },
   tail: {
+    description: "Read the last N lines of a file (default 20). Returns { content, totalLines, truncated }.",
     handler: tail,
     schema: z.object({
       path: z.string(),
       lines: z.number().int().min(1).optional(),
     }),
   },
-  mkdir: {
-    handler: mkdir,
-    schema: z.object({ path: z.string() }),
-  },
   log: {
+    description: "Show version history for a file. Returns { versions } with version number, author, timestamp, operation type, message, and diff summary.",
     handler: log,
     schema: z.object({
       path: z.string(),
@@ -123,6 +124,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   diff: {
+    description: "Show the diff between two versions of a file. Specify v1 and v2 version numbers. Returns { changes } as add/remove/context hunks.",
     handler: diff,
     schema: z.object({
       path: z.string(),
@@ -131,6 +133,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   revert: {
+    description: "Revert a file to a previous version. Creates a new version with the old content. Returns { version, revertedTo }.",
     handler: revert,
     schema: z.object({
       path: z.string(),
@@ -138,6 +141,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   recent: {
+    description: "Show recent activity across the drive. Optionally filter by path prefix and time window (since). Returns { entries } with path and version details.",
     handler: recent,
     schema: z.object({
       path: z.string().optional(),
@@ -146,20 +150,23 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   grep: {
+    description: "Search file content using regex pattern within a specific path. Returns matching lines with line numbers. Searches the FTS5 index, not S3 directly.",
     handler: grep,
     schema: z.object({
       pattern: z.string(),
       path: z.string(),
     }),
   },
-  find: {
-    handler: find,
+  fts: {
+    description: "Full-text search across all file content using FTS5 tokens. Different from grep (regex) and search (semantic). Returns { matches } with path, snippet, and rank.",
+    handler: fts,
     schema: z.object({
       pattern: z.string(),
       path: z.string().optional(),
     }),
   },
   search: {
+    description: "Semantic/vector search using natural language queries. Requires an embedding provider (OPENAI_API_KEY or GEMINI_API_KEY). Returns { results } ranked by relevance.",
     handler: search,
     schema: z.object({
       query: z.string(),
@@ -167,12 +174,30 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   reindex: {
+    description: "Re-index files with failed or missing FTS5/embedding entries. Optionally scope to a path prefix. Use after bulk writes or provider changes.",
     handler: reindex,
     schema: z.object({
       path: z.string().optional(),
     }),
   },
+  tree: {
+    description: "Recursively list all files and directories. Use depth to limit recursion. Returns a nested tree structure with name, type, size, and children.",
+    handler: tree,
+    schema: z.object({
+      path: z.string(),
+      depth: z.number().int().min(1).optional(),
+    }),
+  },
+  glob: {
+    description: "Find files by name pattern (e.g., *.md, config.*). Optionally scope to a path prefix. Returns { matches } with path, size, and modifiedAt.",
+    handler: glob,
+    schema: z.object({
+      pattern: z.string(),
+      path: z.string().optional(),
+    }),
+  },
   "comment-add": {
+    description: "Add a comment to a file. Supports line ranges and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
     handler: commentAdd,
     schema: z.object({
       path: z.string().optional(),
@@ -184,6 +209,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-list": {
+    description: "List comments on a file. Filter by path, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with reply counts.",
     handler: commentList,
     schema: z.object({
       path: z.string().optional(),
@@ -195,12 +221,14 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-get": {
+    description: "Get a single comment by ID with all its replies. Returns { comment, replies }.",
     handler: commentGet,
     schema: z.object({
       id: z.string(),
     }),
   },
   "comment-update": {
+    description: "Update a comment's body. Only the original author can update. Returns { id, body, updatedAt }.",
     handler: commentUpdate,
     schema: z.object({
       id: z.string(),
@@ -208,12 +236,14 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-delete": {
+    description: "Soft-delete a comment. Only the original author can delete. Deleting a root comment also soft-deletes its replies. Returns { deleted }.",
     handler: commentDelete,
     schema: z.object({
       id: z.string(),
     }),
   },
   "comment-resolve": {
+    description: "Resolve or reopen a root comment. Set resolved=true to resolve, resolved=false to reopen. Only root comments can be resolved. Returns { id, resolved, resolvedBy, resolvedAt }.",
     handler: commentResolve,
     schema: z.object({
       id: z.string(),
@@ -256,5 +286,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, cat, edit, append, ls, stat, rm, mv, cp, head, tail, mkdir, log, diff, revert, recent, grep, find, search, reindex, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
+export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex, tree, glob, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
 export type * from "./types.js";

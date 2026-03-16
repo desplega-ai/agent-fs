@@ -1,36 +1,24 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { existsSync, rmSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import {
   getConfig,
   setConfig,
   setConfigValue,
   getAgentFSHome,
 } from "./config.js";
+import { createTestConfigDir } from "./test-utils.js";
 
 describe("Config system", () => {
-  let originalAgentFSHome: string | undefined;
   let testHome: string;
+  let cleanup: () => void;
 
   beforeEach(() => {
-    originalAgentFSHome = process.env.AGENTFS_HOME;
-    testHome = join(
-      tmpdir(),
-      `agentfs-config-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    );
-    process.env.AGENTFS_HOME = testHome;
+    ({ dir: testHome, cleanup } = createTestConfigDir());
   });
 
   afterEach(() => {
-    if (originalAgentFSHome !== undefined) {
-      process.env.AGENTFS_HOME = originalAgentFSHome;
-    } else {
-      delete process.env.AGENTFS_HOME;
-    }
-    try {
-      rmSync(testHome, { recursive: true, force: true });
-    } catch {}
+    cleanup();
   });
 
   test("getAgentFSHome returns AGENTFS_HOME when set", () => {

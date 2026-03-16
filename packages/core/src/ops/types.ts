@@ -62,18 +62,9 @@ export interface CpParams {
   to: string;
 }
 
-export interface HeadParams {
-  path: string;
-  lines?: number;
-}
-
 export interface TailParams {
   path: string;
   lines?: number;
-}
-
-export interface MkdirParams {
-  path: string;
 }
 
 export interface LogParams {
@@ -162,10 +153,6 @@ export interface CpResult {
   from: string;
   to: string;
   version: number;
-}
-
-export interface MkdirResult {
-  path: string;
 }
 
 export interface VersionEntry {
@@ -295,4 +282,41 @@ export interface CommentResolveResult {
   resolved: boolean;
   resolvedBy?: string;
   resolvedAt?: Date;
+}
+
+// --- Tree types ---
+
+export interface TreeParams {
+  path: string;
+  depth?: number;
+}
+
+export interface TreeEntry {
+  name: string;
+  type: "file" | "directory";
+  size?: number;
+  author?: string;
+  modifiedAt?: Date;
+  children?: TreeEntry[];
+}
+
+export interface TreeResult {
+  tree: TreeEntry[];
+}
+
+// --- Glob types ---
+
+export interface GlobParams {
+  pattern: string;
+  path?: string;
+}
+
+export interface GlobMatch {
+  path: string;
+  size: number;
+  modifiedAt?: Date;
+}
+
+export interface GlobResult {
+  matches: GlobMatch[];
 }

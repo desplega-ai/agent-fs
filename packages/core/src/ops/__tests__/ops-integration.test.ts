@@ -143,7 +143,7 @@ describe("mv and cp operations", () => {
   });
 });
 
-describe("ls and mkdir operations", () => {
+describe("ls operation", () => {
   test("ls returns files in directory", async () => {
     const { ctx } = createTestContext();
 
@@ -155,31 +155,9 @@ describe("ls and mkdir operations", () => {
     expect(names).toContain("a.txt");
     expect(names).toContain("b.txt");
   });
-
-  test("mkdir creates directory marker", async () => {
-    const { ctx } = createTestContext();
-
-    await dispatchOp(ctx, "mkdir", { path: "/newdir" });
-
-    const result = await dispatchOp(ctx, "ls", { path: "/" });
-    const dirs = ((result as any).entries as any[]).filter(
-      (e: any) => e.type === "directory"
-    );
-    expect(dirs.some((d: any) => d.name === "newdir")).toBe(true);
-  });
 });
 
-describe("head and tail operations", () => {
-  test("head returns first N lines", async () => {
-    const { ctx } = createTestContext();
-    const content = "line1\nline2\nline3\nline4\nline5";
-
-    await dispatchOp(ctx, "write", { path: "/lines.txt", content });
-
-    const result = await dispatchOp(ctx, "head", { path: "/lines.txt", lines: 2 });
-    expect((result as any).content).toBe("line1\nline2");
-  });
-
+describe("tail operation", () => {
   test("tail returns last N lines", async () => {
     const { ctx } = createTestContext();
     const content = "line1\nline2\nline3\nline4\nline5";
@@ -292,27 +270,27 @@ describe("grep operation", () => {
   });
 });
 
-describe("find operation", () => {
-  test("find searches content via FTS5", async () => {
+describe("fts operation", () => {
+  test("fts searches content via FTS5", async () => {
     const { ctx } = createTestContext();
 
     await dispatchOp(ctx, "write", { path: "/docs/readme.md", content: "installation guide" });
     await dispatchOp(ctx, "write", { path: "/docs/api.md", content: "API reference" });
     await dispatchOp(ctx, "write", { path: "/src/app.ts", content: "main application" });
 
-    const result = await dispatchOp(ctx, "find", { pattern: "installation" });
+    const result = await dispatchOp(ctx, "fts", { pattern: "installation" });
     const paths = (result as any).matches.map((m: any) => m.path);
     expect(paths.length).toBe(1);
     expect(paths[0]).toBe("/docs/readme.md");
   });
 
-  test("find with path prefix filters results", async () => {
+  test("fts with path prefix filters results", async () => {
     const { ctx } = createTestContext();
 
     await dispatchOp(ctx, "write", { path: "/docs/a.txt", content: "shared keyword" });
     await dispatchOp(ctx, "write", { path: "/src/b.txt", content: "shared keyword" });
 
-    const result = await dispatchOp(ctx, "find", {
+    const result = await dispatchOp(ctx, "fts", {
       pattern: "shared",
       path: "/docs/",
     });
@@ -320,10 +298,10 @@ describe("find operation", () => {
     expect((result as any).matches[0].path).toBe("/docs/a.txt");
   });
 
-  test("find returns hint when no matches", async () => {
+  test("fts returns hint when no matches", async () => {
     const { ctx } = createTestContext();
 
-    const result = await dispatchOp(ctx, "find", { pattern: "nonexistent" });
+    const result = await dispatchOp(ctx, "fts", { pattern: "nonexistent" });
     expect((result as any).matches.length).toBe(0);
     expect((result as any).hint).toBeDefined();
   });

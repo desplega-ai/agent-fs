@@ -18,7 +18,7 @@ export function registerTools(
     // MCP SDK accepts Zod schemas directly
     server.tool(
       opName,
-      `agentfs ${opName}`,
+      def.description,
       def.schema instanceof z.ZodObject
         ? (def.schema as z.ZodObject<any>).shape
         : { params: z.any() },
