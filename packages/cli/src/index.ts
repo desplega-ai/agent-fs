@@ -57,8 +57,6 @@ program.addCommand(initCommand());
 program
   .command("mcp")
   .description("Start MCP server (stdio)")
-  .option("--embedded", "Force embedded mode (no daemon)")
-  .option("--daemon", "Force daemon mode (requires running daemon)")
   .action(async () => {
     await import("@agentfs/mcp/src/index.js");
   });

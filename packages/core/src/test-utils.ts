@@ -1,5 +1,8 @@
 import "./db/setup-sqlite.js";
 
+import { mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as sqliteVec from "sqlite-vec";
@@ -222,4 +225,31 @@ export function createTestContext(opts?: {
     driveId: drives[0].id,
     apiKey,
   };
+}
+
+/**
+ * Create a unique temp directory and set AGENTFS_HOME to it.
+ * Returns the dir path and a cleanup function that restores the env var and removes the temp dir.
+ */
+export function createTestConfigDir(): { dir: string; cleanup: () => void } {
+  const originalHome = process.env.AGENTFS_HOME;
+  const dir = join(
+    tmpdir(),
+    `agentfs-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+  mkdirSync(dir, { recursive: true });
+  process.env.AGENTFS_HOME = dir;
+
+  const cleanup = () => {
+    if (originalHome !== undefined) {
+      process.env.AGENTFS_HOME = originalHome;
+    } else {
+      delete process.env.AGENTFS_HOME;
+    }
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {}
+  };
+
+  return { dir, cleanup };
 }
