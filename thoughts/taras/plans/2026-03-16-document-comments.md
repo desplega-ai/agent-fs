@@ -1,7 +1,7 @@
 ---
 date: 2026-03-16
 planner: claude
-status: ready
+status: completed
 autonomy: critical
 commit_per_phase: true
 research: thoughts/taras/research/2026-03-15-document-comments.md
@@ -89,7 +89,7 @@ Add `comments` and `events` tables to both the Drizzle schema and raw SQL. Add i
 
 #### 1. Drizzle Schema
 **File**: `packages/core/src/db/schema.ts`
-**Changes**: Add `comments` and `events` table definitions after `contentChunks`.
+**Changes**: Add `comments` and `events` table definitions before `contentChunks`.
 
 ```typescript
 // comments (document comments with threading)
@@ -179,14 +179,14 @@ CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] DB initializes without errors: `bun run build && ./dist/agentfs auth register test@test.com 2>&1 | head -5` (verifies DB init runs the new CREATE TABLE statements)
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] DB initializes without errors: `bun run build && ./dist/agentfs auth register test@test.com 2>&1 | head -5` (verifies DB init runs the new CREATE TABLE statements)
 
 #### Manual Verification:
-- [ ] Confirm `comments` table SQL matches Drizzle schema (column names, types, defaults)
-- [ ] Confirm `events` table SQL matches Drizzle schema
-- [ ] Confirm `ON DELETE CASCADE` only on `parent_id`, not elsewhere
-- [ ] Confirm indexes are created with `IF NOT EXISTS`
+- [x] Confirm `comments` table SQL matches Drizzle schema (column names, types, defaults)
+- [x] Confirm `events` table SQL matches Drizzle schema
+- [x] Confirm `ON DELETE CASCADE` only on `parent_id`, not elsewhere
+- [x] Confirm indexes are created with `IF NOT EXISTS`
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -342,16 +342,16 @@ Key implementation details:
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] No import errors: `bun -e "import { commentAdd } from './packages/core/src/ops/comment.js'"`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] No import errors: `bun -e "import { commentAdd } from './packages/core/src/ops/comment.js'"`
 
 #### Manual Verification:
-- [ ] Verify `commentAdd` resolves path from parent when `parentId` is set
-- [ ] Verify `commentAdd` rejects replies to replies (flat threading enforced)
-- [ ] Verify `commentUpdate`/`commentDelete` check author === ctx.userId
-- [ ] Verify `commentResolve` rejects calls on replies (parentId !== null)
-- [ ] Verify `commentList` excludes soft-deleted comments
-- [ ] Verify `commentDelete` soft-deletes replies along with root comment
+- [x] Verify `commentAdd` resolves path from parent when `parentId` is set
+- [x] Verify `commentAdd` rejects replies to replies (flat threading enforced)
+- [x] Verify `commentUpdate`/`commentDelete` check author === ctx.userId
+- [x] Verify `commentResolve` rejects calls on replies (parentId !== null)
+- [x] Verify `commentList` excludes soft-deleted comments
+- [x] Verify `commentDelete` soft-deletes replies along with root comment
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -400,11 +400,11 @@ function emitEvent(ctx: OpContext, params: {
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
+- [x] TypeScript compiles: `bun run typecheck`
 
 #### Manual Verification:
-- [ ] Verify events are fire-and-forget (no error propagation to caller)
-- [ ] Verify event metadata is valid JSON
+- [x] Verify events are fire-and-forget (no error propagation to caller)
+- [x] Verify event metadata is valid JSON
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -440,12 +440,12 @@ This uses soft-delete (consistent with comment system design) rather than hard S
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Existing tests pass: `bun run test`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Existing tests pass: `bun run test`
 
 #### Manual Verification:
-- [ ] Verify rm handler imports `schema` (already imported) and `comments` table is accessible
-- [ ] Verify the soft-delete updates both root comments and replies on the file
+- [x] Verify rm handler imports `schema` (already imported) and `comments` table is accessible
+- [x] Verify the soft-delete updates both root comments and replies on the file
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -491,15 +491,15 @@ if (await isDaemonRunning()) {
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] CLI builds: `bun run build`
-- [ ] Help text shows: `./dist/agentfs comment --help`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] CLI builds: `bun run build`
+- [x] Help text shows: `./dist/agentfs comment --help`
 
 #### Manual Verification:
-- [ ] Verify all 8 subcommands appear in `comment --help`
-- [ ] Verify `comment reply` maps to `comment-add` op with `parentId`
-- [ ] Verify `comment reopen` maps to `comment-resolve` op with `resolved=false`
-- [ ] Verify each subcommand uses the embedded/daemon dispatch pattern
+- [x] Verify all 8 subcommands appear in `comment --help`
+- [x] Verify `comment reply` maps to `comment-add` op with `parentId`
+- [x] Verify `comment reopen` maps to `comment-resolve` op with `resolved=false`
+- [x] Verify each subcommand uses the embedded/daemon dispatch pattern
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -541,12 +541,12 @@ Test cases:
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] All comment tests pass: `bun test packages/core/src/ops/__tests__/comment.test.ts`
-- [ ] Full test suite passes: `bun run test`
+- [x] All comment tests pass: `bun test packages/core/src/ops/__tests__/comment.test.ts`
+- [x] Full test suite passes: `bun run test`
 
 #### Manual Verification:
-- [ ] Verify tests don't require MinIO (no S3 operations in comment handlers)
-- [ ] Verify test coverage covers all 6 ops and edge cases (author check, flat threading, soft delete)
+- [x] Verify tests don't require MinIO (no S3 operations in comment handlers)
+- [x] Verify test coverage covers all 6 ops and edge cases (author check, flat threading, soft delete)
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -581,16 +581,22 @@ export type {
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Full typecheck passes: `bun run typecheck`
-- [ ] Full test suite passes: `bun run test`
-- [ ] CLI builds successfully: `bun run build`
+- [x] Full typecheck passes: `bun run typecheck`
+- [x] Full test suite passes: `bun run test`
+- [x] CLI builds successfully: `bun run build`
 
 #### Manual Verification:
-- [ ] Verify all comment types are accessible from `@agentfs/core` package
+- [x] Verify all comment types are accessible from `@agentfs/core` package
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
 ---
+
+## Adaptations from Original Plan
+
+- **Single commit instead of per-phase**: Plan frontmatter specified `commit_per_phase: true`, but implementation was done in autopilot mode as a single commit covering all 7 phases. A second commit added the E2E results.
+- **Table placement**: Plan said "after `contentChunks`" — implemented before `contentChunks` (functionally identical, both idempotent).
+- **Updated existing tests**: `packages/core/src/ops/__tests__/ops.test.ts` and `registry.test.ts` had hardcoded op count (20) that needed updating to 26. Not in original plan but necessary for test suite to pass.
 
 ## Testing Strategy
 
@@ -600,58 +606,27 @@ export type {
 
 ## Manual E2E Verification
 
-**Note**: Claude will execute these commands after all phases are complete. This is not a manual checklist for the user — Claude runs them and reports results.
+**Executed 2026-03-16** against MinIO (docker: `agentfs-minio`) in an isolated `AGENTFS_HOME` temp directory.
 
-```bash
-# 1. Build and register
-bun run build
-./dist/agentfs auth register test@test.com
+| Step | Command | Result |
+|------|---------|--------|
+| 1 | `auth register test@test.com` | User/org/drive created, API key saved |
+| 2 | `write /test/readme.md` (stdin) | version=1, size=25 (S3 via MinIO) |
+| 3 | `comment add /test/readme.md --body "General feedback"` | Created, returned id + path + author + createdAt |
+| 4 | `comment add /test/readme.md --body "Refactoring" --line-start 2 --line-end 3` | Created with lineStart=2, lineEnd=3 |
+| 5 | `comment list /test/readme.md` | Both comments listed, replyCount=0 |
+| 6 | `comment get <id>` | Returns comment object, empty replies array |
+| 7 | `comment reply <id> --body "Fixed"` | Reply created with parentId, path resolved from parent |
+| 8 | `comment get <id>` (after reply) | replyCount=1, reply in replies array |
+| 9 | `comment resolve <id>` | resolved=true, resolvedBy + resolvedAt set |
+| 10 | `comment list --resolved` | Shows both resolved + unresolved root comments |
+| 11 | `comment reopen <id>` | resolved=false, resolvedBy/At cleared |
+| 12 | `comment update <id> --body "Updated"` | body updated, updatedAt bumped |
+| 13 | `comment delete <id>` | deleted=true (root + reply soft-deleted) |
+| 14 | `comment list` (after delete) | Deleted comment + reply excluded from results |
+| 15 | `comment add` + `rm /test/readme.md` | rm soft-deletes all comments on file; `comment list` returns empty |
 
-# 2. Create a file to comment on
-echo "Hello World\nLine 2\nLine 3" | ./dist/agentfs write /test/readme.md
-
-# 3. Add a file-level comment
-./dist/agentfs comment add /test/readme.md --body "General feedback on this file"
-
-# 4. Add a line-range comment
-./dist/agentfs comment add /test/readme.md --body "This needs refactoring" --line-start 2 --line-end 3
-
-# 5. List comments on the file
-./dist/agentfs comment list /test/readme.md
-
-# 6. Get a comment with its replies (use ID from step 3)
-./dist/agentfs comment get <comment-id>
-
-# 7. Reply to a comment (use ID from step 3)
-./dist/agentfs comment reply <comment-id> --body "Done, fixed in latest commit"
-
-# 8. Verify reply shows in get
-./dist/agentfs comment get <comment-id>
-
-# 9. Resolve the comment
-./dist/agentfs comment resolve <comment-id>
-
-# 10. Verify resolved shows in list
-./dist/agentfs comment list /test/readme.md --resolved
-
-# 11. Reopen the comment
-./dist/agentfs comment reopen <comment-id>
-
-# 12. Update a comment
-./dist/agentfs comment update <comment-id> --body "Updated feedback"
-
-# 13. Delete a comment (soft delete)
-./dist/agentfs comment delete <comment-id>
-
-# 14. Verify deleted comment is excluded from list
-./dist/agentfs comment list /test/readme.md
-
-# 15. Verify rm cascades to comments
-echo "temp" | ./dist/agentfs write /test/temp.md
-./dist/agentfs comment add /test/temp.md --body "Comment on temp file"
-./dist/agentfs rm /test/temp.md
-# Comments on /test/temp.md should be soft-deleted
-```
+All 15 steps passed.
 
 ## References
 

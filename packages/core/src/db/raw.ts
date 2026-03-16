@@ -67,6 +67,46 @@ CREATE TABLE IF NOT EXISTS file_versions (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS comments (
+  id TEXT PRIMARY KEY,
+  parent_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  drive_id TEXT NOT NULL REFERENCES drives(id),
+  path TEXT NOT NULL,
+  line_start INTEGER,
+  line_end INTEGER,
+  quoted_content TEXT,
+  file_version_id INTEGER REFERENCES file_versions(id),
+  body TEXT NOT NULL,
+  author TEXT NOT NULL REFERENCES users(id),
+  resolved INTEGER NOT NULL DEFAULT 0,
+  resolved_by TEXT,
+  resolved_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  is_deleted INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_comments_path ON comments(drive_id, path);
+CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id);
+CREATE INDEX IF NOT EXISTS idx_comments_org ON comments(org_id);
+
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  type TEXT NOT NULL,
+  resource_type TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  actor TEXT NOT NULL REFERENCES users(id),
+  target TEXT,
+  status TEXT NOT NULL DEFAULT 'created' CHECK(status IN ('created', 'ack', 'deleted')),
+  metadata TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_resource ON events(resource_type, resource_id);
+CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
+
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT NOT NULL,

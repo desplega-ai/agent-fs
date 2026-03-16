@@ -21,6 +21,14 @@ import { search } from "./search.js";
 import { reindex } from "./reindex.js";
 import { tree } from "./tree.js";
 import { glob } from "./glob.js";
+import {
+  commentAdd,
+  commentList,
+  commentGet,
+  commentUpdate,
+  commentDelete,
+  commentResolve,
+} from "./comment.js";
 
 export interface OpDefinition {
   description: string;
@@ -188,6 +196,60 @@ const opRegistry: Record<string, OpDefinition> = {
       path: z.string().optional(),
     }),
   },
+  "comment-add": {
+    description: "Add a comment to a file. Supports line ranges and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
+    handler: commentAdd,
+    schema: z.object({
+      path: z.string().optional(),
+      body: z.string(),
+      parentId: z.string().optional(),
+      lineStart: z.number().int().optional(),
+      lineEnd: z.number().int().optional(),
+      quotedContent: z.string().optional(),
+    }),
+  },
+  "comment-list": {
+    description: "List comments on a file. Filter by path, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with reply counts.",
+    handler: commentList,
+    schema: z.object({
+      path: z.string().optional(),
+      parentId: z.string().optional(),
+      resolved: z.boolean().optional(),
+      orgId: z.string().optional(),
+      limit: z.number().int().min(1).optional(),
+      offset: z.number().int().min(0).optional(),
+    }),
+  },
+  "comment-get": {
+    description: "Get a single comment by ID with all its replies. Returns { comment, replies }.",
+    handler: commentGet,
+    schema: z.object({
+      id: z.string(),
+    }),
+  },
+  "comment-update": {
+    description: "Update a comment's body. Only the original author can update. Returns { id, body, updatedAt }.",
+    handler: commentUpdate,
+    schema: z.object({
+      id: z.string(),
+      body: z.string(),
+    }),
+  },
+  "comment-delete": {
+    description: "Soft-delete a comment. Only the original author can delete. Deleting a root comment also soft-deletes its replies. Returns { deleted }.",
+    handler: commentDelete,
+    schema: z.object({
+      id: z.string(),
+    }),
+  },
+  "comment-resolve": {
+    description: "Resolve or reopen a root comment. Set resolved=true to resolve, resolved=false to reopen. Only root comments can be resolved. Returns { id, resolved, resolvedBy, resolvedAt }.",
+    handler: commentResolve,
+    schema: z.object({
+      id: z.string(),
+      resolved: z.boolean(),
+    }),
+  },
 };
 
 export async function dispatchOp(
@@ -224,5 +286,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex, tree, glob };
+export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex, tree, glob, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
 export type * from "./types.js";
