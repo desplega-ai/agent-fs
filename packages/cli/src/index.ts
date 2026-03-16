@@ -10,6 +10,7 @@ import { driveCommands } from "./commands/drive.js";
 import { initCommand } from "./commands/init.js";
 import { onboardCommand } from "./commands/onboard.js";
 import { commentCommands } from "./commands/comment.js";
+import { docsCommand } from "./commands/docs.js";
 
 const program = new Command();
 
@@ -48,7 +49,8 @@ function getOrgId(): string {
   process.exit(1);
 }
 
-// Register commands
+// Register commands — docs first so it appears at top of --help
+program.addCommand(docsCommand());
 registerOpCommands(program, client, getOrgId);
 program.addCommand(authCommands(client));
 program.addCommand(daemonCommands());
