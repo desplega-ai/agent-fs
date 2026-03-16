@@ -16,7 +16,8 @@ program
   .description("Agent-first filesystem backed by S3")
   .version(VERSION)
   .option("--org <orgId>", "Override org context")
-  .option("--drive <driveId>", "Override drive context");
+  .option("--drive <driveId>", "Override drive context")
+  .option("--json", "Output raw JSON");
 
 const client = new ApiClient();
 

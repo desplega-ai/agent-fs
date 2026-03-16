@@ -2,6 +2,7 @@ import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
 import { isDaemonRunning, embeddedCallOp, getEmbeddedOrgId } from "../embedded.js";
 import { getOpDefinition } from "@agentfs/core";
+import { outputResult } from "../formatters.js";
 
 interface OpCommandDef {
   name: string;
@@ -96,7 +97,7 @@ export function registerOpCommands(
           const orgId = getEmbeddedOrgId();
           result = await embeddedCallOp(orgId, def.name, params);
         }
-        console.log(JSON.stringify(result, null, 2));
+        outputResult(def.name, result, program.opts().json);
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
         process.exit(1);
