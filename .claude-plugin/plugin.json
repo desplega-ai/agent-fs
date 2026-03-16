@@ -1,17 +1,17 @@
 {
-  "name": "agentfs",
+  "name": "agent-fs",
   "description": "Agent-first filesystem CLI — store, search, and version files backed by S3",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
-    "name": "agentfs"
+    "name": "desplega-ai"
   },
   "repository": "https://github.com/desplega-ai/agent-fs",
   "keywords": ["filesystem", "s3", "agents", "search", "versioning", "cli"],
   "license": "MIT",
   "skills": "./skills/",
   "mcpServers": {
-    "agentfs": {
-      "command": "agentfs",
+    "agent-fs": {
+      "command": "agent-fs",
       "args": ["mcp", "--embedded"]
     }
   }

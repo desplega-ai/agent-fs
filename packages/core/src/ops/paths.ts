@@ -1,5 +1,5 @@
 /**
- * Centralized path normalization for agentfs.
+ * Centralized path normalization for agent-fs.
  *
  * Two conventions:
  *   - File paths: always start with `/`, no trailing `/`

@@ -1,19 +1,19 @@
 {
-  "name": "agentfs",
+  "name": "agent-fs",
   "owner": {
-    "name": "agentfs"
+    "name": "desplega-ai"
   },
   "metadata": {
     "description": "Agent-first filesystem — store, search, and version files backed by S3"
   },
   "plugins": [
     {
-      "name": "agentfs",
+      "name": "agent-fs",
       "source": "./",
       "description": "Agent-first filesystem CLI — store, search, and version files backed by S3",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
-        "name": "agentfs"
+        "name": "desplega-ai"
       },
       "repository": "https://github.com/desplega-ai/agent-fs",
       "license": "MIT",
