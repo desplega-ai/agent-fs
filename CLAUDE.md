@@ -1,5 +1,7 @@
 # agent-fs
 
+See [PRODUCT.md](./PRODUCT.md) for product vision and positioning (agent-fs is to files what agentmail is to email).
+
 Bun monorepo: `packages/{core, cli, mcp, server}`
 
 ## Commands
