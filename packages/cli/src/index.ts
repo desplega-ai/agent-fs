@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { getConfig, listUserOrgs, getUserByApiKey, VERSION } from "@/core";
+import { VERSION } from "@/core";
 import { ApiClient } from "./api-client.js";
 import { registerOpCommands } from "./commands/ops.js";
 import { authCommands } from "./commands/auth.js";
@@ -24,24 +24,22 @@ program
 
 const client = new ApiClient();
 
-// Resolve the default org ID
-function getOrgId(): string {
+// Resolve the default org ID via the API
+async function getOrgId(): Promise<string> {
   const orgId = program.opts().org;
   if (orgId) return orgId;
 
-  // Try to resolve from config
-  const config = getConfig();
-  if (config.auth.apiKey) {
-    try {
-      const { createDatabase } = require("@/core");
-      const db = createDatabase();
-      const user = getUserByApiKey(db, config.auth.apiKey);
-      if (user) {
-        const orgs = listUserOrgs(db, user.id);
-        if (orgs.length > 0) return orgs[0].id;
-      }
-    } catch {
-      // If DB isn't available, let the server handle it
+  try {
+    const me = await client.getMe();
+    if (me.defaultOrgId) return me.defaultOrgId;
+  } catch (err: any) {
+    if (err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed")) {
+      console.error(
+        "Cannot connect to agent-fs daemon.\n" +
+        "Start with: agent-fs daemon start\n" +
+        "Or set AGENT_FS_API_URL to connect to a remote server."
+      );
+      process.exit(1);
     }
   }
 

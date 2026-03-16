@@ -30,7 +30,11 @@ This creates a git tag matching `v{version}` and pushes it, which triggers the r
 
 ## E2E Tests
 
-`scripts/e2e.ts` spins up an isolated MinIO container and runs 21 CLI commands end-to-end. Run it as a regression check when modifying core ops, CLI commands, or the embedded mode. If a core change breaks something, extend the E2E suite to cover it. Not in CI or pre-push — run on demand locally.
+`scripts/e2e.ts` spins up an isolated MinIO container, starts a daemon on a random port, and runs 24 CLI + MCP tests end-to-end. Run it as a regression check when modifying core ops, CLI commands, or MCP. If a core change breaks something, extend the E2E suite to cover it. Not in CI or pre-push — run on demand locally.
+
+## Gotcha: Stale `.js` files in `src/` dirs
+
+`tsc --build` outputs compiled `.js`/`.d.ts` files to `dist/` via `outDir`. However, if `dist/` is ever missing or a previous misconfiguration wrote outputs to `src/`, stale `.js` files can linger in `packages/*/src/`. **Bun prefers `.js` over `.ts` when an import specifies `.js` extension**, so these stale files silently shadow the real `.ts` source — causing baffling runtime bugs (e.g., calling an old async function that's now sync). If you see inexplicable runtime behavior that contradicts the source, check for `.js` files in `src/` dirs: `find packages/*/src -maxdepth 1 -name "*.js"` and delete them.
 
 ## Key Decisions
 

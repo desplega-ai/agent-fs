@@ -58,6 +58,10 @@ export class ApiClient {
     return this.post(`/orgs/${orgId}/ops`, { op, ...params });
   }
 
+  async getMe(): Promise<{ userId: string; email: string; defaultOrgId: string | null; defaultDriveId: string | null }> {
+    return this.get("/auth/me");
+  }
+
   setApiKey(key: string): void {
     this.apiKey = key;
   }

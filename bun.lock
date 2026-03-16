@@ -73,6 +73,8 @@
       "version": "0.1.0",
       "dependencies": {
         "@desplega.ai/agent-fs-core": "workspace:*",
+        "@desplega.ai/agent-fs-mcp": "workspace:*",
+        "@modelcontextprotocol/sdk": "^1.27.1",
         "hono": "^4.12.8",
       },
     },

@@ -1,6 +1,5 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
-import { isDaemonRunning, embeddedCallOp, getEmbeddedOrgId } from "../embedded.js";
 import { getOpDefinition } from "@/core";
 import { outputResult } from "../formatters.js";
 
@@ -36,7 +35,7 @@ const OP_COMMANDS: OpCommandDef[] = [
 export function registerOpCommands(
   program: Command,
   client: ApiClient,
-  getOrgId: () => string
+  getOrgId: () => string | Promise<string>
 ) {
   for (const def of OP_COMMANDS) {
     const opDef = getOpDefinition(def.name);
@@ -100,16 +99,17 @@ export function registerOpCommands(
       }
 
       try {
-        let result: any;
-        // Auto-detect: daemon running → HTTP, otherwise → embedded
-        if (await isDaemonRunning()) {
-          result = await client.callOp(getOrgId(), def.name, params);
-        } else {
-          const orgId = getEmbeddedOrgId();
-          result = await embeddedCallOp(orgId, def.name, params);
-        }
+        const result = await client.callOp(await getOrgId(), def.name, params);
         outputResult(def.name, result, program.opts().json);
       } catch (err: any) {
+        if (err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed")) {
+          console.error(
+            "Cannot connect to agent-fs daemon.\n" +
+            "Start with: agent-fs daemon start\n" +
+            "Or set AGENT_FS_API_URL to connect to a remote server."
+          );
+          process.exit(1);
+        }
         console.error(`Error: ${err.message}`);
         process.exit(1);
       }

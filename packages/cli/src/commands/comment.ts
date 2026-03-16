@@ -1,16 +1,22 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
-import { isDaemonRunning, embeddedCallOp, getEmbeddedOrgId } from "../embedded.js";
 
-export function commentCommands(client: ApiClient, getOrgId: () => string) {
+export function commentCommands(client: ApiClient, getOrgId: () => string | Promise<string>) {
   const cmd = new Command("comment").description("Document comments");
 
   async function callOp(opName: string, params: Record<string, any>) {
-    if (await isDaemonRunning()) {
-      return client.callOp(getOrgId(), opName, params);
-    } else {
-      const orgId = getEmbeddedOrgId();
-      return embeddedCallOp(orgId, opName, params);
+    try {
+      return await client.callOp(await getOrgId(), opName, params);
+    } catch (err: any) {
+      if (err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed")) {
+        console.error(
+          "Cannot connect to agent-fs daemon.\n" +
+          "Start with: agent-fs daemon start\n" +
+          "Or set AGENT_FS_API_URL to connect to a remote server."
+        );
+        process.exit(1);
+      }
+      throw err;
     }
   }
 

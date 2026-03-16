@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { createUser, listUserOrgs } from "@/core";
+import { createUser, listUserOrgs, resolveContext } from "@/core";
 import type { DB } from "@/core";
 import type { AppEnv } from "../types.js";
 
@@ -38,7 +38,24 @@ export function authRoutes(db: DB) {
 
   router.get("/me", (c) => {
     const user = c.get("user");
-    return c.json(user);
+
+    try {
+      const resolved = resolveContext(db, { userId: user.id });
+      return c.json({
+        userId: user.id,
+        email: user.email,
+        defaultOrgId: resolved.orgId,
+        defaultDriveId: resolved.driveId,
+      });
+    } catch {
+      // If context resolution fails, return basic user info without defaults
+      return c.json({
+        userId: user.id,
+        email: user.email,
+        defaultOrgId: null,
+        defaultDriveId: null,
+      });
+    }
   });
 
   return router;

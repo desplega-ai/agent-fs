@@ -1,24 +1,10 @@
 import { Hono } from "hono";
-import { dispatchOp, resolveContext, createEmbeddingProviderFromEnv, getConfig } from "@/core";
+import { dispatchOp, resolveContext } from "@/core";
 import type { DB, AgentS3Client, EmbeddingProvider } from "@/core";
 import type { AppEnv } from "../types.js";
 
-export function opsRoutes(db: DB, s3: AgentS3Client) {
+export function opsRoutes(db: DB, s3: AgentS3Client, embeddingProvider: EmbeddingProvider | null = null) {
   const router = new Hono<AppEnv>();
-
-  // Lazy-init embedding provider on first request
-  let embeddingProvider: EmbeddingProvider | null | undefined;
-  let embeddingInitPromise: Promise<EmbeddingProvider | null> | null = null;
-
-  async function getEmbeddingProvider(): Promise<EmbeddingProvider | null> {
-    if (embeddingProvider !== undefined) return embeddingProvider;
-    if (!embeddingInitPromise) {
-      const config = getConfig();
-      embeddingInitPromise = createEmbeddingProviderFromEnv(config.embedding);
-    }
-    embeddingProvider = await embeddingInitPromise;
-    return embeddingProvider;
-  }
 
   router.post("/:orgId/ops", async (c) => {
     const user = c.get("user");
@@ -46,7 +32,7 @@ export function opsRoutes(db: DB, s3: AgentS3Client) {
       orgId: resolved.orgId,
       driveId: resolved.driveId,
       userId: user.id,
-      embeddingProvider: await getEmbeddingProvider(),
+      embeddingProvider,
     };
 
     const result = await dispatchOp(ctx, op, params);
