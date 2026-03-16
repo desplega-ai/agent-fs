@@ -148,14 +148,14 @@ Update existing tests that do inline `AGENTFS_HOME` management to use this helpe
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
-- [ ] MCP server starts without `--embedded`/`--daemon` flags: `echo '{}' | bun run packages/mcp/src/index.ts 2>&1 | head -3`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Tests pass: `bun run test`
+- [x] MCP server starts without `--embedded`/`--daemon` flags: `echo '{}' | bun run packages/mcp/src/index.ts 2>&1 | head -3`
 
 #### Manual Verification:
-- [ ] `agentfs init --local -y` still auto-creates user when no config exists
-- [ ] MCP embedded mode works without mode flag
-- [ ] No references to "daemon mode" remain in MCP package
+- [x] `agentfs init --local -y` still auto-creates user when no config exists
+- [x] MCP embedded mode works without mode flag
+- [x] No references to "daemon mode" remain in MCP package
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -240,16 +240,16 @@ The following test files reference `head`, `mkdir`, or `find` by name and must b
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
-- [ ] Registry has 18 ops: `bun -e "const { getRegisteredOps } = require('@agentfs/core'); console.log(getRegisteredOps().length)"`
-- [ ] No references to removed ops: `grep -r "\"head\"" packages/core/src/ops/ packages/mcp/ packages/cli/` (should find nothing)
-- [ ] No references to old find: `grep -r "\"find\"" packages/core/src/ops/ packages/mcp/ packages/cli/` (should find nothing relevant)
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Tests pass: `bun run test`
+- [x] Registry has 18 ops: `bun -e "const { getRegisteredOps } = require('@agentfs/core'); console.log(getRegisteredOps().length)"`
+- [x] No references to removed ops: `grep -r "\"head\"" packages/core/src/ops/ packages/mcp/ packages/cli/` (should find nothing)
+- [x] No references to old find: `grep -r "\"find\"" packages/core/src/ops/ packages/mcp/ packages/cli/` (should find nothing relevant)
 
 #### Manual Verification:
-- [ ] `agentfs fts "search term"` works from CLI
-- [ ] `agentfs head` and `agentfs mkdir` produce "unknown command" errors
-- [ ] MCP tool list no longer includes `head`, `mkdir`, or `find`; includes `fts`
+- [x] `agentfs fts "search term"` works from CLI
+- [x] `agentfs head` and `agentfs mkdir` produce "unknown command" errors
+- [x] MCP tool list no longer includes `head`, `mkdir`, or `find`; includes `fts`
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -310,16 +310,16 @@ Add two new operations that fill gaps identified in the architecture review: `tr
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
-- [ ] Registry has 20 ops: `bun -e "const { getRegisteredOps } = require('@agentfs/core'); console.log(getRegisteredOps().length)"`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Tests pass: `bun run test`
+- [x] Registry has 20 ops: `bun -e "const { getRegisteredOps } = require('@agentfs/core'); console.log(getRegisteredOps().length)"`
 
 #### Manual Verification:
-- [ ] `agentfs tree /` returns a recursive listing of the drive
-- [ ] `agentfs tree / --depth 1` returns only immediate children
-- [ ] `agentfs glob "*.md"` returns matching files
-- [ ] `agentfs glob "*.md" /docs` scopes to a path prefix
-- [ ] Both operations appear as MCP tools
+- [x] `agentfs tree /` returns a recursive listing of the drive
+- [x] `agentfs tree / --depth 1` returns only immediate children
+- [x] `agentfs glob "*.md"` returns matching files
+- [x] `agentfs glob "*.md" --path /docs` scopes to a path prefix (note: path is `--path` flag, not positional)
+- [x] Both operations appear as MCP tools
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -392,14 +392,14 @@ Full descriptions for all 20 ops:
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
-- [ ] No `"agentfs "` prefix in MCP descriptions: `grep -r '"agentfs "' packages/mcp/`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Tests pass: `bun run test`
+- [x] No `"agentfs "` prefix in MCP descriptions: `grep -r '"agentfs "' packages/mcp/`
 
 #### Manual Verification:
-- [ ] MCP tool listing shows rich descriptions for all tools (not just `"agentfs write"`)
-- [ ] `agentfs --help` shows descriptions sourced from the registry
-- [ ] Each MCP tool description explains what parameters mean and what the return shape is
+- [x] MCP tool listing shows rich descriptions for all tools (not just `"agentfs write"`)
+- [x] `agentfs --help` shows descriptions sourced from the registry
+- [x] Each MCP tool description explains what parameters mean and what the return shape is
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -454,16 +454,16 @@ Pass `program` reference to `registerOpCommands` (add it as a 4th parameter). Th
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Tests pass: `bun run test`
 
 #### Manual Verification:
-- [ ] `agentfs ls /` shows a formatted table (not JSON)
-- [ ] `agentfs ls / --json` shows raw JSON
-- [ ] `agentfs cat /some-file` shows content with line numbers
-- [ ] `agentfs write /test --content "hello"` shows a one-line confirmation
-- [ ] `agentfs tree /` shows indented tree with connectors
-- [ ] All 20 ops have formatters that produce readable output
+- [x] `agentfs ls /` shows a formatted table (not JSON)
+- [x] `agentfs ls / --json` shows raw JSON
+- [x] `agentfs cat /some-file` shows content with line numbers
+- [x] `agentfs write /test --content "hello"` shows a one-line confirmation
+- [x] `agentfs tree /` shows indented tree with connectors
+- [x] All 20 ops have formatters that produce readable output
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -486,12 +486,12 @@ The `drive invite` CLI command invites to the org, not the drive. Fix the naming
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Tests pass: `bun run test`
 
 #### Manual Verification:
-- [ ] `agentfs drive invite --help` clearly states it invites to the org
-- [ ] The actual invite behavior is unchanged
+- [x] `agentfs drive invite --help` clearly states it invites to the org
+- [x] The actual invite behavior is unchanged
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -523,7 +523,7 @@ agentfs write /test-tree/sub/c.md --content "nested"
 agentfs tree /test-tree
 agentfs tree /test-tree --depth 1
 agentfs glob "*.md"
-agentfs glob "*.md" /test-tree
+agentfs glob "*.md" --path /test-tree
 
 # Verify pretty output
 agentfs ls /test-tree
@@ -538,6 +538,10 @@ agentfs cat /test-tree/a.md --json
 # Verify MCP descriptions (check tool list)
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | bun run packages/mcp/src/index.ts 2>/dev/null
 ```
+
+### E2E Results (2026-03-16)
+
+All 40 manual E2E tests passed. Tests run with `AGENTFS_HOME` pointed at a temp dir for full isolation. Notable: `bun run build` compiled binary has a pre-existing sqlite-vec native extension loading issue — all E2E tests ran via `bun run packages/cli/src/index.ts` instead.
 
 ## References
 
