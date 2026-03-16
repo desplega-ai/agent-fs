@@ -33,12 +33,8 @@ async function getOrgId(): Promise<string> {
     const me = await client.getMe();
     if (me.defaultOrgId) return me.defaultOrgId;
   } catch (err: any) {
-    if (err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed")) {
-      console.error(
-        "Cannot connect to agent-fs daemon.\n" +
-        "Start with: agent-fs daemon start\n" +
-        "Or set AGENT_FS_API_URL to connect to a remote server."
-      );
+    if (err?.message?.includes("Cannot connect")) {
+      console.error(err.message);
       process.exit(1);
     }
   }

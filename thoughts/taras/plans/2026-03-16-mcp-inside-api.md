@@ -288,8 +288,8 @@ console.error("[agent-fs] MCP server ready");
 - [x] ~~MCP server still works standalone~~ — obsolete: Phase 1+3 collapsed, standalone mode replaced by proxy
 
 #### Manual Verification:
-- [ ] `agent-fs mcp` still starts and responds to tool list requests from Claude Code
-- [ ] `health` and `whoami` tools still return correct data
+- [x] `agent-fs mcp` starts and connects to daemon — verified: prints "MCP proxy connected to http://127.0.0.1:7433"
+- [ ] `health` and `whoami` tools return correct data — **requires Claude Code** (tools need full MCP lifecycle: init → notify → call)
 
 **Implementation Note**: After completing this phase, pause for manual confirmation.
 
@@ -585,9 +585,9 @@ const getContext = (extra: Extra): OpContext => {
 
 #### Manual Verification:
 - [x] Start daemon: `agent-fs daemon start` — **covered by E2E**
-- [ ] MCP proxy starts: `agent-fs mcp` (should print "MCP proxy connected to http://localhost:7433") — **requires manual test**
-- [ ] MCP proxy fails gracefully without daemon — **requires manual test**
-- [ ] Claude Code can discover and call tools via the proxy — **requires manual test** (stdio proxy not testable in E2E)
+- [x] MCP proxy starts: `agent-fs mcp` — verified: prints "MCP proxy connected to http://127.0.0.1:7433"
+- [x] MCP proxy fails gracefully without daemon — verified: prints "Cannot connect to agent-fs" and exits
+- [ ] Claude Code can discover and call tools via the proxy — **requires Claude Code** (stdio proxy not testable programmatically)
 - [x] Tools return correct results (same as before) — **covered by E2E** (21 CLI ops + comments all pass through daemon)
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. This is the most critical phase — verify Claude Code integration thoroughly.
@@ -667,8 +667,8 @@ try {
 
 #### Manual Verification:
 - [x] CLI ops work with daemon running — **covered by E2E** (21 CLI ops + comments all go through daemon)
-- [ ] CLI shows clear error without daemon: `agent-fs daemon stop && agent-fs ls /` — **requires manual test**
-- [ ] MCP proxy still works: `agent-fs daemon start && agent-fs mcp` (test with Claude Code) — **requires manual test**
+- [x] CLI shows clear error without daemon — verified: "Cannot connect to agent-fs daemon at http://127.0.0.1:7433"
+- [ ] MCP proxy works end-to-end with Claude Code — **requires Claude Code**
 - [x] `agent-fs daemon start` still starts correctly — **covered by E2E** (setup)
 - [x] `agent-fs daemon stop` still stops correctly — **covered by E2E** (cleanup)
 
