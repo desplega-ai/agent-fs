@@ -299,58 +299,56 @@ A script that generates an OpenAPI spec from the registry would be straightforwa
 
 ## 8. Recommended Action Plan
 
-<!-- review-line-start(4d854007) -->
 ### Phase 1: Must-have before open-source (P0)
-<!-- review-line-end(4d854007): ok -->
 
-1. **Rewrite README** — lead with "agentmail for files" positioning, 3-command quickstart, architecture diagram
+1. **Rewrite README** — lead with “agentmail for files” positioning, 3-command quickstart, architecture diagram
 2. **Generate OpenAPI spec** — from existing Zod schemas + route definitions
 3. **Add docker-compose.yml** — server + MinIO for local dev
 4. **Write MCP integration guide** — how to add agent-fs to Claude Code / any MCP client
 5. **Write deployment guide** — single server, multi-agent setup, env vars
 
-<!-- review-line-start(b6bf8b25) -->
 ### Phase 2: Should-have for adoption (P1)
-<!-- review-line-end(b6bf8b25): I think we need an “onboard” command which should replace the init one.
 
-Also, there’s the point too that the auth register is misleading, as you can do it even after auth is already set…
+6. **Replace `init` with `onboard` command** — unified setup wizard (see detailed flow below)
+7. **Add `config validate`** — check S3 connectivity, embedding provider, config schema
+8. **Fix `auth register`** — guard against re-registration when auth already configured
+9. **Add user switching** — `agent-fs auth switch` for multiple locally registered users
+10. **Tighten CORS** — configurable origins instead of wildcard
+11. **Add rate limiting** — basic per-key rate limits
+12. **Issue/PR templates + SECURITY.md + Code of conduct**
+13. **Fix CONTRIBUTING.md** — add macOS SQLite prereq, Docker prereq
+14. **Add health/whoami MCP tools**
 
-There should be a way to switch users (if more than one locally registred)?
+#### `agent-fs onboard` — Detailed Flow
 
-The onboarding should be:
+Replaces current `init`. Each step configurable via CLI flags, interactive if omitted.
 
-0. Connect to remote API
-0.1. If so:
-0.1.1. Register -> ask email + verification -> API key
-0.1.2. If API key available -> set (already registerd)
-0.2. If not, auto generate email (with overwrite)
-1. Local or remote s3?
-1.1. If local -> start minio
-1.2. If remote, ask for creds
-2. Local or OpenAI embedding
-2.1. If local, download
-2.2. If remote ask for key
-3. Start daemon API?
+```
+0. Remote or local API?
+   0.1. Remote API:
+        0.1.1. Register → ask email + verification → receive API key
+        0.1.2. Already registered → set existing API key
+   0.2. Local (default):
+        Auto-generate local user (email overridable)
 
-all of these should be able to be set via param, and the help should be clear enough. Also references to how it’s stored in local config file. There should be a schema for it clearly (maybe even validate command in config validate?) -->
+1. Storage backend?
+   1.1. Local → start MinIO docker container
+   1.2. Remote S3 → ask for endpoint, bucket, credentials
 
-6. **Add config validation** — `agent-fs config validate` to check S3 connectivity
-7. **Add `agent-fs init --remote`** — guided setup for AWS S3, R2, etc.
-8. **Tighten CORS** — configurable origins instead of wildcard
-9. **Add rate limiting** — basic per-key rate limits
-10. **Issue/PR templates + SECURITY.md + Code of conduct**
-11. **Fix CONTRIBUTING.md** — add macOS SQLite prereq, Docker prereq
-12. **Add health/whoami MCP tools**
+2. Embedding provider?
+   2.1. Local → download nomic model (~330MB)
+   2.2. OpenAI → ask for OPENAI_API_KEY
+   2.3. Gemini → ask for GEMINI_API_KEY
+   2.4. None → skip (semantic search disabled)
 
-<!-- review-line-start(771aba24) -->
-### Phase 3: Nice-to-have for growth (P2)
-<!-- review-line-end(771aba24): No need for now -->
+3. Start daemon API? (y/n)
+```
 
-13. **Examples directory** — Python, TypeScript, shell scripts showing agent-fs usage
-14. **TypeScript client SDK** — for programmatic access
-15. **Landing page** — beyond GitHub README
-16. **Demo video/gif** — shows the value in 30 seconds
-17. **Structured logging + metrics** — for production deployments
+Requirements:
+- All steps settable via flags (e.g. `--s3-endpoint`, `--openai-key`, `--no-daemon`)
+- Clear help text with examples for each flag
+- Config stored in `~/.agent-fs/config.json` — document the schema
+- `config validate` verifies all configured services are reachable
 
 ---
 
