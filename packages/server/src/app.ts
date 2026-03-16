@@ -9,6 +9,7 @@ import { handleError } from "./middleware/error.js";
 import { authRoutes } from "./routes/auth.js";
 import { opsRoutes } from "./routes/ops.js";
 import { orgRoutes } from "./routes/orgs.js";
+import { docsRoutes } from "./routes/docs.js";
 
 export function createApp(db: DB, s3: AgentS3Client) {
   const app = new Hono<AppEnv>();
@@ -28,6 +29,7 @@ export function createApp(db: DB, s3: AgentS3Client) {
   app.route("/auth", authRoutes(db));
   app.route("/orgs", orgRoutes(db));
   app.route("/orgs", opsRoutes(db, s3));
+  app.route("/docs", docsRoutes());
 
   return app;
 }

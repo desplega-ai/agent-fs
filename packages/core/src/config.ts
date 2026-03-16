@@ -2,7 +2,12 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 function resolveHome(): string {
-  return process.env.AGENT_FS_HOME ?? join(process.env.HOME ?? "/tmp", ".agent-fs");
+  const home = process.env.AGENT_FS_HOME ?? join(process.env.HOME ?? "/tmp", ".agent-fs");
+  // Expand ~ since env vars loaded by bun/.env don't do shell expansion
+  if (home.startsWith("~/")) {
+    return join(process.env.HOME ?? "/tmp", home.slice(2));
+  }
+  return home;
 }
 
 export interface AgentFSConfig {

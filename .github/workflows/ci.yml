@@ -26,3 +26,7 @@ jobs:
         run: bun run test
       - name: Coverage
         run: bun run test:coverage
+      - name: OpenAPI spec freshness
+        run: |
+          bun run scripts/sync-openapi.ts
+          git diff --exit-code docs/openapi.json

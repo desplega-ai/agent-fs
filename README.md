@@ -59,6 +59,12 @@ Agent FS is a Bun monorepo with four packages:
 | `@desplega-ai/agent-fs-mcp` | MCP server — exposes operations as MCP tools |
 | `@desplega-ai/agent-fs-server` | HTTP server — RESTful API powered by Hono |
 
+## Documentation
+
+- [MCP Setup Guide](./docs/mcp-setup.md) — Connect agent-fs to Claude Code, Cursor, or any MCP client
+- [Deployment Guide](./docs/deployment.md) — Local, remote S3, team, and multi-agent deployments
+- [API Reference](./docs/api-reference.md) — HTTP API and OpenAPI spec
+
 ## Development
 
 ```bash

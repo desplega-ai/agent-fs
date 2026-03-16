@@ -25,7 +25,8 @@ export async function reindex(
     eq(schema.files.isDeleted, false),
     or(
       eq(schema.files.embeddingStatus, "failed"),
-      isNull(schema.files.embeddingStatus)
+      isNull(schema.files.embeddingStatus),
+      eq(schema.files.embeddingStatus, "pending"),
     ),
   ];
 
