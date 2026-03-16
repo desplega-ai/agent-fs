@@ -72,4 +72,15 @@ program
     await import("@/server/index.js");
   });
 
+// Show global options in subcommand help
+const globalHelp = `
+Global Options:
+  --org <orgId>    Override org context
+  --drive <driveId>  Override drive context
+  --json           Output raw JSON
+`;
+for (const cmd of program.commands) {
+  cmd.addHelpText("after", globalHelp);
+}
+
 program.parse();

@@ -3,7 +3,7 @@ date: 2026-03-16T13:30:00Z
 topic: "Open-Source Readiness Assessment"
 researcher: "Claude (with Taras)"
 goal: "Evaluate agent-fs readiness for public open-source release"
-status: reviewed
+status: complete
 ---
 
 # Open-Source Readiness Assessment
@@ -23,7 +23,7 @@ agent-fs is **functionally complete for a v0.1 open-source release** but has sev
 | Core functionality | 9/10 | Solid — 26 ops, versioning, RBAC, search |
 | Local "it works" | 7/10 | Works but MinIO docker setup is manual |
 | Onboarding (new user) | 5/10 | Too many steps, unclear quickstart |
-| Remote S3 + OpenAI | 6/10 | Works but undocumented, no validation |
+| Remote S3 + OpenAI | 5/10 | S3 works, embeddings broken in CLI/daemon |
 | Deployment path | 3/10 | No guide, no docker-compose, no hosting docs |
 | API documentation | 2/10 | No OpenAPI spec, no API reference |
 | Agent DX (MCP) | 8/10 | Good tool descriptions, auto-bootstrap |
@@ -101,26 +101,45 @@ agent-fs is **functionally complete for a v0.1 open-source release** but has sev
 
 ## 3. Remote S3 + OpenAI Embeddings
 
-### How it works
+### Tested: 2026-03-16 against Cloudflare R2 + OpenAI
+
+Actual E2E tests were run against Cloudflare R2 (S3-compatible) with `OPENAI_API_KEY` set.
 
 **S3 Configuration:**
-- Set via `agent-fs config set s3.endpoint <url>`, `s3.bucket`, `s3.accessKeyId`, `s3.secretAccessKey`
-- Or via config file at `~/.agent-fs/config.json`
-- Works with any S3-compatible backend (AWS S3, Cloudflare R2, Backblaze B2, etc.)
+- Set via config file at `~/.agent-fs/config.json` under `s3.*` keys
+- Tested with: Cloudflare R2 (`forcePathStyle: true`, region `auto`)
 
 **OpenAI Embeddings:**
-- Auto-detected from `OPENAI_API_KEY` env var
+- Auto-detected from `OPENAI_API_KEY` env var (only in MCP mode — see bugs below)
 - Model: `text-embedding-3-small` (768 dimensions)
 - Also supports `GEMINI_API_KEY` for Google Gemini
 
-### What works
+### What works (verified against R2)
 
+- **write** — files stored to R2 successfully, returns `{version, path, size}`
+- **cat** — reads content back from R2 correctly
+- **stat** — returns file metadata (size, author, version, dates)
+- **ls** — lists directory entries from R2
+- **tree** — recursive listing works
+- **grep** — content search via FTS5 works (matches "SHA256" in auth doc)
+- **fts** — full-text search works (finds "API keys" with snippet highlighting)
+- **recent** — activity log returns all writes in order
+- **rm** — deletes files from R2
+- **comment-add/list** — comments stored and retrieved correctly
 - S3 client is standard `@aws-sdk/client-s3` — compatible with any S3 provider
-- Embedding providers are cleanly abstracted (OpenAI, Gemini, local)
 - `forcePathStyle: true` ensures MinIO/R2 compatibility
-- Semaphore limits concurrent embedding requests (prevents rate limiting)
 
-### What needs attention
+### Bugs found during testing
+
+- **BUG: Embedding provider not initialized in CLI or daemon** — `OPENAI_API_KEY` env var is only detected in MCP mode (`packages/mcp/src/server.ts:24-42`). Both the CLI embedded mode (`packages/cli/src/embedded.ts:30-36`) and the HTTP server (`packages/server/src/routes/ops.ts:29-35`) build `OpContext` without `embeddingProvider`. Result: semantic search returns `"No embedding provider configured"` hint in CLI and daemon modes. **Only MCP mode supports embeddings.** This is a critical bug for the open-source launch.
+
+- **BUG: CLI `edit` command broken** — `--old`/`--new` flags map to `{old, new}` params but core Zod schema expects `{old_string, new_string}`. No mapping exists in `packages/cli/src/commands/ops.ts` (only `expected-version` → `expectedVersion` is handled at line 80). Error: `"old_string" Required`.
+
+- **Minor: `glob` returns empty** — `glob "*.md"` with no `--path` prefix returns `{matches: []}` even with 4 `.md` files in `/test/`. May need explicit path prefix to scope the search.
+
+- **Minor: `reindex` returns 0** — `reindex --json` returns `{reindexed: 0, failed: 0, skipped: 0}` even with files at `embedding_status: "pending"`. Likely because reindex only picks up "failed" status, not "pending".
+
+### What needs attention (from code review)
 
 - **No remote S3 documentation** — README only mentions local MinIO. No guide for connecting to AWS S3, R2, etc.
 
@@ -128,13 +147,13 @@ agent-fs is **functionally complete for a v0.1 open-source release** but has sev
 
 - **No `agent-fs init` for remote** — the init wizard only supports `--local` (MinIO). No guided setup for remote S3.
 
-- **Embedding failures are silent** — if `OPENAI_API_KEY` is invalid or the model is unavailable, embeddings fail async and the user has no visibility. `stat` shows `embedding_status: failed` but there's no error message.
+- **Embedding failures are silent** — `stat` shows `embedding_status: failed` but there's no error message stored.
 
 - **S3 versioning optional but important** — the system works without S3 versioning, but `revert` and `diff` degrade. This isn't clearly communicated.
 
 - **No cost guidance** — OpenAI embeddings cost money. No documentation on expected costs per file or strategies to minimize API calls.
 
-### Verdict: 6/10 — Works technically, but zero docs and no error guidance
+### Verdict: 5/10 — S3 works well, but embeddings broken in CLI/daemon (only MCP works)
 
 ---
 
@@ -374,28 +393,67 @@ For open-source launch messaging, position agent-fs as:
 
 ---
 
-## Review Errata
+## 10. Bugs Found During E2E Testing
 
-_Reviewed: 2026-03-16 by Claude_
+These must be fixed before open-source launch.
 
-### Critical
+| Bug | Severity | Location | Description |
+|-----|----------|----------|-------------|
+| Embeddings broken in CLI/daemon | **Critical** | `cli/src/embedded.ts:30-36`, `server/src/routes/ops.ts:29-35` | `OpContext` built without `embeddingProvider`. Only MCP mode (`mcp/src/server.ts:24-42`) detects `OPENAI_API_KEY`/`GEMINI_API_KEY`. Semantic search returns "No embedding provider configured" in CLI and daemon. |
+| CLI `edit` command broken | **Critical** | `cli/src/commands/ops.ts` | `--old`/`--new` flags produce `{old, new}` but core Zod schema expects `{old_string, new_string}`. No param mapping exists. |
+| `glob` returns empty without path | Minor | `core/src/ops/glob.ts` | `glob "*.md"` returns `{matches: []}` even with `.md` files present. Needs `--path` prefix or default scope. |
+| `reindex` skips pending files | Minor | `core/src/ops/reindex.ts` | Returns `{reindexed: 0}` for files at `embedding_status: "pending"`. May only pick up "failed" status. |
+| Server binds to localhost only | Docs | `core/src/config.ts:50-53` | Default `127.0.0.1:7433` blocks external connections. Must document `0.0.0.0` for hosted deployments. |
 
-- [ ] **Remote S3 + OpenAI not actually tested** — Research goal #3 was "Test it works with remote S3 and OpenAI embeddings," but the assessment is based entirely on code reading. No actual test was run against AWS S3, R2, or a live OpenAI API. The 6/10 score is a confidence estimate, not a measured result. **Action:** `.env.example` created — Taras to provide credentials in `.env`, then run actual E2E tests against remote S3 + OpenAI embeddings and document results.
+---
 
-### Important
+## 11. Proposed Plan Structure
 
-- [ ] **Server binds to `127.0.0.1` by default** — Not mentioned in Section 4 (Deployment). The default config at `packages/core/src/config.ts:50-53` binds to `127.0.0.1:7433`, meaning the server won’t accept external connections. Hosted/multi-agent deployments require changing the bind address to `0.0.0.0`. **Action:** Add to deployment section.
+Based on all findings, here is the recommended structure for an implementation plan. Items are ordered by dependency and priority.
 
-### Deferred
+### Phase 0: Bug Fixes (blockers)
 
-- **No file:line code references** — Acknowledged as pedantic for this document type. Low priority.
-- **Windows support** — Build script has plumbing but no CI/install. Shelved for future.
-- **Competitive landscape cross-reference** — Not a problem for now.
-- **Open Questions section** — Will add later.
-- **Database migration strategy** — Not a worry for v0.1 open-source launch.
+Fix before anything else — these break core functionality.
 
-### Resolved
+1. **Fix embedding provider initialization** — Extract the env-var detection from `mcp/src/server.ts` into a shared `createEmbeddingProviderFromEnv()` in core. Wire it into `cli/src/embedded.ts` and `server/src/routes/ops.ts`.
+2. **Fix CLI `edit` param mapping** — Add `old` → `old_string`, `new` → `new_string` mapping in `cli/src/commands/ops.ts` (same pattern as `expected-version` → `expectedVersion`).
+3. **Fix `glob` default scope** — Either default to drive root or document that `--path` is required.
+4. **Fix `reindex` for pending files** — Include `embedding_status = "pending"` in the reindex query.
 
-- [x] Op count corrected: was "27", actual is **26** (20 file/search/system ops + 6 comment ops, verified from `packages/core/src/ops/index.ts:39-253`) — auto-fixed
-- [x] Missing `status` field added to YAML frontmatter — auto-fixed
-- [x] `.env.example` created with all env vars (S3, embedding providers, API keys)
+### Phase 1: Documentation & Onboarding (P0)
+
+Minimum viable documentation for open-source launch.
+
+5. **Rewrite README.md** — "agentmail for files" positioning, 3-command quickstart, architecture diagram, MCP snippet.
+6. **Write MCP integration guide** — `docs/mcp-setup.md`: how to add agent-fs to Claude Code, Cursor, or any MCP client.
+7. **Write deployment guide** — `docs/deployment.md`: local setup, remote S3, multi-agent architecture, env vars, bind address.
+8. **Generate OpenAPI spec** — Script or `@hono/zod-openapi` integration. Serve at `/docs` or publish as `openapi.yaml`.
+9. **Add docker-compose.yml** — `agent-fs-server` + MinIO for local dev. Separate compose for hosted (server + external S3).
+10. **Fix CONTRIBUTING.md** — Add macOS Homebrew SQLite prereq, Docker prereq.
+
+### Phase 2: Onboard Command & DX (P1)
+
+Improve the setup experience and agent DX.
+
+11. **Replace `init` with `onboard`** — Unified wizard: API mode (local/remote) → S3 backend → embedding provider → daemon. All steps flag-configurable.
+12. **Add `config validate`** — Check S3 connectivity, embedding provider reachability, config schema validation.
+13. **Fix `auth register`** — Guard against re-registration when already configured. Add `auth switch` for multiple local users.
+14. **Add `health`/`whoami` MCP tools** — Let agents check system readiness and their own identity.
+15. **Issue/PR templates + SECURITY.md + Code of conduct** — Standard OSS scaffolding.
+
+### Phase 3: Production Hardening (P1)
+
+For users deploying in shared/hosted environments.
+
+16. **Configurable CORS** — Read allowed origins from config instead of wildcard `*`.
+17. **Basic rate limiting** — Per-API-key rate limits (configurable).
+18. **Dockerfile** — Multi-stage build for the server binary.
+
+### Verification
+
+Each phase should include:
+- `bun run typecheck` passes
+- `bun run test` passes (257+ tests)
+- Manual E2E against local MinIO
+- Manual E2E against remote R2 (using `.env` credentials)
+- MCP tools verified in Claude Code
