@@ -8,6 +8,7 @@ import { daemonCommands } from "./commands/daemon.js";
 import { configCommands } from "./commands/config-cmd.js";
 import { driveCommands } from "./commands/drive.js";
 import { initCommand } from "./commands/init.js";
+import { onboardCommand } from "./commands/onboard.js";
 import { commentCommands } from "./commands/comment.js";
 
 const program = new Command();
@@ -54,6 +55,7 @@ program.addCommand(daemonCommands());
 program.addCommand(configCommands());
 program.addCommand(driveCommands(client));
 program.addCommand(initCommand());
+program.addCommand(onboardCommand());
 program.addCommand(commentCommands(client, getOrgId));
 
 // MCP command
