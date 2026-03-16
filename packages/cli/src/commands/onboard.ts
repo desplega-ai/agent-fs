@@ -67,7 +67,7 @@ export function onboardCommand() {
         setConfigValue("s3.provider", "s3");
         console.log("S3 configured from flags.");
       } else if (isLocal) {
-        await setupLocalMinIO();
+        await setupLocalMinIO(!!opts.yes);
       } else {
         await setupCustomS3();
       }
@@ -158,7 +158,7 @@ function configureEmbeddings(
   }
 }
 
-async function setupLocalMinIO() {
+async function setupLocalMinIO(autoYes: boolean) {
   // Docker pre-flight check
   try {
     execSync("which docker", { stdio: "ignore" });
@@ -167,19 +167,39 @@ async function setupLocalMinIO() {
     console.error(
       "Docker is required for local mode (MinIO).\n" +
         "Install Docker: https://docs.docker.com/get-docker/\n" +
-        "Or use 'agent-fs onboard' (without --local) to configure your own S3 bucket."
+        "Or use 'agent-fs onboard --s3-endpoint <url>' to configure your own S3 bucket."
     );
     process.exit(1);
+  }
+
+  // Check for existing container
+  const existing = execSync(
+    "docker ps -a --filter name=agent-fs-minio --format '{{.Names}}'",
+    { encoding: "utf-8" }
+  ).trim();
+
+  if (existing === "agent-fs-minio") {
+    console.log("Found existing MinIO container (agent-fs-minio).");
+  }
+
+  // Confirm before Docker operations (unless -y)
+  if (!autoYes) {
+    const action = existing === "agent-fs-minio" ? "start the existing" : "create a new";
+    process.stdout.write(`This will ${action} MinIO Docker container. Continue? [Y/n] `);
+    const reader = Bun.stdin.stream().getReader();
+    const { value } = await reader.read();
+    reader.releaseLock();
+    const answer = new TextDecoder().decode(value).trim().toLowerCase();
+    if (answer === "n" || answer === "no") {
+      console.log("Skipped MinIO setup. Configure S3 manually:");
+      console.log("  agent-fs config set s3.endpoint <url>");
+      return;
+    }
   }
 
   console.log("Setting up MinIO (local S3)...");
 
   try {
-    const existing = execSync(
-      "docker ps -a --filter name=agent-fs-minio --format '{{.Names}}'",
-      { encoding: "utf-8" }
-    ).trim();
-
     if (existing === "agent-fs-minio") {
       execSync("docker start agent-fs-minio", { stdio: "inherit" });
       console.log("MinIO container started.");
@@ -194,19 +214,20 @@ async function setupLocalMinIO() {
         { stdio: "inherit" }
       );
       console.log("MinIO container created.");
+    }
 
-      console.log("Waiting for MinIO to start...");
-      await new Promise((r) => setTimeout(r, 3000));
+    // Always wait briefly and ensure bucket exists
+    console.log("Waiting for MinIO to be ready...");
+    await new Promise((r) => setTimeout(r, 2000));
 
-      try {
-        execSync(
-          "docker exec agent-fs-minio mc alias set local http://localhost:9000 minioadmin minioadmin && " +
-            "docker exec agent-fs-minio mc mb local/agentfs",
-          { stdio: "inherit" }
-        );
-      } catch {
-        // Bucket may already exist
-      }
+    try {
+      execSync(
+        "docker exec agent-fs-minio mc alias set local http://localhost:9000 minioadmin minioadmin && " +
+          "docker exec agent-fs-minio mc mb --ignore-existing local/agentfs",
+        { stdio: "inherit" }
+      );
+    } catch {
+      // Bucket creation best-effort
     }
 
     const containerId = execSync(
