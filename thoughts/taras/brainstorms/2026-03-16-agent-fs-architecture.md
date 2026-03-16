@@ -53,6 +53,47 @@ The MCP server is always "embedded" — it creates its own DB and S3 client dire
 
 **Key bottleneck:** The MCP server directly instantiates core (DB + S3). There's no abstraction where MCP tools could target either local core or a remote HTTP API. The CLI's `ApiClient` already solves this for CLI commands but MCP doesn't use it.
 
+### Q: How does authentication work?
+
+**Registration flow:**
+
+```
+agent-fs auth register taras@example.com
+  │
+  ├── If daemon running: POST /auth/register { email: "taras@example.com" }
+  └── If no daemon: direct DB call to createUser()
+        │
+        ▼
+  createUser(db, { email })
+    1. Generate UUID for user ID
+    2. Generate API key: af_<64-hex-chars> (32 random bytes)
+    3. SHA-256 hash the API key → store hash in DB (raw key never stored)
+    4. Create user record: { id, email, apiKeyHash, createdAt }
+    5. Auto-create personal org (name = email prefix, isPersonal=true)
+       └── Auto-create default drive in that org
+       └── Add user as admin on both org and drive
+    6. Save API key to ~/.agent-fs/config.json (auth.apiKey)
+    7. Return: { apiKey, userId, orgId }
+```
+
+**Key format:** `af_<64 hex chars>` (e.g. `af_a1b2c3...`). The `af_` prefix makes it identifiable as an agent-fs key.
+
+**How auth is enforced (HTTP API):**
+- All requests (except `/auth/register` and `/health`) require `Authorization: Bearer af_xxx` header
+- Auth middleware: extracts key → SHA-256 hash → lookup in `users.api_key_hash` → set `user` on context
+- If no match → 401 Unauthorized
+
+**How auth works in MCP (embedded):**
+- `createMcpServer({ apiKey? })` — if key provided, uses it; otherwise calls `ensureLocalUser()`
+- `ensureLocalUser()`: reads `config.auth.apiKey` → validates against DB → if invalid or missing, auto-creates `local@agent-fs.local` user and saves key to config
+- All subsequent ops use this key to resolve identity/context
+
+**Important details:**
+- Email is used as the user identifier but there’s **no email verification** — it’s just a label. **📌 Pinned: add email verification on register in the future.**
+- API key is the real credential — shown once at registration, then only the hash is stored
+- No password-based auth, no OAuth, no sessions — purely API key bearer tokens
+- `inviteToOrg()` requires the invited user to already be registered (looked up by email)
+
 ## Synthesis
 
 ### Q: How does the storage layer work?
@@ -293,10 +334,9 @@ What changes from Level 2:
 
 ### Open Questions
 
-1. **Path-level access control** — Should drives support sub-tree permissions (e.g. "viewer on /docs/* within drive-X")? What model — additive or restrictive relative to drive role?
-2. **MCP-over-HTTP vs MCP-in-server** — For hosted: should MCP become a thin HTTP client (Path A) or should the server embed MCP via SSE transport (Path B)? Path B is likely better (one deployment, one port).
-3. **SQLite → PostgreSQL migration path** — How painful is the Drizzle ORM transition? FTS5 → pg_trgm/tsvector and sqlite-vec → pgvector are the hard parts.
-4. **Multi-process SQLite safety** — If MCP (embedded) and daemon both run locally, are they fighting over the same SQLite file? WAL mode helps but is it sufficient?
+1. **Path-level access control (pinned)** — Should drives support sub-tree permissions (e.g. "viewer on /docs/* within drive-X")? What model — additive or restrictive relative to drive role?
+2. **MCP-in-server architecture** — How exactly to embed MCP inside the Hono server: SSE vs streamable-http transport? How does `agent-fs mcp` (stdio) proxy to it? This is the next research topic.
+3. **Multi-process SQLite safety** — If MCP (embedded) and daemon both run locally, are they fighting over the same SQLite file? WAL mode helps but is it sufficient? (Resolved if MCP goes through the API.)
 
 ### Constraints Identified
 
@@ -348,7 +388,5 @@ What changes from Level 2:
 
 ## Next Steps
 
-- **Immediate:** Consider removing CLI embedded mode (`embedded.ts`) — simplifies the system and aligns with the "daemon-required" model.
-- **Short-term:** Research MCP-over-SSE/streamable-http to support hosted MCP (Path B: MCP embedded in server).
-- **Medium-term:** Plan the SQLite → PostgreSQL migration for L3 (cloud multi-tenant). Drizzle supports both, but search indexes are the hard part.
-- **Future feature (pinned):** Path-level access control within drives (tree-based model).
+- **Research (next):** MCP inside the API — make the HTTP server embed MCP (SSE/streamable-http transport) so that `agent-fs mcp` is just that route served locally via stdio proxy. This also removes CLI embedded mode since everything goes through the API. Single deployment for standalone + hosted.
+- **Pinned (future):** Path-level access control within drives (tree-based model).
