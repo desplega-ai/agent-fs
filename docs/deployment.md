@@ -8,14 +8,14 @@ Everything runs on your machine. SQLite for metadata, MinIO (Docker) for file st
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) v1.2+ or the `agent-fs` binary
+- [Bun](https://bun.sh) v1.2+
 - [Docker](https://docker.com) (for MinIO)
 
 ### Setup
 
 ```bash
 # Install agent-fs
-curl -fsSL https://raw.githubusercontent.com/desplega-ai/agent-fs/main/install.sh | sh
+bun add -g @desplega.ai/agent-fs
 
 # Initialize (starts MinIO container, creates DB, registers local user)
 agent-fs init --local

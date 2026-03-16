@@ -12,20 +12,22 @@
   "engines": {
     "bun": ">=1.2.0"
   },
-  "main": "src/index.ts",
-  "types": "src/index.ts",
   "bin": {
-    "agent-fs": "src/index.ts"
+    "agent-fs": "dist/cli.js"
   },
   "files": ["dist", "README.md"],
   "scripts": {
-    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --packages external --minify",
+    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external chonkie --external zod --external @modelcontextprotocol/sdk --external hono",
     "prepublishOnly": "bun run build:npm"
   },
+  "optionalDependencies": {
+    "sqlite-vec-darwin-arm64": "^0.1.6",
+    "sqlite-vec-darwin-x64": "^0.1.6",
+    "sqlite-vec-linux-arm64": "^0.1.6",
+    "sqlite-vec-linux-x64": "^0.1.6",
+    "sqlite-vec-windows-x64": "^0.1.6"
+  },
   "dependencies": {
-    "@desplega.ai/agent-fs-core": "workspace:*",
-    "@desplega.ai/agent-fs-server": "workspace:*",
-    "@desplega.ai/agent-fs-mcp": "workspace:*",
     "commander": "^14.0.3",
     "@aws-sdk/client-s3": "^3.750.0",
     "@google/genai": "^1.45.0",

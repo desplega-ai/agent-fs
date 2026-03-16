@@ -1,11 +1,11 @@
-name: Publish to npm
+name: Release & Publish
 
 on:
   push:
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -21,10 +21,50 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION="v$(jq -r .version package.json)"
+          if [ "$PKG_VERSION" != "${{ github.ref_name }}" ]; then
+            echo "::error::Tag ${{ github.ref_name }} doesn't match package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+
       - run: bun install --frozen-lockfile
-      - run: cd packages/cli && bun run build:npm
+      - run: bun run typecheck
+      - run: bun run test
+      - run: bun run build
       - run: cp README.md packages/cli/README.md
       - run: cd packages/cli && bun pm pack
-      - run: npm publish packages/cli/*.tgz --access public --provenance
+
+      - name: Publish to npm
+        run: npm publish packages/cli/*.tgz --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        run: |
+          VERSION="${{ github.ref_name }}"
+          gh release create "$VERSION" --generate-notes --notes "$(cat <<'NOTES'
+
+          ## Install
+
+          ```bash
+          # bun
+          bun add -g @desplega.ai/agent-fs@${VERSION#v}
+
+          # npm
+          npm install -g @desplega.ai/agent-fs@${VERSION#v}
+
+          # pnpm
+          pnpm add -g @desplega.ai/agent-fs@${VERSION#v}
+          ```
+
+          ## Update
+
+          ```bash
+          bun update -g @desplega.ai/agent-fs
+          ```
+          NOTES
+          )"
+        env:
+          GH_TOKEN: ${{ github.token }}

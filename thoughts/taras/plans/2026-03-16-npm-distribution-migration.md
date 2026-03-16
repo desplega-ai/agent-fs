@@ -2,7 +2,7 @@
 date: 2026-03-16
 author: claude
 topic: "Migrate agent-fs from compiled binary to npm-only distribution"
-status: ready
+status: completed
 autonomy: autopilot
 research: thoughts/taras/research/2026-03-16-npm-distribution-migration.md
 tags: [distribution, npm, sqlite-vec, bun-compile, migration]
@@ -590,3 +590,20 @@ _Reviewed: 2026-03-16 by Claude_
 - [x] Verified `test-utils.ts:39` uses `sqliteVec.load(sqlite)` directly (no try/catch)
 - [x] Verified `scripts/release.sh` only creates git tags
 - [x] `docker-compose.yml` and `docker-compose.hosted.yml` do NOT reference `build.sh` — no changes needed
+
+### Implementation Errata (2026-03-16)
+
+- [x] **Workspace packages not on npm** — `--packages external` externalizes workspace deps (`@desplega.ai/agent-fs-core`, etc.) which aren't published. Fixed by replacing `--packages external` with individual `--external` flags for each npm dependency. Workspace code is now bundled into `cli.js` (124KB vs 37KB). Removed workspace deps from `dependencies`.
+- [x] **Double shebang** — `bun build --target bun` already adds `#!/usr/bin/env bun`. The manual prepend in `build:npm` created a double shebang causing `Syntax Error` at runtime. Removed the manual shebang prepend.
+- [x] **`.gitignore` tarballs** — added `*.tgz` to `.gitignore`
+
+### E2E Results
+
+- [x] `bun run build` — passes (124.64KB bundle)
+- [x] `bun run typecheck` — passes
+- [x] `bun run test` — 269 pass, 0 fail
+- [x] `bun pm pack` — produces 63.76KB tarball, no `src/` in contents
+- [x] `bun add -g <tarball>` — installs successfully with `agent-fs` binary
+- [x] `agent-fs --help` — shows full help output
+- [x] `agent-fs --version` — outputs `0.1.5`
+- [x] `agent-fs ls /` — DB + sqlite-vec init works, lists files correctly

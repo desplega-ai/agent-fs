@@ -28,8 +28,10 @@ Agent FS gives AI agents a structured filesystem with built-in semantic search, 
 
 ### Install
 
+Requires [Bun](https://bun.sh) >= 1.2.0.
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/desplega-ai/agent-fs/main/install.sh | sh
+bun add -g @desplega.ai/agent-fs
 ```
 
 Or build from source:
@@ -71,7 +73,7 @@ Agent FS is a Bun monorepo with four packages:
 bun install          # Install dependencies
 bun run typecheck    # Type checking
 bun run test         # Run tests
-bun run build        # Build CLI binary to dist/agent-fs
+bun run build        # Bundle CLI for npm
 ```
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development guide.
@@ -82,7 +84,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development guide.
 2. Commit the version bump
 3. Run `./scripts/release.sh`
 
-This creates a git tag and pushes it, triggering the release workflow which builds binaries for linux-x64, linux-arm64, darwin-x64, darwin-arm64, and windows-x64.
+This creates a git tag and pushes it, triggering the release workflow which publishes to npm and creates a GitHub Release.
 
 ## Contributing
 

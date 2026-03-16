@@ -43,11 +43,11 @@ bun run test:coverage
 ### Build
 
 ```bash
-# Build CLI binary
+# Bundle CLI for npm
 bun run build
 ```
 
-Output: `./dist/agent-fs`
+Output: `packages/cli/dist/cli.js`
 
 ---
 
@@ -72,8 +72,7 @@ agent-fs/
 │   ├── cli/            # CLI binary (agent-fs)
 │   ├── mcp/            # MCP server integration
 │   └── server/         # HTTP server (Hono)
-├── scripts/            # Build and release scripts
-├── install.sh          # Curl-pipe installer
+├── scripts/            # Release scripts
 ├── package.json        # Workspace root
 └── tsconfig.json
 ```

@@ -7,6 +7,7 @@ dist/
 .env.*
 !.env.example
 bun.lockb
+*.tgz
 *.tsbuildinfo
 # tsc build artifacts (all source is TypeScript)
 packages/**/*.d.ts
