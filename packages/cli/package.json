@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/desplega-ai/agent-fs"
+    "url": "git+https://github.com/desplega-ai/agent-fs.git"
   },
   "keywords": ["agent", "filesystem", "s3", "mcp", "cli"],
   "engines": {
