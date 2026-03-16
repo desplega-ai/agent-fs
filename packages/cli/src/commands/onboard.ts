@@ -52,7 +52,9 @@ export function onboardCommand() {
 
       console.log("Setting up agent-fs...\n");
 
-      const isLocal = opts.local || opts.yes;
+      // Default to local mode unless explicit S3 flags or --remote provided
+      const hasCustomS3 = opts.s3Endpoint || opts.s3Bucket || opts.s3AccessKey || opts.s3SecretKey;
+      const isLocal = !hasCustomS3;
 
       // Step 1: Storage backend
       if (opts.s3Endpoint) {
