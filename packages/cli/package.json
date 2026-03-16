@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "type": "module",
   "description": "Agent-first filesystem backed by S3",
   "license": "MIT",
@@ -8,14 +8,23 @@
     "type": "git",
     "url": "git+https://github.com/desplega-ai/agent-fs.git"
   },
-  "keywords": ["agent", "filesystem", "s3", "mcp", "cli"],
+  "keywords": [
+    "agent",
+    "filesystem",
+    "s3",
+    "mcp",
+    "cli"
+  ],
   "engines": {
     "bun": ">=1.2.0"
   },
   "bin": {
     "agent-fs": "dist/cli.js"
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external chonkie --external zod --external @modelcontextprotocol/sdk --external hono",
     "prepublishOnly": "bun run build:npm"
