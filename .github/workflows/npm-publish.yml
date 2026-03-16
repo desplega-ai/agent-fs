@@ -23,6 +23,7 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: cd packages/cli && bun run build:npm
+      - run: cp README.md packages/cli/README.md
       - run: cd packages/cli && bun pm pack
       - run: npm publish packages/cli/*.tgz --access public --provenance
         env:

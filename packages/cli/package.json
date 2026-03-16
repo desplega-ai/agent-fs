@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Agent-first filesystem backed by S3",
   "license": "MIT",
@@ -17,7 +17,7 @@
   "bin": {
     "agent-fs": "src/index.ts"
   },
-  "files": ["dist"],
+  "files": ["dist", "README.md"],
   "scripts": {
     "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --packages external --minify",
     "prepublishOnly": "bun run build:npm"
