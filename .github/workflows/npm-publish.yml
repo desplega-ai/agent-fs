@@ -5,8 +5,8 @@ on:
     tags: ['v*']
 
 permissions:
-  id-token: write
   contents: read
+  id-token: write
 
 jobs:
   publish:
@@ -25,3 +25,5 @@ jobs:
       - run: cd packages/cli && bun run build:npm
       - run: cd packages/cli && bun pm pack
       - run: npm publish packages/cli/*.tgz --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
