@@ -19,9 +19,9 @@ mkdir -p "$OUTDIR"
 
 # Compile binary
 if [ -n "$TARGET" ]; then
-  bun build --compile --minify --target="$TARGET" packages/cli/src/index.ts --outfile "$OUTFILE"
+  bun build --compile --minify --target="$TARGET" --external node-llama-cpp packages/cli/src/index.ts --outfile "$OUTFILE"
 else
-  bun build --compile packages/cli/src/index.ts --outfile "$OUTFILE"
+  bun build --compile --external node-llama-cpp packages/cli/src/index.ts --outfile "$OUTFILE"
 fi
 
 # Detect platform from target flag or current system
