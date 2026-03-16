@@ -363,10 +363,19 @@ Additional sections:
 
 ---
 
-## Phase 3: Infrastructure & Onboarding
+## Phase 3: Infrastructure & Onboarding ✅ COMPLETED
 
 ### Overview
 Add Docker infrastructure for easy local/hosted setup and replace the `init` command with a comprehensive `onboard` wizard that handles API mode, S3 backend, embedding provider, and daemon startup.
+
+### What was done:
+- `Dockerfile` — multi-stage build with health check
+- `docker-compose.yml` — agent-fs + MinIO
+- `docker-compose.hosted.yml` — external S3 variant
+- `packages/cli/src/commands/onboard.ts` — new onboard wizard with S3 flags, embedding provider, --remote stub
+- `packages/cli/src/commands/init.ts` — alias for onboard with deprecation notice
+- `packages/cli/src/commands/config-cmd.ts` — added `config validate` (S3, DB, auth, embeddings checks)
+- Verification: typecheck passes, 269/269 tests, `config validate` reports all-green
 
 ### Changes Required:
 
@@ -489,10 +498,17 @@ Step 3: Start daemon?
 
 ---
 
-## Phase 4: Production Hardening & Agent DX
+## Phase 4: Production Hardening & Agent DX ✅ COMPLETED
 
 ### Overview
 Harden the HTTP server for hosted/multi-agent deployments and add MCP tools that let agents check system health and their own identity.
+
+### What was done:
+- `packages/core/src/config.ts` — added optional `server.cors.origins` and `server.rateLimit.requestsPerMinute` config
+- `packages/server/src/middleware/rate-limit.ts` — sliding window per-key rate limiter with 429 + Retry-After
+- `packages/server/src/app.ts` — configurable CORS, rate limiting on /orgs/* and /auth/* (skips /health, /docs)
+- `packages/mcp/src/server.ts` — `health` tool (DB, S3, embeddings status) + `whoami` tool (user identity, memberships)
+- Verification: typecheck passes, 269/269 tests
 
 ### Changes Required:
 
