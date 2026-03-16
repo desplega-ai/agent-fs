@@ -21,36 +21,11 @@ Add to your `.mcp.json` (project-level or `~/.claude/.mcp.json` for global):
 }
 ```
 
-For local/embedded mode (no server required):
-
-```json
-{
-  "mcpServers": {
-    "agent-fs": {
-      "command": "agent-fs",
-      "args": ["mcp"]
-    }
-  }
-}
-```
+**Prerequisites**: The agent-fs daemon must be running (`agent-fs daemon start`). The `agent-fs mcp` command is a stdio-to-HTTP proxy that connects to the daemon's `/mcp` endpoint.
 
 ### With embeddings
 
-To enable semantic search, add your embedding provider API key:
-
-```json
-{
-  "mcpServers": {
-    "agent-fs": {
-      "command": "agent-fs",
-      "args": ["mcp"],
-      "env": {
-        "OPENAI_API_KEY": "sk-..."
-      }
-    }
-  }
-}
-```
+To enable semantic search, configure an embedding provider on the daemon (via `~/.agent-fs/config.json` or environment variables). The daemon initializes embeddings at startup and makes them available to both REST and MCP clients.
 
 Supported providers: `OPENAI_API_KEY` (OpenAI), `GEMINI_API_KEY` (Google Gemini), or local llama.cpp (configured in `~/.agent-fs/config.json`).
 
@@ -176,9 +151,9 @@ agent-fs has three search tools for different use cases:
 
 Semantic search (`search` tool) requires an embedding provider. Set `OPENAI_API_KEY` or `GEMINI_API_KEY` in your MCP config's `env` block, or configure a provider in `~/.agent-fs/config.json`.
 
-### "Connection refused" in remote mode
+### "Cannot connect to agent-fs"
 
-Ensure the agent-fs server is running (`agent-fs server`) and the `AGENT_FS_API_URL` matches. Default port is 7433.
+The daemon must be running. Start it with `agent-fs daemon start`, or set `AGENT_FS_API_URL` to point to a remote server. Default port is 7433.
 
 ### Tools not appearing
 

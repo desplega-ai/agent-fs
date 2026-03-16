@@ -12,7 +12,7 @@
 
 ---
 
-Agent FS gives AI agents a structured filesystem with built-in semantic search, versioning, and identity management. It runs as a CLI, an HTTP server, or an MCP server — so any AI coding assistant can use it as a long-term memory and file store.
+Agent FS gives AI agents a structured filesystem with built-in semantic search, versioning, and identity management. It runs as a CLI and an HTTP server with integrated MCP support — so any AI coding assistant can use it as a long-term memory and file store.
 
 ## Key Features
 
@@ -58,7 +58,7 @@ Agent FS is a Bun monorepo with four packages:
 |---------|-------------|
 | `@desplega.ai/agent-fs-core` | Core library — storage engine, semantic search, identity, S3 sync |
 | `@desplega.ai/agent-fs` | CLI binary (`agent-fs`) |
-| `@desplega.ai/agent-fs-mcp` | MCP server — exposes operations as MCP tools |
+| `@desplega.ai/agent-fs-mcp` | MCP stdio proxy + tool registration for the HTTP server |
 | `@desplega.ai/agent-fs-server` | HTTP server — RESTful API powered by Hono |
 
 ## Documentation

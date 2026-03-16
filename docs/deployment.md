@@ -34,12 +34,12 @@ This creates `~/.agent-fs/` with:
 ### Running as a daemon
 
 ```bash
-agent-fs start          # Start background daemon
-agent-fs status         # Check if running
-agent-fs stop           # Stop daemon
+agent-fs daemon start   # Start background daemon
+agent-fs daemon status  # Check if running
+agent-fs daemon stop    # Stop daemon
 ```
 
-The daemon serves the HTTP API on `127.0.0.1:7433`. The CLI auto-detects whether to use the daemon (HTTP) or direct SQLite access.
+The daemon serves both the HTTP REST API and the MCP endpoint on `127.0.0.1:7433`. The CLI and `agent-fs mcp` proxy both require a running daemon.
 
 ## 2. Single Developer, Remote S3
 
@@ -246,5 +246,5 @@ If stale, remove the PID file and restart:
 
 ```bash
 rm ~/.agent-fs/agent-fs.pid
-agent-fs start
+agent-fs daemon start
 ```

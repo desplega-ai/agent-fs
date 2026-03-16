@@ -47,12 +47,27 @@ curl -X POST http://localhost:7433/auth/register \
 
 ### `GET /auth/me`
 
-Get current user info.
+Get current user info with default org/drive context.
 
 ```bash
 curl http://localhost:7433/auth/me \
   -H "Authorization: Bearer <api-key>"
+# {"userId":"...","email":"...","defaultOrgId":"...","defaultDriveId":"..."}
 ```
+
+### `ALL /mcp`
+
+MCP endpoint (Streamable HTTP transport). Accepts JSON-RPC requests from MCP clients. Stateless — each request creates a fresh MCP server instance.
+
+```bash
+curl -X POST http://localhost:7433/mcp \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}},"id":1}'
+```
+
+In practice, use `agent-fs mcp` (stdio proxy) rather than calling `/mcp` directly. The proxy handles the MCP lifecycle (initialize, tools/list, tool calls) automatically.
 
 ### `POST /orgs/{orgId}/ops`
 

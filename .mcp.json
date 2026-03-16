@@ -2,8 +2,11 @@
   "mcpServers": {
     "agent-fs": {
       "command": "bun",
-      "args": ["run", "./packages/mcp/src/index.ts", "--embedded"],
-      "env": {}
+      "args": ["run", "./packages/mcp/src/index.ts"],
+      "env": {
+        "AGENT_FS_API_URL": "http://localhost:7433",
+        "AGENT_FS_API_KEY": "YOUR_API_KEY"
+      }
     }
   }
 }

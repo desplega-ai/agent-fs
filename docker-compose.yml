@@ -14,7 +14,7 @@ services:
   agent-fs:
     build: .
     ports:
-      - "7433:7433"
+      - "7433:7433"  # REST API + MCP endpoint (Streamable HTTP)
     depends_on:
       - minio
     environment:
