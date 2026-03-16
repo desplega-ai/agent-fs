@@ -28,8 +28,12 @@ export function startDaemon(): void {
   const logPath = getLogPath();
   const logFd = openSync(logPath, "a");
 
-  const serverPath = join(import.meta.dir, "index.ts");
-  const child = spawn("bun", ["run", serverPath], {
+  // In compiled binary, spawn self with "server" command.
+  // In dev mode (bun run), spawn bun on the source file.
+  const isCompiled = !import.meta.dir.startsWith("/") || import.meta.dir.startsWith("/$bunfs");
+  const cmd = isCompiled ? process.execPath : "bun";
+  const args = isCompiled ? ["server"] : ["run", join(import.meta.dir, "index.ts")];
+  const child = spawn(cmd, args, {
     detached: true,
     stdio: ["ignore", logFd, logFd],
   });
