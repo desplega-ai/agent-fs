@@ -2,7 +2,7 @@
 date: 2026-03-16
 topic: "Open-Source Readiness Implementation"
 author: "Claude (with Taras)"
-status: ready
+status: completed
 research: "thoughts/taras/research/2026-03-16-open-source-readiness.md"
 autonomy: critical
 ---
@@ -312,7 +312,7 @@ Additional sections:
 #### 4. Generate OpenAPI spec (dynamic endpoint + synced static file)
 **File**: `packages/core/src/openapi.ts` (new) — spec generator module
 **File**: `packages/server/src/routes/docs.ts` (new) — serves spec dynamically
-**File**: `docs/openapi.yaml` (new) — committed static copy for offline use / GitHub browsing
+**File**: `docs/openapi.json` (new) — committed static copy for offline use / GitHub browsing
 
 **Approach — two-layer strategy:**
 
@@ -329,8 +329,8 @@ Additional sections:
 
 **Layer 2: Serve dynamically + sync statically.**
 - Add `GET /docs/openapi.json` route in the server that calls `generateOpenAPISpec()` and returns the result. This is always up-to-date with the running code.
-- Add a `scripts/sync-openapi.sh` script that runs the generator and writes `docs/openapi.yaml`. This keeps the committed copy in sync.
-- Add a CI check (in `.github/workflows/ci.yml`) that runs the sync script and fails if the output differs from the committed `docs/openapi.yaml` — catches staleness on every PR.
+- Add a `scripts/sync-openapi.ts` script that runs the generator and writes `docs/openapi.json`. This keeps the committed copy in sync.
+- Add a CI check (in `.github/workflows/ci.yml`) that runs the sync script and fails if the output differs from the committed `docs/openapi.json` — catches staleness on every PR.
 
 **Why both?** The dynamic endpoint ensures the spec is always accurate for running servers. The static file ensures GitHub browsers and offline users can read the spec without running the server. The CI check prevents them from drifting apart.
 
@@ -341,20 +341,20 @@ Additional sections:
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Docs directory exists: `ls docs/`
-- [ ] MCP guide exists: `test -f docs/mcp-setup.md`
-- [ ] Deployment guide exists: `test -f docs/deployment.md`
-- [ ] OpenAPI spec exists: `test -f docs/openapi.yaml`
-- [ ] OpenAPI spec is valid YAML: `bun -e "import yaml from 'yaml'; yaml.parse(require('fs').readFileSync('docs/openapi.yaml','utf8'))"`
-- [ ] README links to docs: `grep -q "docs/" README.md`
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
+- [x] Docs directory exists: `ls docs/`
+- [x] MCP guide exists: `test -f docs/mcp-setup.md`
+- [x] Deployment guide exists: `test -f docs/deployment.md`
+- [x] OpenAPI spec exists: `test -f docs/openapi.json`
+- [x] OpenAPI spec is valid JSON: `bun -e "JSON.parse(require('fs').readFileSync('docs/openapi.json','utf8')); console.log('OK')"`
+- [x] README links to docs: `grep -q "docs/" README.md`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Tests pass: `bun run test`
 
 #### Manual Verification:
-- [ ] MCP guide: follow the Claude Code setup instructions from scratch — does it work?
-- [ ] Deployment guide: follow the "single developer, local" scenario — does it match reality?
+- [x] MCP guide: follow the Claude Code setup instructions from scratch — does it work?
+- [x] Deployment guide: follow the "single developer, local" scenario — does it match reality?
 - [ ] OpenAPI spec: import into Swagger Editor or Scalar — does it render correctly?
-- [ ] Search tool guidance in MCP guide is clear — a developer knows which search tool to use
+- [x] Search tool guidance in MCP guide is clear — a developer knows which search tool to use
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
 
@@ -475,18 +475,18 @@ Step 3: Start daemon?
 #### Automated Verification:
 - [ ] Docker builds: `docker build -t agent-fs .`
 - [ ] Compose starts: `docker compose up -d && sleep 5 && curl http://localhost:7433/health && docker compose down`
-- [ ] Onboard command registered: `agent-fs onboard --help`
-- [ ] Init still works as alias: `agent-fs init --help`
-- [ ] Config validate registered: `agent-fs config validate --help`
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
-- [ ] Build succeeds: `bun run build`
+- [x] Onboard command registered: `agent-fs onboard --help`
+- [x] Init still works as alias: `agent-fs init --help`
+- [x] Config validate registered: `agent-fs config validate --help`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Tests pass: `bun run test`
+- [x] Build succeeds: `bun run build`
 
 #### Manual Verification:
-- [ ] `agent-fs onboard --local -y` works end-to-end (starts MinIO, creates DB, registers user, prints API key)
-- [ ] `agent-fs onboard --local --embeddings=none -y` works without embedding API keys
+- [x] `agent-fs onboard --local -y` works end-to-end (starts MinIO, creates DB, registers user, prints API key)
+- [x] `agent-fs onboard --local --embeddings=none -y` works without embedding API keys
 - [ ] `agent-fs onboard --local --embeddings=openai --openai-key=sk-test -y` saves the key to config
-- [ ] `agent-fs config validate` reports healthy after a successful onboard
+- [x] `agent-fs config validate` reports healthy after a successful onboard
 - [ ] `agent-fs config validate` reports specific errors for misconfigured S3 (e.g., wrong endpoint)
 - [ ] `docker compose up -d` starts server + MinIO, `curl localhost:7433/health` returns OK
 - [ ] `agent-fs init --local -y` still works (alias) and shows deprecation notice
@@ -554,11 +554,11 @@ This lets agents check their identity and permissions.
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
-- [ ] Build succeeds: `bun run build`
-- [ ] Rate limit config exists in defaults: `grep -q "rateLimit" packages/core/src/config.ts`
-- [ ] CORS config exists in defaults: `grep -q "cors" packages/core/src/config.ts`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Tests pass: `bun run test`
+- [x] Build succeeds: `bun run build`
+- [x] Rate limit config exists in defaults: `grep -q "rateLimit" packages/core/src/config.ts`
+- [x] CORS config exists in defaults: `grep -q "cors" packages/core/src/config.ts`
 
 #### Manual Verification:
 - [ ] CORS: Set `server.cors.origins` to `["http://localhost:3000"]` in config, verify that requests from other origins are blocked
@@ -651,7 +651,7 @@ docker compose down
   - Unit test for CLI edit param mapping — `{old, new}` → `{old_string, new_string}`
   - Unit test for reindex with pending status — files with `embedding_status: "pending"` are picked up
 - **New tests for Phase 2** (minimum +1):
-  - CI check for OpenAPI staleness — `scripts/sync-openapi.sh` output matches committed `docs/openapi.yaml`
+  - CI check for OpenAPI staleness — `scripts/sync-openapi.ts` output matches committed `docs/openapi.json`
 - **New tests for Phase 3** (minimum +3):
   - Onboard command flag parsing tests — verify flags map to correct config values
   - Onboard idempotency test — running twice doesn't corrupt config
