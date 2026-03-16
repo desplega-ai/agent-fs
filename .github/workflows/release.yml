@@ -19,9 +19,6 @@ jobs:
           - target: bun-linux-arm64
             os: ubuntu-latest
             artifact: agent-fs-linux-arm64
-          - target: bun-darwin-x64
-            os: macos-13
-            artifact: agent-fs-darwin-x64
           - target: bun-darwin-arm64
             os: macos-latest
             artifact: agent-fs-darwin-arm64

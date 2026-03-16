@@ -32,6 +32,12 @@ detect_arch() {
 
 PLATFORM=$(detect_platform)
 ARCH=$(detect_arch)
+
+if [ "$PLATFORM" = "darwin" ] && [ "$ARCH" = "x64" ]; then
+  echo "Error: Intel Mac (x86_64) is not supported. Apple Silicon (arm64) is required." >&2
+  exit 1
+fi
+
 VERSION="${1:-latest}"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
