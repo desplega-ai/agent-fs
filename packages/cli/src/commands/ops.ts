@@ -28,6 +28,8 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "fts", description: "Full-text content search (FTS5)", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
   { name: "search", description: "Semantic search", args: [{ name: "query", required: true }], options: [{ flag: "--limit <n>", description: "Max results" }] },
   { name: "reindex", description: "Re-index files with failed/missing embeddings", args: [], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
+  { name: "tree", description: "Recursive directory listing", args: [{ name: "path", required: true }], options: [{ flag: "--depth <n>", description: "Max recursion depth" }] },
+  { name: "glob", description: "Find files by name pattern", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
 ];
 
 export function registerOpCommands(
@@ -78,7 +80,7 @@ export function registerOpCommands(
         delete params["expected-version"];
       }
 
-      for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion"]) {
+      for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth"]) {
         if (params[key] !== undefined) {
           params[key] = parseInt(params[key]);
         }

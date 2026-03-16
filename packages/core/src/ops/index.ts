@@ -19,6 +19,8 @@ import { grep } from "./grep.js";
 import { fts } from "./fts.js";
 import { search } from "./search.js";
 import { reindex } from "./reindex.js";
+import { tree } from "./tree.js";
+import { glob } from "./glob.js";
 
 export interface OpDefinition {
   handler: (ctx: OpContext, params: any) => Promise<any>;
@@ -151,6 +153,20 @@ const opRegistry: Record<string, OpDefinition> = {
       path: z.string().optional(),
     }),
   },
+  tree: {
+    handler: tree,
+    schema: z.object({
+      path: z.string(),
+      depth: z.number().int().min(1).optional(),
+    }),
+  },
+  glob: {
+    handler: glob,
+    schema: z.object({
+      pattern: z.string(),
+      path: z.string().optional(),
+    }),
+  },
 };
 
 export async function dispatchOp(
@@ -187,5 +203,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex };
+export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex, tree, glob };
 export type * from "./types.js";

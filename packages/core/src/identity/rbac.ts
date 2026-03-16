@@ -23,6 +23,8 @@ const OP_ROLES: Record<string, Role> = {
   log: "viewer",
   diff: "viewer",
   recent: "viewer",
+  tree: "viewer",
+  glob: "viewer",
   write: "editor",
   edit: "editor",
   append: "editor",
