@@ -28,6 +28,12 @@ export interface AgentFSConfig {
   server: {
     port: number;
     host: string;
+    cors?: {
+      origins: string[];
+    };
+    rateLimit?: {
+      requestsPerMinute: number;
+    };
   };
   auth: {
     apiKey: string;
@@ -55,6 +61,12 @@ const DEFAULT_CONFIG: AgentFSConfig = {
   server: {
     port: 7433,
     host: "127.0.0.1",
+    cors: {
+      origins: ["*"],
+    },
+    rateLimit: {
+      requestsPerMinute: 60,
+    },
   },
   auth: {
     apiKey: "",
