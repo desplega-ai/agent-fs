@@ -113,7 +113,7 @@ export function onboardCommand() {
         }
       }
 
-      console.log("\nSetup complete! Run `agent-fs start` to begin.");
+      console.log("\nSetup complete! Run `agent-fs daemon start` to begin.");
       console.log("Or use MCP directly: agent-fs mcp");
     });
 
