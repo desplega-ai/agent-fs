@@ -289,7 +289,7 @@ console.error("[agent-fs] MCP server ready");
 
 #### Manual Verification:
 - [x] `agent-fs mcp` starts and connects to daemon — verified: prints "MCP proxy connected to http://127.0.0.1:7433"
-- [ ] `health` and `whoami` tools return correct data — **requires Claude Code** (tools need full MCP lifecycle: init → notify → call)
+- [x] `health` and `whoami` tools return correct data — verified via Claude Code
 
 **Implementation Note**: After completing this phase, pause for manual confirmation.
 
@@ -587,7 +587,7 @@ const getContext = (extra: Extra): OpContext => {
 - [x] Start daemon: `agent-fs daemon start` — **covered by E2E**
 - [x] MCP proxy starts: `agent-fs mcp` — verified: prints "MCP proxy connected to http://127.0.0.1:7433"
 - [x] MCP proxy fails gracefully without daemon — verified: prints "Cannot connect to agent-fs" and exits
-- [ ] Claude Code can discover and call tools via the proxy — **requires Claude Code** (stdio proxy not testable programmatically)
+- [x] Claude Code can discover and call tools via the proxy — verified: health, whoami, ls all work
 - [x] Tools return correct results (same as before) — **covered by E2E** (21 CLI ops + comments all pass through daemon)
 
 **Implementation Note**: After completing this phase, pause for manual confirmation. This is the most critical phase — verify Claude Code integration thoroughly.
@@ -668,7 +668,7 @@ try {
 #### Manual Verification:
 - [x] CLI ops work with daemon running — **covered by E2E** (21 CLI ops + comments all go through daemon)
 - [x] CLI shows clear error without daemon — verified: "Cannot connect to agent-fs daemon at http://127.0.0.1:7433"
-- [ ] MCP proxy works end-to-end with Claude Code — **requires Claude Code**
+- [x] MCP proxy works end-to-end with Claude Code — verified: all tools discoverable and callable
 - [x] `agent-fs daemon start` still starts correctly — **covered by E2E** (setup)
 - [x] `agent-fs daemon stop` still stops correctly — **covered by E2E** (cleanup)
 
@@ -718,9 +718,9 @@ Address Known Limitation #1: `getOrgId()` in `packages/cli/src/index.ts` opened 
 - [x] Build succeeds: `bun run build`
 
 #### Manual Verification:
-- [ ] CLI works with remote-only setup: `AGENT_FS_API_URL=<remote> AGENT_FS_API_KEY=<key> agent-fs ls /` — org resolved via API, no local DB needed
-- [ ] CLI still works with local daemon (backward compat): `agent-fs ls /` — API-first, falls back to local DB if needed
-- [ ] `--org` flag still takes priority: `agent-fs --org <id> ls /` — skips both API and DB lookup
+- [x] CLI works with local daemon: `agent-fs ls /` — org resolved via `/auth/me` API
+- [x] `--org` flag still takes priority — skips API lookup
+- [ ] CLI works with remote-only setup — not tested (no remote server available), but code path verified
 
 ---
 
