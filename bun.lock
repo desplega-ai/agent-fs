@@ -13,15 +13,12 @@
     },
     "packages/cli": {
       "name": "@desplega.ai/agent-fs",
-      "version": "0.1.2",
+      "version": "0.1.5",
       "bin": {
-        "agent-fs": "src/index.ts",
+        "agent-fs": "dist/cli.js",
       },
       "dependencies": {
         "@aws-sdk/client-s3": "^3.750.0",
-        "@desplega.ai/agent-fs-core": "workspace:*",
-        "@desplega.ai/agent-fs-mcp": "workspace:*",
-        "@desplega.ai/agent-fs-server": "workspace:*",
         "@google/genai": "^1.45.0",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "chonkie": "^0.3.0",
@@ -33,6 +30,13 @@
         "openai": "^6.29.0",
         "sqlite-vec": "^0.1.6",
         "zod": "^3.24.0",
+      },
+      "optionalDependencies": {
+        "sqlite-vec-darwin-arm64": "^0.1.6",
+        "sqlite-vec-darwin-x64": "^0.1.6",
+        "sqlite-vec-linux-arm64": "^0.1.6",
+        "sqlite-vec-linux-x64": "^0.1.6",
+        "sqlite-vec-windows-x64": "^0.1.6",
       },
     },
     "packages/core": {
