@@ -150,12 +150,9 @@ Fix the 3 confirmed bugs that break core functionality, plus additional issues f
 
 ---
 
-## Phase 1: OSS Foundation ⏭️ SKIPPED
+## Phase 1: OSS Foundation ⏭️ SKIPPED (not in scope)
 
-### Overview
-Add the standard open-source project scaffolding and rewrite the README to clearly communicate what agent-fs is, why you'd use it, and how to get started. This phase transforms the repo from "internal project" to "open-source project".
-
-**Status**: Skipped per Taras's request. To be done later.
+**Status**: Removed from plan scope per Taras. OSS scaffolding (CODE_OF_CONDUCT, SECURITY.md, CHANGELOG, issue/PR templates, README rewrite, CONTRIBUTING update) to be handled separately if needed.
 
 ### Changes Required:
 
