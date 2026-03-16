@@ -543,6 +543,10 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | bun run packages/mcp/src
 
 All 40 manual E2E tests passed. Tests run with `AGENTFS_HOME` pointed at a temp dir for full isolation. Notable: `bun run build` compiled binary has a pre-existing sqlite-vec native extension loading issue — all E2E tests ran via `bun run packages/cli/src/index.ts` instead.
 
+### Post-Implementation Verification (2026-03-16)
+
+All 28 verification checklist items pass. One cosmetic note: `FtsParams`/`FtsOpMatch`/`FtsResult` types are defined in `fts.ts` rather than `types.ts` — consistent with plan instructions, checklist wording was slightly off. Build: typecheck clean, 234 tests pass, 0 failures.
+
 ## References
 
 - Architecture review: `thoughts/taras/research/2026-03-15-architecture-review.md`
