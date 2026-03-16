@@ -54,10 +54,10 @@ Agent FS is a Bun monorepo with four packages:
 
 | Package | Description |
 |---------|-------------|
-| `@desplega-ai/agent-fs-core` | Core library — storage engine, semantic search, identity, S3 sync |
-| `@desplega-ai/agent-fs` | CLI binary (`agent-fs`) |
-| `@desplega-ai/agent-fs-mcp` | MCP server — exposes operations as MCP tools |
-| `@desplega-ai/agent-fs-server` | HTTP server — RESTful API powered by Hono |
+| `@desplega.ai/agent-fs-core` | Core library — storage engine, semantic search, identity, S3 sync |
+| `@desplega.ai/agent-fs` | CLI binary (`agent-fs`) |
+| `@desplega.ai/agent-fs-mcp` | MCP server — exposes operations as MCP tools |
+| `@desplega.ai/agent-fs-server` | HTTP server — RESTful API powered by Hono |
 
 ## Documentation
 

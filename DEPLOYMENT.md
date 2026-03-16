@@ -15,11 +15,11 @@ This creates a git tag `v{version}` and pushes it, triggering the release workfl
 
 - **Builds binaries** for linux-x64, linux-arm64, darwin-x64, darwin-arm64
 - **Creates a GitHub Release** with all binaries attached
-- **Publishes to npm** as `@desplega-ai/agent-fs` via `bun publish`
+- **Publishes to npm** as `@desplega.ai/agent-fs` via `bun publish`
 
 ## npm Package
 
-- **Name:** `@desplega-ai/agent-fs`
+- **Name:** `@desplega.ai/agent-fs`
 - **Scope:** public
 - **Runtime:** Bun-only (`engines.bun >= 1.2.0`)
 - **Contents:** Bundled CLI (`dist/cli.js`) with external npm dependencies
@@ -27,7 +27,7 @@ This creates a git tag `v{version}` and pushes it, triggering the release workfl
 ### Install via npm
 
 ```bash
-bun add -g @desplega-ai/agent-fs
+bun add -g @desplega.ai/agent-fs
 agent-fs --help
 ```
 

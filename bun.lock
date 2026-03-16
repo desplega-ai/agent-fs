@@ -12,16 +12,16 @@
       },
     },
     "packages/cli": {
-      "name": "@desplega-ai/agent-fs",
-      "version": "0.1.1",
+      "name": "@desplega.ai/agent-fs",
+      "version": "0.1.2",
       "bin": {
         "agent-fs": "src/index.ts",
       },
       "dependencies": {
         "@aws-sdk/client-s3": "^3.750.0",
-        "@desplega-ai/agent-fs-core": "workspace:*",
-        "@desplega-ai/agent-fs-mcp": "workspace:*",
-        "@desplega-ai/agent-fs-server": "workspace:*",
+        "@desplega.ai/agent-fs-core": "workspace:*",
+        "@desplega.ai/agent-fs-mcp": "workspace:*",
+        "@desplega.ai/agent-fs-server": "workspace:*",
         "@google/genai": "^1.45.0",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "chonkie": "^0.3.0",
@@ -36,7 +36,7 @@
       },
     },
     "packages/core": {
-      "name": "@desplega-ai/agent-fs-core",
+      "name": "@desplega.ai/agent-fs-core",
       "version": "0.1.0",
       "dependencies": {
         "@aws-sdk/client-s3": "^3.750.0",
@@ -56,19 +56,19 @@
       },
     },
     "packages/mcp": {
-      "name": "@desplega-ai/agent-fs-mcp",
+      "name": "@desplega.ai/agent-fs-mcp",
       "version": "0.1.0",
       "dependencies": {
-        "@desplega-ai/agent-fs-core": "workspace:*",
+        "@desplega.ai/agent-fs-core": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "zod": "^3.24.0",
       },
     },
     "packages/server": {
-      "name": "@desplega-ai/agent-fs-server",
+      "name": "@desplega.ai/agent-fs-server",
       "version": "0.1.0",
       "dependencies": {
-        "@desplega-ai/agent-fs-core": "workspace:*",
+        "@desplega.ai/agent-fs-core": "workspace:*",
         "hono": "^4.12.8",
       },
     },
@@ -162,13 +162,13 @@
 
     "@aws/lambda-invoke-store": ["@aws/lambda-invoke-store@0.2.4", "", {}, "sha512-iY8yvjE0y651BixKNPgmv1WrQc+GZ142sb0z4gYnChDDY2YqI4P/jsSopBWrKfAt7LOJAkOXt7rC/hms+WclQQ=="],
 
-    "@desplega-ai/agent-fs": ["@desplega-ai/agent-fs@workspace:packages/cli"],
+    "@desplega.ai/agent-fs": ["@desplega.ai/agent-fs@workspace:packages/cli"],
 
-    "@desplega-ai/agent-fs-core": ["@desplega-ai/agent-fs-core@workspace:packages/core"],
+    "@desplega.ai/agent-fs-core": ["@desplega.ai/agent-fs-core@workspace:packages/core"],
 
-    "@desplega-ai/agent-fs-mcp": ["@desplega-ai/agent-fs-mcp@workspace:packages/mcp"],
+    "@desplega.ai/agent-fs-mcp": ["@desplega.ai/agent-fs-mcp@workspace:packages/mcp"],
 
-    "@desplega-ai/agent-fs-server": ["@desplega-ai/agent-fs-server@workspace:packages/server"],
+    "@desplega.ai/agent-fs-server": ["@desplega.ai/agent-fs-server@workspace:packages/server"],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
 

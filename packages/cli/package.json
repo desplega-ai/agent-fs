@@ -1,5 +1,5 @@
 {
-  "name": "@desplega-ai/agent-fs",
+  "name": "@desplega.ai/agent-fs",
   "version": "0.1.2",
   "type": "module",
   "description": "Agent-first filesystem backed by S3",
@@ -23,9 +23,9 @@
     "prepublishOnly": "bun run build:npm"
   },
   "dependencies": {
-    "@desplega-ai/agent-fs-core": "workspace:*",
-    "@desplega-ai/agent-fs-server": "workspace:*",
-    "@desplega-ai/agent-fs-mcp": "workspace:*",
+    "@desplega.ai/agent-fs-core": "workspace:*",
+    "@desplega.ai/agent-fs-server": "workspace:*",
+    "@desplega.ai/agent-fs-mcp": "workspace:*",
     "commander": "^14.0.3",
     "@aws-sdk/client-s3": "^3.750.0",
     "@google/genai": "^1.45.0",

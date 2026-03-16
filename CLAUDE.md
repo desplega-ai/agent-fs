@@ -36,8 +36,8 @@ curl -fsSL https://raw.githubusercontent.com/desplega-ai/agent-fs/main/install.s
 ## Key Decisions
 
 - **CLI binary name:** `agent-fs` (hyphenated, matches repo name)
-- **npm package:** `@desplega-ai/agent-fs` (`agent-fs` is squatted on npm)
-- **Internal package names:** `@desplega-ai/agent-fs-core`, `@desplega-ai/agent-fs-server`, `@desplega-ai/agent-fs-mcp` (workspace-only, not published)
+- **npm package:** `@desplega.ai/agent-fs` (`agent-fs` is squatted on npm)
+- **Internal package names:** `@desplega.ai/agent-fs-core`, `@desplega.ai/agent-fs-server`, `@desplega.ai/agent-fs-mcp` (workspace-only, not published)
 - **Import aliases:** `@/core`, `@/server`, `@/mcp` via tsconfig paths (used in all source imports)
 - **Config paths:** `AGENT_FS_HOME`, `~/.agent-fs/`, `agent-fs.db`, `agent-fs.pid`, `agent-fs.log`
 - **Docker names:** `agent-fs-minio`, `agent-fs-minio-data`
