@@ -71,6 +71,10 @@ export function driveCommands(client: ApiClient) {
     .argument("<email>", "User email to invite")
     .requiredOption("--role <role>", "Role: viewer, editor, or admin")
     .description("Invite a user to the current org")
+    .addHelpText(
+      "after",
+      "\nThis invites the user to the organization that owns the current drive. The user will have access to all drives in the org based on their role."
+    )
     .action(async (email: string, opts: { role: string }) => {
       try {
         const { db, orgId } = getLocalContext();
