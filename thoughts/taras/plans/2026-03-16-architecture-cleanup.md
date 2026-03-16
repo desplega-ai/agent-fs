@@ -2,7 +2,7 @@
 date: 2026-03-16
 planner: Claude
 topic: architecture-cleanup
-status: in-progress
+status: completed
 source: thoughts/taras/research/2026-03-15-architecture-review.md
 autonomy: critical
 ---
