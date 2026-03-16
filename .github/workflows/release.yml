@@ -87,7 +87,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: cd packages/cli && bun run build:npm
