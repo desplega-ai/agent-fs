@@ -106,77 +106,56 @@ Each phase is independently shippable. Commit after each phase passes verificati
 
 ---
 
-## Phase 0: Bug Fixes
+## Phase 0: Bug Fixes ✅ COMPLETED
 
 ### Overview
-Fix the 3 confirmed bugs that break core functionality. These must land before any documentation or onboarding work, since the docs would describe broken behavior.
+Fix the 3 confirmed bugs that break core functionality, plus additional issues found during implementation.
 
-### Changes Required:
+### What was done:
 
-#### 1. Extract embedding provider factory to core
-**File**: `packages/core/src/embeddings/provider-factory.ts` (new)
-**Changes**: Extract the `createEmbeddingProvider()` function from `packages/mcp/src/server.ts:23-52` into a new shared module in core. The function checks `OPENAI_API_KEY` and `GEMINI_API_KEY` env vars, dynamically imports the appropriate provider, and returns an `EmbeddingProvider | null`.
+#### 1. Extract embedding provider factory to core ✅
+- Added `createEmbeddingProviderFromEnv()` to existing `packages/core/src/search/embeddings/index.ts` (not a new file — the module already had `createEmbeddingProvider(config)`)
+- Exported from `packages/core/src/index.ts`
+- **MCP server**: replaced inline function with shared `createEmbeddingProviderFromEnv`, now also passes `config.embedding` for fallback
+- **CLI embedded**: added async `initEmbeddedContext()` that upgrades the sync context with embedding provider. Fixed a caching bug where `getEmbeddedOrgId()` (sync) would poison the `_ctx` cache before `embeddedCallOp()` (async) could add the provider.
+- **Server routes**: added lazy-init embedding provider via `getEmbeddingProvider()` closure
+- Removed noisy `[agent-fs] Using X embedding provider` stderr logs — only error-level messages remain
 
-**File**: `packages/mcp/src/server.ts`
-**Changes**: Replace inline `createEmbeddingProvider()` with import from `@/core/embeddings/provider-factory`. Remove the function definition (lines 23-52). Update the `embeddingProvider` assignment at line 61.
+#### 2. Fix CLI edit param mapping ✅
+- Added `old` → `old_string` and `new` → `new_string` mapping in `packages/cli/src/commands/ops.ts`
 
-**File**: `packages/cli/src/embedded.ts`
-**Changes**: Import `createEmbeddingProviderFromEnv` from `@/core/embeddings/provider-factory`. Call it and add the result to the `OpContext` returned at lines 30-36.
+#### 3. Fix reindex to include pending files ✅
+- Added `eq(schema.files.embeddingStatus, "pending")` to the `or()` clause in `packages/core/src/ops/reindex.ts`
 
-**File**: `packages/server/src/routes/ops.ts`
-**Changes**: Import `createEmbeddingProviderFromEnv` from `@/core/embeddings/provider-factory`. Initialize at server startup (or lazily on first op dispatch). Add `embeddingProvider` to the `ctx` object at lines 29-35.
+#### 4. Improve glob help text ✅
+- Updated glob description in `packages/core/src/ops/index.ts` to clarify `*.md` vs `**/*.md` behavior
 
-#### 2. Fix CLI edit param mapping
-**File**: `packages/cli/src/commands/ops.ts`
-**Changes**: Add two param mappings after the existing `expected-version` → `expectedVersion` mapping at lines 79-83:
-```typescript
-if (params["old"] !== undefined) {
-  params.old_string = params["old"];
-  delete params["old"];
-}
-if (params["new"] !== undefined) {
-  params.new_string = params["new"];
-  delete params["new"];
-}
-```
+#### 5. Fix tilde expansion in AGENT_FS_HOME ✅ (discovered during testing)
+- `packages/core/src/config.ts` `resolveHome()` now expands `~/` since bun's `.env` loader doesn't do shell expansion
+- Prevented creation of literal `~/` directories in the project root
 
-#### 3. Fix reindex to include pending files
-**File**: `packages/core/src/ops/reindex.ts`
-**Changes**: Add `eq(schema.files.embeddingStatus, "pending")` to the `or()` clause at lines 26-29, so the query becomes:
-```typescript
-or(
-  eq(schema.files.embeddingStatus, "failed"),
-  isNull(schema.files.embeddingStatus),
-  eq(schema.files.embeddingStatus, "pending"),
-),
-```
+### Tests added (257 → 269, +12):
+- `packages/core/src/search/__tests__/embedding-factory.test.ts` (5 tests)
+- `packages/cli/src/__tests__/param-mapping.test.ts` (4 tests)
+- `packages/core/src/ops/__tests__/reindex-query.test.ts` (3 tests)
 
-#### 4. Improve glob help text
-**File**: `packages/core/src/ops/glob.ts`
-**Changes**: Update the operation description to clarify pattern behavior: `*.md` matches root-level files only, `**/*.md` matches recursively. This is a Zod schema description update, not a code change.
-
-### Success Criteria:
-
-#### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] All tests pass: `bun run test`
-- [ ] Build succeeds: `bun run build`
-
-#### Manual Verification:
-- [ ] `agent-fs edit /test.md --old "hello" --new "world"` works (after writing a test file)
-- [ ] `OPENAI_API_KEY=sk-... agent-fs search "test query"` returns results (not "No embedding provider configured")
-- [ ] `agent-fs reindex --json` picks up files with `pending` embedding status
-- [ ] `agent-fs glob "**/*.md"` returns nested markdown files
-- [ ] `agent-fs glob "*.md"` returns only root-level markdown files
-
-**Implementation Note**: After completing this phase, pause for manual confirmation. Create commit after verification passes.
+### Verification results:
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] All 269 tests pass: `bun run test`
+- [x] `agent-fs edit --old/--new` works
+- [x] Semantic search works in CLI mode (embedding provider initialized)
+- [x] `agent-fs reindex --json` picks up pending files (`reindexed: 1`)
+- [x] `glob "*.md"` returns root-only, `glob "**/*.md"` returns recursive
+- [x] Build has pre-existing node-llama-cpp resolution error (unrelated)
 
 ---
 
-## Phase 1: OSS Foundation
+## Phase 1: OSS Foundation ⏭️ SKIPPED
 
 ### Overview
 Add the standard open-source project scaffolding and rewrite the README to clearly communicate what agent-fs is, why you'd use it, and how to get started. This phase transforms the repo from "internal project" to "open-source project".
+
+**Status**: Skipped per Taras's request. To be done later.
 
 ### Changes Required:
 
@@ -260,10 +239,37 @@ Key messaging from PRODUCT.md to incorporate:
 
 ---
 
-## Phase 2: Documentation Suite
+## Phase 2: Documentation Suite ✅ COMPLETED
 
 ### Overview
 Create the documentation developers need to actually use agent-fs: MCP integration guide, deployment guide, and OpenAPI spec. These go in a new `docs/` directory.
+
+### What was done:
+
+#### 1. Created docs directory with guides
+- `docs/mcp-setup.md` — MCP integration guide (Claude Code, Cursor, generic, all 26 tools, search guidance, env vars, troubleshooting)
+- `docs/deployment.md` — 4 deployment scenarios (local, remote S3, team, multi-agent) with S3 provider notes, embedding providers, config reference, troubleshooting
+- `docs/api-reference.md` — HTTP API reference with endpoint docs and links to OpenAPI spec
+
+#### 2. OpenAPI 3.1 spec (JSON format)
+- `packages/core/src/openapi.ts` — Generator that converts Zod op schemas to JSON Schema via `zod-to-json-schema`, builds full OpenAPI 3.1 spec
+- `packages/server/src/routes/docs.ts` — `GET /docs/openapi.json` dynamic endpoint
+- `docs/openapi.json` — Committed static copy for offline/GitHub browsing
+- `scripts/sync-openapi.ts` — Script to regenerate static JSON from live registry
+
+#### 3. CI staleness check
+- `.github/workflows/ci.yml` — Added step that runs sync script and fails if output differs from committed `docs/openapi.json`
+
+#### 4. README updated
+- Added "Documentation" section linking to all three docs
+
+### Verification results:
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] All 269 tests pass: `bun run test`
+- [x] All docs exist and OpenAPI JSON is valid
+- [x] README links to docs directory
+
+### Original plan (preserved for reference):
 
 ### Changes Required:
 
