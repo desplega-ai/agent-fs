@@ -40,7 +40,7 @@ export interface AppendParams {
 }
 
 export interface LsParams {
-  path: string;
+  path?: string;
 }
 
 export interface StatParams {
@@ -240,8 +240,12 @@ export interface CommentEntry {
   updatedAt: Date;
 }
 
+export interface CommentListEntry extends CommentEntry {
+  replies: CommentEntry[];
+}
+
 export interface CommentListResult {
-  comments: CommentEntry[];
+  comments: CommentListEntry[];
 }
 
 export interface CommentGetParams {
@@ -287,7 +291,7 @@ export interface CommentResolveResult {
 // --- Tree types ---
 
 export interface TreeParams {
-  path: string;
+  path?: string;
   depth?: number;
 }
 

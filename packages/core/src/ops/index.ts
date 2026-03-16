@@ -78,7 +78,7 @@ const opRegistry: Record<string, OpDefinition> = {
   ls: {
     description: "List immediate children of a directory. Returns { entries } where each entry has name, type (file/directory), size, author, modifiedAt.",
     handler: ls,
-    schema: z.object({ path: z.string() }),
+    schema: z.object({ path: z.string().optional() }),
   },
   stat: {
     description: "Get file metadata without reading content. Returns path, size, contentType, author, currentVersion, createdAt, modifiedAt, isDeleted, embeddingStatus.",
@@ -184,12 +184,12 @@ const opRegistry: Record<string, OpDefinition> = {
     description: "Recursively list all files and directories. Use depth to limit recursion. Returns a nested tree structure with name, type, size, and children.",
     handler: tree,
     schema: z.object({
-      path: z.string(),
+      path: z.string().optional(),
       depth: z.number().int().min(1).optional(),
     }),
   },
   glob: {
-    description: "Find files by name pattern (e.g., *.md, config.*). Optionally scope to a path prefix. Returns { matches } with path, size, and modifiedAt.",
+    description: "Find files by name pattern. Use `*.md` for root-level files only, `**/*.md` for recursive matching across all subdirectories. Supports `*` (any chars except /), `?` (single char), `**` (any path depth). Optionally scope to a path prefix. Returns { matches } with path, size, and modifiedAt.",
     handler: glob,
     schema: z.object({
       pattern: z.string(),
@@ -209,7 +209,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-list": {
-    description: "List comments on a file. Filter by path, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with reply counts.",
+    description: "List comments on a file. Filter by path, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with inline replies.",
     handler: commentList,
     schema: z.object({
       path: z.string().optional(),

@@ -15,7 +15,7 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "cat", args: [{ name: "path", required: true }], options: [{ flag: "--offset <n>", description: "Line offset" }, { flag: "--limit <n>", description: "Max lines" }] },
   { name: "edit", args: [{ name: "path", required: true }], options: [{ flag: "--old <string>", description: "Text to replace" }, { flag: "--new <string>", description: "Replacement text" }, { flag: "-m, --message <msg>", description: "Version message" }] },
   { name: "append", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "Content to append" }, { flag: "-m, --message <msg>", description: "Version message" }] },
-  { name: "ls", args: [{ name: "path", required: true }], options: [] },
+  { name: "ls", args: [{ name: "path", required: false }], options: [] },
   { name: "stat", args: [{ name: "path", required: true }], options: [] },
   { name: "rm", args: [{ name: "path", required: true }], options: [] },
   { name: "mv", args: [{ name: "from", required: true }, { name: "to", required: true }], options: [{ flag: "-m, --message <msg>", description: "Version message" }] },
@@ -29,7 +29,7 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "fts", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
   { name: "search", args: [{ name: "query", required: true }], options: [{ flag: "--limit <n>", description: "Max results" }] },
   { name: "reindex", args: [], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
-  { name: "tree", args: [{ name: "path", required: true }], options: [{ flag: "--depth <n>", description: "Max recursion depth" }] },
+  { name: "tree", args: [{ name: "path", required: false }], options: [{ flag: "--depth <n>", description: "Max recursion depth" }] },
   { name: "glob", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
 ];
 
@@ -75,11 +75,18 @@ export function registerOpCommands(
         }
       }
 
-      // Convert numeric options
-      // Map CLI kebab-case to camelCase for write --expected-version
+      // Map CLI flag names to Zod schema field names
       if (params["expected-version"] !== undefined) {
         params.expectedVersion = params["expected-version"];
         delete params["expected-version"];
+      }
+      if (params["old"] !== undefined) {
+        params.old_string = params["old"];
+        delete params["old"];
+      }
+      if (params["new"] !== undefined) {
+        params.new_string = params["new"];
+        delete params["new"];
       }
 
       for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth"]) {

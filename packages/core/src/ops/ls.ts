@@ -8,7 +8,7 @@ export async function ls(
   ctx: OpContext,
   params: LsParams
 ): Promise<LsResult> {
-  const prefix = normalizePrefix(params.path);
+  const prefix = normalizePrefix(params.path ?? "/");
   const s3Prefix = getS3Key(ctx.orgId, ctx.driveId, prefix);
 
   // List from S3 with delimiter for efficient immediate-children-only listing

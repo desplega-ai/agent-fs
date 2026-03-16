@@ -6,6 +6,7 @@ import type {
   CommentAddResult,
   CommentListParams,
   CommentListResult,
+  CommentListEntry,
   CommentGetParams,
   CommentGetResult,
   CommentUpdateParams,
@@ -210,10 +211,10 @@ export async function commentList(
     .offset(offset)
     .all();
 
-  // Count replies for each comment
-  const comments: CommentEntry[] = rows.map((row) => {
-    const replyCount = ctx.db
-      .select({ count: sql<number>`count(*)` })
+  // Fetch replies inline for each root comment
+  const comments: CommentListEntry[] = rows.map((row) => {
+    const replyRows = ctx.db
+      .select()
       .from(schema.comments)
       .where(
         and(
@@ -221,12 +222,15 @@ export async function commentList(
           eq(schema.comments.isDeleted, false)
         )
       )
-      .get();
+      .orderBy(schema.comments.createdAt)
+      .all();
 
-    return toCommentEntry({
-      ...row,
-      replyCount: replyCount?.count ?? 0,
-    });
+    const replies = replyRows.map((r) => toCommentEntry({ ...r, replyCount: 0 }));
+
+    return {
+      ...toCommentEntry({ ...row, replyCount: replies.length }),
+      replies,
+    };
   });
 
   return { comments };

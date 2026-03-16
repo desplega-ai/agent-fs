@@ -8,7 +8,7 @@ export async function tree(
   ctx: OpContext,
   params: TreeParams
 ): Promise<TreeResult> {
-  const prefix = normalizePrefix(params.path);
+  const prefix = normalizePrefix(params.path ?? "/");
   const s3Prefix = getS3Key(ctx.orgId, ctx.driveId, prefix);
 
   // List ALL objects recursively (no delimiter)
