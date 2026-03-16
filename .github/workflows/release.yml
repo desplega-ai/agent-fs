@@ -20,14 +20,11 @@ jobs:
             os: ubuntu-latest
             artifact: agentfs-linux-arm64
           - target: bun-darwin-x64
-            os: macos-latest
+            os: macos-13
             artifact: agentfs-darwin-x64
           - target: bun-darwin-arm64
             os: macos-latest
             artifact: agentfs-darwin-arm64
-          - target: bun-windows-x64
-            os: windows-latest
-            artifact: agentfs-windows-x64.exe
 
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -35,6 +32,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+
+      - name: Install Homebrew SQLite (macOS)
+        if: startsWith(matrix.target, 'bun-darwin')
+        run: brew install sqlite
+
+      - name: Install cross-platform sqlite-vec (Linux ARM64)
+        if: matrix.target == 'bun-linux-arm64'
+        run: bun add sqlite-vec-linux-arm64
 
       - name: Verify tag matches package.json version
         shell: bash
@@ -45,13 +50,20 @@ jobs:
             exit 1
           fi
 
-      - name: Build binary
-        run: bun build --compile --minify --target=${{ matrix.target }} packages/cli/src/index.ts --outfile dist/${{ matrix.artifact }}
+      - name: Build binary with native extensions
+        run: ./scripts/build.sh --target ${{ matrix.target }} --outfile dist/agentfs
+
+      - name: Package as tarball
+        shell: bash
+        run: |
+          cd dist
+          tar czf ${{ matrix.artifact }}.tar.gz *
+          ls -la
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}.tar.gz
 
   release:
     needs: build

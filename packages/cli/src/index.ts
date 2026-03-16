@@ -16,7 +16,8 @@ program
   .description("Agent-first filesystem backed by S3")
   .version(VERSION)
   .option("--org <orgId>", "Override org context")
-  .option("--drive <driveId>", "Override drive context");
+  .option("--drive <driveId>", "Override drive context")
+  .option("--json", "Output raw JSON");
 
 const client = new ApiClient();
 
@@ -57,8 +58,6 @@ program.addCommand(initCommand());
 program
   .command("mcp")
   .description("Start MCP server (stdio)")
-  .option("--embedded", "Force embedded mode (no daemon)")
-  .option("--daemon", "Force daemon mode (requires running daemon)")
   .action(async () => {
     await import("@agentfs/mcp/src/index.js");
   });

@@ -19,8 +19,8 @@ describe("MCP tool registration", () => {
     const ops = getRegisteredOps();
     const expected = [
       "write", "cat", "edit", "append", "ls", "stat", "rm",
-      "mv", "cp", "head", "tail", "mkdir", "log", "diff",
-      "revert", "recent", "grep", "find",
+      "mv", "cp", "tail", "log", "diff",
+      "revert", "recent", "grep", "fts",
     ];
     for (const op of expected) {
       expect(ops).toContain(op);

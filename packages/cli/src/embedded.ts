@@ -5,9 +5,7 @@ import {
   getUserByApiKey,
   resolveContext,
   dispatchOp,
-  createUser,
-  setConfigValue,
-  listUserOrgs,
+  ensureLocalUser,
 } from "@agentfs/core";
 import type { DB, OpContext } from "@agentfs/core";
 
@@ -22,14 +20,7 @@ function getEmbeddedContext(): OpContext {
   _db = createDatabase();
   _s3 = new AgentS3Client(config.s3);
 
-  let apiKey = config.auth.apiKey;
-
-  // Auto-bootstrap local user if none exists
-  if (!apiKey) {
-    const result = createUser(_db, { email: "local@agentfs.local" });
-    setConfigValue("auth.apiKey", result.apiKey);
-    apiKey = result.apiKey;
-  }
+  const { apiKey } = ensureLocalUser(_db);
 
   const user = getUserByApiKey(_db, apiKey);
   if (!user) throw new Error("Invalid API key in config");

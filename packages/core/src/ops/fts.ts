@@ -1,26 +1,26 @@
 import type { OpContext } from "./types.js";
 import { ftsQuery, type FtsMatch } from "../search/fts.js";
 
-export interface FindParams {
+export interface FtsParams {
   pattern: string;
   path?: string;
 }
 
-export interface FindMatch {
+export interface FtsOpMatch {
   path: string;
   snippet: string;
   rank: number;
 }
 
-export interface FindResult {
-  matches: FindMatch[];
+export interface FtsResult {
+  matches: FtsOpMatch[];
   hint?: string;
 }
 
-export async function find(
+export async function fts(
   ctx: OpContext,
-  params: FindParams
-): Promise<FindResult> {
+  params: FtsParams
+): Promise<FtsResult> {
   const results = ftsQuery(ctx.db, {
     pattern: params.pattern,
     driveId: ctx.driveId,

@@ -7,7 +7,7 @@
     "typecheck": "tsc --build",
     "test": "bun test packages/*/src/",
     "test:coverage": "bun test --coverage packages/*/src/",
-    "build": "bun build --compile packages/cli/src/index.ts --outfile dist/agentfs"
+    "build": "./scripts/build.sh"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

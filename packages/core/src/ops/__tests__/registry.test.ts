@@ -4,8 +4,8 @@ import { getRegisteredOps, getOpDefinition } from "../index.js";
 describe("Op Registry", () => {
   const expectedOps = [
     "write", "cat", "edit", "append", "ls", "stat", "rm", "mv", "cp",
-    "head", "tail", "mkdir", "log", "diff", "revert", "recent",
-    "grep", "find", "search", "reindex",
+    "tail", "log", "diff", "revert", "recent",
+    "grep", "fts", "search", "reindex", "tree", "glob",
   ];
 
   test("getRegisteredOps returns all 20 ops", () => {

@@ -5,7 +5,9 @@ import {
   setConfigValue,
   createDatabase,
   createUser,
+  getUserByApiKey,
   listUserOrgs,
+  ensureLocalUser,
 } from "@agentfs/core";
 
 export function initCommand() {
@@ -30,25 +32,35 @@ export function initCommand() {
       console.log("Database ready.");
 
       // Register first user
-      const email = isLocal ? "local@agentfs.local" : await promptEmail();
-      try {
-        const result = createUser(db, { email });
-        const orgs = listUserOrgs(db, result.user.id);
-        setConfigValue("auth.apiKey", result.apiKey);
+      if (isLocal) {
+        const { apiKey } = ensureLocalUser(db);
+        const user = getUserByApiKey(db, apiKey)!;
+        const orgs = listUserOrgs(db, user.id);
 
-        console.log(`\nUser registered: ${email}`);
-        console.log(`API Key: ${result.apiKey}`);
+        console.log(`\nUser registered: ${user.email}`);
+        console.log(`API Key: ${apiKey}`);
         console.log(`Org ID: ${orgs[0]?.id}`);
-      } catch (err: any) {
-        if (err.message?.includes("UNIQUE")) {
-          console.log(`User ${email} already exists.`);
-        } else {
-          throw err;
+      } else {
+        const email = await promptEmail();
+        try {
+          const result = createUser(db, { email });
+          const orgs = listUserOrgs(db, result.user.id);
+          setConfigValue("auth.apiKey", result.apiKey);
+
+          console.log(`\nUser registered: ${email}`);
+          console.log(`API Key: ${result.apiKey}`);
+          console.log(`Org ID: ${orgs[0]?.id}`);
+        } catch (err: any) {
+          if (err.message?.includes("UNIQUE")) {
+            console.log(`User ${email} already exists.`);
+          } else {
+            throw err;
+          }
         }
       }
 
       console.log("\nSetup complete! Run `agentfs daemon start` to begin.");
-      console.log("Or use MCP directly: agentfs mcp --embedded");
+      console.log("Or use MCP directly: agentfs mcp");
     });
 
   return cmd;

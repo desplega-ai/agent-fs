@@ -26,7 +26,7 @@ describe("registerTools", () => {
     }
   });
 
-  test("tool descriptions follow 'agentfs <op>' pattern", () => {
+  test("tool descriptions are rich descriptions from the registry", () => {
     const registeredTools: Array<{ name: string; description: string }> = [];
 
     const mockServer = {
@@ -39,7 +39,11 @@ describe("registerTools", () => {
     registerTools(mockServer as any, () => ctx);
 
     for (const tool of registeredTools) {
-      expect(tool.description).toBe(`agentfs ${tool.name}`);
+      // Descriptions should be rich (not just "agentfs <op>")
+      expect(tool.description.length).toBeGreaterThan(20);
+      // Descriptions should match the registry
+      const def = getOpDefinition(tool.name);
+      expect(tool.description).toBe(def!.description);
     }
   });
 
