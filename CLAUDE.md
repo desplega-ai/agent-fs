@@ -10,6 +10,7 @@ Bun monorepo: `packages/{core, cli, mcp, server}`
 - `bun run typecheck` — TypeScript type checking (`tsc --build`)
 - `bun run build` — bundle CLI for npm to `packages/cli/dist/cli.js`
 - `bun run test` — run tests (manual/integration tests auto-skip without env)
+- `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` — CLI E2E tests (requires Docker for MinIO)
 
 ## Releasing & Deployment
 
@@ -26,6 +27,10 @@ This creates a git tag matching `v{version}` and pushes it, which triggers the r
 - Runs typecheck and tests
 - Publishes to npm with provenance
 - Creates a GitHub Release with install instructions
+
+## E2E Tests
+
+`scripts/e2e.ts` spins up an isolated MinIO container and runs 21 CLI commands end-to-end. Run it as a regression check when modifying core ops, CLI commands, or the embedded mode. If a core change breaks something, extend the E2E suite to cover it. Not in CI or pre-push — run on demand locally.
 
 ## Key Decisions
 
