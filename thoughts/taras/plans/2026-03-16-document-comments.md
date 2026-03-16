@@ -600,58 +600,27 @@ export type {
 
 ## Manual E2E Verification
 
-**Note**: Claude will execute these commands after all phases are complete. This is not a manual checklist for the user — Claude runs them and reports results.
+**Executed 2026-03-16** against MinIO (docker: `agentfs-minio`) in an isolated `AGENTFS_HOME` temp directory.
 
-```bash
-# 1. Build and register
-bun run build
-./dist/agentfs auth register test@test.com
+| Step | Command | Result |
+|------|---------|--------|
+| 1 | `auth register test@test.com` | User/org/drive created, API key saved |
+| 2 | `write /test/readme.md` (stdin) | version=1, size=25 (S3 via MinIO) |
+| 3 | `comment add /test/readme.md --body "General feedback"` | Created, returned id + path + author + createdAt |
+| 4 | `comment add /test/readme.md --body "Refactoring" --line-start 2 --line-end 3` | Created with lineStart=2, lineEnd=3 |
+| 5 | `comment list /test/readme.md` | Both comments listed, replyCount=0 |
+| 6 | `comment get <id>` | Returns comment object, empty replies array |
+| 7 | `comment reply <id> --body "Fixed"` | Reply created with parentId, path resolved from parent |
+| 8 | `comment get <id>` (after reply) | replyCount=1, reply in replies array |
+| 9 | `comment resolve <id>` | resolved=true, resolvedBy + resolvedAt set |
+| 10 | `comment list --resolved` | Shows both resolved + unresolved root comments |
+| 11 | `comment reopen <id>` | resolved=false, resolvedBy/At cleared |
+| 12 | `comment update <id> --body "Updated"` | body updated, updatedAt bumped |
+| 13 | `comment delete <id>` | deleted=true (root + reply soft-deleted) |
+| 14 | `comment list` (after delete) | Deleted comment + reply excluded from results |
+| 15 | `comment add` + `rm /test/readme.md` | rm soft-deletes all comments on file; `comment list` returns empty |
 
-# 2. Create a file to comment on
-echo "Hello World\nLine 2\nLine 3" | ./dist/agentfs write /test/readme.md
-
-# 3. Add a file-level comment
-./dist/agentfs comment add /test/readme.md --body "General feedback on this file"
-
-# 4. Add a line-range comment
-./dist/agentfs comment add /test/readme.md --body "This needs refactoring" --line-start 2 --line-end 3
-
-# 5. List comments on the file
-./dist/agentfs comment list /test/readme.md
-
-# 6. Get a comment with its replies (use ID from step 3)
-./dist/agentfs comment get <comment-id>
-
-# 7. Reply to a comment (use ID from step 3)
-./dist/agentfs comment reply <comment-id> --body "Done, fixed in latest commit"
-
-# 8. Verify reply shows in get
-./dist/agentfs comment get <comment-id>
-
-# 9. Resolve the comment
-./dist/agentfs comment resolve <comment-id>
-
-# 10. Verify resolved shows in list
-./dist/agentfs comment list /test/readme.md --resolved
-
-# 11. Reopen the comment
-./dist/agentfs comment reopen <comment-id>
-
-# 12. Update a comment
-./dist/agentfs comment update <comment-id> --body "Updated feedback"
-
-# 13. Delete a comment (soft delete)
-./dist/agentfs comment delete <comment-id>
-
-# 14. Verify deleted comment is excluded from list
-./dist/agentfs comment list /test/readme.md
-
-# 15. Verify rm cascades to comments
-echo "temp" | ./dist/agentfs write /test/temp.md
-./dist/agentfs comment add /test/temp.md --body "Comment on temp file"
-./dist/agentfs rm /test/temp.md
-# Comments on /test/temp.md should be soft-deleted
-```
+All 15 steps passed.
 
 ## References
 
