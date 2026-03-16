@@ -228,23 +228,23 @@ export function createTestContext(opts?: {
 }
 
 /**
- * Create a unique temp directory and set AGENTFS_HOME to it.
+ * Create a unique temp directory and set AGENT_FS_HOME to it.
  * Returns the dir path and a cleanup function that restores the env var and removes the temp dir.
  */
 export function createTestConfigDir(): { dir: string; cleanup: () => void } {
-  const originalHome = process.env.AGENTFS_HOME;
+  const originalHome = process.env.AGENT_FS_HOME;
   const dir = join(
     tmpdir(),
-    `agentfs-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
+    `agent-fs-test-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   mkdirSync(dir, { recursive: true });
-  process.env.AGENTFS_HOME = dir;
+  process.env.AGENT_FS_HOME = dir;
 
   const cleanup = () => {
     if (originalHome !== undefined) {
-      process.env.AGENTFS_HOME = originalHome;
+      process.env.AGENT_FS_HOME = originalHome;
     } else {
-      delete process.env.AGENTFS_HOME;
+      delete process.env.AGENT_FS_HOME;
     }
     try {
       rmSync(dir, { recursive: true, force: true });

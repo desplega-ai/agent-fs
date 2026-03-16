@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 function resolveHome(): string {
-  return process.env.AGENTFS_HOME ?? join(process.env.HOME ?? "/tmp", ".agentfs");
+  return process.env.AGENT_FS_HOME ?? join(process.env.HOME ?? "/tmp", ".agent-fs");
 }
 
 export interface AgentFSConfig {
@@ -60,20 +60,20 @@ const DEFAULT_CONFIG: AgentFSConfig = {
   },
 };
 
-export function getAgentFSHome(): string {
+export function getHome(): string {
   return resolveHome();
 }
 
 export function getConfigPath(): string {
-  return join(getAgentFSHome(), "config.json");
+  return join(getHome(), "config.json");
 }
 
 export function getDbPath(): string {
-  return join(getAgentFSHome(), "agentfs.db");
+  return join(getHome(), "agent-fs.db");
 }
 
 function ensureHomeDir(): void {
-  const home = getAgentFSHome();
+  const home = getHome();
   if (!existsSync(home)) {
     mkdirSync(home, { recursive: true });
   }

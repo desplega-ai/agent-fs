@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { getConfig, listUserOrgs, getUserByApiKey, VERSION } from "@agentfs/core";
+import { getConfig, listUserOrgs, getUserByApiKey, VERSION } from "@/core";
 import { ApiClient } from "./api-client.js";
 import { registerOpCommands } from "./commands/ops.js";
 import { authCommands } from "./commands/auth.js";
@@ -13,7 +13,7 @@ import { commentCommands } from "./commands/comment.js";
 const program = new Command();
 
 program
-  .name("agentfs")
+  .name("agent-fs")
   .description("Agent-first filesystem backed by S3")
   .version(VERSION)
   .option("--org <orgId>", "Override org context")
@@ -31,7 +31,7 @@ function getOrgId(): string {
   const config = getConfig();
   if (config.auth.apiKey) {
     try {
-      const { createDatabase } = require("@agentfs/core");
+      const { createDatabase } = require("@/core");
       const db = createDatabase();
       const user = getUserByApiKey(db, config.auth.apiKey);
       if (user) {
@@ -43,7 +43,7 @@ function getOrgId(): string {
     }
   }
 
-  console.error("Error: No org context. Use --org or run 'agentfs auth register'");
+  console.error("Error: No org context. Use --org or run 'agent-fs auth register'");
   process.exit(1);
 }
 
@@ -61,7 +61,7 @@ program
   .command("mcp")
   .description("Start MCP server (stdio)")
   .action(async () => {
-    await import("@agentfs/mcp/src/index.js");
+    await import("@/mcp/index.js");
   });
 
 // Server command (foreground dev mode)
@@ -69,7 +69,7 @@ program
   .command("server")
   .description("Run server in foreground (dev mode)")
   .action(async () => {
-    await import("@agentfs/server/src/index.js");
+    await import("@/server/index.js");
   });
 
 program.parse();

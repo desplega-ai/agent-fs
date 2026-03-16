@@ -10,20 +10,31 @@
       },
     },
     "packages/cli": {
-      "name": "agentfs",
-      "version": "0.1.0",
+      "name": "@desplega-ai/agent-fs",
+      "version": "0.1.1",
       "bin": {
-        "agentfs": "src/index.ts",
+        "agent-fs": "src/index.ts",
       },
       "dependencies": {
-        "@agentfs/core": "workspace:*",
-        "@agentfs/mcp": "workspace:*",
-        "@agentfs/server": "workspace:*",
+        "@aws-sdk/client-s3": "^3.750.0",
+        "@desplega-ai/agent-fs-core": "workspace:*",
+        "@desplega-ai/agent-fs-mcp": "workspace:*",
+        "@desplega-ai/agent-fs-server": "workspace:*",
+        "@google/genai": "^1.45.0",
+        "@modelcontextprotocol/sdk": "^1.27.1",
+        "chonkie": "^0.3.0",
         "commander": "^14.0.3",
+        "diff": "^8.0.3",
+        "drizzle-orm": "^0.44.0",
+        "hono": "^4.12.8",
+        "node-llama-cpp": "^3.17.1",
+        "openai": "^6.29.0",
+        "sqlite-vec": "^0.1.6",
+        "zod": "^3.24.0",
       },
     },
     "packages/core": {
-      "name": "@agentfs/core",
+      "name": "@desplega-ai/agent-fs-core",
       "version": "0.1.0",
       "dependencies": {
         "@aws-sdk/client-s3": "^3.750.0",
@@ -43,30 +54,24 @@
       },
     },
     "packages/mcp": {
-      "name": "@agentfs/mcp",
+      "name": "@desplega-ai/agent-fs-mcp",
       "version": "0.1.0",
       "dependencies": {
-        "@agentfs/core": "workspace:*",
+        "@desplega-ai/agent-fs-core": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "zod": "^3.24.0",
       },
     },
     "packages/server": {
-      "name": "@agentfs/server",
+      "name": "@desplega-ai/agent-fs-server",
       "version": "0.1.0",
       "dependencies": {
-        "@agentfs/core": "workspace:*",
+        "@desplega-ai/agent-fs-core": "workspace:*",
         "hono": "^4.12.8",
       },
     },
   },
   "packages": {
-    "@agentfs/core": ["@agentfs/core@workspace:packages/core"],
-
-    "@agentfs/mcp": ["@agentfs/mcp@workspace:packages/mcp"],
-
-    "@agentfs/server": ["@agentfs/server@workspace:packages/server"],
-
     "@aws-crypto/crc32": ["@aws-crypto/crc32@5.2.0", "", { "dependencies": { "@aws-crypto/util": "^5.2.0", "@aws-sdk/types": "^3.222.0", "tslib": "^2.6.2" } }, "sha512-nLbCWqQNgUiwwtFsen1AdzAtvuLRsQS8rYgMuxCrdKf9kOssamGLuPwyTY9wyYblNr9+1XM8v6zoDTPPSIeANg=="],
 
     "@aws-crypto/crc32c": ["@aws-crypto/crc32c@5.2.0", "", { "dependencies": { "@aws-crypto/util": "^5.2.0", "@aws-sdk/types": "^3.222.0", "tslib": "^2.6.2" } }, "sha512-+iWb8qaHLYKrNvGRbiYRHSdKRWhto5XlZUEBwDjYNf+ly5SVYG6zEoYIdxvf5R3zyeP16w4PLBn3rH1xc74Rag=="],
@@ -154,6 +159,14 @@
     "@aws-sdk/xml-builder": ["@aws-sdk/xml-builder@3.972.11", "", { "dependencies": { "@smithy/types": "^4.13.1", "fast-xml-parser": "5.4.1", "tslib": "^2.6.2" } }, "sha512-iitV/gZKQMvY9d7ovmyFnFuTHbBAtrmLnvaSb/3X8vOKyevwtpmEtyc8AdhVWZe0pI/1GsHxlEvQeOePFzy7KQ=="],
 
     "@aws/lambda-invoke-store": ["@aws/lambda-invoke-store@0.2.4", "", {}, "sha512-iY8yvjE0y651BixKNPgmv1WrQc+GZ142sb0z4gYnChDDY2YqI4P/jsSopBWrKfAt7LOJAkOXt7rC/hms+WclQQ=="],
+
+    "@desplega-ai/agent-fs": ["@desplega-ai/agent-fs@workspace:packages/cli"],
+
+    "@desplega-ai/agent-fs-core": ["@desplega-ai/agent-fs-core@workspace:packages/core"],
+
+    "@desplega-ai/agent-fs-mcp": ["@desplega-ai/agent-fs-mcp@workspace:packages/mcp"],
+
+    "@desplega-ai/agent-fs-server": ["@desplega-ai/agent-fs-server@workspace:packages/server"],
 
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
 
@@ -470,8 +483,6 @@
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 
     "agent-base": ["agent-base@7.1.4", "", {}, "sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ=="],
-
-    "agentfs": ["agentfs@workspace:packages/cli"],
 
     "agentkeepalive": ["agentkeepalive@4.6.0", "", { "dependencies": { "humanize-ms": "^1.2.1" } }, "sha512-kja8j7PjmncONqaTsB8fQ+wE2mSU2DJ9D4XKoJ5PFWIdRMa6SLSN1ff4mOr4jCbfRSsxR4keIiySJU0N9T5hIQ=="],
 

@@ -1,14 +1,14 @@
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, unlinkSync, existsSync, openSync } from "node:fs";
 import { join } from "node:path";
-import { getAgentFSHome } from "@agentfs/core";
+import { getHome } from "@/core";
 
 function getPidPath(): string {
-  return join(getAgentFSHome(), "agentfs.pid");
+  return join(getHome(), "agent-fs.pid");
 }
 
 function getLogPath(): string {
-  return join(getAgentFSHome(), "agentfs.log");
+  return join(getHome(), "agent-fs.log");
 }
 
 export function startDaemon(): void {

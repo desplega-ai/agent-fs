@@ -1,4 +1,4 @@
-import { getConfig } from "@agentfs/core";
+import { getConfig } from "@/core";
 
 export class ApiClient {
   private baseUrl: string;
@@ -7,9 +7,9 @@ export class ApiClient {
   constructor() {
     const config = getConfig();
     this.baseUrl =
-      process.env.AGENTFS_API_URL ??
+      process.env.AGENT_FS_API_URL ??
       `http://${config.server.host}:${config.server.port}`;
-    this.apiKey = process.env.AGENTFS_API_KEY ?? config.auth.apiKey;
+    this.apiKey = process.env.AGENT_FS_API_KEY ?? config.auth.apiKey;
   }
 
   private async request(path: string, opts?: RequestInit): Promise<any> {
@@ -24,7 +24,7 @@ export class ApiClient {
       res = await fetch(`${this.baseUrl}${path}`, { ...opts, headers });
     } catch (err) {
       throw new Error(
-        `Cannot connect to agentfs daemon at ${this.baseUrl}. Is it running? Start with: agentfs daemon start`
+        `Cannot connect to agent-fs daemon at ${this.baseUrl}. Is it running? Start with: agent-fs daemon start`
       );
     }
 

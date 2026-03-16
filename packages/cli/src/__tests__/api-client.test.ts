@@ -30,14 +30,14 @@ beforeAll(async () => {
   orgId = body.orgId;
 
   // Set env vars so ApiClient picks them up
-  process.env.AGENTFS_API_URL = `http://localhost:${port}`;
-  process.env.AGENTFS_API_KEY = apiKey;
+  process.env.AGENT_FS_API_URL = `http://localhost:${port}`;
+  process.env.AGENT_FS_API_KEY = apiKey;
 });
 
 afterAll(() => {
   server?.stop();
-  delete process.env.AGENTFS_API_URL;
-  delete process.env.AGENTFS_API_KEY;
+  delete process.env.AGENT_FS_API_URL;
+  delete process.env.AGENT_FS_API_KEY;
 });
 
 describe("ApiClient", () => {
@@ -86,13 +86,13 @@ describe("ApiClient", () => {
   });
 
   test("connection error gives helpful message", async () => {
-    process.env.AGENTFS_API_URL = "http://localhost:1"; // Nothing running
+    process.env.AGENT_FS_API_URL = "http://localhost:1"; // Nothing running
     const client = await makeClient();
 
     await expect(client.get("/health")).rejects.toThrow(/Cannot connect/);
 
     // Restore
-    process.env.AGENTFS_API_URL = `http://localhost:${port}`;
+    process.env.AGENT_FS_API_URL = `http://localhost:${port}`;
   });
 
   test("server error includes message from response", async () => {

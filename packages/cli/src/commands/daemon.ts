@@ -5,17 +5,17 @@ export function daemonCommands() {
 
   cmd
     .command("start")
-    .description("Start the agentfs daemon")
+    .description("Start the agent-fs daemon")
     .action(async () => {
-      const { startDaemon } = await import("@agentfs/server/src/daemon.js");
+      const { startDaemon } = await import("@/server/daemon.js");
       startDaemon();
     });
 
   cmd
     .command("stop")
-    .description("Stop the agentfs daemon")
+    .description("Stop the agent-fs daemon")
     .action(async () => {
-      const { stopDaemon } = await import("@agentfs/server/src/daemon.js");
+      const { stopDaemon } = await import("@/server/daemon.js");
       stopDaemon();
     });
 
@@ -23,7 +23,7 @@ export function daemonCommands() {
     .command("status")
     .description("Check daemon status")
     .action(async () => {
-      const { daemonStatus } = await import("@agentfs/server/src/daemon.js");
+      const { daemonStatus } = await import("@/server/daemon.js");
       const status = daemonStatus();
       if (status.running) {
         console.log(`Daemon running (PID: ${status.pid})`);

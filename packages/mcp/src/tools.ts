@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getRegisteredOps, getOpDefinition, dispatchOp } from "@agentfs/core";
-import type { OpContext } from "@agentfs/core";
+import { getRegisteredOps, getOpDefinition, dispatchOp } from "@/core";
+import type { OpContext } from "@/core";
 
 // Register all ops from the core registry as MCP tools
 export function registerTools(

@@ -1,5 +1,5 @@
 import type { EmbeddingProvider } from "./provider.js";
-import { getAgentFSHome } from "../../config.js";
+import { getHome } from "../../config.js";
 import { join } from "node:path";
 import { mkdirSync, existsSync } from "node:fs";
 
@@ -27,7 +27,7 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     const { getLlama, resolveModelFile } = await import("node-llama-cpp");
     this.llama = await getLlama();
 
-    const modelsDir = join(getAgentFSHome(), "models");
+    const modelsDir = join(getHome(), "models");
     if (!existsSync(modelsDir)) {
       mkdirSync(modelsDir, { recursive: true });
     }

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { dispatchOp, resolveContext } from "@agentfs/core";
-import type { DB, AgentS3Client } from "@agentfs/core";
+import { dispatchOp, resolveContext } from "@/core";
+import type { DB, AgentS3Client } from "@/core";
 import type { AppEnv } from "../types.js";
 
 export function opsRoutes(db: DB, s3: AgentS3Client) {

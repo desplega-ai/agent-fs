@@ -12,7 +12,7 @@ import { rm } from "../rm.js";
 import { grep } from "../grep.js";
 import { fts } from "../fts.js";
 
-const TEST_DB = join(tmpdir(), `agentfs-search-test-${Date.now()}.db`);
+const TEST_DB = join(tmpdir(), `agent-fs-search-test-${Date.now()}.db`);
 const ORG_ID = "test-org";
 const DRIVE_ID = "test-drive";
 const USER_ID = "test-user";

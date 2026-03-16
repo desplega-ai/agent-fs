@@ -25,7 +25,7 @@ import { EditConflictError, NotFoundError } from "../../errors.js";
 
 const SKIP = !(await isMinioAvailable());
 
-const TEST_DB = join(tmpdir(), `agentfs-ops-test-${Date.now()}.db`);
+const TEST_DB = join(tmpdir(), `agent-fs-ops-test-${Date.now()}.db`);
 const ORG_ID = "test-org";
 const DRIVE_ID = "test-drive";
 const USER_ID = "test-user";

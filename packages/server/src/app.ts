@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
-import { VERSION } from "@agentfs/core";
-import type { DB, AgentS3Client } from "@agentfs/core";
+import { VERSION } from "@/core";
+import type { DB, AgentS3Client } from "@/core";
 import type { AppEnv } from "./types.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { handleError } from "./middleware/error.js";

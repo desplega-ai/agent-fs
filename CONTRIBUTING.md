@@ -47,7 +47,7 @@ bun run test:coverage
 bun run build
 ```
 
-Output: `./dist/agentfs`
+Output: `./dist/agent-fs`
 
 ---
 
@@ -69,7 +69,7 @@ Run this before committing to catch type errors early.
 agent-fs/
 ├── packages/
 │   ├── core/           # Core library — storage, search, identity, database
-│   ├── cli/            # CLI binary (agentfs)
+│   ├── cli/            # CLI binary (agent-fs)
 │   ├── mcp/            # MCP server integration
 │   └── server/         # HTTP server (Hono)
 ├── scripts/            # Build and release scripts

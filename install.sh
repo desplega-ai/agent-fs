@@ -1,10 +1,10 @@
 #!/bin/sh
-# Install script for agentfs
+# Install script for agent-fs
 # Usage: curl -fsSL https://raw.githubusercontent.com/desplega-ai/agent-fs/main/install.sh | sh
 set -eu
 
 REPO="desplega-ai/agent-fs"
-BINARY="agentfs"
+BINARY="agent-fs"
 
 detect_platform() {
   platform=$(uname -s | tr '[:upper:]' '[:lower:]')

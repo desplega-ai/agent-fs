@@ -15,7 +15,7 @@ import {
 } from "../comment.js";
 import { NotFoundError, ValidationError, PermissionDeniedError } from "../../errors.js";
 
-const TEST_DB = join(tmpdir(), `agentfs-comment-test-${Date.now()}.db`);
+const TEST_DB = join(tmpdir(), `agent-fs-comment-test-${Date.now()}.db`);
 const ORG_ID = "test-org";
 const DRIVE_ID = "test-drive";
 const USER_A = "user-a";

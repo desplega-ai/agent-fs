@@ -1,4 +1,4 @@
-import { createDatabase, getConfig, AgentS3Client } from "@agentfs/core";
+import { createDatabase, getConfig, AgentS3Client } from "@/core";
 import { createApp } from "./app.js";
 
 const config = getConfig();
@@ -19,7 +19,7 @@ const server = Bun.serve({
   hostname: config.server.host,
 });
 
-console.log(`agentfs daemon running on http://${server.hostname}:${server.port}`);
+console.log(`agent-fs daemon running on http://${server.hostname}:${server.port}`);
 
 // Graceful shutdown
 function shutdown() {

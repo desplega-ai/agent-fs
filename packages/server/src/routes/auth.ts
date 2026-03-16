@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { createUser, listUserOrgs } from "@agentfs/core";
-import type { DB } from "@agentfs/core";
+import { createUser, listUserOrgs } from "@/core";
+import type { DB } from "@/core";
 import type { AppEnv } from "../types.js";
 
 export function authRoutes(db: DB) {

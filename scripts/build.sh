@@ -1,10 +1,10 @@
 #!/bin/bash
-# Build agentfs binary with native extensions alongside it.
-# Usage: ./scripts/build.sh [--target bun-darwin-arm64] [--outfile dist/agentfs]
+# Build agent-fs binary with native extensions alongside it.
+# Usage: ./scripts/build.sh [--target bun-darwin-arm64] [--outfile dist/agent-fs]
 set -euo pipefail
 
 TARGET=""
-OUTFILE="dist/agentfs"
+OUTFILE="dist/agent-fs"
 
 while [[ $# -gt 0 ]]; do
   case $1 in

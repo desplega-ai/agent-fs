@@ -6,7 +6,7 @@ export {
   setConfigValue,
   getConfigPath,
   getDbPath,
-  getAgentFSHome,
+  getHome,
 } from "./config.js";
 export type { AgentFSConfig } from "./config.js";
 export { AgentS3Client } from "./s3/index.js";

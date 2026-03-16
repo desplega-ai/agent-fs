@@ -7,3 +7,8 @@ dist/
 .env.*
 bun.lockb
 *.tsbuildinfo
+# tsc build artifacts (all source is TypeScript)
+packages/**/*.d.ts
+packages/**/*.d.ts.map
+packages/**/*.js
+packages/**/*.js.map

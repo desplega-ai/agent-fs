@@ -1,6 +1,6 @@
-# agentfs Command Reference
+# agent-fs Command Reference
 
-Complete reference for every agentfs CLI command with syntax, flags, and expected output.
+Complete reference for every agent-fs CLI command with syntax, flags, and expected output.
 
 ---
 
@@ -11,7 +11,7 @@ Complete reference for every agentfs CLI command with syntax, flags, and expecte
 Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Creates a new version.
 
 ```
-agentfs write <path> [--content <text>] [-m, --message <msg>] [--expected-version <n>]
+agent-fs write <path> [--content <text>] [-m, --message <msg>] [--expected-version <n>]
 ```
 
 **Arguments:**
@@ -25,13 +25,13 @@ agentfs write <path> [--content <text>] [-m, --message <msg>] [--expected-versio
 **Examples:**
 ```bash
 # Write via stdin (preferred for multi-line)
-echo "Hello world" | agentfs write hello.txt -m "initial"
+echo "Hello world" | agent-fs write hello.txt -m "initial"
 
 # Write via --content flag
-agentfs write config.json --content '{"key": "value"}' -m "add config"
+agent-fs write config.json --content '{"key": "value"}' -m "add config"
 
 # Optimistic concurrency — only succeed if file is at version 3
-agentfs write config.json --content '{"updated": true}' --expected-version 3
+agent-fs write config.json --content '{"updated": true}' --expected-version 3
 ```
 
 **Output:**
@@ -51,7 +51,7 @@ agentfs write config.json --content '{"updated": true}' --expected-version 3
 Read file content.
 
 ```
-agentfs cat <path> [--offset <n>] [--limit <n>]
+agent-fs cat <path> [--offset <n>] [--limit <n>]
 ```
 
 **Arguments:**
@@ -64,10 +64,10 @@ agentfs cat <path> [--offset <n>] [--limit <n>]
 **Examples:**
 ```bash
 # Read entire file
-agentfs cat docs/readme.md
+agent-fs cat docs/readme.md
 
 # Read lines 10-30
-agentfs cat docs/readme.md --offset 10 --limit 20
+agent-fs cat docs/readme.md --offset 10 --limit 20
 ```
 
 **Output:**
@@ -86,7 +86,7 @@ agentfs cat docs/readme.md --offset 10 --limit 20
 Find-and-replace text within a file. Creates a new version.
 
 ```
-agentfs edit <path> --old <string> --new <string> [-m, --message <msg>]
+agent-fs edit <path> --old <string> --new <string> [-m, --message <msg>]
 ```
 
 **Arguments:**
@@ -99,7 +99,7 @@ agentfs edit <path> --old <string> --new <string> [-m, --message <msg>]
 
 **Examples:**
 ```bash
-agentfs edit docs/spec.md --old "draft" --new "final" -m "finalize spec"
+agent-fs edit docs/spec.md --old "draft" --new "final" -m "finalize spec"
 ```
 
 ---
@@ -109,7 +109,7 @@ agentfs edit docs/spec.md --old "draft" --new "final" -m "finalize spec"
 Append content to the end of an existing file. Creates a new version.
 
 ```
-agentfs append <path> [--content <text>] [-m, --message <msg>]
+agent-fs append <path> [--content <text>] [-m, --message <msg>]
 ```
 
 **Arguments:**
@@ -122,10 +122,10 @@ agentfs append <path> [--content <text>] [-m, --message <msg>]
 **Examples:**
 ```bash
 # Append via stdin
-echo "\n## New Section" | agentfs append docs/readme.md -m "add section"
+echo "\n## New Section" | agent-fs append docs/readme.md -m "add section"
 
 # Append via flag
-agentfs append log.txt --content "entry: task completed" -m "log update"
+agent-fs append log.txt --content "entry: task completed" -m "log update"
 ```
 
 ---
@@ -135,7 +135,7 @@ agentfs append log.txt --content "entry: task completed" -m "log update"
 List files and directories at a path.
 
 ```
-agentfs ls <path>
+agent-fs ls <path>
 ```
 
 **Arguments:**
@@ -143,8 +143,8 @@ agentfs ls <path>
 
 **Examples:**
 ```bash
-agentfs ls docs/
-agentfs ls /
+agent-fs ls docs/
+agent-fs ls /
 ```
 
 **Output:**
@@ -165,7 +165,7 @@ agentfs ls /
 Show file metadata including size, version, and timestamps.
 
 ```
-agentfs stat <path>
+agent-fs stat <path>
 ```
 
 **Arguments:**
@@ -173,7 +173,7 @@ agentfs stat <path>
 
 **Examples:**
 ```bash
-agentfs stat docs/readme.md
+agent-fs stat docs/readme.md
 ```
 
 **Output:**
@@ -195,7 +195,7 @@ agentfs stat docs/readme.md
 Delete a file.
 
 ```
-agentfs rm <path>
+agent-fs rm <path>
 ```
 
 **Arguments:**
@@ -203,7 +203,7 @@ agentfs rm <path>
 
 **Examples:**
 ```bash
-agentfs rm temp/scratch.txt
+agent-fs rm temp/scratch.txt
 ```
 
 ---
@@ -213,7 +213,7 @@ agentfs rm temp/scratch.txt
 Move or rename a file. Creates a new version.
 
 ```
-agentfs mv <from> <to> [-m, --message <msg>]
+agent-fs mv <from> <to> [-m, --message <msg>]
 ```
 
 **Arguments:**
@@ -225,7 +225,7 @@ agentfs mv <from> <to> [-m, --message <msg>]
 
 **Examples:**
 ```bash
-agentfs mv drafts/doc.md final/doc.md -m "promote to final"
+agent-fs mv drafts/doc.md final/doc.md -m "promote to final"
 ```
 
 ---
@@ -235,7 +235,7 @@ agentfs mv drafts/doc.md final/doc.md -m "promote to final"
 Copy a file.
 
 ```
-agentfs cp <from> <to>
+agent-fs cp <from> <to>
 ```
 
 **Arguments:**
@@ -244,7 +244,7 @@ agentfs cp <from> <to>
 
 **Examples:**
 ```bash
-agentfs cp templates/report.md reports/q1.md
+agent-fs cp templates/report.md reports/q1.md
 ```
 
 ---
@@ -254,7 +254,7 @@ agentfs cp templates/report.md reports/q1.md
 Show the first N lines of a file.
 
 ```
-agentfs head <path> [-n, --lines <n>]
+agent-fs head <path> [-n, --lines <n>]
 ```
 
 **Arguments:**
@@ -265,7 +265,7 @@ agentfs head <path> [-n, --lines <n>]
 
 **Examples:**
 ```bash
-agentfs head logs/app.log -n 50
+agent-fs head logs/app.log -n 50
 ```
 
 ---
@@ -275,7 +275,7 @@ agentfs head logs/app.log -n 50
 Show the last N lines of a file.
 
 ```
-agentfs tail <path> [-n, --lines <n>]
+agent-fs tail <path> [-n, --lines <n>]
 ```
 
 **Arguments:**
@@ -286,7 +286,7 @@ agentfs tail <path> [-n, --lines <n>]
 
 **Examples:**
 ```bash
-agentfs tail logs/app.log -n 100
+agent-fs tail logs/app.log -n 100
 ```
 
 ---
@@ -296,7 +296,7 @@ agentfs tail logs/app.log -n 100
 Create a directory.
 
 ```
-agentfs mkdir <path>
+agent-fs mkdir <path>
 ```
 
 **Arguments:**
@@ -304,7 +304,7 @@ agentfs mkdir <path>
 
 **Examples:**
 ```bash
-agentfs mkdir projects/new-app/src
+agent-fs mkdir projects/new-app/src
 ```
 
 ---
@@ -316,7 +316,7 @@ agentfs mkdir projects/new-app/src
 Show version history for a file.
 
 ```
-agentfs log <path> [--limit <n>]
+agent-fs log <path> [--limit <n>]
 ```
 
 **Arguments:**
@@ -327,8 +327,8 @@ agentfs log <path> [--limit <n>]
 
 **Examples:**
 ```bash
-agentfs log docs/spec.md
-agentfs log docs/spec.md --limit 5
+agent-fs log docs/spec.md
+agent-fs log docs/spec.md --limit 5
 ```
 
 **Output:**
@@ -350,7 +350,7 @@ agentfs log docs/spec.md --limit 5
 Show the difference between two versions of a file.
 
 ```
-agentfs diff <path> [--v1 <n>] [--v2 <n>]
+agent-fs diff <path> [--v1 <n>] [--v2 <n>]
 ```
 
 **Arguments:**
@@ -363,7 +363,7 @@ agentfs diff <path> [--v1 <n>] [--v2 <n>]
 **Examples:**
 ```bash
 # Compare version 1 and version 3
-agentfs diff docs/spec.md --v1 1 --v2 3
+agent-fs diff docs/spec.md --v1 1 --v2 3
 ```
 
 ---
@@ -373,7 +373,7 @@ agentfs diff docs/spec.md --v1 1 --v2 3
 Revert a file to a previous version. Creates a new version with the old content.
 
 ```
-agentfs revert <path> --version <n>
+agent-fs revert <path> --version <n>
 ```
 
 **Arguments:**
@@ -384,7 +384,7 @@ agentfs revert <path> --version <n>
 
 **Examples:**
 ```bash
-agentfs revert docs/spec.md --version 2
+agent-fs revert docs/spec.md --version 2
 ```
 
 ---
@@ -396,7 +396,7 @@ agentfs revert docs/spec.md --version 2
 Show recently modified files.
 
 ```
-agentfs recent [path] [--since <duration>] [--limit <n>]
+agent-fs recent [path] [--since <duration>] [--limit <n>]
 ```
 
 **Arguments:**
@@ -409,10 +409,10 @@ agentfs recent [path] [--since <duration>] [--limit <n>]
 **Examples:**
 ```bash
 # All recent activity
-agentfs recent --since 1h
+agent-fs recent --since 1h
 
 # Recent changes under docs/
-agentfs recent docs/ --since 24h --limit 20
+agent-fs recent docs/ --since 24h --limit 20
 ```
 
 ---
@@ -422,7 +422,7 @@ agentfs recent docs/ --since 24h --limit 20
 Search file content using a regex pattern within a specific path.
 
 ```
-agentfs grep <pattern> <path>
+agent-fs grep <pattern> <path>
 ```
 
 **Arguments:**
@@ -431,8 +431,8 @@ agentfs grep <pattern> <path>
 
 **Examples:**
 ```bash
-agentfs grep "TODO|FIXME" src/
-agentfs grep "function.*export" lib/utils.ts
+agent-fs grep "TODO|FIXME" src/
+agent-fs grep "function.*export" lib/utils.ts
 ```
 
 ---
@@ -442,7 +442,7 @@ agentfs grep "function.*export" lib/utils.ts
 Full-text search (FTS5) across all indexed files. Fast keyword matching.
 
 ```
-agentfs find <pattern> [--path <prefix>]
+agent-fs find <pattern> [--path <prefix>]
 ```
 
 **Arguments:**
@@ -454,10 +454,10 @@ agentfs find <pattern> [--path <prefix>]
 **Examples:**
 ```bash
 # Search everywhere
-agentfs find "quarterly revenue"
+agent-fs find "quarterly revenue"
 
 # Search only in reports/
-agentfs find "revenue growth" --path reports/
+agent-fs find "revenue growth" --path reports/
 ```
 
 ---
@@ -467,7 +467,7 @@ agentfs find "revenue growth" --path reports/
 Semantic search using vector embeddings. Finds conceptually related content even if exact keywords don't match.
 
 ```
-agentfs search <query> [--limit <n>]
+agent-fs search <query> [--limit <n>]
 ```
 
 **Arguments:**
@@ -478,8 +478,8 @@ agentfs search <query> [--limit <n>]
 
 **Examples:**
 ```bash
-agentfs search "financial performance metrics" --limit 10
-agentfs search "how to deploy the application"
+agent-fs search "financial performance metrics" --limit 10
+agent-fs search "how to deploy the application"
 ```
 
 ---
@@ -489,7 +489,7 @@ agentfs search "how to deploy the application"
 Re-index files that have failed or missing embeddings. Useful after bulk writes or if semantic search returns incomplete results.
 
 ```
-agentfs reindex [--path <prefix>]
+agent-fs reindex [--path <prefix>]
 ```
 
 **Options:**
@@ -498,10 +498,10 @@ agentfs reindex [--path <prefix>]
 **Examples:**
 ```bash
 # Re-index everything
-agentfs reindex
+agent-fs reindex
 
 # Re-index only docs/
-agentfs reindex --path docs/
+agent-fs reindex --path docs/
 ```
 
 ---
@@ -510,10 +510,10 @@ agentfs reindex --path docs/
 
 ### init
 
-Set up agentfs: configures S3 storage, initializes the database, and registers the first user.
+Set up agent-fs: configures S3 storage, initializes the database, and registers the first user.
 
 ```
-agentfs init [--local] [-y, --yes]
+agent-fs init [--local] [-y, --yes]
 ```
 
 **Options:**
@@ -523,10 +523,10 @@ agentfs init [--local] [-y, --yes]
 **Examples:**
 ```bash
 # Quick local setup (Docker required)
-agentfs init --local -y
+agent-fs init --local -y
 
 # Custom S3 setup (interactive)
-agentfs init
+agent-fs init
 ```
 
 ---
@@ -536,7 +536,7 @@ agentfs init
 Register a new user and save the API key to local config.
 
 ```
-agentfs auth register <email>
+agent-fs auth register <email>
 ```
 
 **Arguments:**
@@ -544,7 +544,7 @@ agentfs auth register <email>
 
 **Examples:**
 ```bash
-agentfs auth register alice@company.com
+agent-fs auth register alice@company.com
 ```
 
 **Output:** (human-readable text)
@@ -564,7 +564,7 @@ API key saved to config.
 Show the currently authenticated user.
 
 ```
-agentfs auth whoami
+agent-fs auth whoami
 ```
 
 **Output:**
@@ -585,7 +585,7 @@ agentfs auth whoami
 List all drives in the current org.
 
 ```
-agentfs drive list
+agent-fs drive list
 ```
 
 **Output:**
@@ -605,7 +605,7 @@ agentfs drive list
 Create a new drive in the current org.
 
 ```
-agentfs drive create <name>
+agent-fs drive create <name>
 ```
 
 **Arguments:**
@@ -613,7 +613,7 @@ agentfs drive create <name>
 
 **Examples:**
 ```bash
-agentfs drive create "project-alpha"
+agent-fs drive create "project-alpha"
 ```
 
 ---
@@ -623,7 +623,7 @@ agentfs drive create "project-alpha"
 Show the current drive context (org and active drive).
 
 ```
-agentfs drive current
+agent-fs drive current
 ```
 
 **Output:**
@@ -641,7 +641,7 @@ agentfs drive current
 Invite a user to the current org with a specific role.
 
 ```
-agentfs drive invite <email> --role <role>
+agent-fs drive invite <email> --role <role>
 ```
 
 **Arguments:**
@@ -652,8 +652,8 @@ agentfs drive invite <email> --role <role>
 
 **Examples:**
 ```bash
-agentfs drive invite bob@company.com --role editor
-agentfs drive invite admin@company.com --role admin
+agent-fs drive invite bob@company.com --role editor
+agent-fs drive invite admin@company.com --role admin
 ```
 
 ---
@@ -662,10 +662,10 @@ agentfs drive invite admin@company.com --role admin
 
 ### daemon start
 
-Start the agentfs background daemon. The daemon serves HTTP requests for file operations. Optional — CLI works without it via embedded mode.
+Start the agent-fs background daemon. The daemon serves HTTP requests for file operations. Optional — CLI works without it via embedded mode.
 
 ```
-agentfs daemon start
+agent-fs daemon start
 ```
 
 ---
@@ -675,7 +675,7 @@ agentfs daemon start
 Stop the running daemon.
 
 ```
-agentfs daemon stop
+agent-fs daemon stop
 ```
 
 ---
@@ -685,7 +685,7 @@ agentfs daemon stop
 Check whether the daemon is running.
 
 ```
-agentfs daemon status
+agent-fs daemon status
 ```
 
 **Output:** (human-readable text)
@@ -701,14 +701,14 @@ Daemon is not running
 
 ## Config
 
-Configuration is stored in `~/.agentfs/config.json`. Keys use dot notation.
+Configuration is stored in `~/.agent-fs/config.json`. Keys use dot notation.
 
 ### config get
 
 Get a configuration value.
 
 ```
-agentfs config get <key>
+agent-fs config get <key>
 ```
 
 **Arguments:**
@@ -716,8 +716,8 @@ agentfs config get <key>
 
 **Examples:**
 ```bash
-agentfs config get s3.bucket
-agentfs config get s3
+agent-fs config get s3.bucket
+agent-fs config get s3
 ```
 
 ---
@@ -727,7 +727,7 @@ agentfs config get s3
 Set a configuration value.
 
 ```
-agentfs config set <key> <value>
+agent-fs config set <key> <value>
 ```
 
 **Arguments:**
@@ -736,8 +736,8 @@ agentfs config set <key> <value>
 
 **Examples:**
 ```bash
-agentfs config set s3.endpoint "https://s3.us-east-1.amazonaws.com"
-agentfs config set s3.bucket "my-agentfs-bucket"
+agent-fs config set s3.endpoint "https://s3.us-east-1.amazonaws.com"
+agent-fs config set s3.bucket "my-agentfs-bucket"
 ```
 
 ---
@@ -747,7 +747,7 @@ agentfs config set s3.bucket "my-agentfs-bucket"
 Show all configuration values.
 
 ```
-agentfs config list
+agent-fs config list
 ```
 
 **Output:**

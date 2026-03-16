@@ -11,6 +11,14 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "paths": {
+      "@/core": ["./packages/core/src/index.ts"],
+      "@/core/*": ["./packages/core/src/*"],
+      "@/server": ["./packages/server/src/index.ts"],
+      "@/server/*": ["./packages/server/src/*"],
+      "@/mcp": ["./packages/mcp/src/index.ts"],
+      "@/mcp/*": ["./packages/mcp/src/*"]
+    }
   }
 }

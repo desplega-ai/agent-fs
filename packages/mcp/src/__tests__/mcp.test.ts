@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { getRegisteredOps, getOpDefinition } from "@agentfs/core";
+import { getRegisteredOps, getOpDefinition } from "@/core";
 
 describe("MCP tool registration", () => {
   test("all ops from registry are available as tools", () => {

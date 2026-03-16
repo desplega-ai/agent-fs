@@ -7,7 +7,8 @@
     "typecheck": "tsc --build",
     "test": "bun test packages/*/src/",
     "test:coverage": "bun test --coverage packages/*/src/",
-    "build": "./scripts/build.sh"
+    "build": "./scripts/build.sh",
+    "build:npm": "cd packages/cli && bun run build:npm"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

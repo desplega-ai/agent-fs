@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { getConfig, setConfigValue } from "@agentfs/core";
+import { getConfig, setConfigValue } from "@/core";
 
 export function configCommands() {
   const cmd = new Command("config").description("Configuration management");

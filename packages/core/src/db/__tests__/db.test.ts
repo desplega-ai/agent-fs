@@ -13,7 +13,7 @@ describe("Database initialization", () => {
   const testDbPaths: string[] = [];
 
   function makeTestDbPath(): string {
-    const p = join(tmpdir(), `agentfs-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
+    const p = join(tmpdir(), `agent-fs-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);
     testDbPaths.push(p);
     return p;
   }

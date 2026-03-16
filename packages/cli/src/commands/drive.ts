@@ -11,7 +11,7 @@ import {
   getConfig,
   setConfigValue,
   inviteToOrg,
-} from "@agentfs/core";
+} from "@/core";
 
 export function driveCommands(client: ApiClient) {
   const cmd = new Command("drive").description("Drive management");
@@ -96,7 +96,7 @@ export function driveCommands(client: ApiClient) {
 function getLocalContext() {
   const config = getConfig();
   if (!config.auth.apiKey) {
-    throw new Error("Not logged in. Run: agentfs auth register <email>");
+    throw new Error("Not logged in. Run: agent-fs auth register <email>");
   }
   const db = createDatabase();
   const user = getUserByApiKey(db, config.auth.apiKey);

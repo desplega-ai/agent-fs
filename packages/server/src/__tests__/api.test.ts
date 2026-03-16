@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createDatabase, AgentS3Client } from "@agentfs/core";
+import { createDatabase, AgentS3Client } from "@/core";
 
 const MINIO_AVAILABLE = await (async () => {
   try { const r = await fetch("http://localhost:9000/minio/health/live"); return r.ok; } catch { return false; }
@@ -10,7 +10,7 @@ const MINIO_AVAILABLE = await (async () => {
 const SKIP = !MINIO_AVAILABLE;
 import { createApp } from "../app.js";
 
-const TEST_DB = join(tmpdir(), `agentfs-api-test-${Date.now()}.db`);
+const TEST_DB = join(tmpdir(), `agent-fs-api-test-${Date.now()}.db`);
 
 let app: ReturnType<typeof createApp>;
 let apiKey: string;

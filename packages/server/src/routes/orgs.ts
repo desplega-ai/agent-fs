@@ -6,8 +6,8 @@ import {
   inviteToOrg,
   listDrives,
   createDrive,
-} from "@agentfs/core";
-import type { DB } from "@agentfs/core";
+} from "@/core";
+import type { DB } from "@/core";
 import type { AppEnv } from "../types.js";
 
 export function orgRoutes(db: DB) {

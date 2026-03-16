@@ -11,7 +11,7 @@ import { checkPermission, getRequiredRole, getUserDriveRole } from "../rbac.js";
 import { resolveContext } from "../context.js";
 import { PermissionDeniedError } from "../../errors.js";
 
-const TEST_DB = join(tmpdir(), `agentfs-identity-test-${Date.now()}.db`);
+const TEST_DB = join(tmpdir(), `agent-fs-identity-test-${Date.now()}.db`);
 let db: DB;
 
 beforeAll(() => {

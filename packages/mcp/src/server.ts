@@ -7,9 +7,9 @@ import {
   getUserByApiKey,
   ensureLocalUser,
   VERSION,
-} from "@agentfs/core";
-import type { OpContext, DB } from "@agentfs/core";
-import type { EmbeddingProvider } from "@agentfs/core/src/search/embeddings/provider.js";
+} from "@/core";
+import type { OpContext, DB } from "@/core";
+import type { EmbeddingProvider } from "@/core/search/embeddings/provider.js";
 import { registerTools } from "./tools.js";
 
 export interface McpServerOptions {
@@ -24,7 +24,7 @@ async function createEmbeddingProvider(): Promise<EmbeddingProvider | null> {
   if (process.env.OPENAI_API_KEY) {
     try {
       const { OpenAIEmbeddingProvider } = await import(
-        "@agentfs/core/src/search/embeddings/openai.js"
+        "@/core/search/embeddings/openai.js"
       );
       console.error("[agent-fs] Using OpenAI embedding provider");
       return new OpenAIEmbeddingProvider(process.env.OPENAI_API_KEY);
@@ -36,7 +36,7 @@ async function createEmbeddingProvider(): Promise<EmbeddingProvider | null> {
   if (process.env.GEMINI_API_KEY) {
     try {
       const { GeminiEmbeddingProvider } = await import(
-        "@agentfs/core/src/search/embeddings/gemini.js"
+        "@/core/search/embeddings/gemini.js"
       );
       console.error("[agent-fs] Using Gemini embedding provider");
       return new GeminiEmbeddingProvider(process.env.GEMINI_API_KEY);

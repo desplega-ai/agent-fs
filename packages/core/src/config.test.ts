@@ -5,7 +5,7 @@ import {
   getConfig,
   setConfig,
   setConfigValue,
-  getAgentFSHome,
+  getHome,
 } from "./config.js";
 import { createTestConfigDir } from "./test-utils.js";
 
@@ -21,8 +21,8 @@ describe("Config system", () => {
     cleanup();
   });
 
-  test("getAgentFSHome returns AGENTFS_HOME when set", () => {
-    const home = getAgentFSHome();
+  test("getHome returns AGENT_FS_HOME when set", () => {
+    const home = getHome();
     expect(home).toBe(testHome);
   });
 

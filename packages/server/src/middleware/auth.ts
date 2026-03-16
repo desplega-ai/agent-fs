@@ -1,6 +1,6 @@
 import type { Context, Next } from "hono";
-import { getUserByApiKey } from "@agentfs/core";
-import type { DB } from "@agentfs/core";
+import { getUserByApiKey } from "@/core";
+import type { DB } from "@/core";
 
 // Paths that don't require authentication
 const PUBLIC_PATHS = ["/auth/register", "/health"];

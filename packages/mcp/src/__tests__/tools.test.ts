@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { z } from "zod";
-import { getRegisteredOps, getOpDefinition } from "@agentfs/core";
+import { getRegisteredOps, getOpDefinition } from "@/core";
 import { registerTools } from "../tools.js";
 import { createTestContext } from "../../../core/src/test-utils.js";
 

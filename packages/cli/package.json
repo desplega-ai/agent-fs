@@ -1,16 +1,42 @@
 {
-  "name": "agentfs",
-  "version": "0.1.0",
+  "name": "@desplega-ai/agent-fs",
+  "version": "0.1.1",
   "type": "module",
+  "description": "Agent-first filesystem backed by S3",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/desplega-ai/agent-fs"
+  },
+  "keywords": ["agent", "filesystem", "s3", "mcp", "cli"],
+  "engines": {
+    "bun": ">=1.2.0"
+  },
   "main": "src/index.ts",
   "types": "src/index.ts",
   "bin": {
-    "agentfs": "src/index.ts"
+    "agent-fs": "src/index.ts"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --packages external --minify",
+    "prepublishOnly": "bun run build:npm"
   },
   "dependencies": {
-    "@agentfs/core": "workspace:*",
-    "@agentfs/server": "workspace:*",
-    "@agentfs/mcp": "workspace:*",
-    "commander": "^14.0.3"
+    "@desplega-ai/agent-fs-core": "workspace:*",
+    "@desplega-ai/agent-fs-server": "workspace:*",
+    "@desplega-ai/agent-fs-mcp": "workspace:*",
+    "commander": "^14.0.3",
+    "@aws-sdk/client-s3": "^3.750.0",
+    "@google/genai": "^1.45.0",
+    "chonkie": "^0.3.0",
+    "diff": "^8.0.3",
+    "drizzle-orm": "^0.44.0",
+    "node-llama-cpp": "^3.17.1",
+    "openai": "^6.29.0",
+    "sqlite-vec": "^0.1.6",
+    "zod": "^3.24.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "hono": "^4.12.8"
   }
 }

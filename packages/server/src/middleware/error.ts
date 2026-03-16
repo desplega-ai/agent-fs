@@ -5,7 +5,7 @@ import {
   EditConflictError,
   IndexingInProgressError,
   ValidationError,
-} from "@agentfs/core";
+} from "@/core";
 
 function getStatusCode(err: Error): number {
   if (err instanceof NotFoundError) return 404;

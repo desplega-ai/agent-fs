@@ -22,7 +22,7 @@ Agent FS gives AI agents a structured filesystem with built-in semantic search, 
 - **Identity management** — Persistent agent identity files that evolve over time
 - **MCP integration** — Expose filesystem operations as MCP tools for Claude Code, Codex, and other assistants
 - **HTTP API** — RESTful server powered by Hono for programmatic access
-- **CLI** — Single binary (`agentfs`) for local use and scripting
+- **CLI** — Single binary (`agent-fs`) for local use and scripting
 
 ## Quick Start
 
@@ -45,7 +45,7 @@ bun run build
 
 ```bash
 # Show available commands
-agentfs --help
+agent-fs --help
 ```
 
 ## Architecture
@@ -54,10 +54,10 @@ Agent FS is a Bun monorepo with four packages:
 
 | Package | Description |
 |---------|-------------|
-| `@agentfs/core` | Core library — storage engine, semantic search, identity, S3 sync |
-| `agentfs` | CLI binary (`agentfs`) |
-| `@agentfs/mcp` | MCP server — exposes operations as MCP tools |
-| `@agentfs/server` | HTTP server — RESTful API powered by Hono |
+| `@desplega-ai/agent-fs-core` | Core library — storage engine, semantic search, identity, S3 sync |
+| `@desplega-ai/agent-fs` | CLI binary (`agent-fs`) |
+| `@desplega-ai/agent-fs-mcp` | MCP server — exposes operations as MCP tools |
+| `@desplega-ai/agent-fs-server` | HTTP server — RESTful API powered by Hono |
 
 ## Development
 
@@ -65,7 +65,7 @@ Agent FS is a Bun monorepo with four packages:
 bun install          # Install dependencies
 bun run typecheck    # Type checking
 bun run test         # Run tests
-bun run build        # Build CLI binary to dist/agentfs
+bun run build        # Build CLI binary to dist/agent-fs
 ```
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development guide.

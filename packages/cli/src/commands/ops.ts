@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
 import { isDaemonRunning, embeddedCallOp, getEmbeddedOrgId } from "../embedded.js";
-import { getOpDefinition } from "@agentfs/core";
+import { getOpDefinition } from "@/core";
 import { outputResult } from "../formatters.js";
 
 interface OpCommandDef {

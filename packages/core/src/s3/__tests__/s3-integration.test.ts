@@ -37,7 +37,7 @@ describe.skipIf(SKIP)("S3 Integration (MinIO)", () => {
 
   test("putObject with metadata", async () => {
     const key = `test/metadata-${Date.now()}.txt`;
-    await s3.putObject(key, "content", { "x-agentfs-author": "test-user" });
+    await s3.putObject(key, "content", { "x-agent-fs-author": "test-user" });
 
     const head = await s3.headObject(key);
     expect(head.size).toBe(7);

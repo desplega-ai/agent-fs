@@ -14,7 +14,7 @@ import { indexFileEmbeddings } from "../search/pipeline.js";
 const MINIO_AVAILABLE = await isMinioAvailable();
 const SKIP = !MINIO_AVAILABLE;
 
-const TEST_DB = join(tmpdir(), `agentfs-local-embed-test-${Date.now()}.db`);
+const TEST_DB = join(tmpdir(), `agent-fs-local-embed-test-${Date.now()}.db`);
 const ORG_ID = "test-org";
 const DRIVE_ID = "test-drive";
 const USER_ID = "test-user";

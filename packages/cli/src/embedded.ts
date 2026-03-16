@@ -6,8 +6,8 @@ import {
   resolveContext,
   dispatchOp,
   ensureLocalUser,
-} from "@agentfs/core";
-import type { DB, OpContext } from "@agentfs/core";
+} from "@/core";
+import type { DB, OpContext } from "@/core";
 
 let _db: DB | null = null;
 let _s3: AgentS3Client | null = null;

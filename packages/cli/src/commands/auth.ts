@@ -5,7 +5,7 @@ import {
   createUser,
   createDatabase,
   listUserOrgs,
-} from "@agentfs/core";
+} from "@/core";
 
 export function authCommands(client: ApiClient) {
   const cmd = new Command("auth").description("Authentication commands");
@@ -54,10 +54,10 @@ export function authCommands(client: ApiClient) {
       } catch {
         // Daemon not running — look up directly from DB
         try {
-          const { getConfig, getUserByApiKey, createDatabase, listUserOrgs } = await import("@agentfs/core");
+          const { getConfig, getUserByApiKey, createDatabase, listUserOrgs } = await import("@/core");
           const config = getConfig();
           if (!config.auth.apiKey) {
-            console.error("Not logged in. Run: agentfs auth register <email>");
+            console.error("Not logged in. Run: agent-fs auth register <email>");
             process.exit(1);
           }
           const db = createDatabase();
