@@ -23,7 +23,7 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "tail", args: [{ name: "path", required: true }], options: [{ flag: "-n, --lines <n>", description: "Number of lines (default: 20)" }] },
   { name: "log", args: [{ name: "path", required: true }], options: [{ flag: "--limit <n>", description: "Max entries" }] },
   { name: "diff", args: [{ name: "path", required: true }], options: [{ flag: "--v1 <n>", description: "First version" }, { flag: "--v2 <n>", description: "Second version" }] },
-  { name: "revert", args: [{ name: "path", required: true }], options: [{ flag: "--version <n>", description: "Version to revert to" }] },
+  { name: "revert", args: [{ name: "path", required: true }], options: [{ flag: "--to <n>", description: "Version to revert to" }] },
   { name: "recent", args: [{ name: "path", required: false }], options: [{ flag: "--since <duration>", description: "Time filter (e.g., 1h, 24h)" }, { flag: "--limit <n>", description: "Max entries" }] },
   { name: "grep", args: [{ name: "pattern", required: true }, { name: "path", required: true }], options: [] },
   { name: "fts", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
@@ -87,6 +87,10 @@ export function registerOpCommands(
       if (params["new"] !== undefined) {
         params.new_string = params["new"];
         delete params["new"];
+      }
+      if (def.name === "revert" && params["to"] !== undefined) {
+        params.version = params["to"];
+        delete params["to"];
       }
 
       for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth"]) {

@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main]
 
+# Run E2E only on main (requires Docker for MinIO)
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -30,3 +32,18 @@ jobs:
         run: |
           bun run scripts/sync-openapi.ts
           git diff --exit-code docs/openapi.json
+
+  e2e:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: E2E (source)
+        run: bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"
+      - name: Build
+        run: bun run build
+      - name: E2E (bundle)
+        run: bun run scripts/e2e.ts "bun ./packages/cli/dist/cli.js"

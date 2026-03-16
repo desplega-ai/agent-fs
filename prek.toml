@@ -29,6 +29,14 @@ pass_filenames = false
 always_run = true
 
 [[repos.hooks]]
+id = "e2e"
+name = "E2E tests"
+language = "system"
+entry = "bun run scripts/e2e.ts \"bun run packages/cli/src/index.ts --\""
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
 id = "openapi-freshness"
 name = "OpenAPI spec freshness"
 language = "system"
