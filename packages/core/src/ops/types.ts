@@ -204,3 +204,95 @@ export interface RecentEntry extends VersionEntry {
 export interface RecentResult {
   entries: RecentEntry[];
 }
+
+// --- Comment types ---
+
+export interface CommentAddParams {
+  path?: string;
+  body: string;
+  parentId?: string;
+  lineStart?: number;
+  lineEnd?: number;
+  quotedContent?: string;
+}
+
+export interface CommentAddResult {
+  id: string;
+  path: string;
+  body: string;
+  parentId?: string;
+  lineStart?: number;
+  lineEnd?: number;
+  author: string;
+  createdAt: Date;
+}
+
+export interface CommentListParams {
+  path?: string;
+  parentId?: string;
+  resolved?: boolean;
+  orgId?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CommentEntry {
+  id: string;
+  parentId?: string;
+  path: string;
+  lineStart?: number;
+  lineEnd?: number;
+  quotedContent?: string;
+  body: string;
+  author: string;
+  resolved: boolean;
+  resolvedBy?: string;
+  resolvedAt?: Date;
+  replyCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CommentListResult {
+  comments: CommentEntry[];
+}
+
+export interface CommentGetParams {
+  id: string;
+}
+
+export interface CommentGetResult {
+  comment: CommentEntry;
+  replies: CommentEntry[];
+}
+
+export interface CommentUpdateParams {
+  id: string;
+  body: string;
+}
+
+export interface CommentUpdateResult {
+  id: string;
+  body: string;
+  updatedAt: Date;
+}
+
+export interface CommentDeleteParams {
+  id: string;
+}
+
+export interface CommentDeleteResult {
+  deleted: boolean;
+}
+
+export interface CommentResolveParams {
+  id: string;
+  resolved: boolean;
+}
+
+export interface CommentResolveResult {
+  id: string;
+  resolved: boolean;
+  resolvedBy?: string;
+  resolvedAt?: Date;
+}

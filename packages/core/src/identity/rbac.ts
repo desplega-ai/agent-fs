@@ -33,6 +33,12 @@ const OP_ROLES: Record<string, Role> = {
   mkdir: "editor",
   revert: "editor",
   reindex: "admin",
+  "comment-add": "editor",
+  "comment-list": "viewer",
+  "comment-get": "viewer",
+  "comment-update": "editor",
+  "comment-delete": "editor",
+  "comment-resolve": "editor",
 };
 
 export function getRequiredRole(opName: string): Role {

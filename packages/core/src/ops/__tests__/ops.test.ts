@@ -336,7 +336,7 @@ describe.skipIf(SKIP)("recent", () => {
 describe.skipIf(SKIP)("op registry", () => {
   test("all ops are registered", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(20);
+    expect(ops.length).toBe(26);
     expect(ops).toContain("write");
     expect(ops).toContain("cat");
     expect(ops).toContain("edit");

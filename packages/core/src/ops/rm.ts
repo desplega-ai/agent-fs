@@ -53,5 +53,17 @@ export async function rm(
       .run();
   }
 
+  // 5. Soft-delete comments on this file
+  ctx.db
+    .update(schema.comments)
+    .set({ isDeleted: true, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.comments.path, params.path),
+        eq(schema.comments.driveId, ctx.driveId)
+      )
+    )
+    .run();
+
   return { path: params.path, deleted: true };
 }

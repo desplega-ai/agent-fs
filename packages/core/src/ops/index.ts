@@ -21,6 +21,14 @@ import { grep } from "./grep.js";
 import { find } from "./find.js";
 import { search } from "./search.js";
 import { reindex } from "./reindex.js";
+import {
+  commentAdd,
+  commentList,
+  commentGet,
+  commentUpdate,
+  commentDelete,
+  commentResolve,
+} from "./comment.js";
 
 export interface OpDefinition {
   handler: (ctx: OpContext, params: any) => Promise<any>;
@@ -164,6 +172,54 @@ const opRegistry: Record<string, OpDefinition> = {
       path: z.string().optional(),
     }),
   },
+  "comment-add": {
+    handler: commentAdd,
+    schema: z.object({
+      path: z.string().optional(),
+      body: z.string(),
+      parentId: z.string().optional(),
+      lineStart: z.number().int().optional(),
+      lineEnd: z.number().int().optional(),
+      quotedContent: z.string().optional(),
+    }),
+  },
+  "comment-list": {
+    handler: commentList,
+    schema: z.object({
+      path: z.string().optional(),
+      parentId: z.string().optional(),
+      resolved: z.boolean().optional(),
+      orgId: z.string().optional(),
+      limit: z.number().int().min(1).optional(),
+      offset: z.number().int().min(0).optional(),
+    }),
+  },
+  "comment-get": {
+    handler: commentGet,
+    schema: z.object({
+      id: z.string(),
+    }),
+  },
+  "comment-update": {
+    handler: commentUpdate,
+    schema: z.object({
+      id: z.string(),
+      body: z.string(),
+    }),
+  },
+  "comment-delete": {
+    handler: commentDelete,
+    schema: z.object({
+      id: z.string(),
+    }),
+  },
+  "comment-resolve": {
+    handler: commentResolve,
+    schema: z.object({
+      id: z.string(),
+      resolved: z.boolean(),
+    }),
+  },
 };
 
 export async function dispatchOp(
@@ -200,5 +256,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, cat, edit, append, ls, stat, rm, mv, cp, head, tail, mkdir, log, diff, revert, recent, grep, find, search, reindex };
+export { write, cat, edit, append, ls, stat, rm, mv, cp, head, tail, mkdir, log, diff, revert, recent, grep, find, search, reindex, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
 export type * from "./types.js";

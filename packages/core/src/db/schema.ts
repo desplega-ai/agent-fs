@@ -116,6 +116,53 @@ export const fileVersions = sqliteTable("file_versions", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+// comments (document comments with threading)
+export const comments = sqliteTable("comments", {
+  id: text("id").primaryKey(),
+  parentId: text("parent_id"), // self-ref, NULL = root comment
+  orgId: text("org_id")
+    .notNull()
+    .references(() => orgs.id),
+  driveId: text("drive_id")
+    .notNull()
+    .references(() => drives.id),
+  path: text("path").notNull(),
+  lineStart: integer("line_start"),
+  lineEnd: integer("line_end"),
+  quotedContent: text("quoted_content"),
+  fileVersionId: integer("file_version_id"),
+  body: text("body").notNull(),
+  author: text("author")
+    .notNull()
+    .references(() => users.id),
+  resolved: integer("resolved", { mode: "boolean" }).notNull().default(false),
+  resolvedBy: text("resolved_by"),
+  resolvedAt: integer("resolved_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  isDeleted: integer("is_deleted", { mode: "boolean" }).notNull().default(false),
+});
+
+// events (generic event/notification table)
+export const events = sqliteTable("events", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id")
+    .notNull()
+    .references(() => orgs.id),
+  type: text("type").notNull(),
+  resourceType: text("resource_type").notNull(),
+  resourceId: text("resource_id").notNull(),
+  actor: text("actor")
+    .notNull()
+    .references(() => users.id),
+  target: text("target"),
+  status: text("status", { enum: ["created", "ack", "deleted"] })
+    .notNull()
+    .default("created"),
+  metadata: text("metadata"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 // content_chunks (for embedding)
 export const contentChunks = sqliteTable("content_chunks", {
   id: integer("id").primaryKey({ autoIncrement: true }),

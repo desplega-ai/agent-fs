@@ -29,8 +29,29 @@ export {
   dispatchOp,
   getRegisteredOps,
   getOpDefinition,
+  commentAdd,
+  commentList,
+  commentGet,
+  commentUpdate,
+  commentDelete,
+  commentResolve,
 } from "./ops/index.js";
 export type { OpContext, OpDefinition } from "./ops/index.js";
+export type {
+  CommentAddParams,
+  CommentAddResult,
+  CommentListParams,
+  CommentListResult,
+  CommentEntry,
+  CommentGetParams,
+  CommentGetResult,
+  CommentUpdateParams,
+  CommentUpdateResult,
+  CommentDeleteParams,
+  CommentDeleteResult,
+  CommentResolveParams,
+  CommentResolveResult,
+} from "./ops/types.js";
 export {
   createUser,
   getUserByApiKey,

@@ -6,11 +6,12 @@ describe("Op Registry", () => {
     "write", "cat", "edit", "append", "ls", "stat", "rm", "mv", "cp",
     "head", "tail", "mkdir", "log", "diff", "revert", "recent",
     "grep", "find", "search", "reindex",
+    "comment-add", "comment-list", "comment-get", "comment-update", "comment-delete", "comment-resolve",
   ];
 
-  test("getRegisteredOps returns all 20 ops", () => {
+  test("getRegisteredOps returns all 26 ops", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(20);
+    expect(ops.length).toBe(26);
     for (const op of expectedOps) {
       expect(ops).toContain(op);
     }

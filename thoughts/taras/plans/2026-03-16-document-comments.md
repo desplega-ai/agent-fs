@@ -1,7 +1,7 @@
 ---
 date: 2026-03-16
 planner: claude
-status: ready
+status: completed
 autonomy: critical
 commit_per_phase: true
 research: thoughts/taras/research/2026-03-15-document-comments.md
@@ -179,8 +179,8 @@ CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] DB initializes without errors: `bun run build && ./dist/agentfs auth register test@test.com 2>&1 | head -5` (verifies DB init runs the new CREATE TABLE statements)
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] DB initializes without errors: `bun run build && ./dist/agentfs auth register test@test.com 2>&1 | head -5` (verifies DB init runs the new CREATE TABLE statements)
 
 #### Manual Verification:
 - [ ] Confirm `comments` table SQL matches Drizzle schema (column names, types, defaults)
@@ -342,8 +342,8 @@ Key implementation details:
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] No import errors: `bun -e "import { commentAdd } from './packages/core/src/ops/comment.js'"`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] No import errors: `bun -e "import { commentAdd } from './packages/core/src/ops/comment.js'"`
 
 #### Manual Verification:
 - [ ] Verify `commentAdd` resolves path from parent when `parentId` is set
@@ -400,7 +400,7 @@ function emitEvent(ctx: OpContext, params: {
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
+- [x] TypeScript compiles: `bun run typecheck`
 
 #### Manual Verification:
 - [ ] Verify events are fire-and-forget (no error propagation to caller)
@@ -440,8 +440,8 @@ This uses soft-delete (consistent with comment system design) rather than hard S
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] Existing tests pass: `bun run test`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] Existing tests pass: `bun run test`
 
 #### Manual Verification:
 - [ ] Verify rm handler imports `schema` (already imported) and `comments` table is accessible
@@ -491,9 +491,9 @@ if (await isDaemonRunning()) {
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript compiles: `bun run typecheck`
-- [ ] CLI builds: `bun run build`
-- [ ] Help text shows: `./dist/agentfs comment --help`
+- [x] TypeScript compiles: `bun run typecheck`
+- [x] CLI builds: `bun run build`
+- [x] Help text shows: `./dist/agentfs comment --help`
 
 #### Manual Verification:
 - [ ] Verify all 8 subcommands appear in `comment --help`
@@ -541,8 +541,8 @@ Test cases:
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] All comment tests pass: `bun test packages/core/src/ops/__tests__/comment.test.ts`
-- [ ] Full test suite passes: `bun run test`
+- [x] All comment tests pass: `bun test packages/core/src/ops/__tests__/comment.test.ts`
+- [x] Full test suite passes: `bun run test`
 
 #### Manual Verification:
 - [ ] Verify tests don't require MinIO (no S3 operations in comment handlers)
@@ -581,9 +581,9 @@ export type {
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Full typecheck passes: `bun run typecheck`
-- [ ] Full test suite passes: `bun run test`
-- [ ] CLI builds successfully: `bun run build`
+- [x] Full typecheck passes: `bun run typecheck`
+- [x] Full test suite passes: `bun run test`
+- [x] CLI builds successfully: `bun run build`
 
 #### Manual Verification:
 - [ ] Verify all comment types are accessible from `@agentfs/core` package
