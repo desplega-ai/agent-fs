@@ -30,12 +30,6 @@ bun install
 
 ## Running the Project
 
-### Type Checking
-
-```bash
-bun run typecheck
-```
-
 ### Tests
 
 ```bash

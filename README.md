@@ -55,7 +55,7 @@ Agent FS is a Bun monorepo with four packages:
 | Package | Description |
 |---------|-------------|
 | `@agentfs/core` | Core library — storage engine, semantic search, identity, S3 sync |
-| `@agentfs/cli` | CLI binary (`agentfs`) |
+| `agentfs` | CLI binary (`agentfs`) |
 | `@agentfs/mcp` | MCP server — exposes operations as MCP tools |
 | `@agentfs/server` | HTTP server — RESTful API powered by Hono |
 
