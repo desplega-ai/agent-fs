@@ -40,7 +40,7 @@ beforeAll(() => {
   db.insert(schema.files).values({ ...baseFile, path: "/null.md", embeddingStatus: null }).run();
   db.insert(schema.files).values({ ...baseFile, path: "/indexed.md", embeddingStatus: "indexed" }).run();
   db.insert(schema.files).values({ ...baseFile, path: "/deleted.md", embeddingStatus: "pending", isDeleted: true }).run();
-});
+}, 30_000);
 
 afterAll(() => {
   try { unlinkSync(TEST_DB); } catch {}

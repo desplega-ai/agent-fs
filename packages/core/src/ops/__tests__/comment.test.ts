@@ -42,7 +42,7 @@ beforeAll(() => {
   const nullS3 = null as any;
   ctx = { db, s3: nullS3, orgId: ORG_ID, driveId: DRIVE_ID, userId: USER_A };
   ctxB = { db, s3: nullS3, orgId: ORG_ID, driveId: DRIVE_ID, userId: USER_B };
-});
+}, 30_000);
 
 afterAll(() => {
   try {

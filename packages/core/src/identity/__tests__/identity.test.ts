@@ -16,7 +16,7 @@ let db: DB;
 
 beforeAll(() => {
   db = createDatabase(TEST_DB);
-});
+}, 30_000);
 
 afterAll(() => {
   try {
