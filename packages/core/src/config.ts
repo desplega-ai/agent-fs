@@ -42,6 +42,10 @@ export interface AgentFSConfig {
     containerId: string;
     managed: boolean;
   };
+  apiUrl?: string;
+  apiKey?: string;
+  defaultOrg?: string;
+  defaultDrive?: string;
 }
 
 const DEFAULT_CONFIG: AgentFSConfig = {
@@ -111,7 +115,7 @@ function deepMergeConfig(
       typeof overrides[key] === "object" &&
       !Array.isArray(overrides[key])
     ) {
-      result[key] = { ...defaults[key], ...overrides[key] } as any;
+      result[key] = { ...(defaults[key] as any), ...(overrides[key] as any) } as any;
     } else if (overrides[key] !== undefined) {
       result[key] = overrides[key] as any;
     }

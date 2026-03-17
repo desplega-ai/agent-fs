@@ -63,6 +63,7 @@ function toCommentEntry(row: any): CommentEntry {
     resolved: row.resolved ?? false,
     resolvedBy: row.resolvedBy ?? undefined,
     resolvedAt: row.resolvedAt ?? undefined,
+    fileVersionId: row.fileVersionId ?? undefined,
     replyCount: row.replyCount ?? 0,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

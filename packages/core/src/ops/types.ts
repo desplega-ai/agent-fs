@@ -235,6 +235,7 @@ export interface CommentEntry {
   resolved: boolean;
   resolvedBy?: string;
   resolvedAt?: Date;
+  fileVersionId?: number;
   replyCount: number;
   createdAt: Date;
   updatedAt: Date;

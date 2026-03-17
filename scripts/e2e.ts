@@ -33,6 +33,8 @@ const testDir = join(tmpdir(), containerName);
 let minioPort = "";
 let daemonPort = 0;
 let apiKey = "";
+let personalOrgId = "";
+let personalDriveId = "";
 let passed = 0;
 let failed = 0;
 const failures: string[] = [];
@@ -243,6 +245,14 @@ async function setup() {
   }
   const regData = await regRes.json() as { apiKey: string; userId: string; orgId: string };
   apiKey = regData.apiKey;
+  personalOrgId = regData.orgId;
+
+  // Fetch the personal org's default drive ID
+  const drivesRes = await fetch(`${daemonUrl}/orgs/${personalOrgId}/drives`, {
+    headers: { "Authorization": `Bearer ${apiKey}` },
+  });
+  const drivesData = await drivesRes.json() as any;
+  personalDriveId = drivesData.drives[0]?.id;
 
   // Also save the API key to config so CLI's getOrgId() can resolve via local DB
   const configPath = join(testDir, "config.json");
@@ -456,6 +466,160 @@ async function runTests() {
     const names = ls.entries.map((e: any) => e.name);
     assert(names.includes("hello-moved.txt"), false, "hello-moved.txt should be gone after rm");
   });
+
+  // -- Org commands --
+
+  await test("org list", () => {
+    const out = run("org list");
+    assertIncludes(out, personalOrgId);
+    assertIncludes(out, "(personal)");
+  });
+
+  await test("org list --json", () => {
+    const orgs = runJson("org list");
+    assert(Array.isArray(orgs), true, "Expected array");
+    const personal = orgs.find((o: any) => o.id === personalOrgId);
+    assert(!!personal, true, "Expected personal org in list");
+    assert(personal.isPersonal, true);
+    assert(personal.role, "admin");
+  });
+
+  await test("org current", () => {
+    const out = run("org current");
+    assertIncludes(out, personalOrgId);
+    assertIncludes(out, "server default");
+  });
+
+  await test("org current --json", () => {
+    const result = runJson("org current");
+    assert(result.id, personalOrgId);
+    assert(result.source, "server default");
+  });
+
+  // Create a second org via API for switch testing
+  let secondOrgId = "";
+  let secondDriveId = "";
+  await test("create second org (via API)", async () => {
+    const res = await fetch(`${daemonUrl}/orgs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ name: "e2e-second-org" }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Failed to create org: ${res.status} ${body}`);
+    }
+    const data = await res.json() as any;
+    secondOrgId = data.id;
+    // Fetch the default drive for the new org
+    const drivesRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/drives`, {
+      headers: { "Authorization": `Bearer ${apiKey}` },
+    });
+    const drivesData = await drivesRes.json() as any;
+    secondDriveId = drivesData.drives[0]?.id;
+    assert(!!secondOrgId, true, "Expected second org ID");
+    assert(!!secondDriveId, true, "Expected second drive ID");
+  });
+
+  await test("org list shows both orgs", () => {
+    const orgs = runJson("org list");
+    assert(orgs.length, 2, `Expected 2 orgs, got ${orgs.length}`);
+    const names = orgs.map((o: any) => o.name);
+    assert(names.includes("e2e-second-org"), true, `Expected e2e-second-org in ${JSON.stringify(names)}`);
+  });
+
+  await test("org switch to second org", () => {
+    const out = run(`org switch ${secondOrgId}`);
+    assertIncludes(out, "Switched to org: e2e-second-org");
+  });
+
+  await test("org current after switch", () => {
+    const result = runJson("org current");
+    assert(result.id, secondOrgId);
+    assert(result.source, "config (org switch)");
+  });
+
+  await test("org switch back to personal", () => {
+    const out = run(`org switch ${personalOrgId}`);
+    assertIncludes(out, "Switched to org:");
+  });
+
+  await test("org current after switch back", () => {
+    const result = runJson("org current");
+    assert(result.id, personalOrgId);
+    assert(result.source, "config (org switch)");
+  });
+
+  // -- Drive commands --
+
+  await test("drive list (all orgs)", () => {
+    const out = run("drive list");
+    // Should show both orgs' drives
+    assertIncludes(out, "(personal");
+    assertIncludes(out, "e2e-second-org");
+    assertIncludes(out, "(default)");
+  });
+
+  await test("drive list --json", () => {
+    const result = runJson("drive list");
+    assert(Array.isArray(result), true, "Expected array");
+    assert(result.length, 2, `Expected 2 org groups, got ${result.length}`);
+    const orgNames = result.map((r: any) => r.orgName);
+    assert(orgNames.includes("e2e-second-org"), true, `Expected e2e-second-org in ${JSON.stringify(orgNames)}`);
+    // Each group should have drives
+    for (const group of result) {
+      assert(Array.isArray(group.drives), true, "Expected drives array in group");
+      assert(group.drives.length > 0, true, "Expected at least one drive per org");
+    }
+  });
+
+  await test("drive list --org (single org)", () => {
+    const out = run(`--org ${secondOrgId} drive list`);
+    assertIncludes(out, secondDriveId);
+    assertIncludes(out, "(default)");
+  });
+
+  await test("drive current", () => {
+    const out = run("drive current");
+    assertIncludes(out, personalOrgId);
+    assertIncludes(out, personalDriveId);
+  });
+
+  await test("drive current --json", () => {
+    const result = runJson("drive current");
+    assert(result.orgId, personalOrgId);
+    assert(result.drive.id, personalDriveId);
+  });
+
+  await test("drive switch to second org drive", () => {
+    const out = run(`drive switch ${secondDriveId}`);
+    assertIncludes(out, "Switched to drive:");
+    assertIncludes(out, "e2e-second-org");
+  });
+
+  await test("drive current after switch", () => {
+    const result = runJson("drive current");
+    assert(result.orgId, secondOrgId);
+    assert(result.drive.id, secondDriveId);
+  });
+
+  await test("drive switch back to personal drive", () => {
+    const out = run(`drive switch ${personalDriveId}`);
+    assertIncludes(out, "Switched to drive:");
+  });
+
+  await test("drive current after switch back", () => {
+    const result = runJson("drive current");
+    assert(result.orgId, personalOrgId);
+    assert(result.drive.id, personalDriveId);
+  });
+
+  // Clean up config overrides so MCP tests aren't affected
+  run("config set defaultOrg ''");
+  run("config set defaultDrive ''");
 
   // -- MCP endpoint --
 

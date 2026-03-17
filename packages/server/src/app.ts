@@ -13,6 +13,7 @@ import { authRoutes } from "./routes/auth.js";
 import { opsRoutes } from "./routes/ops.js";
 import { orgRoutes } from "./routes/orgs.js";
 import { docsRoutes } from "./routes/docs.js";
+import { fileRoutes } from "./routes/files.js";
 
 export function createApp(db: DB, s3: AgentS3Client, embeddingProvider: EmbeddingProvider | null = null) {
   const app = new Hono<AppEnv>();
@@ -70,6 +71,7 @@ export function createApp(db: DB, s3: AgentS3Client, embeddingProvider: Embeddin
   app.route("/orgs", orgRoutes(db));
   app.route("/orgs", opsRoutes(db, s3, embeddingProvider));
   app.route("/docs", docsRoutes());
+  app.route("/orgs", fileRoutes(db, s3));
 
   return app;
 }

@@ -6,8 +6,8 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprot
 import { getConfig, VERSION } from "@/core";
 
 const config = getConfig();
-const apiUrl = process.env.AGENT_FS_API_URL ?? `http://${config.server.host}:${config.server.port}`;
-const apiKey = process.env.AGENT_FS_API_KEY ?? config.auth?.apiKey;
+const apiUrl = process.env.AGENT_FS_API_URL ?? config.apiUrl ?? `http://${config.server.host}:${config.server.port}`;
+const apiKey = process.env.AGENT_FS_API_KEY ?? config.apiKey ?? config.auth?.apiKey;
 
 if (!apiKey) {
   console.error("Error: No API key. Register with `agent-fs auth register` or set AGENT_FS_API_KEY.");

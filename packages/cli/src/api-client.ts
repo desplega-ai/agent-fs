@@ -8,8 +8,12 @@ export class ApiClient {
     const config = getConfig();
     this.baseUrl =
       process.env.AGENT_FS_API_URL ??
+      config.apiUrl ??
       `http://${config.server.host}:${config.server.port}`;
-    this.apiKey = process.env.AGENT_FS_API_KEY ?? config.auth.apiKey;
+    this.apiKey =
+      process.env.AGENT_FS_API_KEY ??
+      config.apiKey ??
+      config.auth.apiKey;
   }
 
   private async request(path: string, opts?: RequestInit): Promise<any> {

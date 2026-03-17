@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
-import { VERSION } from "@/core";
+import { VERSION, getConfig } from "@/core";
 import { ApiClient } from "./api-client.js";
 import { registerOpCommands } from "./commands/ops.js";
 import { authCommands } from "./commands/auth.js";
 import { daemonCommands } from "./commands/daemon.js";
 import { configCommands } from "./commands/config-cmd.js";
 import { driveCommands } from "./commands/drive.js";
+import { orgCommands } from "./commands/org.js";
 import { initCommand } from "./commands/init.js";
 import { onboardCommand } from "./commands/onboard.js";
 import { commentCommands } from "./commands/comment.js";
@@ -29,6 +30,10 @@ async function getOrgId(): Promise<string> {
   const orgId = program.opts().org;
   if (orgId) return orgId;
 
+  // Check local config override (set by `org switch`)
+  const config = getConfig();
+  if (config.defaultOrg) return config.defaultOrg;
+
   try {
     const me = await client.getMe();
     if (me.defaultOrgId) return me.defaultOrgId;
@@ -49,7 +54,8 @@ registerOpCommands(program, client, getOrgId);
 program.addCommand(authCommands(client));
 program.addCommand(daemonCommands());
 program.addCommand(configCommands());
-program.addCommand(driveCommands(client));
+program.addCommand(driveCommands(client, getOrgId));
+program.addCommand(orgCommands(client));
 program.addCommand(initCommand());
 program.addCommand(onboardCommand());
 program.addCommand(commentCommands(client, getOrgId));
