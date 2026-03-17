@@ -1,0 +1,44 @@
+# fly.toml app configuration file generated for agent-fs-taras on 2026-03-17T01:57:50+01:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'agent-fs-taras'
+primary_region = 'ams'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  AGENT_FS_HOME = '/data'
+  SERVER_HOST = '0.0.0.0'
+
+[[mounts]]
+  source = 'agent_fs_data'
+  destination = '/data'
+  initial_size = '1gb'
+  auto_extend_size_threshold = 80
+  auto_extend_size_increment = '1gb'
+  auto_extend_size_limit = '10gb'
+
+[http_service]
+  internal_port = 7433
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+
+[[statics]]
+  guest_path = '/app/public'
+  url_prefix = '/public'

@@ -1,3 +1,4 @@
+.qa-use-tests.json
 .mcp.json
 node_modules/
 dist/
@@ -7,6 +8,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.production.example
 bun.lockb
 *.tgz
 *.tsbuildinfo
@@ -15,3 +17,5 @@ packages/**/*.d.ts
 packages/**/*.d.ts.map
 packages/**/*.js
 packages/**/*.js.map
+# Fly.io CLI state
+.fly/

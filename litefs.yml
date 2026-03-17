@@ -1,0 +1,34 @@
+# LiteFS configuration for agent-fs
+# ─────────────────────────────────────────────────────────────
+# This is an OPTIONAL upgrade path for SQLite replication.
+# By default, agent-fs uses a simple volume mount (/data).
+# Only use LiteFS if you need multi-node read replication.
+#
+# To enable: install litefs in Dockerfile, change CMD to use
+# litefs as the entrypoint, and uncomment the Consul section
+# below for multi-node support.
+# ─────────────────────────────────────────────────────────────
+
+fuse:
+  dir: "/litefs"
+
+data:
+  dir: "/var/lib/litefs"
+
+# Single-node static lease (no Consul needed)
+lease:
+  type: "static"
+  hostname: "localhost"
+  advertise-url: "http://localhost:20202"
+
+exec:
+  - cmd: "bun run packages/cli/dist/cli.js server"
+
+# ─── Multi-node with Consul (uncomment to enable) ───────────
+# lease:
+#   type: "consul"
+#   hostname: "${HOSTNAME}"
+#   advertise-url: "http://${HOSTNAME}:20202"
+#   consul:
+#     url: "${FLY_CONSUL_URL}"
+#     key: "litefs/${FLY_APP_NAME}"

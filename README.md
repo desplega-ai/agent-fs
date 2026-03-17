@@ -86,6 +86,17 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full development guide.
 
 This creates a git tag and pushes it, triggering the release workflow which publishes to npm and creates a GitHub Release.
 
+## Deploy to Fly.io
+
+Deploy a persistent agent-fs instance to [Fly.io](https://fly.io) with Tigris S3 storage:
+
+```bash
+git clone https://github.com/desplega-ai/agent-fs && cd agent-fs
+bun run scripts/fly-deploy.ts
+```
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for Docker, BYOK storage, and manual setup options.
+
 ## Contributing
 
 We welcome contributions! Whether it's bug reports, feature requests, docs improvements, or code — all are welcome.

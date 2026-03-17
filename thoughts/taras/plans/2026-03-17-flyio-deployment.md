@@ -1,7 +1,7 @@
 ---
 date: 2026-03-17
 planner: Claude
-status: draft
+status: done
 autonomy: autopilot
 research: thoughts/taras/research/2026-03-17-flyio-deployment.md
 repository: agent-fs
@@ -181,14 +181,14 @@ Add test cases:
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Typecheck passes: `bun run typecheck`
-- [ ] Tests pass: `bun run test`
-- [ ] Config tests cover env var overrides: `bun test packages/core/src/config.test.ts`
+- [x] Typecheck passes: `bun run typecheck`
+- [x] Tests pass: `bun run test`
+- [x] Config tests cover env var overrides: `bun test packages/core/src/config.test.ts`
 
 #### Manual Verification:
-- [ ] Start server with S3 env vars, verify config is picked up: `S3_ENDPOINT=http://test:9000 S3_BUCKET=mybucket bun run packages/server/src/index.ts` (check startup log or config dump)
-- [ ] Verify Tigris `AWS_*` vars take precedence over `S3_*` vars
-- [ ] Verify `SERVER_PORT` env var changes the listening port
+- [x] Start server with S3 env vars, verify config is picked up: `S3_ENDPOINT=http://test:9000 S3_BUCKET=mybucket bun run packages/server/src/index.ts` (check startup log or config dump)
+- [x] Verify Tigris `AWS_*` vars take precedence over `S3_*` vars
+- [x] Verify `SERVER_PORT` env var changes the listening port
 
 **Implementation Note**: After completing this phase, pause for manual confirmation before proceeding to Phase 2.
 
@@ -232,13 +232,13 @@ docs/
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Docker build succeeds: `docker build -t agent-fs-test .`
-- [ ] OCI label present: `docker inspect agent-fs-test | grep opencontainers`
-- [ ] Sensitive files excluded: `docker build -t agent-fs-test . 2>&1 | grep -v ".env"` (context should be small)
+- [x] Docker build succeeds: `docker build -t agent-fs-test .`
+- [x] OCI label present: `docker inspect agent-fs-test | grep opencontainers`
+- [x] Sensitive files excluded: `docker build -t agent-fs-test . 2>&1 | grep -v ".env"` (context should be small)
 
 #### Manual Verification:
-- [ ] `.dockerignore` excludes `thoughts/`, `.claude/`, `.env`, `.mcp.json`
-- [ ] Docker image still runs correctly: `docker run --rm -p 7433:7433 agent-fs-test` → `curl http://localhost:7433/health`
+- [x] `.dockerignore` excludes `thoughts/`, `.claude/`, `.env`, `.mcp.json`
+- [x] Docker image still runs correctly: `docker run --rm -p 7433:7433 agent-fs-test` → `curl http://localhost:7433/health`
 
 **Implementation Note**: After completing this phase, pause for manual confirmation.
 
@@ -271,13 +271,13 @@ Full workflow content as specified in research doc section 9.
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Workflow YAML is valid: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/docker-publish.yml'))"`
-- [ ] Typecheck still passes: `bun run typecheck`
+- [x] Workflow YAML is valid: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/docker-publish.yml'))"`
+- [x] Typecheck still passes: `bun run typecheck`
 
 #### Manual Verification:
-- [ ] Review workflow file structure matches the pattern in `npm-publish.yml`
-- [ ] Verify tag patterns, permissions, and multi-arch platforms are correct
-- [ ] Confirm `GITHUB_TOKEN` is used (no additional secrets needed)
+- [x] Review workflow file structure matches the pattern in `npm-publish.yml`
+- [x] Verify tag patterns, permissions, and multi-arch platforms are correct
+- [x] Confirm `GITHUB_TOKEN` is used (no additional secrets needed)
 
 **Implementation Note**: This workflow can only be fully tested by pushing a tag. After merging, the next `release.sh` run will trigger both npm and Docker publishing.
 
@@ -318,14 +318,14 @@ Include the single-node static lease config from research doc section 8, with cl
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] fly.toml syntax valid: `fly config validate` (if fly CLI installed, otherwise manual review)
-- [ ] All three files exist: `ls fly.toml .env.production.example litefs.yml`
+- [x] fly.toml syntax valid: `fly config validate` (if fly CLI installed, otherwise manual review)
+- [x] All three files exist: `ls fly.toml .env.production.example litefs.yml`
 
 #### Manual Verification:
-- [ ] `fly.toml` port matches server default (7433)
-- [ ] `.env.production.example` documents all env vars from Phase 1's mapping table
-- [ ] `litefs.yml` exec command matches Dockerfile CMD path
-- [ ] Volume mount path (`/data`) matches `AGENT_FS_HOME` env var in fly.toml
+- [x] `fly.toml` port matches server default (7433)
+- [x] `.env.production.example` documents all env vars from Phase 1's mapping table
+- [x] `litefs.yml` exec command matches Dockerfile CMD path
+- [x] Volume mount path (`/data`) matches `AGENT_FS_HOME` env var in fly.toml
 
 **Implementation Note**: `fly.toml` app name is a placeholder — users override it with `fly launch`. Pause for review before Phase 5.
 
@@ -365,15 +365,15 @@ The script should handle errors gracefully — if any `fly` command fails, print
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Script compiles: `bun build --target=bun scripts/fly-deploy.ts --outfile /dev/null`
-- [ ] Typecheck passes: `bun run typecheck`
-- [ ] Help flag works: `bun run scripts/fly-deploy.ts --help`
+- [x] Script compiles: `bun build --target=bun scripts/fly-deploy.ts --outfile /dev/null`
+- [x] Typecheck passes: `bun run typecheck`
+- [x] Help flag works: `bun run scripts/fly-deploy.ts --help`
 
 #### Manual Verification:
-- [ ] Script detects missing `fly` CLI gracefully
-- [ ] Script lists prompts correctly in interactive mode
-- [ ] `-y` flag skips all prompts and uses defaults
-- [ ] (Optional) Full deploy to Fly.io test app works end-to-end
+- [x] Script detects missing `fly` CLI gracefully
+- [x] Script lists prompts correctly in interactive mode
+- [x] `-y` flag skips all prompts and uses defaults
+- [x] (Optional) Full deploy to Fly.io test app works end-to-end
 
 **Implementation Note**: Full E2E testing requires a Fly.io account. Verify script structure and error handling locally. Pause for review before Phase 6.
 
@@ -417,13 +417,13 @@ bun run scripts/fly-deploy.ts
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] No broken links in docs: `grep -r 'http.*localhost' DEPLOYMENT.md` (should only reference localhost in examples)
-- [ ] Typecheck still passes: `bun run typecheck`
+- [x] No broken links in docs: `grep -r 'http.*localhost' DEPLOYMENT.md` (should only reference localhost in examples)
+- [x] Typecheck still passes: `bun run typecheck`
 
 #### Manual Verification:
-- [ ] DEPLOYMENT.md env var table matches Phase 1's mapping table exactly
-- [ ] README.md deploy section is concise and accurate
-- [ ] `.gitignore` includes `.fly/`
+- [x] DEPLOYMENT.md env var table matches Phase 1's mapping table exactly
+- [x] README.md deploy section is concise and accurate
+- [x] `.gitignore` includes `.fly/`
 
 **Implementation Note**: Final phase — review all documentation for consistency with the implemented changes.
 
@@ -474,6 +474,35 @@ bun run scripts/fly-deploy.ts --help
 # 5. GHCR workflow syntax
 python3 -c "import yaml; yaml.safe_load(open('.github/workflows/docker-publish.yml')); print('valid')"
 ```
+
+## Deviations from Plan
+
+Bugs found and fixed during E2E testing:
+
+1. **fly.toml health check format** — Plan specified `[http_service.checks.health]` (named map), but Fly expects `[[http_service.checks]]` (array). Fixed.
+2. **Dockerfile CMD `--host 0.0.0.0`** — CLI `server` command doesn't accept `--host` flag. Fixed by removing it and adding `SERVER_HOST=0.0.0.0` to fly.toml `[env]` section.
+3. **Deploy script prompts** — `process.stdin.stream()` doesn't exist in Bun. Replaced with Bun's built-in `prompt()` function.
+4. **Deploy script org selection** — Added `--org` flag and interactive org picker (fetches from `fly orgs list --json`).
+5. **Deploy script Tigris bucket naming** — Added interactive prompt for bucket name to handle global uniqueness collisions.
+6. **Default region** — Changed from `ord` (Chicago) to `ams` (Amsterdam) per Taras's preference.
+7. **`fly launch` rewrites fly.toml** — Expected behavior; our `SERVER_HOST` env var survives the rewrite.
+
+## E2E Verification Results (2026-03-17)
+
+- Server with env var overrides: PASS
+- Tigris AWS_* precedence over S3_*: PASS
+- SERVER_PORT as integer: PASS
+- Docker build: PASS
+- Docker health check: PASS
+- OCI label in image: PASS
+- `fly config validate`: PASS
+- Deploy script `--help`: PASS
+- Deploy script error handling (missing fly CLI): PASS
+- Full Fly.io deploy (`agent-fs-dev` on `desplega` org): PASS
+- Health check on deployed app: PASS (`{"ok":true,"version":"0.2.0"}`)
+- Auth registration on deployed app: PASS
+- File write/read via CLI against deployed app: PASS
+- GHCR workflow: UNTESTED (triggers on next `v*` tag push)
 
 ## References
 - Research: `thoughts/taras/research/2026-03-17-flyio-deployment.md`
