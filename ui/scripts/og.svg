@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="40%" r="50%">
+      <stop offset="0%" stop-color="#0feb3a" stop-opacity="0.1"/>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#0feb3a" stroke-opacity="0.05" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#050505"/>
+
+  <!-- Grid -->
+  <rect width="1200" height="630" fill="url(#grid)"/>
+
+  <!-- Glow -->
+  <rect width="1200" height="630" fill="url(#glow)"/>
+
+  <!-- Top label -->
+  <text x="600" y="195" text-anchor="middle" fill="#0feb3a" font-family="monospace" font-size="16" letter-spacing="6" opacity="0.7">THE FILE SYSTEM FOR AI AGENTS</text>
+
+  <!-- Main title line 1 -->
+  <text x="600" y="300" text-anchor="middle" fill="#f0f0f0" font-family="sans-serif" font-weight="bold" font-size="68" letter-spacing="-1">A file system for</text>
+
+  <!-- Main title line 2 -->
+  <text x="600" y="385" text-anchor="middle" fill="#0feb3a" font-family="sans-serif" font-weight="bold" font-size="68" letter-spacing="-1">AI agents.</text>
+
+  <!-- Subtitle -->
+  <text x="600" y="455" text-anchor="middle" fill="#888888" font-family="sans-serif" font-size="22">Sharable. Searchable. Persistent. CLI + MCP.</text>
+
+  <!-- Bottom -->
+  <text x="600" y="565" text-anchor="middle" fill="#555555" font-family="monospace" font-size="15">agent-fs.dev  ·  by Desplega Labs</text>
+</svg>
