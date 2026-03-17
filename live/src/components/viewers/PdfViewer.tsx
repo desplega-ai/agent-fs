@@ -1,0 +1,56 @@
+import { useEffect, useState } from "react"
+import { useAuth } from "@/contexts/auth"
+import { cn } from "@/lib/utils"
+
+interface PdfViewerProps {
+  path: string
+  className?: string
+}
+
+export function PdfViewer({ path, className }: PdfViewerProps) {
+  const { client, orgId, driveId } = useAuth()
+  const [url, setUrl] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let revoked = false
+
+    client.fetchRaw(orgId!, driveId, path).then((blob) => {
+      if (revoked) return
+      const objectUrl = URL.createObjectURL(blob)
+      setUrl(objectUrl)
+    }).catch((err) => {
+      if (!revoked) setError((err as Error).message)
+    })
+
+    return () => {
+      revoked = true
+      if (url) URL.revokeObjectURL(url)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, orgId, driveId])
+
+  if (error) {
+    return (
+      <div className={cn("flex items-center justify-center p-8 text-sm text-destructive", className)}>
+        Failed to load PDF: {error}
+      </div>
+    )
+  }
+
+  if (!url) {
+    return (
+      <div className={cn("flex items-center justify-center p-8", className)}>
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+      </div>
+    )
+  }
+
+  return (
+    <iframe
+      src={url}
+      title={path}
+      className={cn("w-full h-full border-0", className)}
+    />
+  )
+}
