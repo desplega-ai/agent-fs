@@ -58,11 +58,30 @@ function findFreePort(): Promise<number> {
   });
 }
 
+/** Env object that forces the daemon/CLI to use the test MinIO, not .env values. */
+const testEnv = () => ({
+  ...process.env,
+  AGENT_FS_HOME: testDir,
+  // Override S3 env vars to ensure daemon uses test MinIO, not .env values
+  S3_ENDPOINT: `http://localhost:${minioPort}`,
+  S3_BUCKET: "agentfs",
+  S3_ACCESS_KEY_ID: "minioadmin",
+  S3_SECRET_ACCESS_KEY: "minioadmin",
+  S3_REGION: "us-east-1",
+  S3_PROVIDER: "minio",
+  // Clear AWS_* vars (they take precedence over S3_* in applyEnvOverrides)
+  AWS_ENDPOINT_URL_S3: "",
+  AWS_ACCESS_KEY_ID: "",
+  AWS_SECRET_ACCESS_KEY: "",
+  AWS_REGION: "",
+  BUCKET_NAME: "",
+});
+
 /** Run a CLI command. Only passes AGENT_FS_HOME (no API key/URL needed for daemon commands). */
 function runRaw(args: string): string {
   return execSync(`${cmd} ${args}`, {
     encoding: "utf-8",
-    env: { ...process.env, AGENT_FS_HOME: testDir },
+    env: testEnv(),
     timeout: 30_000,
   }).trim();
 }
@@ -72,8 +91,7 @@ function run(args: string): string {
   return execSync(`${cmd} ${args}`, {
     encoding: "utf-8",
     env: {
-      ...process.env,
-      AGENT_FS_HOME: testDir,
+      ...testEnv(),
       AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`,
       AGENT_FS_API_KEY: apiKey,
     },
@@ -182,6 +200,7 @@ async function setup() {
           endpoint: `http://localhost:${minioPort}`,
           accessKeyId: "minioadmin",
           secretAccessKey: "minioadmin",
+          versioningEnabled: true,
         },
         embedding: { provider: "local", model: "", apiKey: "" },
         server: { port: daemonPort, host: "127.0.0.1" },
