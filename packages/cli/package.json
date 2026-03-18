@@ -22,7 +22,7 @@
     "agent-fs": "dist/cli.js"
   },
   "files": [
-    "dist",
+    "dist/cli.js",
     "README.md"
   ],
   "scripts": {
