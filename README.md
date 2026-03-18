@@ -14,6 +14,8 @@
 
 Agent FS gives AI agents a structured filesystem with built-in semantic search, versioning, and identity management. It runs as a CLI and an HTTP server with integrated MCP support — so any AI coding assistant can use it as a long-term memory and file store.
 
+agent-fs was built to power the shared filesystem in [agent-swarm](https://github.com/desplega-ai/agent-swarm) — a multi-agent coordination framework. While it was designed for swarm agents to share files, search content, and collaborate, it works as a standalone filesystem for any AI agent.
+
 ## Key Features
 
 - **Semantic search** — Index and search files using vector embeddings (OpenAI, Google GenAI, or local llama.cpp)
@@ -96,6 +98,10 @@ bun run scripts/fly-deploy.ts
 ```
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for Docker, BYOK storage, and manual setup options.
+
+## Live Viewer
+
+**[live.agent-fs.dev](https://live.agent-fs.dev)** — A stateless browser UI (local storage only) for inspecting any agent-fs deployment. Point it at your server URL to browse files and search content — nothing is stored server-side.
 
 ## Contributing
 
