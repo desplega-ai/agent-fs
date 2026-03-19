@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react"
-import { useAuth } from "@/contexts/auth"
+import { useSignedUrl } from "@/hooks/use-signed-url"
 import { cn } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -9,27 +8,7 @@ interface PdfViewerProps {
 }
 
 export function PdfViewer({ path, className }: PdfViewerProps) {
-  const { client, orgId, driveId } = useAuth()
-  const [url, setUrl] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let revoked = false
-
-    client.fetchRaw(orgId!, driveId, path).then((blob) => {
-      if (revoked) return
-      const objectUrl = URL.createObjectURL(blob)
-      setUrl(objectUrl)
-    }).catch((err) => {
-      if (!revoked) setError((err as Error).message)
-    })
-
-    return () => {
-      revoked = true
-      if (url) URL.revokeObjectURL(url)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, orgId, driveId])
+  const { url, error, isLoading } = useSignedUrl(path)
 
   if (error) {
     return (
@@ -39,7 +18,7 @@ export function PdfViewer({ path, className }: PdfViewerProps) {
     )
   }
 
-  if (!url) {
+  if (isLoading || !url) {
     return (
       <div className={cn("flex items-center justify-center p-8", className)}>
         <Spinner size="lg" />

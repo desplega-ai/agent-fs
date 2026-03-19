@@ -46,6 +46,7 @@ export async function createVersion(
     diffSummary?: string;
     size?: number;
     etag?: string;
+    contentType?: string;
   }
 ): Promise<number> {
   const version = await getNextVersion(ctx, params.path);
@@ -83,6 +84,7 @@ export async function createVersion(
       .update(schema.files)
       .set({
         size: params.size ?? existing.size,
+        contentType: params.contentType ?? existing.contentType,
         author: ctx.userId,
         currentVersionId: String(version),
         modifiedAt: now,
@@ -100,6 +102,7 @@ export async function createVersion(
       path: params.path,
       driveId: ctx.driveId,
       size: params.size ?? 0,
+      contentType: params.contentType ?? null,
       author: ctx.userId,
       currentVersionId: String(version),
       createdAt: now,

@@ -579,6 +579,42 @@ async function runTests() {
     assert(parsed.expiresIn, 86400);
   });
 
+  // -- MIME type detection --
+
+  await test("write sets contentType in stat", () => {
+    runJson('write /mime-test.pdf --content "fake pdf"');
+    const stat = runJson("stat /mime-test.pdf");
+    assert(stat.contentType, "application/pdf", `Expected application/pdf, got ${stat.contentType}`);
+  });
+
+  await test("write sets contentType for images", () => {
+    runJson('write /mime-test.png --content "fake png"');
+    const stat = runJson("stat /mime-test.png");
+    assert(stat.contentType, "image/png", `Expected image/png, got ${stat.contentType}`);
+  });
+
+  await test("write sets contentType for markdown", () => {
+    const stat = runJson("stat /docs/readme.md");
+    assert(stat.contentType, "text/markdown", `Expected text/markdown, got ${stat.contentType}`);
+  });
+
+  await test("signed-url serves correct Content-Type for PDF", async () => {
+    const result = runJson("signed-url /mime-test.pdf");
+    // Use GET (not HEAD) — MinIO presigned URLs are method-specific
+    const res = await fetch(result.url);
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const ct = res.headers.get("content-type");
+    assert(ct, "application/pdf", `Expected application/pdf, got ${ct}`);
+  });
+
+  await test("signed-url serves correct Content-Type for PNG", async () => {
+    const result = runJson("signed-url /mime-test.png");
+    const res = await fetch(result.url);
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const ct = res.headers.get("content-type");
+    assert(ct, "image/png", `Expected image/png, got ${ct}`);
+  });
+
   // -- Org commands --
 
   await test("org list", () => {

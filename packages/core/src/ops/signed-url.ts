@@ -2,6 +2,7 @@ import type { OpContext } from "./types.js";
 import { getS3Key } from "./versioning.js";
 import { normalizePath } from "./paths.js";
 import { NotFoundError } from "../errors.js";
+import { detectMimeType } from "./mime.js";
 
 export interface SignedUrlParams {
   path: string;
@@ -35,7 +36,12 @@ export async function signedUrl(
     throw err;
   }
 
-  const url = await ctx.s3.getPresignedUrl(key, expiresIn);
+  const contentType = detectMimeType(normalizedPath);
+  const url = await ctx.s3.getPresignedUrl(
+    key,
+    expiresIn,
+    contentType !== "application/octet-stream" ? contentType : undefined,
+  );
 
   return {
     url,

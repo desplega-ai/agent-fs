@@ -1,6 +1,7 @@
 import type { OpContext, WriteParams, WriteResult } from "./types.js";
 import { getS3Key, getNextVersion } from "./versioning.js";
 import { createVersion } from "./versioning.js";
+import { detectMimeType } from "./mime.js";
 import { indexFile } from "../search/fts.js";
 import { scheduleEmbedding } from "../search/pipeline.js";
 import { EditConflictError, ValidationError } from "../errors.js";
@@ -40,7 +41,8 @@ export async function write(
   }
 
   // 1. Write to S3
-  const s3Result = await ctx.s3.putObject(s3Key, content);
+  const contentType = detectMimeType(params.path);
+  const s3Result = await ctx.s3.putObject(s3Key, content, undefined, contentType);
 
   // 2. Create version record
   const version = await createVersion(ctx, {
@@ -50,6 +52,7 @@ export async function write(
     message: params.message,
     size,
     etag: s3Result.etag,
+    contentType,
   });
 
   // FTS5 index (sync)

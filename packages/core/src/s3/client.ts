@@ -70,7 +70,8 @@ export class AgentS3Client {
   async putObject(
     key: string,
     body: string | Uint8Array,
-    metadata?: Record<string, string>
+    metadata?: Record<string, string>,
+    contentType?: string,
   ): Promise<PutObjectResult> {
     const result = await this.client.send(
       new PutObjectCommand({
@@ -78,6 +79,7 @@ export class AgentS3Client {
         Key: key,
         Body: typeof body === "string" ? Buffer.from(body) : body,
         Metadata: metadata,
+        ...(contentType && { ContentType: contentType }),
       })
     );
     return {
@@ -208,10 +210,15 @@ export class AgentS3Client {
     }
   }
 
-  async getPresignedUrl(key: string, expiresIn: number = 86400): Promise<string> {
+  async getPresignedUrl(
+    key: string,
+    expiresIn: number = 86400,
+    responseContentType?: string,
+  ): Promise<string> {
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
+      ...(responseContentType && { ResponseContentType: responseContentType }),
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AWS SDK type mismatch between client-s3 and s3-request-presigner
     return getSignedUrl(this.client as any, command, { expiresIn });

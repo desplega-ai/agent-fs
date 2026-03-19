@@ -1,6 +1,7 @@
 import type { OpContext, EditParams, EditResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
 import { NotFoundError, EditConflictError } from "../errors.js";
+import { detectMimeType } from "./mime.js";
 import { indexFile } from "../search/fts.js";
 import { scheduleEmbedding } from "../search/pipeline.js";
 
@@ -50,8 +51,9 @@ export async function edit(
   // 3. Replace and write back
   const newContent = content.replace(params.old_string, params.new_string);
   const size = Buffer.byteLength(newContent);
+  const contentType = detectMimeType(params.path);
 
-  const s3Result = await ctx.s3.putObject(s3Key, newContent);
+  const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
 
   // 4. Create version with diff summary
   const diffSummary = JSON.stringify({
@@ -67,6 +69,7 @@ export async function edit(
     diffSummary,
     size,
     etag: s3Result.etag,
+    contentType,
   });
 
   // FTS5 index (sync)

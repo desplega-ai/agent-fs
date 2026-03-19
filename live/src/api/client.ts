@@ -71,6 +71,15 @@ export class AgentFsClient {
     return this.get<{ drives: Drive[] }>(`/orgs/${orgId}/drives`)
   }
 
+  async getSignedUrl(orgId: string, driveId: string, path: string): Promise<{ url: string; expiresAt: string }> {
+    return this.callOp<{ url: string; expiresAt: string }>(
+      orgId,
+      "signed-url",
+      { path },
+      driveId,
+    )
+  }
+
   getRawUrl(orgId: string, driveId: string, path: string): string {
     return `${this.endpoint}/orgs/${orgId}/drives/${driveId}/files/${encodeURIComponent(path)}/raw`
   }

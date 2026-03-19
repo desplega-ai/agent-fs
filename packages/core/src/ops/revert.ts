@@ -3,6 +3,7 @@ import { schema } from "../db/index.js";
 import type { OpContext, RevertParams, RevertResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
 import { NotFoundError, AgentFSError } from "../errors.js";
+import { detectMimeType } from "./mime.js";
 
 export async function revert(
   ctx: OpContext,
@@ -39,9 +40,10 @@ export async function revert(
   // 2. Get the old content from S3 using versionId
   const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
   const oldContent = await ctx.s3.getObject(s3Key, targetVersion.s3VersionId);
+  const contentType = detectMimeType(params.path);
 
   // 3. Write it as the new current version
-  const s3Result = await ctx.s3.putObject(s3Key, oldContent.body);
+  const s3Result = await ctx.s3.putObject(s3Key, oldContent.body, undefined, contentType);
   const size = oldContent.body.length;
 
   // 4. Create version record
@@ -52,6 +54,7 @@ export async function revert(
     message: `Reverted to version ${params.version}`,
     size,
     etag: s3Result.etag,
+    contentType,
   });
 
   return { version, revertedTo: params.version };

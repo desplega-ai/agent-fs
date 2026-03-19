@@ -1,6 +1,7 @@
 import type { OpContext, AppendParams, AppendResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
 import { NotFoundError } from "../errors.js";
+import { detectMimeType } from "./mime.js";
 import { indexFile } from "../search/fts.js";
 import { scheduleEmbedding } from "../search/pipeline.js";
 
@@ -27,8 +28,9 @@ export async function append(
   // 2. Append and write back
   const newContent = currentContent + params.content;
   const size = Buffer.byteLength(newContent);
+  const contentType = detectMimeType(params.path);
 
-  const s3Result = await ctx.s3.putObject(s3Key, newContent);
+  const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
 
   // 3. Create version
   const version = await createVersion(ctx, {
@@ -38,6 +40,7 @@ export async function append(
     message: params.message,
     size,
     etag: s3Result.etag,
+    contentType,
   });
 
   // FTS5 index (sync)

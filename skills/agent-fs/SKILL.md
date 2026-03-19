@@ -242,7 +242,9 @@ agent-fs signed-url docs/report.pdf --json
 # → { "url": "https://...", "path": "/docs/report.pdf", "expiresIn": 86400, "expiresAt": "2026-03-20T..." }
 ```
 
-The presigned URL requires no authentication — anyone with the link can download the file until it expires.
+The presigned URL requires no authentication — anyone with the link can download the file until it expires. Signed URLs serve the correct `Content-Type` header based on file extension (e.g., `application/pdf` for `.pdf`, `image/png` for `.png`), so browsers render them natively.
+
+**MIME types on upload:** `write`, `edit`, `append`, and `revert` automatically detect and set the correct `Content-Type` on S3 objects based on file extension. The content type is also stored in the database and visible in `stat` output via the `contentType` field.
 
 ### App URL in responses
 
