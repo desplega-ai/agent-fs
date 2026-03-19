@@ -37,7 +37,8 @@ primary_region = 'ams'
 
 [[vm]]
   size = 'shared-cpu-1x'
-  memory = '512mb'
+  memory = '2gb'
+  cpus = 1
 
 [[statics]]
   guest_path = '/app/public'

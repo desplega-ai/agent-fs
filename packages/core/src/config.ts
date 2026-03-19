@@ -144,9 +144,11 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
     config.s3.region = (env.AWS_REGION || env.S3_REGION)!;
   if (env.S3_PROVIDER) config.s3.provider = env.S3_PROVIDER;
 
-  // Server overrides
-  if (env.SERVER_PORT) config.server.port = parseInt(env.SERVER_PORT, 10);
-  if (env.SERVER_HOST) config.server.host = env.SERVER_HOST;
+  // Server overrides (SERVER_* takes precedence over generic PORT/HOST)
+  if (env.SERVER_PORT || env.PORT)
+    config.server.port = parseInt((env.SERVER_PORT || env.PORT)!, 10);
+  if (env.SERVER_HOST || env.HOST)
+    config.server.host = (env.SERVER_HOST || env.HOST)!;
 
   // Embedding overrides
   if (env.EMBEDDING_PROVIDER)
