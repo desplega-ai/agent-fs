@@ -106,7 +106,7 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
     })
 
     // Listen for selection changes to enable commenting
-    editor.onDidChangeCursorSelection((e) => {
+    editor.onDidChangeCursorSelection(() => {
       const sel = editor.getSelection()
       if (!sel || sel.isEmpty()) {
         setSelection(null)

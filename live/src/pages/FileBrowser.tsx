@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react"
+import { useState, useCallback, useRef } from "react"
 import { MessageSquare, X, Files, GripVertical } from "lucide-react"
 import { useBrowser } from "@/contexts/browser"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
@@ -50,7 +50,7 @@ export function FileBrowserPage() {
   const { width: commentsWidth, onMouseDown } = useResizable(300, 200, 600)
   useKeyboardShortcuts()
 
-  const handleCommentClick = useCallback((lineStart?: number, lineEnd?: number, quotedContent?: string) => {
+  const handleCommentClick = useCallback((lineStart?: number, _lineEnd?: number, quotedContent?: string) => {
     scrollToCommentRef.current?.({ lineStart, quotedContent })
   }, [])
 

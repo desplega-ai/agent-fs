@@ -21,7 +21,7 @@ export function Breadcrumbs() {
       {/* Org selector */}
       {orgs.length > 1 ? (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+          <DropdownMenuTrigger>
             <Button variant="ghost" size="xs" className="gap-1 text-foreground">
               <Building2 className="size-3.5" />
               <span className="font-medium">{orgName || orgId?.slice(0, 8) || "..."}</span>
@@ -57,7 +57,7 @@ export function Breadcrumbs() {
       {/* Drive selector */}
       {drives.length > 1 ? (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+          <DropdownMenuTrigger>
             <Button variant="ghost" size="xs" className="gap-1 text-foreground">
               <HardDrive className="size-3.5" />
               <span className="font-medium">{driveName || driveId.slice(0, 8)}</span>

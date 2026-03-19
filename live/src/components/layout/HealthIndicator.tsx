@@ -11,7 +11,7 @@ export function HealthIndicator() {
 
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
+      <TooltipTrigger>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-default">
           {version && <span className="hidden sm:inline">v{version}</span>}
           <span

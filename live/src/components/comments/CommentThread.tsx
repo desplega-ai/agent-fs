@@ -85,7 +85,7 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
           <div className="flex items-center gap-1.5 min-w-0">
             <Avatar name={comment.author} />
             <Tooltip>
-              <TooltipTrigger asChild>
+              <TooltipTrigger>
                 <span className="text-xs font-medium truncate cursor-default">{displayName}</span>
               </TooltipTrigger>
               <TooltipContent side="top">{comment.author}</TooltipContent>
