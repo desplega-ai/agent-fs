@@ -19,3 +19,5 @@ packages/**/*.js
 packages/**/*.js.map
 # Fly.io CLI state
 .fly/
+.vercel
+.env*.local
