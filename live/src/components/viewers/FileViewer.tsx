@@ -1,6 +1,7 @@
 import { useState, type MutableRefObject } from "react"
-import { Maximize2, MessageSquare, Code, Eye } from "lucide-react"
+import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check } from "lucide-react"
 import { useNavigate } from "react-router"
+import { useAuth } from "@/contexts/auth"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
@@ -57,6 +58,7 @@ interface FileViewerProps {
 
 export function FileViewer({ path, className, showExpandButton = true, showHeader = true, onScrollToCommentRef }: FileViewerProps) {
   const navigate = useNavigate()
+  const { orgId, driveId } = useAuth()
   const { data: stat } = useFileStat(path)
   const { data: commentsData } = useComments(path)
   const isImg = isImage(path)
@@ -71,7 +73,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isImg) {
     return (
       <div className={cn("flex flex-col h-full", className)}>
-        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/files/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <ImageViewer path={path} className="flex-1" />
       </div>
     )
@@ -80,7 +82,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isPdf(path)) {
     return (
       <div className={cn("flex flex-col h-full", className)}>
-        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/files/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <PdfViewer path={path} className="flex-1" />
       </div>
     )
@@ -103,7 +105,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (!textable) {
     return (
       <div className={cn("flex flex-col h-full", className)}>
-        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/files/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <FallbackViewer path={path} className="flex-1" />
       </div>
     )
@@ -118,7 +120,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
         <ViewerHeader
           path={path}
           showExpand={showExpandButton}
-          onExpand={() => navigate(`/files/${path}`)}
+          onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)}
           commentCount={commentCount}
           isMd={isMd}
           showRaw={showRaw}
@@ -156,11 +158,38 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
   showRaw?: boolean
   onToggleRaw?: () => void
 }) {
+  const { orgId, driveId } = useAuth()
+  const [copiedPath, setCopiedPath] = useState(false)
+  const [copiedUrl, setCopiedUrl] = useState(false)
   const filename = path.split("/").pop() ?? path
+
+  const handleCopyPath = async () => {
+    await navigator.clipboard.writeText(path)
+    setCopiedPath(true)
+    setTimeout(() => setCopiedPath(false), 1500)
+  }
+
+  const handleCopyUrl = async () => {
+    const cleanPath = path.startsWith("/") ? path.slice(1) : path
+    const url = `${window.location.origin}/file/~/${orgId}/${driveId}/${cleanPath}`
+    await navigator.clipboard.writeText(url)
+    setCopiedUrl(true)
+    setTimeout(() => setCopiedUrl(false), 1500)
+  }
 
   return (
     <div className="flex h-10 items-center justify-between border-b border-border px-4 shrink-0">
-      <span className="text-sm font-medium truncate">{filename}</span>
+      <div className="flex items-center gap-1 min-w-0">
+        <span className="text-sm font-medium truncate">{filename}</span>
+        <Button variant="ghost" size="icon-xs" onClick={handleCopyPath} title="Copy path" className="text-muted-foreground shrink-0">
+          {copiedPath ? <Check className="size-3" /> : <Copy className="size-3" />}
+        </Button>
+        {orgId && driveId && (
+          <Button variant="ghost" size="icon-xs" onClick={handleCopyUrl} title="Copy URL" className="text-muted-foreground shrink-0">
+            {copiedUrl ? <Check className="size-3" /> : <Link className="size-3" />}
+          </Button>
+        )}
+      </div>
       <div className="flex items-center gap-1">
         {commentCount > 0 && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground mr-1">

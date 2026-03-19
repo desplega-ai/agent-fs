@@ -10,6 +10,7 @@ import {
   GetBucketVersioningCommand,
   PutBucketVersioningCommand,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { AgentFSConfig } from "../config.js";
 
 export interface S3Object {
@@ -205,5 +206,14 @@ export class AgentS3Client {
     } catch {
       return false;
     }
+  }
+
+  async getPresignedUrl(key: string, expiresIn: number = 86400): Promise<string> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AWS SDK type mismatch between client-s3 and s3-request-presigner
+    return getSignedUrl(this.client as any, command, { expiresIn });
   }
 }

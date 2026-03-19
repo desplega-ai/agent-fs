@@ -3,7 +3,7 @@ import { dispatchOp, resolveContext } from "@/core";
 import type { DB, AgentS3Client, EmbeddingProvider } from "@/core";
 import type { AppEnv } from "../types.js";
 
-export function opsRoutes(db: DB, s3: AgentS3Client, embeddingProvider: EmbeddingProvider | null = null) {
+export function opsRoutes(db: DB, s3: AgentS3Client, embeddingProvider: EmbeddingProvider | null = null, appUrl?: string) {
   const router = new Hono<AppEnv>();
 
   router.post("/:orgId/ops", async (c) => {
@@ -33,6 +33,7 @@ export function opsRoutes(db: DB, s3: AgentS3Client, embeddingProvider: Embeddin
       driveId: resolved.driveId,
       userId: user.id,
       embeddingProvider,
+      appUrl,
     };
 
     const result = await dispatchOp(ctx, op, params);

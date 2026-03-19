@@ -32,23 +32,36 @@ function AuthenticatedShell() {
   )
 }
 
-function AuthenticatedDetail() {
+function FileRoute() {
+  const params = useParams()
+  const orgId = params.orgId!
+  const driveId = params.driveId!
+  const filePath = params["*"] ?? null
+
   return (
-    <AuthProvider>
-      <BrowserProvider>
-        <FileDetailPage />
+    <AuthProvider initialOrgId={orgId} initialDriveId={driveId}>
+      <BrowserProvider initialFile={filePath}>
+        <Shell breadcrumbs={<Breadcrumbs />}>
+          <FileBrowserPage />
+        </Shell>
       </BrowserProvider>
     </AuthProvider>
   )
 }
 
-// Disambiguator: /files with no splat → browser, /files/something → detail
-function FilesRouter() {
+function DetailRoute() {
   const params = useParams()
-  const splat = params["*"]
+  const orgId = params.orgId!
+  const driveId = params.driveId!
+  const filePath = params["*"] ?? ""
 
-  if (!splat) return <AuthenticatedShell />
-  return <AuthenticatedDetail />
+  return (
+    <AuthProvider initialOrgId={orgId} initialDriveId={driveId}>
+      <BrowserProvider initialFile={filePath}>
+        <FileDetailPage />
+      </BrowserProvider>
+    </AuthProvider>
+  )
 }
 
 export default function App() {
@@ -60,7 +73,8 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/credentials" element={<CredentialsPage />} />
-            <Route path="/files/*" element={<FilesRouter />} />
+            <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
+            <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
             <Route path="/files" element={<AuthenticatedShell />} />
             <Route path="*" element={<Navigate to="/files" replace />} />
           </Routes>

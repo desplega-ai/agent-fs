@@ -22,6 +22,10 @@ function applyParamMapping(params: Record<string, any>): Record<string, any> {
     mapped.new_string = mapped["new"];
     delete mapped["new"];
   }
+  if (mapped["expires-in"] !== undefined) {
+    mapped.expiresIn = mapped["expires-in"];
+    delete mapped["expires-in"];
+  }
 
   return mapped;
 }
@@ -60,5 +64,14 @@ describe("CLI param mapping", () => {
     expect(result.old_string).toBe("hello");
     expect(result.new_string).toBeUndefined();
     expect(result.old).toBeUndefined();
+  });
+
+  test("maps --expires-in to expiresIn for signed-url", () => {
+    const input = { path: "/test.txt", "expires-in": "3600" };
+    const result = applyParamMapping(input);
+
+    expect(result.expiresIn).toBe("3600");
+    expect(result["expires-in"]).toBeUndefined();
+    expect(result.path).toBe("/test.txt");
   });
 });

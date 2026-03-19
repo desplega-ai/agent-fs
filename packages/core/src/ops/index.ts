@@ -21,6 +21,8 @@ import { search } from "./search.js";
 import { reindex } from "./reindex.js";
 import { tree } from "./tree.js";
 import { glob } from "./glob.js";
+import { signedUrl } from "./signed-url.js";
+import { buildAppUrl } from "./urls.js";
 import {
   commentAdd,
   commentList,
@@ -196,6 +198,14 @@ const opRegistry: Record<string, OpDefinition> = {
       path: z.string().optional(),
     }),
   },
+  "signed-url": {
+    description: "Generate a temporary presigned URL for direct file download. Default expiry is 24 hours (86400 seconds). The URL requires no authentication. Returns { url, path, expiresIn, expiresAt }.",
+    handler: signedUrl,
+    schema: z.object({
+      path: z.string(),
+      expiresIn: z.number().int().min(60).max(604800).optional(),
+    }),
+  },
   "comment-add": {
     description: "Add a comment to a file. Supports line ranges and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
     handler: commentAdd,
@@ -274,7 +284,18 @@ export async function dispatchOp(
   }
 
   const validated = op.schema.parse(params);
-  return op.handler(ctx, validated);
+  const result = await op.handler(ctx, validated);
+
+  // Enrich results with appUrl when available
+  if (ctx.appUrl && result && typeof result === "object") {
+    if ("path" in result) {
+      (result as any).appUrl = buildAppUrl(ctx.appUrl, ctx.orgId, ctx.driveId, (result as any).path);
+    } else if ("to" in result) {
+      (result as any).appUrl = buildAppUrl(ctx.appUrl, ctx.orgId, ctx.driveId, (result as any).to);
+    }
+  }
+
+  return result;
 }
 
 export function getRegisteredOps(): string[] {
@@ -286,5 +307,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex, tree, glob, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
+export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex, tree, glob, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
 export type * from "./types.js";

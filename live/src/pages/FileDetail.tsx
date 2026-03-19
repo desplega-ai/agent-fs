@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router"
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { ArrowLeft, MessageSquare, X } from "lucide-react"
 import { ThemeToggle } from "@/components/layout/ThemeToggle"
 import { HealthIndicator } from "@/components/layout/HealthIndicator"
@@ -9,23 +9,17 @@ import { VersionHistory } from "@/components/VersionHistory"
 import { CommentSidebar } from "@/components/comments/CommentSidebar"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { useComments } from "@/hooks/use-comments"
-import { useBrowser } from "@/contexts/browser"
 import { cn } from "@/lib/utils"
 
 export function FileDetailPage() {
   const params = useParams()
   const navigate = useNavigate()
-  const { selectFile } = useBrowser()
   const [commentsOpen, setCommentsOpen] = useState(false)
 
   const filePath = params["*"] ?? ""
   const { data: stat } = useFileStat(filePath || null)
   const { data: commentsData } = useComments(filePath || null)
   const commentCount = commentsData?.comments.length ?? 0
-
-  useEffect(() => {
-    if (filePath) selectFile(filePath)
-  }, [filePath, selectFile])
 
   if (!filePath) {
     navigate("/files", { replace: true })

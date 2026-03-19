@@ -205,7 +205,7 @@ async function setup() {
           versioningEnabled: true,
         },
         embedding: { provider: "local", model: "", apiKey: "" },
-        server: { port: daemonPort, host: "127.0.0.1" },
+        server: { port: daemonPort, host: "127.0.0.1", rateLimit: { requestsPerMinute: 5000 } },
         auth: { apiKey: "" },
         minio: { containerId: "", managed: false },
       },
@@ -465,6 +465,118 @@ async function runTests() {
     const ls = runJson("ls /");
     const names = ls.entries.map((e: any) => e.name);
     assert(names.includes("hello-moved.txt"), false, "hello-moved.txt should be gone after rm");
+  });
+
+  // -- signed-url --
+
+  await test("signed-url", () => {
+    const result = runJson("signed-url /hello.txt");
+    assert(typeof result.url, "string", "Expected url string");
+    assertIncludes(result.url, "agentfs", "Expected presigned URL to reference bucket");
+    assert(result.path, "/hello.txt");
+    assert(result.expiresIn, 86400);
+    assert(typeof result.expiresAt, "string", "Expected expiresAt ISO string");
+  });
+
+  await test("signed-url with custom expiry", () => {
+    const result = runJson("signed-url /hello.txt --expires-in 3600");
+    assert(result.expiresIn, 3600);
+    assert(typeof result.url, "string");
+  });
+
+  await test("signed-url presigned URL is fetchable", async () => {
+    const result = runJson("signed-url /hello.txt");
+    const res = await fetch(result.url);
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const body = await res.text();
+    assert(body, "Hello, agent-fs!", "Expected file content from presigned URL");
+  });
+
+  await test("signed-url nonexistent file fails", () => {
+    try {
+      run("signed-url /does-not-exist.txt");
+      throw new Error("Expected signed-url to fail for nonexistent file");
+    } catch (e: any) {
+      if (e.message.includes("Expected signed-url to fail")) throw e;
+      // CLI exits non-zero for 404 — expected
+    }
+  });
+
+  await test("signed-url via API", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "signed-url", path: "/hello.txt" }),
+    });
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const body = await res.json() as any;
+    assert(typeof body.url, "string", "Expected url in response");
+    assert(body.path, "/hello.txt");
+    assert(body.expiresIn, 86400);
+    assert(typeof body.expiresAt, "string");
+  });
+
+  await test("signed-url via API — 404 for missing file", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "signed-url", path: "/nonexistent.txt" }),
+    });
+    assert(res.status, 404, `Expected 404, got ${res.status}`);
+    const body = await res.json() as any;
+    assert(body.error, "NOT_FOUND");
+    assertIncludes(body.message, "File not found");
+  });
+
+  await test("signed-url via MCP", async () => {
+    // Initialize MCP session
+    const initRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "e2e-signed-url", version: "1.0.0" },
+        },
+      }),
+    });
+    assert(initRes.ok, true, `MCP init failed: ${initRes.status}`);
+
+    // Call signed-url tool
+    const callRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "signed-url",
+          arguments: { path: "/hello.txt" },
+        },
+      }),
+    });
+    assert(callRes.ok, true, `MCP tools/call failed: ${callRes.status}`);
+    const body = await callRes.json() as any;
+    // MCP returns result.content array with text items
+    const content = body.result?.content;
+    assert(Array.isArray(content), true, `Expected content array, got ${JSON.stringify(body)}`);
+    const text = content[0]?.text;
+    assert(typeof text, "string", "Expected text in content");
+    const parsed = JSON.parse(text);
+    assert(typeof parsed.url, "string", "Expected url in MCP result");
+    assert(parsed.path, "/hello.txt");
+    assert(parsed.expiresIn, 86400);
   });
 
   // -- Org commands --

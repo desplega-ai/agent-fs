@@ -4,11 +4,12 @@ description: >-
   Use when the user wants to store, retrieve, search, or manage files in agent-fs —
   an agent-first filesystem backed by S3. Triggers on: "save this to agent-fs",
   "find that file", "store this document", "search agent-fs", "list my files",
-  "show version history", "revert file", "set up agent-fs", file persistence for
-  agents, shared agent filesystem, or any mention of the agent-fs CLI. Also use
-  when the user needs to manage drives, check recent activity, or use semantic
-  search across stored files. If the user mentions agent-fs in any context, always
-  consult this skill.
+  "show version history", "revert file", "set up agent-fs", "get a signed url",
+  "share this file", file persistence for agents, shared agent filesystem, or any
+  mention of the agent-fs CLI. Also use when the user needs to manage drives,
+  generate presigned URLs, check recent activity, or use semantic search across
+  stored files. If the user mentions agent-fs in any context, always consult this
+  skill.
 ---
 
 # agent-fs CLI
@@ -77,6 +78,7 @@ For custom S3 (AWS, R2, etc.), use flags: `agent-fs onboard --s3-endpoint <url> 
 | `rm` | `agent-fs rm <path>` | Delete a file |
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
+| `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>]` | Generate a presigned URL for direct download (default: 24h, max: 7 days) |
 
 ### Versioning
 
@@ -225,6 +227,33 @@ agent-fs recent --since 1h
 # Recent changes under a specific path
 agent-fs recent docs/ --since 24h --limit 20
 ```
+
+### Generate a shareable download link
+
+```bash
+# Default expiry (24 hours)
+agent-fs signed-url docs/report.pdf
+
+# Custom expiry (1 hour)
+agent-fs signed-url docs/report.pdf --expires-in 3600
+
+# JSON output (useful for agents)
+agent-fs signed-url docs/report.pdf --json
+# → { "url": "https://...", "path": "/docs/report.pdf", "expiresIn": 86400, "expiresAt": "2026-03-20T..." }
+```
+
+The presigned URL requires no authentication — anyone with the link can download the file until it expires.
+
+### App URL in responses
+
+When `AGENT_FS_APP_URL` is set (e.g., `https://live.agent-fs.dev`), file-related ops automatically include an `appUrl` field pointing to the file in the live web app:
+
+```bash
+AGENT_FS_APP_URL=https://live.agent-fs.dev agent-fs stat docs/report.pdf --json
+# → { ..., "appUrl": "https://live.agent-fs.dev/file/~/org-id/drive-id/docs/report.pdf" }
+```
+
+This applies to any op that returns a `path` or `to` field (write, stat, edit, append, rm, cp, mv, signed-url, etc.).
 
 ### Validate your setup
 

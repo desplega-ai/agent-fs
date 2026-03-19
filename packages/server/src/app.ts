@@ -30,8 +30,8 @@ export function createApp(db: DB, s3: AgentS3Client, embeddingProvider: Embeddin
   app.use("*", bodyLimit({ maxSize: 50 * 1024 * 1024 }));
   app.use("*", authMiddleware(db));
 
-  // Rate limiting — skip /health
-  const rpm = config.server?.rateLimit?.requestsPerMinute ?? 60;
+  // Rate limiting (default 600 rpm per API key) — skip /health
+  const rpm = config.server?.rateLimit?.requestsPerMinute ?? 600;
   if (rpm > 0) {
     app.use("/orgs/*", rateLimitMiddleware(rpm));
     app.use("/auth/*", rateLimitMiddleware(rpm));
@@ -53,7 +53,7 @@ export function createApp(db: DB, s3: AgentS3Client, embeddingProvider: Embeddin
       enableJsonResponse: true,
     });
 
-    const mcpServer = createMcpServer({ db, s3, embeddingProvider });
+    const mcpServer = createMcpServer({ db, s3, embeddingProvider, appUrl: config.appUrl });
     await mcpServer.connect(transport);
 
     return transport.handleRequest(c.req.raw, {
@@ -69,7 +69,7 @@ export function createApp(db: DB, s3: AgentS3Client, embeddingProvider: Embeddin
   // Routes
   app.route("/auth", authRoutes(db));
   app.route("/orgs", orgRoutes(db));
-  app.route("/orgs", opsRoutes(db, s3, embeddingProvider));
+  app.route("/orgs", opsRoutes(db, s3, embeddingProvider, config.appUrl));
   app.route("/docs", docsRoutes());
   app.route("/orgs", fileRoutes(db, s3));
 

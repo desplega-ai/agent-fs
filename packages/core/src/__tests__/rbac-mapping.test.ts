@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { getRequiredRole } from "../identity/rbac.js";
 
 describe("getRequiredRole", () => {
-  const viewerOps = ["ls", "cat", "tail", "stat", "grep", "fts", "search", "log", "diff", "recent"];
+  const viewerOps = ["ls", "cat", "tail", "stat", "grep", "fts", "search", "log", "diff", "recent", "signed-url"];
   const editorOps = ["write", "edit", "append", "rm", "mv", "cp", "revert"];
   const adminOps = ["reindex"];
 

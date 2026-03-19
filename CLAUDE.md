@@ -28,6 +28,17 @@ This creates a git tag matching `v{version}` and pushes it, which triggers the r
 - Publishes to npm with provenance
 - Creates a GitHub Release with install instructions
 
+## Release Checklist (applies to plans, research, and Plan mode)
+
+When making changes to core ops, CLI commands, or MCP tools, always check:
+
+1. **Skill update** — If a new op/command was added or existing behavior changed, update `skills/agent-fs/SKILL.md` (command tables, description triggers, workflow examples).
+2. **Plugin version bump** — If the skill was updated, bump `version` in `.claude-plugin/plugin.json`.
+3. **Package version bump** — Bump `version` in root `package.json` (patch for fixes/features, minor for breaking changes).
+4. **E2E coverage** — If a new op was added, add corresponding tests to `scripts/e2e.ts`.
+
+Plans and research documents MUST include these as explicit steps when they involve core/CLI/MCP changes.
+
 ## E2E Tests
 
 `scripts/e2e.ts` spins up an isolated MinIO container, starts a daemon on a random port, and runs 24 CLI + MCP tests end-to-end. Run it as a regression check when modifying core ops, CLI commands, or MCP. If a core change breaks something, extend the E2E suite to cover it. Not in CI or pre-push — run on demand locally.

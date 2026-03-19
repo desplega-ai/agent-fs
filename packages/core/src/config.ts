@@ -42,6 +42,7 @@ export interface AgentFSConfig {
     containerId: string;
     managed: boolean;
   };
+  appUrl?: string;
   apiUrl?: string;
   apiKey?: string;
   defaultOrg?: string;
@@ -152,6 +153,9 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
     config.embedding.provider = env.EMBEDDING_PROVIDER as "local" | "openai" | "gemini";
   if (env.EMBEDDING_MODEL) config.embedding.model = env.EMBEDDING_MODEL;
   if (env.EMBEDDING_API_KEY) config.embedding.apiKey = env.EMBEDDING_API_KEY;
+
+  // App URL override
+  if (env.AGENT_FS_APP_URL) config.appUrl = env.AGENT_FS_APP_URL;
 
   return config;
 }

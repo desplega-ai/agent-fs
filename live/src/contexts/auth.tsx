@@ -28,15 +28,15 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children, initialOrgId, initialDriveId }: { children: ReactNode; initialOrgId?: string; initialDriveId?: string }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [credentialId, setCredentialId] = useState(() => getActiveCredential()?.id)
   const [activeOrgId, setActiveOrgId] = useState<string | null>(
-    () => localStorage.getItem("agent-fs-active-org")
+    () => initialOrgId ?? localStorage.getItem("agent-fs-active-org")
   )
   const [activeDriveId, setActiveDriveId] = useState<string | null>(
-    () => localStorage.getItem("agent-fs-active-drive")
+    () => initialDriveId ?? localStorage.getItem("agent-fs-active-drive")
   )
 
   const credential = useMemo(() => {

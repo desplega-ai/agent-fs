@@ -19,10 +19,11 @@ export interface McpServerOptions {
   db: DB;
   s3: AgentS3Client;
   embeddingProvider: EmbeddingProvider | null;
+  appUrl?: string;
 }
 
 export function createMcpServer(options: McpServerOptions) {
-  const { db, s3, embeddingProvider } = options;
+  const { db, s3, embeddingProvider, appUrl } = options;
 
   const server = new McpServer({
     name: "agent-fs",
@@ -36,7 +37,7 @@ export function createMcpServer(options: McpServerOptions) {
     }
     const user = authInfo.extra.user as { id: string; email: string };
     const resolved = resolveContext(db, { userId: user.id });
-    return { db, s3, orgId: resolved.orgId, driveId: resolved.driveId, userId: user.id, embeddingProvider };
+    return { db, s3, orgId: resolved.orgId, driveId: resolved.driveId, userId: user.id, embeddingProvider, appUrl };
   };
 
   registerTools(server, getContext);

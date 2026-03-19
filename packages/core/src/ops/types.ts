@@ -9,6 +9,7 @@ export interface OpContext {
   driveId: string;
   userId: string;
   embeddingProvider?: EmbeddingProvider | null;
+  appUrl?: string;
 }
 
 // --- Param types ---

@@ -30,6 +30,7 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "reindex", args: [], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
   { name: "tree", args: [{ name: "path", required: false }], options: [{ flag: "--depth <n>", description: "Max recursion depth" }] },
   { name: "glob", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
+  { name: "signed-url", args: [{ name: "path", required: true }], options: [{ flag: "--expires-in <seconds>", description: "Expiry in seconds (default: 86400 = 24h)" }] },
 ];
 
 export function registerOpCommands(
@@ -92,7 +93,12 @@ export function registerOpCommands(
         delete params["to"];
       }
 
-      for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth"]) {
+      if (params["expires-in"] !== undefined) {
+        params.expiresIn = params["expires-in"];
+        delete params["expires-in"];
+      }
+
+      for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth", "expiresIn"]) {
         if (params[key] !== undefined) {
           params[key] = parseInt(params[key]);
         }

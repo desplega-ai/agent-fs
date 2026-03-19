@@ -89,6 +89,9 @@ function formatStat(result: any): string {
   if (result.embeddingStatus) {
     pairs.push(["Embedding", result.embeddingStatus]);
   }
+  if (result.appUrl) {
+    pairs.push(["App URL", result.appUrl]);
+  }
   const labelW = Math.max(...pairs.map(([k]) => k.length));
   return pairs.map(([k, v]) => `${padRight(k + ":", labelW + 1)}  ${v}`).join("\n");
 }
@@ -245,6 +248,12 @@ function formatReindex(result: any): string {
   return parts.join(", ");
 }
 
+function formatSignedUrl(result: any): string {
+  let out = `${result.url}\n\nExpires: ${formatDate(result.expiresAt)} (${result.expiresIn}s)`;
+  if (result.appUrl) out += `\nApp:     ${result.appUrl}`;
+  return out;
+}
+
 // --- Formatter registry ---
 
 const formatters: Record<string, (result: any) => string> = {
@@ -268,6 +277,7 @@ const formatters: Record<string, (result: any) => string> = {
   revert: formatRevert,
   recent: formatRecent,
   reindex: formatReindex,
+  "signed-url": formatSignedUrl,
 };
 
 function formatResult(opName: string, result: any): string {
