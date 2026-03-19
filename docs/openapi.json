@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.3.1",
+    "version": "0.3.3",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -720,6 +720,34 @@
                       },
                       "path": {
                         "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "signed-url",
+                    "description": "Generate a temporary presigned URL for direct file download. Default expiry is 24 hours (86400 seconds). The URL requires no authentication. Returns { url, path, expiresIn, expiresAt }.",
+                    "required": [
+                      "op",
+                      "path"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "signed-url"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "expiresIn": {
+                        "type": "integer",
+                        "minimum": 60,
+                        "maximum": 604800
                       }
                     },
                     "additionalProperties": false
