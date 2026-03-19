@@ -146,7 +146,7 @@ describe("Deep merge config", () => {
     // Preserved nested defaults
     expect(config.server.host).toBe("127.0.0.1");
     expect(config.server.cors).toEqual({ origins: ["*"] });
-    expect(config.server.rateLimit).toEqual({ requestsPerMinute: 60 });
+    expect(config.server.rateLimit).toEqual({ requestsPerMinute: 1200 });
     // Other sections untouched
     expect(config.s3.bucket).toBe("agentfs");
     expect(config.s3.provider).toBe("minio");

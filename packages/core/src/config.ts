@@ -70,7 +70,7 @@ const DEFAULT_CONFIG: AgentFSConfig = {
       origins: ["*"],
     },
     rateLimit: {
-      requestsPerMinute: 60,
+      requestsPerMinute: 1200,
     },
   },
   auth: {
@@ -153,6 +153,12 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
     config.embedding.provider = env.EMBEDDING_PROVIDER as "local" | "openai" | "gemini";
   if (env.EMBEDDING_MODEL) config.embedding.model = env.EMBEDDING_MODEL;
   if (env.EMBEDDING_API_KEY) config.embedding.apiKey = env.EMBEDDING_API_KEY;
+
+  // Rate limit override
+  if (env.AGENT_FS_RATE_LIMIT) {
+    if (!config.server.rateLimit) config.server.rateLimit = { requestsPerMinute: 1200 };
+    config.server.rateLimit.requestsPerMinute = parseInt(env.AGENT_FS_RATE_LIMIT, 10);
+  }
 
   // App URL override
   if (env.AGENT_FS_APP_URL) config.appUrl = env.AGENT_FS_APP_URL;
