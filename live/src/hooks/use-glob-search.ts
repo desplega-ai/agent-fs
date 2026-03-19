@@ -7,7 +7,7 @@ export function useGlobSearch(pattern: string) {
 
   return useQuery({
     queryKey: ["glob", orgId, driveId, pattern],
-    queryFn: () => client.callOp<GlobResult>(orgId!, "glob", { pattern: `*${pattern}*` }, driveId),
+    queryFn: () => client.callOp<GlobResult>(orgId!, "glob", { pattern: `**/*${pattern}*` }, driveId),
     enabled: !!pattern && !!orgId && !!driveId,
   })
 }

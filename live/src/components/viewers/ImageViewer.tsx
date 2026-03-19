@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { useAuth } from "@/contexts/auth"
 import { cn } from "@/lib/utils"
+import { Spinner } from "@/components/ui/spinner"
 
 interface ImageViewerProps {
   path: string
@@ -41,7 +42,7 @@ export function ImageViewer({ path, className }: ImageViewerProps) {
   if (!url) {
     return (
       <div className={cn("flex items-center justify-center p-8", className)}>
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+        <Spinner size="lg" />
       </div>
     )
   }

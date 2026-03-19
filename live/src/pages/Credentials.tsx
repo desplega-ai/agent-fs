@@ -2,6 +2,8 @@ import { useState } from "react"
 import { useNavigate } from "react-router"
 import { Eye, EyeOff, Trash2, LogIn, Plus } from "lucide-react"
 import { AgentFsClient } from "@/api/client"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   getCredentials,
   saveCredential,
@@ -60,63 +62,63 @@ export function CredentialsPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-8">
         <div>
-          <h1 className="text-2xl font-bold">Connect to agent-fs</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Connect to agent-fs</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Enter your API endpoint and key to get started.
           </p>
         </div>
 
         <form onSubmit={handleConnect} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1" htmlFor="endpoint">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium" htmlFor="endpoint">
               Endpoint URL
             </label>
-            <input
+            <Input
               id="endpoint"
               type="url"
               required
               placeholder="https://your-instance.fly.dev"
               value={endpoint}
               onChange={(e) => setEndpoint(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1" htmlFor="apiKey">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium" htmlFor="apiKey">
               API Key
             </label>
             <div className="relative">
-              <input
+              <Input
                 id="apiKey"
                 type={showKey ? "text" : "password"}
                 required
                 placeholder="sk-..."
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 pr-10 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="pr-10"
               />
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => setShowKey(!showKey)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground"
               >
-                {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
+                {showKey ? <EyeOff /> : <Eye />}
+              </Button>
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1" htmlFor="name">
+          <div className="space-y-1.5">
+            <label className="block text-sm font-medium" htmlFor="name">
               Name <span className="text-muted-foreground">(optional)</span>
             </label>
-            <input
+            <Input
               id="name"
               type="text"
               placeholder="My instance"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -124,14 +126,15 @@ export function CredentialsPage() {
             <p className="text-sm text-destructive">{error}</p>
           )}
 
-          <button
+          <Button
             type="submit"
             disabled={connecting}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            className="w-full"
+            size="lg"
           >
-            <Plus className="h-4 w-4" />
+            <Plus />
             {connecting ? "Connecting..." : "Connect"}
-          </button>
+          </Button>
         </form>
 
         {credentials.length > 0 && (
@@ -141,26 +144,29 @@ export function CredentialsPage() {
               {credentials.map((cred) => (
                 <div
                   key={cred.id}
-                  className="flex items-center justify-between rounded-md border border-border p-3"
+                  className="flex items-center justify-between rounded-lg border border-border p-3"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate">{cred.name}</p>
                     <p className="text-xs text-muted-foreground truncate">{cred.endpoint}</p>
                   </div>
                   <div className="flex items-center gap-1 ml-2">
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="xs"
                       onClick={() => handleQuickConnect(cred)}
-                      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium hover:bg-accent transition-colors"
                     >
-                      <LogIn className="h-3 w-3" />
+                      <LogIn />
                       Connect
-                    </button>
-                    <button
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
                       onClick={() => handleRemove(cred.id)}
-                      className="inline-flex items-center rounded-md p-1 text-muted-foreground hover:text-destructive hover:bg-accent transition-colors"
+                      className="text-muted-foreground hover:text-destructive"
                     >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                      <Trash2 />
+                    </Button>
                   </div>
                 </div>
               ))}

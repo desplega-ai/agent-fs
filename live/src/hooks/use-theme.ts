@@ -42,5 +42,7 @@ export function useTheme() {
     setTheme(next)
   }, [theme, setTheme])
 
-  return { theme, setTheme, cycleTheme }
+  const resolvedTheme = theme === "system" ? getSystemTheme() : theme
+
+  return { theme, resolvedTheme, setTheme, cycleTheme }
 }

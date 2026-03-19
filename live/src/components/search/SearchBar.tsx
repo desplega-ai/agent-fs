@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Search, X } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { SearchModeToggle, type SearchMode } from "./SearchModeToggle"
 import { SearchResults } from "./SearchResults"
 import { useFtsSearch } from "@/hooks/use-fts-search"
@@ -60,8 +62,8 @@ export function SearchBar() {
     <>
       <div className="border-b border-sidebar-border px-3 py-2 space-y-2">
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <input
+          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <Input
             ref={inputRef}
             value={query}
             onChange={(e) => {
@@ -70,15 +72,17 @@ export function SearchBar() {
             }}
             onFocus={() => query && setIsSearching(true)}
             placeholder="Search... ⌘K"
-            className="w-full rounded-md border border-input bg-background pl-8 pr-8 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            className="pl-8 pr-8"
           />
           {query && (
-            <button
+            <Button
+              variant="ghost"
+              size="icon-xs"
               onClick={handleClear}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
             >
-              <X className="h-3.5 w-3.5" />
-            </button>
+              <X />
+            </Button>
           )}
         </div>
         {isSearching && (

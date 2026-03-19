@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -107,4 +108,46 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+}
+
+/* Monaco comment line decorations */
+.comment-line-highlight {
+  background: oklch(0.82 0.12 85 / 0.15) !important;
+}
+.dark .comment-line-highlight {
+  background: oklch(0.75 0.15 85 / 0.12) !important;
+}
+.comment-glyph-margin {
+  background: oklch(0.75 0.15 85) !important;
+  border-radius: 50%;
+  width: 8px !important;
+  height: 8px !important;
+  margin: 6px 4px !important;
+}
+
+/* Flash highlight when scrolling to a comment's line */
+.flash-line-highlight {
+  background: oklch(0.82 0.12 85 / 0.35) !important;
+  animation: flash-fade 1.5s ease-out forwards;
+}
+@keyframes flash-fade {
+  0% { background: oklch(0.82 0.12 85 / 0.35); }
+  100% { background: transparent; }
+}
+
+/* Comment indicator in markdown preview — applied via DOM, not React */
+.comment-indicator {
+  border-left: 2px solid oklch(0.75 0.15 85 / 0.6) !important;
+  padding-left: 0.5rem !important;
+  background: oklch(0.82 0.12 85 / 0.05) !important;
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+
+/* Flash highlight for comment scroll-to in preview mode */
+.flash-comment-highlight {
+  background: oklch(0.82 0.12 85 / 0.3) !important;
+  border-left: 3px solid oklch(0.75 0.15 85) !important;
+  padding-left: 0.5rem !important;
+  border-radius: 0.25rem;
+  animation: flash-fade 2s ease-out forwards;
 }

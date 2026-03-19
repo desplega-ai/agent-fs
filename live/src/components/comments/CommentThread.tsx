@@ -1,6 +1,9 @@
 import { useState } from "react"
-import { Check, Trash2, Pencil, MessageSquare, RotateCcw, X } from "lucide-react"
+import { Check, Trash2, Pencil, MessageSquare, RotateCcw, X, ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { useResolveComment, useDeleteComment, useUpdateComment } from "@/hooks/use-comments"
 import { AddComment } from "./AddComment"
 import type { CommentListEntry, CommentEntry } from "@/api/types"
@@ -16,14 +19,41 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`
 }
 
+function formatAuthor(author: string): string {
+  if (author.includes("@")) return author
+  if (author.length > 16 && author.includes("-")) return author.slice(0, 8)
+  return author
+}
+
+function avatarColor(name: string): string {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  const hue = Math.abs(hash) % 360
+  return `oklch(0.65 0.15 ${hue})`
+}
+
+function Avatar({ name }: { name: string }) {
+  const display = formatAuthor(name)
+  const initial = display.charAt(0).toUpperCase()
+  return (
+    <div
+      className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium text-white"
+      style={{ backgroundColor: avatarColor(name) }}
+    >
+      {initial}
+    </div>
+  )
+}
+
 interface CommentThreadProps {
   comment: CommentListEntry
   path: string
   currentUserId?: string
+  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
 }
 
-export function CommentThread({ comment, path, currentUserId }: CommentThreadProps) {
-  const [showReplies, setShowReplies] = useState(false)
+export function CommentThread({ comment, path, currentUserId, onCommentClick }: CommentThreadProps) {
+  const [showReplies, setShowReplies] = useState(true)
   const [replying, setReplying] = useState(false)
   const [editing, setEditing] = useState(false)
   const [editBody, setEditBody] = useState(comment.body)
@@ -34,73 +64,63 @@ export function CommentThread({ comment, path, currentUserId }: CommentThreadPro
   const updateComment = useUpdateComment()
 
   const isOwn = currentUserId === comment.author
+  const isGeneralComment = !comment.lineStart
+  const displayName = formatAuthor(comment.author)
+  const hasReplies = comment.replies.length > 0
 
-  const handleResolve = () => {
-    resolveComment.mutate({ id: comment.id, resolved: !comment.resolved, path })
-  }
-
-  const handleDelete = () => {
-    if (!confirmDelete) {
-      setConfirmDelete(true)
-      return
+  const handleThreadClick = () => {
+    if (onCommentClick) {
+      onCommentClick(comment.lineStart, comment.lineEnd ?? comment.lineStart, comment.quotedContent)
     }
-    deleteComment.mutate({ id: comment.id, path })
-    setConfirmDelete(false)
-  }
-
-  const handleSaveEdit = () => {
-    updateComment.mutate(
-      { id: comment.id, body: editBody, path },
-      { onSuccess: () => setEditing(false) }
-    )
   }
 
   return (
     <div className={cn("border-b border-border last:border-b-0", comment.resolved && "opacity-60")}>
-      <div className="px-4 py-3">
+      <div
+        className={cn("px-3 py-2.5", (comment.lineStart || comment.quotedContent) && "cursor-pointer hover:bg-accent/50 transition-colors")}
+        onClick={handleThreadClick}
+      >
         {/* Header */}
         <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-medium">{comment.author}</span>
-            <span className="text-muted-foreground">{timeAgo(comment.createdAt)}</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <Avatar name={comment.author} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="text-xs font-medium truncate cursor-default">{displayName}</span>
+              </TooltipTrigger>
+              <TooltipContent side="top">{comment.author}</TooltipContent>
+            </Tooltip>
+            <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(comment.createdAt)}</span>
+            {isGeneralComment && (
+              <span className="text-[10px] text-muted-foreground/60 shrink-0">general</span>
+            )}
+            {comment.lineStart && (
+              <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400 shrink-0">
+                L{comment.lineStart}{comment.lineEnd && comment.lineEnd !== comment.lineStart ? `-${comment.lineEnd}` : ""}
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-0.5">
-            <button
+          <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant="ghost" size="icon-xs"
               onClick={handleResolve}
-              className={cn(
-                "rounded p-1 transition-colors",
-                comment.resolved
-                  ? "text-green-600 hover:bg-accent"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              )}
+              className={cn(comment.resolved ? "text-primary" : "text-muted-foreground")}
               title={comment.resolved ? "Reopen" : "Resolve"}
             >
-              {comment.resolved ? <RotateCcw className="h-3 w-3" /> : <Check className="h-3 w-3" />}
-            </button>
+              {comment.resolved ? <RotateCcw /> : <Check />}
+            </Button>
             {isOwn && (
               <>
-                <button
-                  onClick={() => {
-                    setEditing(!editing)
-                    setEditBody(comment.body)
-                  }}
-                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                  title="Edit"
-                >
-                  <Pencil className="h-3 w-3" />
-                </button>
-                <button
+                <Button variant="ghost" size="icon-xs"
+                  onClick={() => { setEditing(!editing); setEditBody(comment.body) }}
+                  className="text-muted-foreground" title="Edit"
+                ><Pencil /></Button>
+                <Button
+                  variant={confirmDelete ? "destructive" : "ghost"} size="icon-xs"
                   onClick={handleDelete}
-                  className={cn(
-                    "rounded p-1 transition-colors",
-                    confirmDelete
-                      ? "text-destructive bg-destructive/10"
-                      : "text-muted-foreground hover:bg-accent hover:text-destructive"
-                  )}
+                  className={cn(!confirmDelete && "text-muted-foreground")}
                   title={confirmDelete ? "Click again to confirm" : "Delete"}
-                >
-                  {confirmDelete ? <X className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
-                </button>
+                >{confirmDelete ? <X /> : <Trash2 />}</Button>
               </>
             )}
           </div>
@@ -108,66 +128,50 @@ export function CommentThread({ comment, path, currentUserId }: CommentThreadPro
 
         {/* Quoted content */}
         {comment.quotedContent && (
-          <div className="mb-2 rounded border-l-2 border-muted-foreground/30 bg-muted/50 px-2 py-1 text-xs font-mono text-muted-foreground">
-            {comment.lineStart && (
-              <span className="text-[10px] mr-1">L{comment.lineStart}{comment.lineEnd && comment.lineEnd !== comment.lineStart ? `-${comment.lineEnd}` : ""}:</span>
-            )}
-            {comment.quotedContent}
+          <div className="mb-1.5 ml-6.5 rounded border-l-2 border-amber-400/50 bg-amber-500/5 px-2 py-1 text-xs font-mono text-muted-foreground">
+            <span className="line-clamp-2">{comment.quotedContent}</span>
           </div>
         )}
 
         {/* Body */}
-        {editing ? (
-          <div className="space-y-2">
-            <textarea
-              value={editBody}
-              onChange={(e) => setEditBody(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-              rows={3}
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={handleSaveEdit}
-                disabled={!editBody.trim() || updateComment.isPending}
-                className="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                Save
-              </button>
-              <button
-                onClick={() => setEditing(false)}
-                className="rounded-md px-3 py-1 text-xs hover:bg-accent"
-              >
-                Cancel
-              </button>
+        <div className="ml-6.5" onClick={(e) => e.stopPropagation()}>
+          {editing ? (
+            <div className="space-y-2">
+              <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} className="resize-none text-sm" rows={3} />
+              <div className="flex gap-2">
+                <Button size="xs" onClick={handleSaveEdit} disabled={!editBody.trim() || updateComment.isPending}>Save</Button>
+                <Button variant="ghost" size="xs" onClick={() => setEditing(false)}>Cancel</Button>
+              </div>
             </div>
-          </div>
-        ) : (
-          <p className="text-sm whitespace-pre-wrap">{comment.body}</p>
-        )}
-
-        {/* Actions */}
-        <div className="flex items-center gap-3 mt-2">
-          {comment.replies.length > 0 && (
-            <button
-              onClick={() => setShowReplies(!showReplies)}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {showReplies ? "Hide" : "Show"} {comment.replies.length} {comment.replies.length === 1 ? "reply" : "replies"}
-            </button>
+          ) : (
+            <p className="text-sm whitespace-pre-wrap break-words">{comment.body}</p>
           )}
-          <button
-            onClick={() => setReplying(!replying)}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <MessageSquare className="h-3 w-3" />
-            Reply
-          </button>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3 mt-1.5">
+            {hasReplies && (
+              <button
+                onClick={() => setShowReplies(!showReplies)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showReplies ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+                {comment.replies.length} {comment.replies.length === 1 ? "reply" : "replies"}
+              </button>
+            )}
+            <button
+              onClick={() => setReplying(!replying)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <MessageSquare className="size-3" />
+              Reply
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Replies */}
-      {(showReplies || comment.replies.length <= 2) && comment.replies.length > 0 && (
-        <div className="border-t border-border bg-muted/30 pl-6">
+      {showReplies && hasReplies && (
+        <div className="border-t border-border bg-muted/30 pl-4">
           {comment.replies.map((reply) => (
             <ReplyItem key={reply.id} reply={reply} path={path} currentUserId={currentUserId} />
           ))}
@@ -176,7 +180,7 @@ export function CommentThread({ comment, path, currentUserId }: CommentThreadPro
 
       {/* Reply form */}
       {replying && (
-        <div className="border-t border-border px-4 py-3 bg-muted/30">
+        <div className="border-t border-border px-3 py-2.5 bg-muted/30" onClick={(e) => e.stopPropagation()}>
           <AddComment
             path={path}
             parentId={comment.id}
@@ -184,10 +188,28 @@ export function CommentThread({ comment, path, currentUserId }: CommentThreadPro
             autoFocus
             placeholder="Write a reply..."
           />
+          <button
+            onClick={() => setReplying(false)}
+            className="mt-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Cancel
+          </button>
         </div>
       )}
     </div>
   )
+
+  function handleResolve() {
+    resolveComment.mutate({ id: comment.id, resolved: !comment.resolved, path })
+  }
+  function handleDelete() {
+    if (!confirmDelete) { setConfirmDelete(true); return }
+    deleteComment.mutate({ id: comment.id, path })
+    setConfirmDelete(false)
+  }
+  function handleSaveEdit() {
+    updateComment.mutate({ id: comment.id, body: editBody, path }, { onSuccess: () => setEditing(false) })
+  }
 }
 
 function ReplyItem({ reply, path, currentUserId }: { reply: CommentEntry; path: string; currentUserId?: string }) {
@@ -197,62 +219,40 @@ function ReplyItem({ reply, path, currentUserId }: { reply: CommentEntry; path: 
   const updateComment = useUpdateComment()
   const deleteComment = useDeleteComment()
   const isOwn = currentUserId === reply.author
+  const displayName = formatAuthor(reply.author)
 
   return (
-    <div className="border-b border-border last:border-b-0 px-4 py-2">
+    <div className="border-b border-border last:border-b-0 px-3 py-2">
       <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2 text-xs">
-          <span className="font-medium">{reply.author}</span>
-          <span className="text-muted-foreground">{timeAgo(reply.createdAt)}</span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Avatar name={reply.author} />
+          <span className="text-xs font-medium truncate">{displayName}</span>
+          <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(reply.createdAt)}</span>
         </div>
         {isOwn && (
-          <div className="flex items-center gap-0.5">
-            <button
-              onClick={() => { setEditing(!editing); setEditBody(reply.body) }}
-              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            >
-              <Pencil className="h-3 w-3" />
-            </button>
-            <button
-              onClick={() => {
-                if (!confirmDelete) { setConfirmDelete(true); return }
-                deleteComment.mutate({ id: reply.id, path })
-                setConfirmDelete(false)
-              }}
-              className={cn(
-                "rounded p-1 transition-colors",
-                confirmDelete ? "text-destructive bg-destructive/10" : "text-muted-foreground hover:bg-accent hover:text-destructive"
-              )}
-            >
-              {confirmDelete ? <X className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
-            </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Button variant="ghost" size="icon-xs" onClick={() => { setEditing(!editing); setEditBody(reply.body) }} className="text-muted-foreground"><Pencil /></Button>
+            <Button
+              variant={confirmDelete ? "destructive" : "ghost"} size="icon-xs"
+              onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return } deleteComment.mutate({ id: reply.id, path }); setConfirmDelete(false) }}
+              className={cn(!confirmDelete && "text-muted-foreground")}
+            >{confirmDelete ? <X /> : <Trash2 />}</Button>
           </div>
         )}
       </div>
-      {editing ? (
-        <div className="space-y-2">
-          <textarea
-            value={editBody}
-            onChange={(e) => setEditBody(e.target.value)}
-            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-            rows={2}
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={() => updateComment.mutate({ id: reply.id, body: editBody, path }, { onSuccess: () => setEditing(false) })}
-              disabled={!editBody.trim()}
-              className="rounded-md bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              Save
-            </button>
-            <button onClick={() => setEditing(false)} className="rounded-md px-3 py-1 text-xs hover:bg-accent">
-              Cancel
-            </button>
+      <div className="ml-6.5">
+        {editing ? (
+          <div className="space-y-2">
+            <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} className="resize-none text-sm" rows={2} />
+            <div className="flex gap-2">
+              <Button size="xs" onClick={() => updateComment.mutate({ id: reply.id, body: editBody, path }, { onSuccess: () => setEditing(false) })} disabled={!editBody.trim()}>Save</Button>
+              <Button variant="ghost" size="xs" onClick={() => setEditing(false)}>Cancel</Button>
+            </div>
           </div>
-        </div>
-      ) : (
-        <p className="text-sm whitespace-pre-wrap">{reply.body}</p>
-      )}
+        ) : (
+          <p className="text-sm whitespace-pre-wrap">{reply.body}</p>
+        )}
+      </div>
     </div>
   )
 }

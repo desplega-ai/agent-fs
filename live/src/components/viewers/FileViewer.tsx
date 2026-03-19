@@ -1,5 +1,7 @@
-import { Maximize2, Loader2, MessageSquare } from "lucide-react"
+import { useState, type MutableRefObject } from "react"
+import { Maximize2, MessageSquare, Code, Eye } from "lucide-react"
 import { useNavigate } from "react-router"
+import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { useComments } from "@/hooks/use-comments"
@@ -8,6 +10,8 @@ import { MarkdownViewer } from "./MarkdownViewer"
 import { ImageViewer } from "./ImageViewer"
 import { PdfViewer } from "./PdfViewer"
 import { FallbackViewer } from "./FallbackViewer"
+import { Button } from "@/components/ui/button"
+import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"])
@@ -21,7 +25,7 @@ function isImage(path: string): boolean {
 }
 
 function isMarkdown(path: string): boolean {
-  return ["md", "mdx"].includes(getExt(path))
+  return ["md", "mdx", "txt"].includes(getExt(path))
 }
 
 function isPdf(path: string): boolean {
@@ -37,9 +41,7 @@ const TEXT_EXTS = new Set([
 
 function isTextFile(path: string, contentType?: string): boolean {
   const ext = getExt(path)
-  // Binary formats that should never be treated as text
   if (["pdf", ...IMAGE_EXTS].includes(ext)) return false
-  // Check extension first — S3 often returns application/octet-stream
   if (TEXT_EXTS.has(ext)) return true
   if (!contentType || contentType === "application/octet-stream") return true
   return contentType.startsWith("text/") || contentType.includes("json") || contentType.includes("xml") || contentType.includes("javascript") || contentType.includes("typescript")
@@ -50,17 +52,18 @@ interface FileViewerProps {
   className?: string
   showExpandButton?: boolean
   showHeader?: boolean
+  onScrollToCommentRef?: MutableRefObject<ScrollToCommentCallback | null>
 }
 
-export function FileViewer({ path, className, showExpandButton = true, showHeader = true }: FileViewerProps) {
+export function FileViewer({ path, className, showExpandButton = true, showHeader = true, onScrollToCommentRef }: FileViewerProps) {
   const navigate = useNavigate()
   const { data: stat } = useFileStat(path)
   const { data: commentsData } = useComments(path)
   const isImg = isImage(path)
   const isMd = isMarkdown(path)
   const commentCount = commentsData?.comments.length ?? 0
+  const [showRaw, setShowRaw] = useState(false)
 
-  // Only fetch content for text files
   const { data: content, isLoading } = useFileContent(
     isImg || isPdf(path) ? null : path
   )
@@ -86,7 +89,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isLoading) {
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <Spinner />
       </div>
     )
   }
@@ -106,45 +109,74 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     )
   }
 
+  // For markdown-like files: show raw/preview toggle in header
+  const viewingRaw = isMd ? showRaw : true
+
   return (
     <div className={cn("flex flex-col h-full", className)}>
-      {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/files/${path}`)} commentCount={commentCount} />}
-      {isMd ? (
-        <MarkdownViewer content={content.content} path={path} className="flex-1 min-h-0" />
-      ) : (
+      {showHeader && (
+        <ViewerHeader
+          path={path}
+          showExpand={showExpandButton}
+          onExpand={() => navigate(`/files/${path}`)}
+          commentCount={commentCount}
+          isMd={isMd}
+          showRaw={showRaw}
+          onToggleRaw={() => setShowRaw(!showRaw)}
+        />
+      )}
+      {viewingRaw ? (
         <TextViewer
           content={content.content}
           path={path}
           truncated={content.truncated}
           comments={commentsData?.comments}
-          className="flex-1 min-h-0 py-2"
+          className="flex-1 min-h-0"
+          onScrollToCommentRef={onScrollToCommentRef}
+        />
+      ) : (
+        <MarkdownViewer
+          content={content.content}
+          path={path}
+          comments={commentsData?.comments}
+          className="flex-1 min-h-0"
+          onScrollToCommentRef={onScrollToCommentRef}
         />
       )}
     </div>
   )
 }
 
-function ViewerHeader({ path, showExpand, onExpand, commentCount = 0 }: { path: string; showExpand: boolean; onExpand: () => void; commentCount?: number }) {
+function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, showRaw, onToggleRaw }: {
+  path: string
+  showExpand: boolean
+  onExpand: () => void
+  commentCount?: number
+  isMd?: boolean
+  showRaw?: boolean
+  onToggleRaw?: () => void
+}) {
   const filename = path.split("/").pop() ?? path
 
   return (
-    <div className="flex items-center justify-between border-b border-border px-4 py-2">
+    <div className="flex h-10 items-center justify-between border-b border-border px-4 shrink-0">
       <span className="text-sm font-medium truncate">{filename}</span>
       <div className="flex items-center gap-1">
         {commentCount > 0 && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <MessageSquare className="h-3 w-3" />
+          <span className="flex items-center gap-1 text-xs text-muted-foreground mr-1">
+            <MessageSquare className="size-3" />
             {commentCount}
           </span>
         )}
+        {isMd && onToggleRaw && (
+          <Button variant="ghost" size="icon-xs" onClick={onToggleRaw} title={showRaw ? "Preview" : "Source"} className="text-muted-foreground">
+            {showRaw ? <Eye /> : <Code />}
+          </Button>
+        )}
         {showExpand && (
-          <button
-            onClick={onExpand}
-            className="inline-flex items-center gap-1 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-            title="Open full page"
-          >
-            <Maximize2 className="h-3.5 w-3.5" />
-          </button>
+          <Button variant="ghost" size="icon-xs" onClick={onExpand} title="Open full page" className="text-muted-foreground">
+            <Maximize2 />
+          </Button>
         )}
       </div>
     </div>

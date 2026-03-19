@@ -1,66 +1,50 @@
-import { useState, useRef, useEffect } from "react"
 import { ChevronDown, Check, HardDrive, Building2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu"
 
 export function DrivePicker() {
   const { drives, driveId, driveName, setDriveId, orgName } = useAuth()
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [])
-
   const hasMultiple = drives.length > 1
 
   return (
-    <div className="border-b border-sidebar-border px-3 py-2 space-y-1" ref={ref}>
+    <div className="border-b border-sidebar-border px-3 py-2 space-y-1">
       {/* Org context */}
       <div className="flex items-center gap-1.5 px-2 text-[11px] text-muted-foreground">
-        <Building2 className="h-3 w-3 shrink-0" />
+        <Building2 className="size-3 shrink-0" />
         <span className="truncate">{orgName || "Loading..."}</span>
       </div>
 
       {/* Drive selector / display */}
-      <div className="relative">
-        {hasMultiple ? (
-          <button
-            onClick={() => setOpen(!open)}
-            className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-sidebar-accent transition-colors"
-          >
-            <HardDrive className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+      {hasMultiple ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-sidebar-accent transition-colors outline-none">
+            <HardDrive className="size-3.5 text-muted-foreground shrink-0" />
             <span className="truncate flex-1 text-left">{driveName || driveId.slice(0, 8)}</span>
-            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-          </button>
-        ) : (
-          <div className="flex items-center gap-2 px-2 py-1 text-sm">
-            <HardDrive className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="truncate">{driveName || driveId.slice(0, 8)}</span>
-          </div>
-        )}
-
-        {open && hasMultiple && (
-          <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-md border border-border bg-popover p-1 shadow-md">
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-[var(--anchor-width)]">
             {drives.map((drive) => (
-              <button
+              <DropdownMenuItem
                 key={drive.id}
-                onClick={() => {
-                  setDriveId(drive.id)
-                  setOpen(false)
-                }}
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-accent transition-colors"
+                onClick={() => setDriveId(drive.id)}
               >
-                <span className="truncate flex-1 text-left">{drive.name}</span>
-                {drive.id === driveId && <Check className="h-3 w-3 text-primary" />}
-              </button>
+                <span className="truncate flex-1">{drive.name}</span>
+                {drive.id === driveId && <Check className="size-3 text-primary ml-auto" />}
+              </DropdownMenuItem>
             ))}
-          </div>
-        )}
-      </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : (
+        <div className="flex items-center gap-2 px-2 py-1 text-sm">
+          <HardDrive className="size-3.5 text-muted-foreground shrink-0" />
+          <span className="truncate">{driveName || driveId.slice(0, 8)}</span>
+        </div>
+      )}
     </div>
   )
 }

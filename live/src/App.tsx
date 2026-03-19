@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/contexts/theme"
 import { AuthProvider } from "@/contexts/auth"
 import { BrowserProvider } from "@/contexts/browser"
@@ -54,6 +55,7 @@ export default function App() {
   return (
     <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
       <ThemeProvider>
         <BrowserRouter>
           <Routes>
@@ -64,6 +66,7 @@ export default function App() {
           </Routes>
         </BrowserRouter>
       </ThemeProvider>
+      </TooltipProvider>
     </QueryClientProvider>
     </ErrorBoundary>
   )
