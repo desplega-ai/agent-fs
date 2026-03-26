@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 
@@ -46,6 +46,81 @@ export function getDrive(
 
   if (!drive) return null;
   return { id: drive.id, name: drive.name, orgId: drive.orgId, isDefault: drive.isDefault };
+}
+
+export function listDriveMembers(
+  db: DB,
+  driveId: string
+): Array<{ userId: string; email: string; role: string }> {
+  return db
+    .select({
+      userId: schema.driveMembers.userId,
+      email: schema.users.email,
+      role: schema.driveMembers.role,
+    })
+    .from(schema.driveMembers)
+    .innerJoin(schema.users, eq(schema.driveMembers.userId, schema.users.id))
+    .where(eq(schema.driveMembers.driveId, driveId))
+    .all();
+}
+
+export function updateDriveMemberRole(
+  db: DB,
+  params: { driveId: string; userId: string; role: "viewer" | "editor" | "admin" }
+): void {
+  const existing = db
+    .select({ role: schema.driveMembers.role })
+    .from(schema.driveMembers)
+    .where(
+      and(
+        eq(schema.driveMembers.driveId, params.driveId),
+        eq(schema.driveMembers.userId, params.userId)
+      )
+    )
+    .get();
+
+  if (!existing) {
+    throw new Error("Member not found in drive");
+  }
+
+  db.update(schema.driveMembers)
+    .set({ role: params.role })
+    .where(
+      and(
+        eq(schema.driveMembers.driveId, params.driveId),
+        eq(schema.driveMembers.userId, params.userId)
+      )
+    )
+    .run();
+}
+
+export function removeDriveMember(
+  db: DB,
+  params: { driveId: string; userId: string }
+): void {
+  const existing = db
+    .select({ role: schema.driveMembers.role })
+    .from(schema.driveMembers)
+    .where(
+      and(
+        eq(schema.driveMembers.driveId, params.driveId),
+        eq(schema.driveMembers.userId, params.userId)
+      )
+    )
+    .get();
+
+  if (!existing) {
+    throw new Error("Member not found in drive");
+  }
+
+  db.delete(schema.driveMembers)
+    .where(
+      and(
+        eq(schema.driveMembers.driveId, params.driveId),
+        eq(schema.driveMembers.userId, params.userId)
+      )
+    )
+    .run();
 }
 
 export function setDriveMember(

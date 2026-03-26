@@ -11,6 +11,7 @@ import { orgCommands } from "./commands/org.js";
 import { initCommand } from "./commands/init.js";
 import { onboardCommand } from "./commands/onboard.js";
 import { commentCommands } from "./commands/comment.js";
+import { memberCommands } from "./commands/member.js";
 import { docsCommand } from "./commands/docs.js";
 
 const program = new Command();
@@ -59,6 +60,7 @@ program.addCommand(orgCommands(client));
 program.addCommand(initCommand());
 program.addCommand(onboardCommand());
 program.addCommand(commentCommands(client, getOrgId));
+program.addCommand(memberCommands(client, getOrgId));
 
 // MCP command
 program

@@ -765,6 +765,112 @@ async function runTests() {
     assert(result.drive.id, personalDriveId);
   });
 
+  // -- Member commands --
+
+  // Switch back to personal org for member tests
+  run(`org switch ${personalOrgId}`);
+
+  await test("member list (self as admin)", () => {
+    const members = runJson("member list");
+    assert(Array.isArray(members), true, "Expected array");
+    assert(members.length, 1, `Expected 1 member, got ${members.length}`);
+    assert(members[0].email, "test@e2e.local");
+    assert(members[0].role, "admin");
+  });
+
+  // Register a second user for invite/update/remove tests
+  let user2ApiKey = "";
+  let user2Id = "";
+  await test("register second user", async () => {
+    const res = await fetch(`${daemonUrl}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "user2@e2e.local" }),
+    });
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const data = await res.json() as any;
+    user2ApiKey = data.apiKey;
+    user2Id = data.userId;
+    assert(!!user2ApiKey, true, "Expected API key for user2");
+  });
+
+  // Switch to second org (non-personal) for invite/remove tests
+  run(`org switch ${secondOrgId}`);
+
+  await test("member invite to second org", () => {
+    const out = run("member invite user2@e2e.local --role editor");
+    assertIncludes(out, "Invited user2@e2e.local as editor");
+  });
+
+  await test("member list shows invited user", () => {
+    const members = runJson("member list");
+    assert(members.length, 2, `Expected 2 members, got ${members.length}`);
+    const user2 = members.find((m: any) => m.email === "user2@e2e.local");
+    assert(!!user2, true, "Expected user2 in member list");
+    assert(user2.role, "editor");
+  });
+
+  await test("member list --drive", () => {
+    const members = runJson(`--drive ${secondDriveId} member list`);
+    assert(Array.isArray(members), true, "Expected array");
+    // inviteToOrg also adds to default drive
+    const user2 = members.find((m: any) => m.email === "user2@e2e.local");
+    assert(!!user2, true, "Expected user2 in drive members");
+    assert(user2.role, "editor");
+  });
+
+  await test("member update-role", () => {
+    const out = run("member update-role user2@e2e.local --role viewer");
+    assertIncludes(out, "Updated user2@e2e.local to viewer");
+    const members = runJson("member list");
+    const user2 = members.find((m: any) => m.email === "user2@e2e.local");
+    assert(user2.role, "viewer");
+  });
+
+  await test("member update-role --drive", () => {
+    const out = run(`--drive ${secondDriveId} member update-role user2@e2e.local --role admin`);
+    assertIncludes(out, "Updated user2@e2e.local to admin");
+    const members = runJson(`--drive ${secondDriveId} member list`);
+    const user2 = members.find((m: any) => m.email === "user2@e2e.local");
+    assert(user2.role, "admin");
+  });
+
+  await test("member remove from drive only", () => {
+    const out = run(`--drive ${secondDriveId} member remove user2@e2e.local`);
+    assertIncludes(out, `Removed user2@e2e.local from drive ${secondDriveId}`);
+    // Should still be in org
+    const orgMembers = runJson("member list");
+    const user2Org = orgMembers.find((m: any) => m.email === "user2@e2e.local");
+    assert(!!user2Org, true, "Expected user2 still in org after drive removal");
+    // Should be gone from drive
+    const driveMembers = runJson(`--drive ${secondDriveId} member list`);
+    const user2Drive = driveMembers.find((m: any) => m.email === "user2@e2e.local");
+    assert(!user2Drive, true, "Expected user2 gone from drive");
+  });
+
+  await test("member remove from org", () => {
+    const out = run("member remove user2@e2e.local");
+    assertIncludes(out, "Removed user2@e2e.local from org");
+    const members = runJson("member list");
+    const user2 = members.find((m: any) => m.email === "user2@e2e.local");
+    assert(!user2, true, "Expected user2 gone from org");
+  });
+
+  await test("member remove last admin fails", () => {
+    // Switch to personal org — only one admin (self)
+    run(`org switch ${personalOrgId}`);
+    try {
+      run("member remove test@e2e.local");
+      throw new Error("Expected removal to fail");
+    } catch (e: any) {
+      if (e.message === "Expected removal to fail") throw e;
+      // CLI exits non-zero — expected
+    }
+  });
+
+  // Switch back and clean up config
+  run(`org switch ${personalOrgId}`);
+
   // Clean up config overrides so MCP tests aren't affected
   run("config set defaultOrg ''");
   run("config set defaultDrive ''");

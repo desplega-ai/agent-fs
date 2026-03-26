@@ -58,6 +58,17 @@ export class ApiClient {
     });
   }
 
+  async patch(path: string, body: any): Promise<any> {
+    return this.request(path, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async del(path: string): Promise<any> {
+    return this.request(path, { method: "DELETE" });
+  }
+
   async callOp(orgId: string, op: string, params: Record<string, any>): Promise<any> {
     return this.post(`/orgs/${orgId}/ops`, { op, ...params });
   }

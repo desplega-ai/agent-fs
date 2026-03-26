@@ -5,11 +5,12 @@ description: >-
   an agent-first filesystem backed by S3. Triggers on: "save this to agent-fs",
   "find that file", "store this document", "search agent-fs", "list my files",
   "show version history", "revert file", "set up agent-fs", "get a signed url",
-  "share this file", file persistence for agents, shared agent filesystem, or any
+  "share this file", "manage members", "invite user", "list members", "remove member",
+  "update role", file persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
-  generate presigned URLs, check recent activity, or use semantic search across
-  stored files. If the user mentions agent-fs in any context, always consult this
-  skill.
+  manage org/drive members, generate presigned URLs, check recent activity, or use
+  semantic search across stored files. If the user mentions agent-fs in any context,
+  always consult this skill.
 ---
 
 # agent-fs CLI
@@ -124,6 +125,17 @@ For custom S3 (AWS, R2, etc.), use flags: `agent-fs onboard --s3-endpoint <url> 
 | `auth register` | `agent-fs auth register <email>` | Register a new user |
 | `auth whoami` | `agent-fs auth whoami` | Show current user info |
 
+### Member Management
+
+| Command | Usage | Description |
+|---------|-------|-------------|
+| `member list` | `agent-fs member list` | List org members (use `--drive <id>` for drive members) |
+| `member invite` | `agent-fs member invite <email> --role <role>` | Invite user to org (viewer/editor/admin) |
+| `member update-role` | `agent-fs member update-role <email> --role <role>` | Update org role (use `--drive <id>` for drive role) |
+| `member remove` | `agent-fs member remove <email>` | Remove from org (use `--drive <id>` for drive only) |
+
+The `--drive` flag is a global option — place it before the subcommand: `agent-fs --drive <id> member list`.
+
 ### Drive Management
 
 | Command | Usage | Description |
@@ -216,6 +228,28 @@ agent-fs drive invite alice@company.com --role editor
 
 # Check current drive context
 agent-fs drive current
+```
+
+### Manage members
+
+```bash
+# List org members
+agent-fs member list
+
+# List drive members
+agent-fs --drive <driveId> member list
+
+# Invite a user
+agent-fs member invite alice@company.com --role editor
+
+# Change role
+agent-fs member update-role alice@company.com --role admin
+
+# Remove from org (cascades to all drives)
+agent-fs member remove alice@company.com
+
+# Remove from a specific drive only (keeps org membership)
+agent-fs --drive <driveId> member remove alice@company.com
 ```
 
 ### Check recent activity

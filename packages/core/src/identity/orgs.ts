@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { createDrive } from "./drives.js";
@@ -70,6 +70,147 @@ export function getOrg(
 
   if (!org) return null;
   return { id: org.id, name: org.name, isPersonal: org.isPersonal };
+}
+
+export function listOrgMembers(
+  db: DB,
+  orgId: string
+): Array<{ userId: string; email: string; role: string }> {
+  return db
+    .select({
+      userId: schema.orgMembers.userId,
+      email: schema.users.email,
+      role: schema.orgMembers.role,
+    })
+    .from(schema.orgMembers)
+    .innerJoin(schema.users, eq(schema.orgMembers.userId, schema.users.id))
+    .where(eq(schema.orgMembers.orgId, orgId))
+    .all();
+}
+
+export function updateOrgMemberRole(
+  db: DB,
+  params: { orgId: string; userId: string; role: "viewer" | "editor" | "admin" }
+): void {
+  const existing = db
+    .select({ role: schema.orgMembers.role })
+    .from(schema.orgMembers)
+    .where(
+      and(
+        eq(schema.orgMembers.orgId, params.orgId),
+        eq(schema.orgMembers.userId, params.userId)
+      )
+    )
+    .get();
+
+  if (!existing) {
+    throw new Error("Member not found in org");
+  }
+
+  // Guard: if downgrading from admin, ensure at least one admin remains
+  if (existing.role === "admin" && params.role !== "admin") {
+    const adminCount = db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.orgMembers)
+      .where(
+        and(
+          eq(schema.orgMembers.orgId, params.orgId),
+          eq(schema.orgMembers.role, "admin")
+        )
+      )
+      .get()!.count;
+
+    if (adminCount <= 1) {
+      throw new Error("Cannot remove the last admin from the org");
+    }
+  }
+
+  db.update(schema.orgMembers)
+    .set({ role: params.role })
+    .where(
+      and(
+        eq(schema.orgMembers.orgId, params.orgId),
+        eq(schema.orgMembers.userId, params.userId)
+      )
+    )
+    .run();
+}
+
+export function removeOrgMember(
+  db: DB,
+  params: { orgId: string; userId: string }
+): void {
+  // Guard: cannot remove from personal org
+  const org = db
+    .select({ isPersonal: schema.orgs.isPersonal })
+    .from(schema.orgs)
+    .where(eq(schema.orgs.id, params.orgId))
+    .get();
+
+  if (org?.isPersonal) {
+    throw new Error("Cannot remove members from a personal org");
+  }
+
+  // Guard: cannot remove last admin
+  const member = db
+    .select({ role: schema.orgMembers.role })
+    .from(schema.orgMembers)
+    .where(
+      and(
+        eq(schema.orgMembers.orgId, params.orgId),
+        eq(schema.orgMembers.userId, params.userId)
+      )
+    )
+    .get();
+
+  if (!member) {
+    throw new Error("Member not found in org");
+  }
+
+  if (member.role === "admin") {
+    const adminCount = db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.orgMembers)
+      .where(
+        and(
+          eq(schema.orgMembers.orgId, params.orgId),
+          eq(schema.orgMembers.role, "admin")
+        )
+      )
+      .get()!.count;
+
+    if (adminCount <= 1) {
+      throw new Error("Cannot remove the last admin from the org");
+    }
+  }
+
+  // Remove from all drives in this org
+  const orgDrives = db
+    .select({ id: schema.drives.id })
+    .from(schema.drives)
+    .where(eq(schema.drives.orgId, params.orgId))
+    .all();
+
+  for (const drive of orgDrives) {
+    db.delete(schema.driveMembers)
+      .where(
+        and(
+          eq(schema.driveMembers.driveId, drive.id),
+          eq(schema.driveMembers.userId, params.userId)
+        )
+      )
+      .run();
+  }
+
+  // Remove from org
+  db.delete(schema.orgMembers)
+    .where(
+      and(
+        eq(schema.orgMembers.orgId, params.orgId),
+        eq(schema.orgMembers.userId, params.userId)
+      )
+    )
+    .run();
 }
 
 export function inviteToOrg(

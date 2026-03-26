@@ -8,6 +8,14 @@ import {
   listUserOrgs,
   listDrives,
   getUserDriveRole,
+  getUserByEmail,
+  listOrgMembers,
+  listDriveMembers,
+  inviteToOrg,
+  updateOrgMemberRole,
+  removeOrgMember,
+  updateDriveMemberRole,
+  removeDriveMember,
   VERSION,
 } from "@/core";
 import type { OpContext, DB, EmbeddingProvider, AgentS3Client } from "@/core";
@@ -106,6 +114,105 @@ export function createMcpServer(options: McpServerOptions) {
       content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
     };
   });
+
+  // --- Member management tools ---
+
+  server.tool(
+    "member-list",
+    "List members of the current org, or a specific drive if driveId is provided.",
+    { driveId: z.string().optional().describe("Drive ID to list members for. Omit for org members.") },
+    async (params: { driveId?: string }, extra) => {
+      const ctx = getContext(extra);
+      const members = params.driveId
+        ? listDriveMembers(db, params.driveId)
+        : listOrgMembers(db, ctx.orgId);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ members }, null, 2) }],
+      };
+    }
+  );
+
+  server.tool(
+    "member-invite",
+    "Invite a user to the current org by email. The user must already have an agent-fs account.",
+    {
+      email: z.string().describe("Email of the user to invite"),
+      role: z.enum(["viewer", "editor", "admin"]).describe("Role to assign"),
+    },
+    async (params: { email: string; role: "viewer" | "editor" | "admin" }, extra) => {
+      const ctx = getContext(extra);
+      try {
+        inviteToOrg(db, { orgId: ctx.orgId, email: params.email, role: params.role });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ ok: true, invited: params.email, role: params.role }, null, 2) }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: err.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "member-update-role",
+    "Update a member's role in the current org or a specific drive.",
+    {
+      email: z.string().describe("Email of the member"),
+      role: z.enum(["viewer", "editor", "admin"]).describe("New role"),
+      driveId: z.string().optional().describe("Drive ID to update role for. Omit for org role."),
+    },
+    async (params: { email: string; role: "viewer" | "editor" | "admin"; driveId?: string }, extra) => {
+      const ctx = getContext(extra);
+      try {
+        const user = getUserByEmail(db, params.email);
+        if (!user) throw new Error(`User with email ${params.email} not found`);
+        if (params.driveId) {
+          updateDriveMemberRole(db, { driveId: params.driveId, userId: user.id, role: params.role });
+        } else {
+          updateOrgMemberRole(db, { orgId: ctx.orgId, userId: user.id, role: params.role });
+        }
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ ok: true, email: params.email, role: params.role }, null, 2) }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: err.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "member-remove",
+    "Remove a member from the current org (cascades to all drives) or from a specific drive only.",
+    {
+      email: z.string().describe("Email of the member to remove"),
+      driveId: z.string().optional().describe("Drive ID to remove from. Omit to remove from org."),
+    },
+    async (params: { email: string; driveId?: string }, extra) => {
+      const ctx = getContext(extra);
+      try {
+        const user = getUserByEmail(db, params.email);
+        if (!user) throw new Error(`User with email ${params.email} not found`);
+        if (params.driveId) {
+          removeDriveMember(db, { driveId: params.driveId, userId: user.id });
+        } else {
+          removeOrgMember(db, { orgId: ctx.orgId, userId: user.id });
+        }
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ ok: true, removed: params.email }, null, 2) }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: err.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
 
   return server;
 }
