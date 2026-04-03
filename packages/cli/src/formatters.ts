@@ -271,6 +271,7 @@ const formatters: Record<string, (result: any) => string> = {
   grep: formatGrep,
   fts: formatFts,
   search: formatSearch,
+  "vec-search": formatSearch,
   glob: formatGlob,
   diff: formatDiff,
   tail: formatTail,

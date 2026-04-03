@@ -421,6 +421,23 @@ async function runTests() {
     assert(result.matches.length > 0, true, "Expected fts matches");
   });
 
+  // -- vec-search --
+
+  await test("vec-search", () => {
+    const result = runJson("vec-search 'greeting message'");
+    // May return empty if no embedding provider in E2E; just verify the shape
+    assert(Array.isArray(result.results), true, "Expected results array from vec-search");
+  });
+
+  // -- search (hybrid) --
+
+  await test("search (hybrid)", () => {
+    const result = runJson("search Hello");
+    assert(Array.isArray(result.results), true, "Expected results array from hybrid search");
+    // With FTS available, should find matches even without embedding provider
+    assert(result.results.length > 0, true, "Expected hybrid search results via FTS fallback");
+  });
+
   // -- comments --
 
   await test("comment add + list + resolve", () => {

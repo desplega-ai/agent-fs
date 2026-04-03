@@ -2,16 +2,18 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Search, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { SearchModeToggle, type SearchMode } from "./SearchModeToggle"
+import { SearchModeToggle, type SearchTab, type SearchType } from "./SearchModeToggle"
 import { SearchResults } from "./SearchResults"
 import { useFtsSearch } from "@/hooks/use-fts-search"
 import { useSemanticSearch } from "@/hooks/use-semantic-search"
 import { useGlobSearch } from "@/hooks/use-glob-search"
+import { useHybridSearch } from "@/hooks/use-hybrid-search"
 
 export function SearchBar() {
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
-  const [mode, setMode] = useState<SearchMode>("files")
+  const [tab, setTab] = useState<SearchTab>("files")
+  const [searchType, setSearchType] = useState<SearchType>("hybrid")
   const [isSearching, setIsSearching] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -33,16 +35,20 @@ export function SearchBar() {
     return () => document.removeEventListener("keydown", handler)
   }, [])
 
-  const globResult = useGlobSearch(mode === "files" ? debouncedQuery : "")
-  const ftsResult = useFtsSearch(mode === "fulltext" ? debouncedQuery : "")
-  const semanticResult = useSemanticSearch(mode === "semantic" ? debouncedQuery : "")
-
-  const semanticDisabled = semanticResult.data?.results.length === 0 && !!semanticResult.data?.hint
+  // Determine which query to pass to each hook
+  const isSearch = tab === "search"
+  const globResult = useGlobSearch(tab === "files" ? debouncedQuery : "")
+  const hybridResult = useHybridSearch(isSearch && searchType === "hybrid" ? debouncedQuery : "")
+  const ftsResult = useFtsSearch(isSearch && searchType === "fulltext" ? debouncedQuery : "")
+  const semanticResult = useSemanticSearch(isSearch && searchType === "semantic" ? debouncedQuery : "")
 
   const results = (() => {
-    switch (mode) {
-      case "files":
-        return (globResult.data?.matches ?? []).map((m) => ({ path: m.path }))
+    if (tab === "files") {
+      return (globResult.data?.matches ?? []).map((m) => ({ path: m.path }))
+    }
+    switch (searchType) {
+      case "hybrid":
+        return (hybridResult.data?.results ?? []).map((r) => ({ path: r.path, snippet: r.snippet, score: r.score }))
       case "fulltext":
         return (ftsResult.data?.matches ?? []).map((m) => ({ path: m.path, snippet: m.snippet }))
       case "semantic":
@@ -50,7 +56,14 @@ export function SearchBar() {
     }
   })()
 
-  const loading = mode === "files" ? globResult.isLoading : mode === "fulltext" ? ftsResult.isLoading : semanticResult.isLoading
+  const loading = (() => {
+    if (tab === "files") return globResult.isLoading
+    switch (searchType) {
+      case "hybrid": return hybridResult.isLoading
+      case "fulltext": return ftsResult.isLoading
+      case "semantic": return semanticResult.isLoading
+    }
+  })()
 
   const handleClear = useCallback(() => {
     setQuery("")
@@ -86,7 +99,12 @@ export function SearchBar() {
           )}
         </div>
         {isSearching && (
-          <SearchModeToggle mode={mode} onChange={setMode} semanticDisabled={semanticDisabled} />
+          <SearchModeToggle
+            tab={tab}
+            searchType={searchType}
+            onTabChange={setTab}
+            onSearchTypeChange={setSearchType}
+          />
         )}
       </div>
 

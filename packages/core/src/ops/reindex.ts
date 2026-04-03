@@ -46,32 +46,40 @@ export async function reindex(
   let failed = 0;
   let skipped = 0;
 
-  for (const file of files) {
-    const s3Key = getS3Key(ctx.orgId, ctx.driveId, file.path);
+  const BATCH_SIZE = 3;
 
-    try {
-      const result = await ctx.s3.getObject(s3Key);
-      const content = new TextDecoder().decode(result.body);
+  for (let i = 0; i < files.length; i += BATCH_SIZE) {
+    const batch = files.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (file) => {
+        const s3Key = getS3Key(ctx.orgId, ctx.driveId, file.path);
+        const result = await ctx.s3.getObject(s3Key);
+        const content = new TextDecoder().decode(result.body);
 
-      // Re-index FTS5
-      indexFile(ctx.db, { path: file.path, driveId: ctx.driveId, content });
+        // Re-index FTS5
+        indexFile(ctx.db, { path: file.path, driveId: ctx.driveId, content });
 
-      // Re-index embeddings if provider available
-      if (ctx.embeddingProvider) {
-        await indexFileEmbeddings(ctx.db, ctx.embeddingProvider, {
-          path: file.path,
-          driveId: ctx.driveId,
-          content,
-        });
+        // Re-index embeddings if provider available
+        if (ctx.embeddingProvider) {
+          await indexFileEmbeddings(ctx.db, ctx.embeddingProvider, {
+            path: file.path,
+            driveId: ctx.driveId,
+            content,
+          });
+          return "reindexed" as const;
+        }
+        return "skipped" as const;
+      })
+    );
+
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        if (r.value === "reindexed") reindexed++;
+        else skipped++;
       } else {
-        skipped++;
-        continue;
+        console.error("Reindex failed:", r.reason);
+        failed++;
       }
-
-      reindexed++;
-    } catch (err) {
-      console.error(`Reindex failed for ${file.path}:`, err);
-      failed++;
     }
   }
 

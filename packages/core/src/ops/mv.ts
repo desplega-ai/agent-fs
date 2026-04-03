@@ -1,5 +1,8 @@
+import { eq, and } from "drizzle-orm";
 import type { OpContext, MvParams, MvResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
+import { indexFile, removeFromIndex } from "../search/fts.js";
+import { schema } from "../db/index.js";
 
 export async function mv(
   ctx: OpContext,
@@ -34,6 +37,26 @@ export async function mv(
     operation: "delete",
     message: `Moved to ${params.to}`,
   });
+
+  // Update search indexes: FTS5 and content_chunks
+  // No re-embedding needed since content didn't change
+  const obj = await ctx.s3.getObject(toKey);
+  const content = new TextDecoder().decode(obj.body);
+
+  removeFromIndex(ctx.db, { path: params.from, driveId: ctx.driveId });
+  indexFile(ctx.db, { path: params.to, driveId: ctx.driveId, content });
+
+  // Update chunk paths in-place (vectors stay the same)
+  ctx.db
+    .update(schema.contentChunks)
+    .set({ filePath: params.to })
+    .where(
+      and(
+        eq(schema.contentChunks.filePath, params.from),
+        eq(schema.contentChunks.driveId, ctx.driveId)
+      )
+    )
+    .run();
 
   return { from: params.from, to: params.to, version };
 }

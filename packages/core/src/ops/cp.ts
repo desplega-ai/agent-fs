@@ -1,5 +1,7 @@
 import type { OpContext, CpParams, CpResult } from "./types.js";
 import { getS3Key, createVersion } from "./versioning.js";
+import { indexFile } from "../search/fts.js";
+import { scheduleEmbedding } from "../search/pipeline.js";
 
 export async function cp(
   ctx: OpContext,
@@ -22,6 +24,20 @@ export async function cp(
     message: `Copied from ${params.from}`,
     size: head.size,
     etag: copyResult.etag,
+  });
+
+  // Index the copied file for search
+  const obj = await ctx.s3.getObject(toKey);
+  const content = new TextDecoder().decode(obj.body);
+
+  // FTS5 index (sync)
+  indexFile(ctx.db, { path: params.to, driveId: ctx.driveId, content });
+
+  // Embedding index (async, fire-and-forget)
+  scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
+    path: params.to,
+    driveId: ctx.driveId,
+    content,
   });
 
   return { from: params.from, to: params.to, version };

@@ -27,6 +27,7 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "grep", args: [{ name: "pattern", required: true }, { name: "path", required: true }], options: [] },
   { name: "fts", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
   { name: "search", args: [{ name: "query", required: true }], options: [{ flag: "--limit <n>", description: "Max results" }] },
+  { name: "vec-search", args: [{ name: "query", required: true }], options: [{ flag: "--limit <n>", description: "Max results" }] },
   { name: "reindex", args: [], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
   { name: "tree", args: [{ name: "path", required: false }], options: [{ flag: "--depth <n>", description: "Max recursion depth" }] },
   { name: "glob", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },

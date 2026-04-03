@@ -95,14 +95,16 @@ For custom S3 (AWS, R2, etc.), use flags: `agent-fs onboard --s3-endpoint <url> 
 |---------|-------|-------------|
 | `grep` | `agent-fs grep <pattern> <path>` | Regex search in file content |
 | `fts` | `agent-fs fts <pattern> [path]` | Full-text search (FTS5) across all files |
-| `search` | `agent-fs search <query> [--limit <n>]` | Semantic search using embeddings |
+| `search` | `agent-fs search <query> [--limit <n>]` | Hybrid search (semantic + keyword, best for general queries) |
+| `vec-search` | `agent-fs vec-search <query> [--limit <n>]` | Vector-only semantic search using embeddings |
 | `recent` | `agent-fs recent [path] [--since <duration>] [--limit <n>]` | Recent activity (e.g., `--since 24h`) |
 | `reindex` | `agent-fs reindex [path]` | Re-index files with failed/missing embeddings |
 
 **When to use which:**
 - `grep` — you know the exact pattern and path (regex)
 - `fts` — keyword search across all files (fast, FTS5-based)
-- `search` — conceptual/semantic search ("find things about X")
+- `search` — general-purpose search combining keywords and meaning (recommended default)
+- `vec-search` — pure semantic search when you want conceptual matches only
 
 ### Comments
 
@@ -184,8 +186,11 @@ agent-fs grep "revenue|growth" reports/
 # Full-text search across all files (FTS5 — fast keyword matching)
 agent-fs fts "quarterly revenue"
 
-# Semantic search (finds conceptually related content)
+# Hybrid search (combines keyword + semantic matching — recommended default)
 agent-fs search "financial performance metrics" --limit 5
+
+# Vector-only semantic search (conceptual matches only)
+agent-fs vec-search "financial performance metrics" --limit 5
 ```
 
 ### Review and revert changes

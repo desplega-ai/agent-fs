@@ -48,11 +48,30 @@ export async function indexFileEmbeddings(
 ): Promise<void> {
   const raw = getRawDb(db);
 
+  // Guard: bail if the file was deleted before this async job ran
+  const file = db
+    .select({ isDeleted: schema.files.isDeleted })
+    .from(schema.files)
+    .where(
+      and(
+        eq(schema.files.path, params.path),
+        eq(schema.files.driveId, params.driveId)
+      )
+    )
+    .get();
+
+  if (!file || file.isDeleted) return;
+
   try {
     // 1. Chunk content
     const chunks = await chunkContent(params.content);
 
-    // 2. Delete old chunks + vectors for this file
+    // 2. Generate embeddings FIRST (before any DB writes)
+    //    If this fails, no DB state is changed — no orphaned chunks.
+    const texts = chunks.map((c) => c.content);
+    const embeddings = await provider.embedBatch(texts);
+
+    // 3. Delete old chunks + vectors for this file
     const oldChunks = db
       .select({ id: schema.contentChunks.id })
       .from(schema.contentChunks)
@@ -79,8 +98,11 @@ export async function indexFileEmbeddings(
       )
       .run();
 
-    // 3. Insert new chunks
-    const chunkIds: number[] = [];
+    // 4. Insert new chunks + vectors (paired)
+    const insertVec = raw.prepare(
+      "INSERT INTO chunk_vectors(chunk_id, embedding) VALUES (?, ?)"
+    );
+
     for (let i = 0; i < chunks.length; i++) {
       const result = db
         .insert(schema.contentChunks)
@@ -94,24 +116,12 @@ export async function indexFileEmbeddings(
         })
         .returning({ id: schema.contentChunks.id })
         .get();
-      chunkIds.push(result.id);
-    }
 
-    // 4. Embed all chunks
-    const texts = chunks.map((c) => c.content);
-    const embeddings = await provider.embedBatch(texts);
-
-    // 5. Insert vectors into chunk_vectors
-    const insertStmt = raw.prepare(
-      "INSERT INTO chunk_vectors(chunk_id, embedding) VALUES (?, ?)"
-    );
-
-    for (let i = 0; i < chunkIds.length; i++) {
       const vec = new Float32Array(embeddings[i]);
-      insertStmt.run(chunkIds[i], vec);
+      insertVec.run(result.id, vec);
     }
 
-    // 6. Update embedding status
+    // 5. Update embedding status
     db.update(schema.files)
       .set({ embeddingStatus: "indexed" })
       .where(
@@ -142,6 +152,17 @@ export function scheduleEmbedding(
   params: { path: string; driveId: string; content: string }
 ): void {
   if (!provider) return;
+
+  // Set pending synchronously so status is accurate during async window
+  db.update(schema.files)
+    .set({ embeddingStatus: "pending" })
+    .where(
+      and(
+        eq(schema.files.path, params.path),
+        eq(schema.files.driveId, params.driveId)
+      )
+    )
+    .run();
 
   embeddingSemaphore.acquire().then(async (release) => {
     try {

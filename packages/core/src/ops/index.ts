@@ -17,6 +17,7 @@ import { revert } from "./revert.js";
 import { recent } from "./recent.js";
 import { grep } from "./grep.js";
 import { fts } from "./fts.js";
+import { vecSearch } from "./vec-search.js";
 import { search } from "./search.js";
 import { reindex } from "./reindex.js";
 import { tree } from "./tree.js";
@@ -168,8 +169,16 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   search: {
-    description: "Semantic/vector search using natural language queries. Requires an embedding provider (OPENAI_API_KEY or GEMINI_API_KEY). Returns { results } ranked by relevance.",
+    description: "Hybrid search combining semantic (vector) and keyword (FTS5) matching. Best for natural language queries. Degrades to keyword-only without an embedding provider.",
     handler: search,
+    schema: z.object({
+      query: z.string(),
+      limit: z.number().int().min(1).optional(),
+    }),
+  },
+  "vec-search": {
+    description: "Vector-only semantic search using embeddings. Returns results ranked by cosine similarity. Requires an embedding provider (OPENAI_API_KEY, GEMINI_API_KEY, or local).",
+    handler: vecSearch,
     schema: z.object({
       query: z.string(),
       limit: z.number().int().min(1).optional(),
@@ -307,5 +316,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, reindex, tree, glob, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
+export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
 export type * from "./types.js";

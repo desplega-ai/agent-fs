@@ -1,7 +1,7 @@
 {
   "name": "agent-fs",
   "description": "Agent-first filesystem CLI — store, search, and version files backed by S3",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "author": {
     "name": "desplega-ai"
   },

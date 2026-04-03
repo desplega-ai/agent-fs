@@ -20,6 +20,7 @@ const OP_ROLES: Record<string, Role> = {
   grep: "viewer",
   fts: "viewer",
   search: "viewer",
+  "vec-search": "viewer",
   log: "viewer",
   diff: "viewer",
   recent: "viewer",

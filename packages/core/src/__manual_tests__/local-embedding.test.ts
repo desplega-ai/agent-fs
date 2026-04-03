@@ -7,7 +7,7 @@ import { createDatabase, schema } from "../db/index.js";
 import { AgentS3Client } from "../s3/client.js";
 import type { OpContext } from "../ops/types.js";
 import { write } from "../ops/write.js";
-import { search } from "../ops/search.js";
+import { vecSearch as search } from "../ops/vec-search.js";
 import { LocalEmbeddingProvider } from "../search/embeddings/local.js";
 import { indexFileEmbeddings } from "../search/pipeline.js";
 

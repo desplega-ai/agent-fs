@@ -1,6 +1,6 @@
 {
   "name": "agent-fs",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "workspaces": ["packages/*"],
   "scripts": {
@@ -8,7 +8,9 @@
     "test": "bun test packages/*/src/",
     "test:coverage": "bun test --coverage packages/*/src/",
     "build": "cd packages/cli && bun run build:npm",
-    "install-local": "bun run build && cd packages/cli && bun link"
+    "install-local": "bun run build && cd packages/cli && bun link",
+    "uninstall-local": "bun remove -g @desplega.ai/agent-fs && rm -f ~/.bun/bin/agent-fs",
+    "deploy:fly": "fly deploy -a agent-fs-taras"
   },
   "devDependencies": {
     "bun-types": "^1.2.0",
