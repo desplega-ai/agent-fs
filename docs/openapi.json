@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.4.0",
+    "version": "0.5.0",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -626,7 +626,7 @@
                   {
                     "type": "object",
                     "title": "search",
-                    "description": "Semantic/vector search using natural language queries. Requires an embedding provider (OPENAI_API_KEY or GEMINI_API_KEY). Returns { results } ranked by relevance.",
+                    "description": "Hybrid search combining semantic (vector) and keyword (FTS5) matching. Best for natural language queries. Degrades to keyword-only without an embedding provider.",
                     "required": [
                       "op",
                       "query"
@@ -635,6 +635,33 @@
                       "op": {
                         "type": "string",
                         "const": "search"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "query": {
+                        "type": "string"
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "vec-search",
+                    "description": "Vector-only semantic search using embeddings. Returns results ranked by cosine similarity. Requires an embedding provider (OPENAI_API_KEY, GEMINI_API_KEY, or local).",
+                    "required": [
+                      "op",
+                      "query"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "vec-search"
                       },
                       "driveId": {
                         "type": "string",
