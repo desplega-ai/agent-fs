@@ -13,6 +13,14 @@ pass_filenames = false
 always_run = true
 
 [[repos.hooks]]
+id = "typecheck-live"
+name = "typecheck (live)"
+language = "system"
+entry = "bash -c 'cd live && npx tsc --noEmit'"
+pass_filenames = false
+always_run = true
+
+[[repos.hooks]]
 id = "build"
 name = "build"
 language = "system"

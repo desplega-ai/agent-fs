@@ -47,22 +47,22 @@ export function SearchModeToggle({ tab, searchType, onTabChange, onSearchTypeCha
 
       {tab === "search" && (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex w-full items-center justify-between rounded-md border border-border px-2 py-1 text-xs hover:bg-accent transition-colors">
-              <span>
-                <span className="font-medium">{activeType.label}</span>
-                <span className="text-muted-foreground ml-1.5">{activeType.description}</span>
-              </span>
-              <ChevronDown className="size-3 text-muted-foreground" />
-            </button>
+          <DropdownMenuTrigger
+            className="flex w-full items-center justify-between rounded-md border border-border px-2 py-1 text-xs hover:bg-accent transition-colors"
+          >
+            <span>
+              <span className="font-medium">{activeType.label}</span>
+              <span className="text-muted-foreground ml-1.5">{activeType.description}</span>
+            </span>
+            <ChevronDown className="size-3 text-muted-foreground" />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-[--radix-dropdown-menu-trigger-width]">
+          <DropdownMenuContent align="start">
             {searchTypes.map((t) => (
               <DropdownMenuItem
                 key={t.value}
                 onClick={() => onSearchTypeChange(t.value)}
                 className={cn(
-                  "text-xs",
+                  "text-xs cursor-pointer",
                   searchType === t.value && "bg-accent"
                 )}
               >
