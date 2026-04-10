@@ -189,6 +189,16 @@ export interface GrepResult {
 
 // Auth types
 
+export interface OrgMember {
+  userId: string
+  email: string
+  role: string
+}
+
+export interface OrgMembersResult {
+  members: OrgMember[]
+}
+
 export interface MeResponse {
   userId: string
   email: string

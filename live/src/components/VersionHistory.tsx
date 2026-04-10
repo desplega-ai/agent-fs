@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { ChevronDown, ChevronRight, GitCommit, Loader2 } from "lucide-react"
 import { useVersionHistory } from "@/hooks/use-version-history"
+import { UserName } from "@/components/UserName"
 import { useDiff } from "@/hooks/use-diff"
 import { DiffViewer } from "./viewers/DiffViewer"
 import { cn } from "@/lib/utils"
@@ -14,7 +15,7 @@ export function VersionHistory({ path }: VersionHistoryProps) {
   const [selectedDiff, setSelectedDiff] = useState<{ v1: number; v2: number } | null>(null)
 
   const { data, isLoading } = useVersionHistory(expanded ? path : null)
-  const { data: diffData, isLoading: diffLoading } = useDiff(
+  const { data: diffData, isLoading: diffLoading, error: diffError } = useDiff(
     selectedDiff ? path : null,
     selectedDiff?.v1 ?? 0,
     selectedDiff?.v2 ?? 0
@@ -68,8 +69,8 @@ export function VersionHistory({ path }: VersionHistoryProps) {
                         <span className="font-medium">v{v.version}</span>
                         <span className="text-xs text-muted-foreground">{v.operation}</span>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {v.author} &middot; {new Date(v.createdAt).toLocaleString()}
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <UserName userId={v.author} className="text-xs text-muted-foreground" /> &middot; {new Date(v.createdAt).toLocaleString()}
                       </div>
                       {v.message && (
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">{v.message}</p>
@@ -90,9 +91,15 @@ export function VersionHistory({ path }: VersionHistoryProps) {
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 </div>
-              ) : diffData ? (
+              ) : diffError ? (
+                <p className="px-4 py-3 text-xs text-destructive">
+                  Failed to load diff: {(diffError as Error).message}
+                </p>
+              ) : diffData?.changes.length ? (
                 <DiffViewer changes={diffData.changes} className="max-h-80" />
-              ) : null}
+              ) : (
+                <p className="px-4 py-3 text-xs text-muted-foreground">No changes between these versions.</p>
+              )}
             </div>
           )}
         </div>

@@ -1,6 +1,7 @@
-import { useRef, useState, useEffect, useCallback, type MutableRefObject } from "react"
+import { useRef, useState, useEffect, useCallback, useMemo, type MutableRefObject } from "react"
 import Editor, { useMonaco } from "@monaco-editor/react"
-import { MessageSquare } from "lucide-react"
+import { MessageSquare, Braces } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/hooks/use-theme"
 import { AddComment } from "@/components/comments/AddComment"
@@ -43,7 +44,18 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
   const [showCommentForm, setShowCommentForm] = useState(false)
 
   const lang = extToLang(path)
+  const isJson = lang === "json"
+  const [jsonFormatted, setJsonFormatted] = useState(false)
   const monacoTheme = resolvedTheme === "dark" ? "vs-dark" : "vs"
+
+  const displayContent = useMemo(() => {
+    if (!isJson || !jsonFormatted) return content
+    try {
+      return JSON.stringify(JSON.parse(content), null, 2)
+    } catch {
+      return content
+    }
+  }, [content, isJson, jsonFormatted])
 
   // Apply comment line decorations
   useEffect(() => {
@@ -144,10 +156,23 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
 
   return (
     <div className={cn("relative flex flex-col", className)}>
+      {isJson && (
+        <div className="flex items-center justify-end border-b border-border px-2 py-1 shrink-0">
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => setJsonFormatted(!jsonFormatted)}
+            className="text-muted-foreground gap-1"
+          >
+            <Braces className="size-3" />
+            {jsonFormatted ? "Raw" : "Format"}
+          </Button>
+        </div>
+      )}
       <div className="flex-1 min-h-0">
         <Editor
           language={lang}
-          value={content}
+          value={displayContent}
           theme={monacoTheme}
           onMount={handleEditorMount}
           loading={<div className="flex items-center justify-center h-full"><Spinner /></div>}

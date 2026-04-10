@@ -1,4 +1,5 @@
 import { FileQuestion } from "lucide-react"
+import { UserName } from "@/components/UserName"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { cn } from "@/lib/utils"
 
@@ -21,7 +22,7 @@ export function FallbackViewer({ path, className }: FallbackViewerProps) {
         <div className="text-xs text-muted-foreground space-y-1">
           <p>Size: {formatBytes(stat.size)}</p>
           {stat.contentType && <p>Type: {stat.contentType}</p>}
-          <p>Author: {stat.author}</p>
+          <p>Author: <UserName userId={stat.author} className="text-xs text-muted-foreground inline" /></p>
           <p>Modified: {new Date(stat.modifiedAt).toLocaleDateString()}</p>
         </div>
       )}

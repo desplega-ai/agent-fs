@@ -3,8 +3,8 @@ import { Check, Trash2, Pencil, MessageSquare, RotateCcw, X, ChevronDown, Chevro
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { useResolveComment, useDeleteComment, useUpdateComment } from "@/hooks/use-comments"
+import { UserName, useDisplayName } from "@/components/UserName"
 import { AddComment } from "./AddComment"
 import type { CommentListEntry, CommentEntry } from "@/api/types"
 
@@ -19,26 +19,20 @@ function timeAgo(dateStr: string): string {
   return `${days}d ago`
 }
 
-function formatAuthor(author: string): string {
-  if (author.includes("@")) return author
-  if (author.length > 16 && author.includes("-")) return author.slice(0, 8)
-  return author
-}
-
-function avatarColor(name: string): string {
+function avatarColor(id: string): string {
   let hash = 0
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash)
   const hue = Math.abs(hash) % 360
   return `oklch(0.65 0.15 ${hue})`
 }
 
-function Avatar({ name }: { name: string }) {
-  const display = formatAuthor(name)
+function Avatar({ userId }: { userId: string }) {
+  const { display } = useDisplayName(userId)
   const initial = display.charAt(0).toUpperCase()
   return (
     <div
       className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium text-white"
-      style={{ backgroundColor: avatarColor(name) }}
+      style={{ backgroundColor: avatarColor(userId) }}
     >
       {initial}
     </div>
@@ -65,7 +59,6 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
 
   const isOwn = currentUserId === comment.author
   const isGeneralComment = !comment.lineStart
-  const displayName = formatAuthor(comment.author)
   const hasReplies = comment.replies.length > 0
 
   const handleThreadClick = () => {
@@ -83,13 +76,8 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
         {/* Header */}
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-1.5 min-w-0">
-            <Avatar name={comment.author} />
-            <Tooltip>
-              <TooltipTrigger>
-                <span className="text-xs font-medium truncate cursor-default">{displayName}</span>
-              </TooltipTrigger>
-              <TooltipContent side="top">{comment.author}</TooltipContent>
-            </Tooltip>
+            <Avatar userId={comment.author} />
+            <UserName userId={comment.author} />
             <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(comment.createdAt)}</span>
             {isGeneralComment && (
               <span className="text-[10px] text-muted-foreground/60 shrink-0">general</span>
@@ -219,14 +207,13 @@ function ReplyItem({ reply, path, currentUserId }: { reply: CommentEntry; path: 
   const updateComment = useUpdateComment()
   const deleteComment = useDeleteComment()
   const isOwn = currentUserId === reply.author
-  const displayName = formatAuthor(reply.author)
 
   return (
     <div className="border-b border-border last:border-b-0 px-3 py-2">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 min-w-0">
-          <Avatar name={reply.author} />
-          <span className="text-xs font-medium truncate">{displayName}</span>
+          <Avatar userId={reply.author} />
+          <UserName userId={reply.author} />
           <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(reply.createdAt)}</span>
         </div>
         {isOwn && (

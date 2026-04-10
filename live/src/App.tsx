@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/contexts/theme"
-import { AuthProvider } from "@/contexts/auth"
+import { AuthProvider, useAuth } from "@/contexts/auth"
 import { BrowserProvider } from "@/contexts/browser"
 import { Shell } from "@/components/layout/Shell"
 import { Breadcrumbs } from "@/components/Breadcrumbs"
@@ -10,6 +10,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { CredentialsPage } from "@/pages/Credentials"
 import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
+import { Spinner } from "@/components/ui/spinner"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -64,6 +65,33 @@ function DetailRoute() {
   )
 }
 
+/** Resolves /orgs/:orgId/files/* to /file/~/:orgId/:driveId/* using default drive */
+function OrgFileRedirect() {
+  const params = useParams()
+  const orgId = params.orgId!
+  const filePath = params["*"] ?? ""
+
+  return (
+    <AuthProvider initialOrgId={orgId}>
+      <OrgFileRedirectInner orgId={orgId} filePath={filePath} />
+    </AuthProvider>
+  )
+}
+
+function OrgFileRedirectInner({ orgId, filePath }: { orgId: string; filePath: string }) {
+  const { driveId, isLoading } = useAuth()
+
+  if (isLoading || !driveId) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Spinner />
+      </div>
+    )
+  }
+
+  return <Navigate to={`/file/~/${orgId}/${driveId}/${filePath}`} replace />
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -73,6 +101,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/credentials" element={<CredentialsPage />} />
+            <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
             <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
             <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
             <Route path="/files" element={<AuthenticatedShell />} />

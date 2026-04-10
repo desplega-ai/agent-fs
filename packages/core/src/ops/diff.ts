@@ -73,8 +73,8 @@ export async function diff(
       }
 
       return { changes };
-    } catch {
-      // Fall through to diffSummary
+    } catch (err) {
+      console.warn(`[diff] S3 content fetch failed for ${params.path}, falling back to diffSummary:`, err);
     }
   }
 

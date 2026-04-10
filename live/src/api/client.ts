@@ -1,4 +1,4 @@
-import type { MeResponse, Drive } from "./types"
+import type { MeResponse, Drive, OrgMembersResult } from "./types"
 
 export interface ApiError {
   error: string
@@ -69,6 +69,10 @@ export class AgentFsClient {
 
   async getDrives(orgId: string): Promise<{ drives: Drive[] }> {
     return this.get<{ drives: Drive[] }>(`/orgs/${orgId}/drives`)
+  }
+
+  async getOrgMembers(orgId: string): Promise<OrgMembersResult> {
+    return this.get<OrgMembersResult>(`/orgs/${orgId}/members`)
   }
 
   async getSignedUrl(orgId: string, driveId: string, path: string): Promise<{ url: string; expiresAt: string }> {
