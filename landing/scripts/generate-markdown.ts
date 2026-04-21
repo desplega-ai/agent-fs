@@ -7,7 +7,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { INDEX_MD, LLMS_TXT } from "../content/markdown";
+import { INDEX_MD, LLMS_TXT } from "../content/markdown.js";
 
 const landingRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const publicDir = path.join(landingRoot, "public");

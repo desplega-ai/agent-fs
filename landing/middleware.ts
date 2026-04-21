@@ -19,7 +19,7 @@
 
 import { next } from "@vercel/functions";
 
-import { INDEX_MD, LLMS_TXT } from "./content/markdown";
+import { INDEX_MD, LLMS_TXT } from "./content/markdown.js";
 
 export const config = {
   runtime: "edge",
