@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Generated at build time by scripts/generate-markdown.ts
+public/md/
+public/llms.txt
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
