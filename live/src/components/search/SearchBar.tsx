@@ -71,6 +71,12 @@ export function SearchBar() {
     setIsSearching(false)
     setTab("files")
     clearSearchFilter()
+    inputRef.current?.blur()
+  }, [])
+
+  const openSearchModal = useCallback((seed: string) => {
+    setModalQuery(seed)
+    setModalOpen(true)
   }, [])
 
   /**
@@ -81,14 +87,13 @@ export function SearchBar() {
    */
   const handleTabChange = useCallback((next: SearchTab) => {
     if (next === "search") {
-      setModalQuery(query)
-      setModalOpen(true)
+      openSearchModal(query)
       // Don't actually switch tab state — keep "files" so when the modal
       // closes we're already where we should be.
     } else {
       setTab(next)
     }
-  }, [query])
+  }, [query, openSearchModal])
 
   const handleModalOpenChange = useCallback((open: boolean) => {
     setModalOpen(open)
@@ -102,6 +107,31 @@ export function SearchBar() {
     }
   }, [])
 
+  const handleInputKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Escape") {
+        // Blur the input. Stop propagation so the global esc handler (which
+        // clears the selected file) doesn't also fire.
+        e.preventDefault()
+        e.stopPropagation()
+        e.currentTarget.blur()
+        return
+      }
+      if (e.key === "Enter") {
+        e.preventDefault()
+        if (e.metaKey || e.ctrlKey) {
+          // ⌘↵ → full-text/semantic Search modal seeded with the query.
+          openSearchModal(query)
+        } else {
+          // ↵ → Files tab (filter tree in place). Already the default; this
+          // makes the keyboard contract explicit.
+          setTab("files")
+        }
+      }
+    },
+    [openSearchModal, query],
+  )
+
   return (
     <>
       <div className="flex min-h-[72px] flex-col justify-center gap-2 border-b border-sidebar-border px-3 py-2">
@@ -114,7 +144,13 @@ export function SearchBar() {
               setQuery(e.target.value)
               setIsSearching(true)
             }}
-            onFocus={() => query && setIsSearching(true)}
+            onFocus={() => setIsSearching(true)}
+            onBlur={() => {
+              // If user focused the input but never typed, hide the toggle
+              // again on blur so the sidebar isn't permanently widened.
+              if (!query) setIsSearching(false)
+            }}
+            onKeyDown={handleInputKeyDown}
             placeholder="Search... ⌘K"
             className="pl-8 pr-8"
           />
