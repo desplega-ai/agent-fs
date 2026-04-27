@@ -1,41 +1,30 @@
 import { useQuery } from "@tanstack/react-query"
-import { Folder, FolderOpen, File, ChevronRight, ChevronDown } from "lucide-react"
+import {
+  Folder,
+  FolderOpen,
+  ChevronRight,
+  ChevronDown,
+  ExternalLink,
+  Download,
+  Link as LinkIcon,
+  FolderOpen as OpenIcon,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
 import { useExpanded, useToggleExpanded } from "@/stores/tree-expansion"
+import { MiddleEllipsis } from "@/lib/middle-ellipsis"
+import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"
+import { glyphFor } from "@/lib/file-glyphs"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu"
 import type { LsEntry, LsResult } from "@/api/types"
-
-function fileIcon(name: string) {
-  const ext = name.split(".").pop()?.toLowerCase()
-  switch (ext) {
-    case "ts":
-    case "tsx":
-    case "js":
-    case "jsx":
-      return <File className="h-4 w-4 text-blue-500" />
-    case "md":
-    case "mdx":
-      return <File className="h-4 w-4 text-emerald-500" />
-    case "json":
-    case "yaml":
-    case "yml":
-    case "toml":
-      return <File className="h-4 w-4 text-amber-500" />
-    case "css":
-    case "scss":
-      return <File className="h-4 w-4 text-purple-500" />
-    case "png":
-    case "jpg":
-    case "jpeg":
-    case "gif":
-    case "svg":
-    case "webp":
-      return <File className="h-4 w-4 text-pink-500" />
-    default:
-      return <File className="h-4 w-4 text-muted-foreground" />
-  }
-}
 
 interface FileTreeNodeProps {
   entry: LsEntry
@@ -51,6 +40,8 @@ export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
   const isSelected = selectedFile === fullPath
   const expanded = useExpanded(fullPath)
   const toggleExpanded = useToggleExpanded()
+  const isUuidDir = isDir && isUuidLike(entry.name)
+  const resolvedUuidName = useUuidName(path, isUuidDir ? entry.name : "")
 
   const { data: children } = useQuery({
     queryKey: ["ls", orgId, driveId, fullPath],
@@ -67,37 +58,137 @@ export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
     }
   }
 
+  const deepLink =
+    orgId && driveId
+      ? `${window.location.origin}/file/~/${orgId}/${driveId}/${fullPath}`
+      : null
+
+  const handleOpen = () => {
+    if (isDir) {
+      toggleExpanded(fullPath)
+      if (!expanded) return
+    }
+    selectFile(fullPath)
+  }
+
+  const handleCopyLink = async () => {
+    if (!deepLink) return
+    try {
+      await navigator.clipboard.writeText(deepLink)
+    } catch {
+      // ignore — older browsers may block this; nothing useful to surface here.
+    }
+  }
+
+  const handleOpenInNewTab = () => {
+    if (!deepLink) return
+    window.open(deepLink, "_blank", "noopener,noreferrer")
+  }
+
+  const glyph = !isDir ? glyphFor(fullPath) : null
+
+  // Label content: UUID-aware when applicable, otherwise middle-ellipsis.
+  const labelNode = (() => {
+    if (isUuidDir && resolvedUuidName) {
+      const hint = entry.name.slice(0, 8)
+      return (
+        <span className="flex min-w-0 items-baseline">
+          <span className="min-w-0 flex-1 truncate">{resolvedUuidName}</span>
+          <span className="ml-1 flex-shrink-0 text-[11px] text-muted-foreground/70">
+            · {hint}
+          </span>
+        </span>
+      )
+    }
+    return <MiddleEllipsis text={entry.name} className="flex-1" />
+  })()
+
+  const tooltipText =
+    isUuidDir && resolvedUuidName
+      ? `${resolvedUuidName} (${entry.name})`
+      : entry.name
+
   return (
     <div>
-      <button
-        onClick={handleClick}
-        className={cn(
-          "flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-sm hover:bg-sidebar-accent transition-colors",
-          isSelected && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-        )}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-      >
-        {isDir ? (
-          <>
-            {expanded ? (
-              <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-            )}
-            {expanded ? (
-              <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
-            ) : (
-              <Folder className="h-4 w-4 shrink-0 text-amber-500" />
-            )}
-          </>
-        ) : (
-          <>
-            <span className="w-3" />
-            {fileIcon(entry.name)}
-          </>
-        )}
-        <span className="truncate">{entry.name}</span>
-      </button>
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={
+            <button
+              type="button"
+              onClick={handleClick}
+              className={cn(
+                "flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-sm hover:bg-sidebar-accent transition-colors",
+                isSelected &&
+                  "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+              )}
+              style={{ paddingLeft: `${depth * 12 + 8}px` }}
+            >
+              {isDir ? (
+                <>
+                  {expanded ? (
+                    <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  )}
+                  {expanded ? (
+                    <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
+                  ) : (
+                    <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="w-3" />
+                  {glyph ? (
+                    <glyph.Icon className={cn("h-4 w-4 shrink-0", glyph.className)} />
+                  ) : null}
+                </>
+              )}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span className="flex min-w-0 flex-1 items-baseline">
+                      {labelNode}
+                    </span>
+                  }
+                />
+                <TooltipContent side="right" align="center">
+                  {tooltipText}
+                </TooltipContent>
+              </Tooltip>
+            </button>
+          }
+        />
+        <ContextMenuContent>
+          <ContextMenuItem onClick={handleOpen}>
+            <OpenIcon className="h-4 w-4" />
+            Open
+          </ContextMenuItem>
+          <ContextMenuItem onClick={handleCopyLink} disabled={!deepLink}>
+            <LinkIcon className="h-4 w-4" />
+            Copy link
+          </ContextMenuItem>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <ContextMenuItem disabled>
+                  <Download className="h-4 w-4" />
+                  Download
+                </ContextMenuItem>
+              }
+            />
+            <TooltipContent side="right">Available in Phase 4</TooltipContent>
+          </Tooltip>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onClick={handleOpenInNewTab}
+            disabled={!deepLink}
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open in new tab
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       {isDir && expanded && children && (
         <div>

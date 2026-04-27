@@ -5,7 +5,7 @@ topic: "Live UI improvements — header IA, sidebars, tree state, tooltips, keyb
 status: in-progress
 autonomy: critical
 last_updated: 2026-04-27
-last_updated_by: claude (phase-2)
+last_updated_by: claude (phase-3)
 related:
   - thoughts/taras/brainstorms/2026-04-27-live-ui-improvements.md
   - thoughts/taras/research/2026-04-27-live-ui-improvements.md
@@ -308,9 +308,9 @@ Make the tree readable and discoverable. Middle-ellipsis preserves date prefixes
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] Typecheck: `cd live && bun run build`
-- [ ] No inline `fileIcon` in `FileTreeNode.tsx`: `grep -n "fileIcon" live/src/components/file-tree/FileTreeNode.tsx` returns nothing.
-- [ ] UUID regex compiles + matches a sample: `bun -e 'console.log(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test("16990304-76e4-4017-b991-f3e37b34cf73"))'` → `true`.
+- [x] Typecheck: `cd live && bun run build`
+- [x] No inline `fileIcon` in `FileTreeNode.tsx`: `grep -n "fileIcon" live/src/components/file-tree/FileTreeNode.tsx` returns nothing.
+- [x] UUID regex compiles + matches a sample: `bun -e 'console.log(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test("16990304-76e4-4017-b991-f3e37b34cf73"))'` → `true`.
 
 #### Manual Verification:
 - [ ] In `thoughts/taras/research/`, `2026-04-14-kubernetes-deployment.md` shows `2026-04-14-kuber…ment.md` (date + extension visible) at narrow widths.
