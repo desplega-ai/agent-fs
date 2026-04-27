@@ -1,16 +1,16 @@
 import { useState } from "react"
 import { Menu, X } from "lucide-react"
 import { Sidebar } from "./Sidebar"
-import { Header } from "./Header"
+import { TopBar } from "./TopBar"
+import { PathBreadcrumb } from "@/components/PathBreadcrumb"
 import { cn } from "@/lib/utils"
 
 interface ShellProps {
   sidebar?: React.ReactNode
-  breadcrumbs?: React.ReactNode
   children: React.ReactNode
 }
 
-export function Shell({ sidebar, breadcrumbs, children }: ShellProps) {
+export function Shell({ sidebar, children }: ShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
@@ -42,15 +42,17 @@ export function Shell({ sidebar, breadcrumbs, children }: ShellProps) {
       </div>
 
       <div className="flex flex-1 flex-col min-w-0">
-        <Header>
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="md:hidden rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors mr-2"
-          >
-            <Menu className="h-4 w-4" />
-          </button>
-          {breadcrumbs}
-        </Header>
+        <TopBar
+          leading={
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="md:hidden rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+          }
+        />
+        <PathBreadcrumb />
         <main className="flex-1 overflow-hidden">
           {children}
         </main>

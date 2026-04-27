@@ -2,10 +2,10 @@
 date: 2026-04-27
 author: taras
 topic: "Live UI improvements — header IA, sidebars, tree state, tooltips, keyboard, grid view, visual pass, responsive"
-status: ready
+status: in-progress
 autonomy: critical
 last_updated: 2026-04-27
-last_updated_by: taras
+last_updated_by: claude (phase-1)
 related:
   - thoughts/taras/brainstorms/2026-04-27-live-ui-improvements.md
   - thoughts/taras/research/2026-04-27-live-ui-improvements.md
@@ -153,10 +153,10 @@ Split the monolithic `Breadcrumbs.tsx` into a top-chrome row (org + drive switch
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] Typecheck passes: `cd live && bun run build`
-- [ ] No stale `Breadcrumbs.tsx` import remains: `grep -r "from.*Breadcrumbs" live/src/ | wc -l` → `0`
-- [ ] No `<Header>` component reference outside its own (deleted) file: `grep -r "from.*layout/Header" live/src/`
-- [ ] Vite dev server starts: `cd live && pnpm dev` boots without runtime error.
+- [x] Typecheck passes: `cd live && bun run build`
+- [x] No stale `Breadcrumbs.tsx` import remains: `grep -r "from.*Breadcrumbs" live/src/ | wc -l` → `0`
+- [x] No `<Header>` component reference outside its own (deleted) file: `grep -r "from.*layout/Header" live/src/`
+- [x] Vite dev server starts: `cd live && pnpm dev` boots without runtime error.
 
 #### Manual Verification:
 - [ ] Loading `/files` shows top row with `[OrgSwitcher][DriveSwitcher] ... [Health][Theme][Account]` and a separate path-breadcrumb row below.

@@ -1,11 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router"
+import { useEffect } from "react"
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/contexts/theme"
 import { AuthProvider, useAuth } from "@/contexts/auth"
-import { BrowserProvider } from "@/contexts/browser"
+import { BrowserProvider, useBrowser } from "@/contexts/browser"
 import { Shell } from "@/components/layout/Shell"
-import { Breadcrumbs } from "@/components/Breadcrumbs"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { CredentialsPage } from "@/pages/Credentials"
 import { FileBrowserPage } from "@/pages/FileBrowser"
@@ -21,65 +21,99 @@ const queryClient = new QueryClient({
   },
 })
 
-function AuthenticatedShell() {
+/**
+ * Layout that hoists AuthProvider + BrowserProvider above the authenticated
+ * routes so providers stay mounted across in-app navigation. Per-route URL
+ * params are synced into the providers via <RouteParamsSync/>.
+ */
+function AuthenticatedLayout() {
   return (
     <AuthProvider>
       <BrowserProvider>
-        <Shell breadcrumbs={<Breadcrumbs />}>
-          <FileBrowserPage />
-        </Shell>
+        <Outlet />
       </BrowserProvider>
     </AuthProvider>
   )
 }
 
-function FileRoute() {
+/**
+ * Syncs URL params (orgId, driveId, splat path) into the hoisted Auth + Browser
+ * providers via post-mount setters. Mount inside any route that has these params.
+ */
+function RouteParamsSync({ syncFile = true }: { syncFile?: boolean } = {}) {
   const params = useParams()
-  const orgId = params.orgId!
-  const driveId = params.driveId!
-  const filePath = params["*"] ?? null
+  const { setOrgId, setDriveId, orgId, driveId } = useAuth()
+  const { setSelectedFile } = useBrowser()
 
+  const paramOrgId = params.orgId
+  const paramDriveId = params.driveId
+  const paramFile = params["*"] ?? null
+
+  useEffect(() => {
+    if (paramOrgId && paramOrgId !== orgId) {
+      setOrgId(paramOrgId)
+    }
+  }, [paramOrgId, orgId, setOrgId])
+
+  useEffect(() => {
+    if (paramDriveId && paramDriveId !== driveId) {
+      setDriveId(paramDriveId)
+    }
+  }, [paramDriveId, driveId, setDriveId])
+
+  useEffect(() => {
+    if (!syncFile) return
+    setSelectedFile(paramFile && paramFile.length > 0 ? paramFile : null)
+  }, [paramFile, syncFile, setSelectedFile])
+
+  return null
+}
+
+function FileRoute() {
   return (
-    <AuthProvider initialOrgId={orgId} initialDriveId={driveId}>
-      <BrowserProvider initialFile={filePath}>
-        <Shell breadcrumbs={<Breadcrumbs />}>
-          <FileBrowserPage />
-        </Shell>
-      </BrowserProvider>
-    </AuthProvider>
+    <>
+      <RouteParamsSync />
+      <Shell>
+        <FileBrowserPage />
+      </Shell>
+    </>
   )
 }
 
 function DetailRoute() {
-  const params = useParams()
-  const orgId = params.orgId!
-  const driveId = params.driveId!
-  const filePath = params["*"] ?? ""
-
   return (
-    <AuthProvider initialOrgId={orgId} initialDriveId={driveId}>
-      <BrowserProvider initialFile={filePath}>
+    <>
+      <RouteParamsSync />
+      <Shell>
         <FileDetailPage />
-      </BrowserProvider>
-    </AuthProvider>
+      </Shell>
+    </>
+  )
+}
+
+function FilesRoute() {
+  return (
+    <Shell>
+      <FileBrowserPage />
+    </Shell>
   )
 }
 
 /** Resolves /orgs/:orgId/files/* to /file/~/:orgId/:driveId/* using default drive */
 function OrgFileRedirect() {
-  const params = useParams()
-  const orgId = params.orgId!
-  const filePath = params["*"] ?? ""
-
   return (
-    <AuthProvider initialOrgId={orgId}>
-      <OrgFileRedirectInner orgId={orgId} filePath={filePath} />
-    </AuthProvider>
+    <>
+      <RouteParamsSync syncFile={false} />
+      <OrgFileRedirectInner />
+    </>
   )
 }
 
-function OrgFileRedirectInner({ orgId, filePath }: { orgId: string; filePath: string }) {
+function OrgFileRedirectInner() {
+  const params = useParams()
   const { driveId, isLoading } = useAuth()
+  const orgId = params.orgId!
+  const filePath = params["*"] ?? ""
 
   if (isLoading || !driveId) {
     return (
@@ -95,22 +129,24 @@ function OrgFileRedirectInner({ orgId, filePath }: { orgId: string; filePath: st
 export default function App() {
   return (
     <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-      <ThemeProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/credentials" element={<CredentialsPage />} />
-            <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
-            <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
-            <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
-            <Route path="/files" element={<AuthenticatedShell />} />
-            <Route path="*" element={<Navigate to="/files" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </ThemeProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ThemeProvider>
+            <BrowserRouter>
+              <Routes>
+                <Route path="/credentials" element={<CredentialsPage />} />
+                <Route element={<AuthenticatedLayout />}>
+                  <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
+                  <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
+                  <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
+                  <Route path="/files" element={<FilesRoute />} />
+                  <Route path="*" element={<Navigate to="/files" replace />} />
+                </Route>
+              </Routes>
+            </BrowserRouter>
+          </ThemeProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
     </ErrorBoundary>
   )
 }

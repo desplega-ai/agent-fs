@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useCallback, type ReactNode } from "react"
 import { useNavigate } from "react-router"
 import { useAuth } from "./auth"
 
@@ -8,20 +8,16 @@ interface BrowserContextValue {
   selectedFile: string | null
   navigateToFolder: (path: string) => void
   selectFile: (path: string | null) => void
+  setSelectedFile: (path: string | null) => void
 }
 
 const BrowserContext = createContext<BrowserContextValue | null>(null)
 
-export function BrowserProvider({ children, initialFile }: { children: ReactNode; initialFile?: string | null }) {
+export function BrowserProvider({ children }: { children: ReactNode }) {
   const { orgId, driveId } = useAuth()
   const navigate = useNavigate()
   const [currentPath, setCurrentPath] = useState("")
-  const [selectedFile, setSelectedFile] = useState<string | null>(initialFile ?? null)
-
-  // Sync with URL params (handles browser back/forward)
-  useEffect(() => {
-    setSelectedFile(initialFile ?? null)
-  }, [initialFile])
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
 
   const navigateToFolder = useCallback((path: string) => {
     setCurrentPath(path)
@@ -44,6 +40,7 @@ export function BrowserProvider({ children, initialFile }: { children: ReactNode
         selectedFile,
         navigateToFolder,
         selectFile,
+        setSelectedFile,
       }}
     >
       {children}

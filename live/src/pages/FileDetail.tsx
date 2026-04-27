@@ -1,9 +1,6 @@
 import { useParams, useNavigate } from "react-router"
 import { useState, useCallback, useRef, useEffect } from "react"
-import { ArrowLeft, MessageSquare, X, GripVertical } from "lucide-react"
-import { ThemeToggle } from "@/components/layout/ThemeToggle"
-import { HealthIndicator } from "@/components/layout/HealthIndicator"
-import { Breadcrumbs } from "@/components/Breadcrumbs"
+import { MessageSquare, X, GripVertical } from "lucide-react"
 import { FileViewer } from "@/components/viewers/FileViewer"
 import { VersionHistory } from "@/components/VersionHistory"
 import { CommentSidebar } from "@/components/comments/CommentSidebar"
@@ -11,14 +8,12 @@ import { UserName } from "@/components/UserName"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { useComments } from "@/hooks/use-comments"
 import { useResizable } from "@/hooks/use-resizable"
-import { useAuth } from "@/contexts/auth"
 import { cn } from "@/lib/utils"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 
 export function FileDetailPage() {
   const params = useParams()
   const navigate = useNavigate()
-  const { orgId, driveId } = useAuth()
   const [commentsOpen, setCommentsOpen] = useState(false)
   const scrollToCommentRef = useRef<ScrollToCommentCallback | null>(null)
   const { width: commentsWidth, onMouseDown } = useResizable(320, 200, 600)
@@ -44,34 +39,25 @@ export function FileDetailPage() {
     return () => { document.title = "agent-fs" }
   }, [filename])
 
-  const backPath = orgId && driveId ? `/file/~/${orgId}/${driveId}/${filePath}` : "/files"
-
   return (
-    <div className="flex h-screen flex-col">
-      {/* Top header */}
-      <header className="flex h-12 items-center justify-between border-b border-border px-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={() => navigate(backPath)}
-            className="inline-flex items-center gap-1 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <Breadcrumbs />
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
+    <div className="flex h-full flex-col">
+      {/* Sub-header: filename + comments label — shared row (toolbar polish in Phase 4) */}
+      <div className="flex border-b border-border">
+        <div className="flex-1 min-w-0 px-4 py-2 flex items-center gap-3">
+          <span className="text-sm font-medium truncate">{filename}</span>
           {stat && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground hidden sm:inline-flex">
+            <span className="hidden sm:inline-flex items-center gap-1 text-xs text-muted-foreground shrink-0">
               {formatBytes(stat.size)} &middot;{" "}
               <UserName userId={stat.author} className="text-xs text-muted-foreground" />
               {" "}&middot; {new Date(stat.modifiedAt).toLocaleDateString()}
             </span>
           )}
+          <div className="flex-1" />
           {/* Comment toggle for smaller screens */}
           <button
             onClick={() => setCommentsOpen(!commentsOpen)}
             className={cn(
-              "lg:hidden inline-flex items-center gap-1 rounded-md p-1.5 transition-colors",
+              "lg:hidden inline-flex items-center gap-1 rounded-md p-1.5 transition-colors shrink-0",
               commentsOpen
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
@@ -83,15 +69,6 @@ export function FileDetailPage() {
               <span className="text-xs">{commentCount}</span>
             )}
           </button>
-          <HealthIndicator />
-          <ThemeToggle />
-        </div>
-      </header>
-
-      {/* Sub-header: filename + comments label — shared row */}
-      <div className="flex border-b border-border">
-        <div className="flex-1 min-w-0 px-4 py-2">
-          <span className="text-sm font-medium truncate">{filename}</span>
         </div>
         <div className="hidden lg:flex shrink-0 border-l border-border items-center justify-between px-4 py-2" style={{ width: commentsWidth }}>
           <span className="text-sm font-medium">
