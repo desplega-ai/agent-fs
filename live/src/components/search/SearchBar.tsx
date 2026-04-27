@@ -1,21 +1,39 @@
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Search, X } from "lucide-react"
+import { Search, X, PanelLeftClose } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { SearchModeToggle, type SearchTab, type SearchType } from "./SearchModeToggle"
-import { SearchResults } from "./SearchResults"
-import { useFtsSearch } from "@/hooks/use-fts-search"
-import { useSemanticSearch } from "@/hooks/use-semantic-search"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { SearchModeToggle, type SearchTab } from "./SearchModeToggle"
+import { SearchModal } from "./SearchModal"
 import { useGlobSearch } from "@/hooks/use-glob-search"
-import { useHybridSearch } from "@/hooks/use-hybrid-search"
+import { useSearchInput } from "@/contexts/search-input"
+import { uiChromeStore } from "@/stores/ui-chrome"
+import {
+  setSearchLoading,
+  setSearchResults,
+  clearSearchFilter,
+} from "@/stores/file-search"
 
 export function SearchBar() {
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
   const [tab, setTab] = useState<SearchTab>("files")
-  const [searchType, setSearchType] = useState<SearchType>("hybrid")
   const [isSearching, setIsSearching] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalQuery, setModalQuery] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
+  const { register } = useSearchInput()
+
+  // Register the input ref so the global keyboard shortcut hook can focus it
+  // via cmd+k / `/`. The cmd+k listener itself lives in the central registry.
+  useEffect(() => {
+    register(inputRef.current)
+    return () => register(null)
+  }, [register])
 
   // Debounce
   useEffect(() => {
@@ -23,94 +41,172 @@ export function SearchBar() {
     return () => clearTimeout(t)
   }, [query])
 
-  // Cmd+K shortcut
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault()
-        inputRef.current?.focus()
-      }
-    }
-    document.addEventListener("keydown", handler)
-    return () => document.removeEventListener("keydown", handler)
-  }, [])
-
-  // Determine which query to pass to each hook
-  const isSearch = tab === "search"
+  // Glob search drives the in-tree filter for the Files tab.
   const globResult = useGlobSearch(tab === "files" ? debouncedQuery : "")
-  const hybridResult = useHybridSearch(isSearch && searchType === "hybrid" ? debouncedQuery : "")
-  const ftsResult = useFtsSearch(isSearch && searchType === "fulltext" ? debouncedQuery : "")
-  const semanticResult = useSemanticSearch(isSearch && searchType === "semantic" ? debouncedQuery : "")
 
-  const results = (() => {
-    if (tab === "files") {
-      return (globResult.data?.matches ?? []).map((m) => ({ path: m.path }))
+  // Files tab: populate the in-tree filter so the existing FileTree filters
+  // in place rather than showing a separate flat results pane. While the
+  // glob query is in-flight we mark the filter as `loading` (no filtering)
+  // so the user keeps seeing the tree instead of a flash of blank.
+  useEffect(() => {
+    if (tab !== "files" || !debouncedQuery) {
+      clearSearchFilter()
+      return
     }
-    switch (searchType) {
-      case "hybrid":
-        return (hybridResult.data?.results ?? []).map((r) => ({ path: r.path, snippet: r.snippet, score: r.score }))
-      case "fulltext":
-        return (ftsResult.data?.matches ?? []).map((m) => ({ path: m.path, snippet: m.snippet }))
-      case "semantic":
-        return (semanticResult.data?.results ?? []).map((r) => ({ path: r.path, snippet: r.snippet, score: r.score }))
+    if (globResult.isFetching && !globResult.data) {
+      setSearchLoading(debouncedQuery)
+      return
     }
-  })()
+    const matches = (globResult.data?.matches ?? []).map((m) => m.path)
+    setSearchResults(debouncedQuery, matches)
+  }, [tab, debouncedQuery, globResult.data, globResult.isFetching])
 
-  const loading = (() => {
-    if (tab === "files") return globResult.isLoading
-    switch (searchType) {
-      case "hybrid": return hybridResult.isLoading
-      case "fulltext": return ftsResult.isLoading
-      case "semantic": return semanticResult.isLoading
-    }
-  })()
+  // Always clear the filter on unmount so the tree returns to normal.
+  useEffect(() => {
+    return () => clearSearchFilter()
+  }, [])
 
   const handleClear = useCallback(() => {
     setQuery("")
     setDebouncedQuery("")
     setIsSearching(false)
+    setTab("files")
+    clearSearchFilter()
+    inputRef.current?.blur()
   }, [])
+
+  const openSearchModal = useCallback((seed: string) => {
+    setModalQuery(seed)
+    setModalOpen(true)
+  }, [])
+
+  /**
+   * Switching to the "Search" tab opens a self-contained modal — full-text
+   * / semantic / hybrid search is a different mental mode than browsing the
+   * tree, so we surface it as an overlay. On modal close we reset back to
+   * the Files tab.
+   */
+  const handleTabChange = useCallback((next: SearchTab) => {
+    if (next === "search") {
+      openSearchModal(query)
+      // Don't actually switch tab state — keep "files" so when the modal
+      // closes we're already where we should be.
+    } else {
+      setTab(next)
+    }
+  }, [query, openSearchModal])
+
+  const handleModalOpenChange = useCallback((open: boolean) => {
+    setModalOpen(open)
+    if (!open) {
+      // Per Taras: on close, reset query and go back to normal.
+      setQuery("")
+      setDebouncedQuery("")
+      setIsSearching(false)
+      setTab("files")
+      clearSearchFilter()
+    }
+  }, [])
+
+  const handleInputKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Escape") {
+        // Blur the input. Stop propagation so the global esc handler (which
+        // clears the selected file) doesn't also fire.
+        e.preventDefault()
+        e.stopPropagation()
+        e.currentTarget.blur()
+        return
+      }
+      if (e.key === "Enter") {
+        e.preventDefault()
+        if (e.metaKey || e.ctrlKey) {
+          // ⌘↵ → full-text/semantic Search modal seeded with the query.
+          openSearchModal(query)
+        } else {
+          // ↵ → Files tab (filter tree in place). Already the default; this
+          // makes the keyboard contract explicit.
+          setTab("files")
+        }
+      }
+    },
+    [openSearchModal, query],
+  )
 
   return (
     <>
-      <div className="border-b border-sidebar-border px-3 py-2 space-y-2">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              setIsSearching(true)
-            }}
-            onFocus={() => query && setIsSearching(true)}
-            placeholder="Search... ⌘K"
-            className="pl-8 pr-8"
-          />
-          {query && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={handleClear}
-              className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
-            >
-              <X />
-            </Button>
-          )}
+      <div className="flex min-h-[72px] flex-col justify-center gap-2 border-b border-sidebar-border px-3 py-2">
+        <div className="flex items-center gap-1">
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <Input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value)
+                setIsSearching(true)
+              }}
+              onFocus={() => setIsSearching(true)}
+              onBlur={() => {
+                if (!query) setIsSearching(false)
+              }}
+              onKeyDown={handleInputKeyDown}
+              placeholder="Search... ⌘K"
+              className="pl-8 pr-8"
+            />
+            {query && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={handleClear}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      aria-label="Clear search"
+                    >
+                      <X />
+                    </Button>
+                  }
+                />
+                <TooltipContent>Clear search</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => uiChromeStore.setLeft(false)}
+                  className="text-muted-foreground"
+                  aria-label="Collapse sidebar"
+                >
+                  <PanelLeftClose />
+                </Button>
+              }
+            />
+            <TooltipContent side="bottom">
+              Collapse sidebar{" "}
+              <kbd className="ml-1 px-1 text-[10px]">[</kbd>
+            </TooltipContent>
+          </Tooltip>
         </div>
         {isSearching && (
           <SearchModeToggle
             tab={tab}
-            searchType={searchType}
-            onTabChange={setTab}
-            onSearchTypeChange={setSearchType}
+            onTabChange={handleTabChange}
+            onClose={handleClear}
           />
         )}
       </div>
 
-      {isSearching && debouncedQuery && (
-        <SearchResults results={results} isLoading={loading} onClear={handleClear} />
-      )}
+      <SearchModal
+        open={modalOpen}
+        onOpenChange={handleModalOpenChange}
+        initialQuery={modalQuery}
+      />
     </>
   )
 }

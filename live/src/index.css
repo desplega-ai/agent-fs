@@ -42,61 +42,65 @@
 
 :root {
   --radius: 0.5rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Soft off-white instead of pure white — easier on the eye, Notion-like. */
+  --background: oklch(0.99 0.002 95);
+  --foreground: oklch(0.18 0.005 250);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.18 0.005 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
+  --popover-foreground: oklch(0.18 0.005 250);
+  /* Subtle calm blue accent for primary actions / focus ring. */
+  --primary: oklch(0.55 0.13 255);
+  --primary-foreground: oklch(0.99 0 0);
   --secondary: oklch(0.965 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.965 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.965 0 0);
+  --muted-foreground: oklch(0.52 0.005 250);
+  --accent: oklch(0.96 0.003 250);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.965 0 0);
+  --border: oklch(0.92 0.003 250);
+  --input: oklch(0.92 0.003 250);
+  /* Ring uses the accent blue, slightly softer for focus rings. */
+  --ring: oklch(0.65 0.12 255);
+  --sidebar: oklch(0.975 0.003 250);
+  --sidebar-foreground: oklch(0.18 0.005 250);
+  --sidebar-primary: oklch(0.55 0.13 255);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.94 0.005 250);
   --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-border: oklch(0.92 0.003 250);
+  --sidebar-ring: oklch(0.65 0.12 255);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* Near-black with a tiny warm bias — avoids muddy, avoids pure black. */
+  --background: oklch(0.16 0.004 60);
+  --foreground: oklch(0.96 0.003 250);
+  --card: oklch(0.18 0.004 60);
+  --card-foreground: oklch(0.96 0.003 250);
+  --popover: oklch(0.2 0.004 60);
+  --popover-foreground: oklch(0.96 0.003 250);
+  --primary: oklch(0.7 0.13 255);
+  --primary-foreground: oklch(0.18 0.004 60);
+  --secondary: oklch(0.27 0.004 60);
+  --secondary-foreground: oklch(0.96 0.003 250);
+  --muted: oklch(0.25 0.004 60);
+  --muted-foreground: oklch(0.68 0.005 250);
+  --accent: oklch(0.27 0.004 60);
+  --accent-foreground: oklch(0.96 0.003 250);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
-  --sidebar: oklch(0.175 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.985 0 0);
-  --sidebar-primary-foreground: oklch(0.205 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  --border: oklch(0.27 0.004 60);
+  --input: oklch(0.27 0.004 60);
+  --ring: oklch(0.6 0.12 255);
+  --sidebar: oklch(0.18 0.004 60);
+  --sidebar-foreground: oklch(0.96 0.003 250);
+  --sidebar-primary: oklch(0.7 0.13 255);
+  --sidebar-primary-foreground: oklch(0.18 0.004 60);
+  --sidebar-accent: oklch(0.27 0.004 60);
+  --sidebar-accent-foreground: oklch(0.96 0.003 250);
+  --sidebar-border: oklch(0.27 0.004 60);
+  --sidebar-ring: oklch(0.6 0.12 255);
 }
 
 @layer base {

@@ -1,55 +1,73 @@
-import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Folder, FolderOpen, File, ChevronRight, ChevronDown } from "lucide-react"
+import {
+  Folder,
+  FolderOpen,
+  ChevronRight,
+  ChevronDown,
+  ExternalLink,
+  Download,
+  Link as LinkIcon,
+  FolderOpen as OpenIcon,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
+import {
+  useExpanded,
+  useToggleExpanded,
+  useFocusedPath,
+  useSetFocusedPath,
+} from "@/stores/tree-expansion"
+import { useFileSearch, isPathVisible, hasMatchingDescendant } from "@/stores/file-search"
+import { MiddleEllipsis } from "@/lib/middle-ellipsis"
+import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"
+import { glyphFor } from "@/lib/file-glyphs"
+import { downloadFile } from "@/lib/download"
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu"
 import type { LsEntry, LsResult } from "@/api/types"
-
-function fileIcon(name: string) {
-  const ext = name.split(".").pop()?.toLowerCase()
-  switch (ext) {
-    case "ts":
-    case "tsx":
-    case "js":
-    case "jsx":
-      return <File className="h-4 w-4 text-blue-500" />
-    case "md":
-    case "mdx":
-      return <File className="h-4 w-4 text-emerald-500" />
-    case "json":
-    case "yaml":
-    case "yml":
-    case "toml":
-      return <File className="h-4 w-4 text-amber-500" />
-    case "css":
-    case "scss":
-      return <File className="h-4 w-4 text-purple-500" />
-    case "png":
-    case "jpg":
-    case "jpeg":
-    case "gif":
-    case "svg":
-    case "webp":
-      return <File className="h-4 w-4 text-pink-500" />
-    default:
-      return <File className="h-4 w-4 text-muted-foreground" />
-  }
-}
 
 interface FileTreeNodeProps {
   entry: LsEntry
   path: string
   depth: number
+  /**
+   * When true and no other tree row holds focus, this row is the roving
+   * tabindex anchor (i.e. tabIndex={0}). Used to make the tree initially
+   * tabbable from outside.
+   */
+  isDefaultFocus?: boolean
 }
 
-export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
-  const [expanded, setExpanded] = useState(false)
+export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: FileTreeNodeProps) {
   const { client, orgId, driveId } = useAuth()
   const { selectedFile, selectFile } = useBrowser()
   const fullPath = path ? `${path}/${entry.name}` : entry.name
   const isDir = entry.type === "directory"
   const isSelected = selectedFile === fullPath
+  const userExpanded = useExpanded(fullPath)
+  const toggleExpanded = useToggleExpanded()
+  // When the in-tree search filter is active, hide nodes outside the match
+  // path and force-expand folders that contain matching descendants. Subscribe
+  // to the store so re-renders fire on every keystroke.
+  const filter = useFileSearch()
+  const filterActive = filter.query.length > 0
+  const visible = isPathVisible(fullPath)
+  const expandedByFilter = filterActive && isDir && hasMatchingDescendant(fullPath)
+  const expanded = userExpanded || expandedByFilter
+  const focusedPath = useFocusedPath()
+  const setFocusedPath = useSetFocusedPath()
+  const isFocused = focusedPath === fullPath
+  // Roving tabindex: only one row in the tree is tabbable at a time.
+  const tabIndex = isFocused || (focusedPath === null && isDefaultFocus) ? 0 : -1
+  const isUuidDir = isDir && isUuidLike(entry.name)
+  const resolvedUuidName = useUuidName(path, isUuidDir ? entry.name : "")
 
   const { data: children } = useQuery({
     queryKey: ["ls", orgId, driveId, fullPath],
@@ -60,43 +78,153 @@ export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
 
   const handleClick = () => {
     if (isDir) {
-      setExpanded(!expanded)
+      // While the filter is force-expanding this folder, treat the click as
+      // a no-op for expansion (the user can't really "collapse" a filter
+      // expansion); just move focus.
+      if (!expandedByFilter) toggleExpanded(fullPath)
     } else {
       selectFile(fullPath)
     }
+    setFocusedPath(fullPath)
   }
+
+  if (filterActive && !visible) return null
+
+  const deepLink =
+    orgId && driveId
+      ? `${window.location.origin}/file/~/${orgId}/${driveId}/${fullPath}`
+      : null
+
+  const handleOpen = () => {
+    if (isDir) {
+      toggleExpanded(fullPath)
+      if (!expanded) return
+    }
+    selectFile(fullPath)
+  }
+
+  const handleCopyLink = async () => {
+    if (!deepLink) return
+    try {
+      await navigator.clipboard.writeText(deepLink)
+    } catch {
+      // ignore — older browsers may block this; nothing useful to surface here.
+    }
+  }
+
+  const handleOpenInNewTab = () => {
+    if (!deepLink) return
+    window.open(deepLink, "_blank", "noopener,noreferrer")
+  }
+
+  const canDownload = !isDir && !!orgId && !!driveId
+  const handleDownload = () => {
+    if (!canDownload) return
+    void downloadFile(client, orgId!, driveId!, fullPath, entry.name)
+  }
+
+  const glyph = !isDir ? glyphFor(fullPath) : null
+
+  // Label content: UUID-aware when applicable, otherwise middle-ellipsis.
+  const labelNode = (() => {
+    if (isUuidDir && resolvedUuidName) {
+      const hint = entry.name.slice(0, 8)
+      return (
+        <span className="flex min-w-0 items-baseline">
+          <span className="min-w-0 flex-1 truncate">{resolvedUuidName}</span>
+          <span className="ml-1 flex-shrink-0 text-[11px] text-muted-foreground/70">
+            · {hint}
+          </span>
+        </span>
+      )
+    }
+    return <MiddleEllipsis text={entry.name} className="flex-1" />
+  })()
+
+  const tooltipText =
+    isUuidDir && resolvedUuidName
+      ? `${resolvedUuidName} (${entry.name})`
+      : entry.name
 
   return (
     <div>
-      <button
-        onClick={handleClick}
-        className={cn(
-          "flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-sm hover:bg-sidebar-accent transition-colors",
-          isSelected && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-        )}
-        style={{ paddingLeft: `${depth * 12 + 8}px` }}
-      >
-        {isDir ? (
-          <>
-            {expanded ? (
-              <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-            )}
-            {expanded ? (
-              <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
-            ) : (
-              <Folder className="h-4 w-4 shrink-0 text-amber-500" />
-            )}
-          </>
-        ) : (
-          <>
-            <span className="w-3" />
-            {fileIcon(entry.name)}
-          </>
-        )}
-        <span className="truncate">{entry.name}</span>
-      </button>
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={
+            <button
+              type="button"
+              data-tree-path={fullPath}
+              data-tree-is-dir={isDir ? "true" : "false"}
+              data-tree-expanded={expanded ? "true" : "false"}
+              tabIndex={tabIndex}
+              onClick={handleClick}
+              onFocus={() => setFocusedPath(fullPath)}
+              className={cn(
+                "flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-left text-sm hover:bg-sidebar-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
+                isSelected &&
+                  "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
+              )}
+              style={{ paddingLeft: `${depth * 12 + 8}px` }}
+            >
+              {isDir ? (
+                <>
+                  {expanded ? (
+                    <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                  )}
+                  {expanded ? (
+                    <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
+                  ) : (
+                    <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="w-3" />
+                  {glyph ? (
+                    <glyph.Icon className={cn("h-4 w-4 shrink-0", glyph.className)} />
+                  ) : null}
+                </>
+              )}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span className="flex min-w-0 flex-1 items-baseline">
+                      {labelNode}
+                    </span>
+                  }
+                />
+                <TooltipContent side="right" align="center">
+                  {tooltipText}
+                </TooltipContent>
+              </Tooltip>
+            </button>
+          }
+        />
+        <ContextMenuContent>
+          <ContextMenuItem onClick={handleOpen}>
+            <OpenIcon className="h-4 w-4" />
+            Open
+          </ContextMenuItem>
+          <ContextMenuItem onClick={handleCopyLink} disabled={!deepLink}>
+            <LinkIcon className="h-4 w-4" />
+            Copy link
+          </ContextMenuItem>
+          <ContextMenuItem onClick={handleDownload} disabled={!canDownload}>
+            <Download className="h-4 w-4" />
+            Download
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onClick={handleOpenInNewTab}
+            disabled={!deepLink}
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open in new tab
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       {isDir && expanded && children && (
         <div>

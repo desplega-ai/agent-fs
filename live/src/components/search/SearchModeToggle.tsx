@@ -1,80 +1,98 @@
 import { cn } from "@/lib/utils"
-import { ChevronDown } from "lucide-react"
+import { X } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 export type SearchTab = "files" | "search"
 export type SearchType = "hybrid" | "fulltext" | "semantic"
 
 interface SearchModeToggleProps {
   tab: SearchTab
-  searchType: SearchType
   onTabChange: (tab: SearchTab) => void
-  onSearchTypeChange: (type: SearchType) => void
+  onClose: () => void
 }
 
-const searchTypes: { value: SearchType; label: string; description: string }[] = [
-  { value: "hybrid", label: "Hybrid", description: "Semantic + keyword" },
-  { value: "fulltext", label: "Full-text", description: "FTS5 keyword matching" },
-  { value: "semantic", label: "Semantic", description: "Vector embeddings" },
-]
-
-export function SearchModeToggle({ tab, searchType, onTabChange, onSearchTypeChange }: SearchModeToggleProps) {
-  const activeType = searchTypes.find((t) => t.value === searchType)!
+export function SearchModeToggle({ tab, onTabChange, onClose }: SearchModeToggleProps) {
+  const tabs: { value: SearchTab; label: string; shortcut: React.ReactNode; hint: string }[] = [
+    {
+      value: "files",
+      label: "Files",
+      shortcut: <Kbd>↵</Kbd>,
+      hint: "Filter the tree (Enter)",
+    },
+    {
+      value: "search",
+      label: "Search",
+      shortcut: (
+        <span className="inline-flex items-center gap-0.5">
+          <Kbd>⌘</Kbd>
+          <Kbd>↵</Kbd>
+        </span>
+      ),
+      hint: "Open search modal (⌘+Enter)",
+    },
+  ]
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex rounded-md border border-border text-xs">
-        {(["files", "search"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => onTabChange(t)}
-            className={cn(
-              "flex-1 px-2 py-1 transition-colors first:rounded-l-md last:rounded-r-md",
-              tab === t
-                ? "bg-primary text-primary-foreground"
-                : "hover:bg-accent"
-            )}
-          >
-            {t === "files" ? "Files" : "Search"}
-          </button>
+    <div className="flex items-center gap-1">
+      <div className="flex flex-1 rounded-md border border-border text-xs">
+        {tabs.map((t) => (
+          <Tooltip key={t.value}>
+            <TooltipTrigger
+              render={
+                <button
+                  onClick={() => onTabChange(t.value)}
+                  className={cn(
+                    "flex flex-1 items-center justify-center gap-1.5 px-2 py-1 transition-colors first:rounded-l-md last:rounded-r-md",
+                    tab === t.value
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-accent",
+                  )}
+                >
+                  <span>{t.label}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 transition-opacity",
+                      tab === t.value ? "opacity-70" : "opacity-50",
+                    )}
+                  >
+                    {t.shortcut}
+                  </span>
+                </button>
+              }
+            />
+            <TooltipContent side="bottom">{t.hint}</TooltipContent>
+          </Tooltip>
         ))}
       </div>
-
-      {tab === "search" && (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className="flex w-full items-center justify-between rounded-md border border-border px-2 py-1 text-xs hover:bg-accent transition-colors"
-          >
-            <span>
-              <span className="font-medium">{activeType.label}</span>
-              <span className="text-muted-foreground ml-1.5">{activeType.description}</span>
-            </span>
-            <ChevronDown className="size-3 text-muted-foreground" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {searchTypes.map((t) => (
-              <DropdownMenuItem
-                key={t.value}
-                onClick={() => onSearchTypeChange(t.value)}
-                className={cn(
-                  "text-xs cursor-pointer",
-                  searchType === t.value && "bg-accent"
-                )}
-              >
-                <div>
-                  <div className="font-medium">{t.label}</div>
-                  <div className="text-muted-foreground">{t.description}</div>
-                </div>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={onClose}
+              className="text-muted-foreground"
+              aria-label="Exit search"
+            >
+              <X />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">Exit search (Esc)</TooltipContent>
+      </Tooltip>
     </div>
+  )
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="inline-flex h-4 min-w-[1rem] items-center justify-center rounded border border-current/20 bg-current/10 px-1 font-mono text-[10px] leading-none">
+      {children}
+    </kbd>
   )
 }

@@ -8,6 +8,7 @@ import {
   setActiveCredential as setStoredActive,
   type Credential,
 } from "@/stores/credentials"
+import { treeExpansionStore } from "@/stores/tree-expansion"
 
 interface AuthContextValue {
   credential: Credential
@@ -28,15 +29,15 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-export function AuthProvider({ children, initialOrgId, initialDriveId }: { children: ReactNode; initialOrgId?: string; initialDriveId?: string }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [credentialId, setCredentialId] = useState(() => getActiveCredential()?.id)
   const [activeOrgId, setActiveOrgId] = useState<string | null>(
-    () => initialOrgId ?? localStorage.getItem("agent-fs-active-org")
+    () => localStorage.getItem("agent-fs-active-org")
   )
   const [activeDriveId, setActiveDriveId] = useState<string | null>(
-    () => initialDriveId ?? localStorage.getItem("agent-fs-active-drive")
+    () => localStorage.getItem("agent-fs-active-drive")
   )
 
   const credential = useMemo(() => {
@@ -84,20 +85,31 @@ export function AuthProvider({ children, initialOrgId, initialDriveId }: { child
   const driveName = drives.find((d) => d.id === driveId)?.name ?? null
 
   const setOrgId = useCallback((id: string) => {
-    setActiveOrgId(id)
-    setActiveDriveId(null)
-    localStorage.setItem("agent-fs-active-org", id)
-    localStorage.removeItem("agent-fs-active-drive")
-    queryClient.invalidateQueries({ queryKey: ["drives"] })
-    queryClient.invalidateQueries({ queryKey: ["ls"] })
-    queryClient.invalidateQueries({ queryKey: ["comments"] })
+    setActiveOrgId((prev) => {
+      if (prev === id) return prev
+      localStorage.setItem("agent-fs-active-org", id)
+      localStorage.removeItem("agent-fs-active-drive")
+      queryClient.invalidateQueries({ queryKey: ["drives"] })
+      queryClient.invalidateQueries({ queryKey: ["ls"] })
+      queryClient.invalidateQueries({ queryKey: ["comments"] })
+      // Tree-expansion paths are scoped to the prior drive — clear them.
+      treeExpansionStore.clear()
+      // Reset drive when org changes
+      setActiveDriveId(null)
+      return id
+    })
   }, [queryClient])
 
   const setDriveId = useCallback((id: string) => {
-    setActiveDriveId(id)
-    localStorage.setItem("agent-fs-active-drive", id)
-    queryClient.invalidateQueries({ queryKey: ["ls"] })
-    queryClient.invalidateQueries({ queryKey: ["comments"] })
+    setActiveDriveId((prev) => {
+      if (prev === id) return prev
+      localStorage.setItem("agent-fs-active-drive", id)
+      queryClient.invalidateQueries({ queryKey: ["ls"] })
+      queryClient.invalidateQueries({ queryKey: ["comments"] })
+      // Tree-expansion paths are scoped to the prior drive — clear them.
+      treeExpansionStore.clear()
+      return id
+    })
   }, [queryClient])
 
   const switchAccount = useCallback((id: string) => {
@@ -107,6 +119,7 @@ export function AuthProvider({ children, initialOrgId, initialDriveId }: { child
     setActiveDriveId(null)
     localStorage.removeItem("agent-fs-active-org")
     localStorage.removeItem("agent-fs-active-drive")
+    treeExpansionStore.clear()
     queryClient.clear()
   }, [queryClient])
 

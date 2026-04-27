@@ -1,7 +1,8 @@
 import { useState, type MutableRefObject } from "react"
-import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check } from "lucide-react"
+import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download } from "lucide-react"
 import { useNavigate } from "react-router"
 import { useAuth } from "@/contexts/auth"
+import { downloadFile } from "@/lib/download"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
@@ -13,6 +14,11 @@ import { PdfViewer } from "./PdfViewer"
 import { FallbackViewer } from "./FallbackViewer"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"])
@@ -72,7 +78,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   if (isImg) {
     return (
-      <div className={cn("flex flex-col h-full", className)}>
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
         {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <ImageViewer path={path} className="flex-1" />
       </div>
@@ -81,7 +87,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   if (isPdf(path)) {
     return (
-      <div className={cn("flex flex-col h-full", className)}>
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
         {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <PdfViewer path={path} className="flex-1" />
       </div>
@@ -104,7 +110,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   if (!textable) {
     return (
-      <div className={cn("flex flex-col h-full", className)}>
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
         {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <FallbackViewer path={path} className="flex-1" />
       </div>
@@ -115,7 +121,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   const viewingRaw = isMd ? showRaw : true
 
   return (
-    <div className={cn("flex flex-col h-full", className)}>
+    <div className={cn("flex flex-col h-full min-w-0", className)}>
       {showHeader && (
         <ViewerHeader
           path={path}
@@ -158,7 +164,7 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
   showRaw?: boolean
   onToggleRaw?: () => void
 }) {
-  const { orgId, driveId } = useAuth()
+  const { client, orgId, driveId } = useAuth()
   const [copiedPath, setCopiedPath] = useState(false)
   const [copiedUrl, setCopiedUrl] = useState(false)
   const filename = path.split("/").pop() ?? path
@@ -177,35 +183,110 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
     setTimeout(() => setCopiedUrl(false), 1500)
   }
 
+  const canDownload = !!orgId && !!driveId
+  const handleDownload = () => {
+    if (!canDownload) return
+    void downloadFile(client, orgId!, driveId!, path, filename, { newWindow: true })
+  }
+
   return (
     <div className="flex h-10 items-center justify-between border-b border-border px-4 shrink-0">
-      <div className="flex items-center gap-1 min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
         <span className="text-sm font-medium truncate">{filename}</span>
-        <Button variant="ghost" size="icon-xs" onClick={handleCopyPath} title="Copy path" className="text-muted-foreground shrink-0">
-          {copiedPath ? <Check className="size-3" /> : <Copy className="size-3" />}
-        </Button>
-        {orgId && driveId && (
-          <Button variant="ghost" size="icon-xs" onClick={handleCopyUrl} title="Copy URL" className="text-muted-foreground shrink-0">
-            {copiedUrl ? <Check className="size-3" /> : <Link className="size-3" />}
-          </Button>
-        )}
-      </div>
-      <div className="flex items-center gap-1">
         {commentCount > 0 && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground mr-1">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
             <MessageSquare className="size-3" />
             {commentCount}
           </span>
         )}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={handleCopyPath}
+                className="text-muted-foreground"
+                aria-label="Copy path"
+              >
+                {copiedPath ? <Check /> : <Copy />}
+              </Button>
+            }
+          />
+          <TooltipContent>Copy path</TooltipContent>
+        </Tooltip>
+        {orgId && driveId && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleCopyUrl}
+                  className="text-muted-foreground"
+                  aria-label="Copy link"
+                >
+                  {copiedUrl ? <Check /> : <Link />}
+                </Button>
+              }
+            />
+            <TooltipContent>Copy link</TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={handleDownload}
+                disabled={!canDownload}
+                className="text-muted-foreground"
+                aria-label="Download"
+              >
+                <Download />
+              </Button>
+            }
+          />
+          <TooltipContent>Download</TooltipContent>
+        </Tooltip>
         {isMd && onToggleRaw && (
-          <Button variant="ghost" size="icon-xs" onClick={onToggleRaw} title={showRaw ? "Preview" : "Source"} className="text-muted-foreground">
-            {showRaw ? <Eye /> : <Code />}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onToggleRaw}
+                  className="text-muted-foreground"
+                  aria-label={showRaw ? "Preview" : "Source"}
+                >
+                  {showRaw ? <Eye /> : <Code />}
+                </Button>
+              }
+            />
+            <TooltipContent>{showRaw ? "Preview" : "Source"}</TooltipContent>
+          </Tooltip>
         )}
         {showExpand && (
-          <Button variant="ghost" size="icon-xs" onClick={onExpand} title="Open full page" className="text-muted-foreground">
-            <Maximize2 />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onExpand}
+                  className="text-muted-foreground"
+                  aria-label="Open full page"
+                >
+                  <Maximize2 />
+                </Button>
+              }
+            />
+            <TooltipContent>Open full page</TooltipContent>
+          </Tooltip>
         )}
       </div>
     </div>

@@ -43,6 +43,10 @@ Plans and research documents MUST include these as explicit steps when they invo
 
 `scripts/e2e.ts` spins up an isolated MinIO container, starts a daemon on a random port, and runs 24 CLI + MCP tests end-to-end. Run it as a regression check when modifying core ops, CLI commands, or MCP. If a core change breaks something, extend the E2E suite to cover it. Not in CI or pre-push — run on demand locally.
 
+## Gotcha: `live/` is pnpm, not bun
+
+The root + `packages/*` use bun. **`live/` uses pnpm** (Vercel deploys it with `pnpm install`). Add deps there with `pnpm add <pkg>` so `live/pnpm-lock.yaml` stays the source of truth — running `bun add` in `live/` creates a stale `bun.lock` and the Vercel preview deploy fails because pnpm's lockfile no longer matches `package.json`. The "Bun-only" runtime decision below applies to the CLI/server, not to `live/`'s package manager.
+
 ## Gotcha: Stale `.js` files in `src/` dirs
 
 `tsc --build` outputs compiled `.js`/`.d.ts` files to `dist/` via `outDir`. However, if `dist/` is ever missing or a previous misconfiguration wrote outputs to `src/`, stale `.js` files can linger in `packages/*/src/`. **Bun prefers `.js` over `.ts` when an import specifies `.js` extension**, so these stale files silently shadow the real `.ts` source — causing baffling runtime bugs (e.g., calling an old async function that's now sync). If you see inexplicable runtime behavior that contradicts the source, check for `.js` files in `src/` dirs: `find packages/*/src -maxdepth 1 -name "*.js"` and delete them.

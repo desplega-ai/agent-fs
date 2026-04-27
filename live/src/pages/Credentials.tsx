@@ -5,6 +5,11 @@ import { AgentFsClient } from "@/api/client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import {
   getCredentials,
   saveCredential,
   removeCredential,
@@ -97,15 +102,23 @@ export function CredentialsPage() {
                 onChange={(e) => setApiKey(e.target.value)}
                 className="pr-10"
               />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-              >
-                {showKey ? <EyeOff /> : <Eye />}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => setShowKey(!showKey)}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      aria-label={showKey ? "Hide API key" : "Show API key"}
+                    >
+                      {showKey ? <EyeOff /> : <Eye />}
+                    </Button>
+                  }
+                />
+                <TooltipContent>{showKey ? "Hide" : "Show"}</TooltipContent>
+              </Tooltip>
             </div>
           </div>
 
@@ -159,14 +172,22 @@ export function CredentialsPage() {
                       <LogIn />
                       Connect
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => handleRemove(cred.id)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => handleRemove(cred.id)}
+                            className="text-muted-foreground hover:text-destructive"
+                            aria-label="Remove credential"
+                          >
+                            <Trash2 />
+                          </Button>
+                        }
+                      />
+                      <TooltipContent>Remove</TooltipContent>
+                    </Tooltip>
                   </div>
                 </div>
               ))}

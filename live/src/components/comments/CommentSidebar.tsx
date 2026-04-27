@@ -1,9 +1,14 @@
 import { useState } from "react"
-import { MessageSquarePlus, ChevronDown, ChevronRight } from "lucide-react"
+import { MessageSquarePlus, MessageCircle, ChevronDown, ChevronRight } from "lucide-react"
 import { useAllComments } from "@/hooks/use-comments"
 import { useAuth } from "@/contexts/auth"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { CommentThread } from "./CommentThread"
 import { AddComment } from "./AddComment"
 
@@ -30,28 +35,42 @@ export function CommentSidebar({ path, showHeader = true, onCommentClick }: Comm
               <span className="ml-1.5 text-xs text-muted-foreground">({unresolvedComments.length})</span>
             )}
           </span>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => setShowAddForm(!showAddForm)}
-            title="Add comment"
-            className="text-muted-foreground"
-          >
-            <MessageSquarePlus />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="text-muted-foreground"
+                  aria-label="Add comment"
+                >
+                  <MessageSquarePlus />
+                </Button>
+              }
+            />
+            <TooltipContent>Add comment</TooltipContent>
+          </Tooltip>
         </div>
       )}
       {!showHeader && (
         <div className="flex justify-end px-3 py-1 shrink-0">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => setShowAddForm(!showAddForm)}
-            title="Add comment"
-            className="text-muted-foreground"
-          >
-            <MessageSquarePlus />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="text-muted-foreground"
+                  aria-label="Add comment"
+                >
+                  <MessageSquarePlus />
+                </Button>
+              }
+            />
+            <TooltipContent>Add comment</TooltipContent>
+          </Tooltip>
         </div>
       )}
 
@@ -81,11 +100,14 @@ export function CommentSidebar({ path, showHeader = true, onCommentClick }: Comm
             <Spinner />
           </div>
         ) : unresolvedComments.length === 0 && resolvedComments.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-center px-4">
-            <p className="text-sm text-muted-foreground">No comments yet</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Select text to add an inline comment, or use + for a general comment.
-            </p>
+          <div className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
+            <MessageCircle className="size-8 text-muted-foreground/60" strokeWidth={1.5} />
+            <div className="space-y-1">
+              <p className="text-sm font-medium">No comments yet</p>
+              <p className="text-xs text-muted-foreground">
+                Select text to add an inline comment, or use + for a general comment.
+              </p>
+            </div>
           </div>
         ) : (
           <>

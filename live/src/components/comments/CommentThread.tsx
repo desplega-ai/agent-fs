@@ -3,6 +3,11 @@ import { Check, Trash2, Pencil, MessageSquare, RotateCcw, X, ChevronDown, Chevro
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useResolveComment, useDeleteComment, useUpdateComment } from "@/hooks/use-comments"
 import { UserName, useDisplayName } from "@/components/UserName"
 import { AddComment } from "./AddComment"
@@ -89,26 +94,48 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
             )}
           </div>
           <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-            <Button
-              variant="ghost" size="icon-xs"
-              onClick={handleResolve}
-              className={cn(comment.resolved ? "text-primary" : "text-muted-foreground")}
-              title={comment.resolved ? "Reopen" : "Resolve"}
-            >
-              {comment.resolved ? <RotateCcw /> : <Check />}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost" size="icon-xs"
+                    onClick={handleResolve}
+                    className={cn(comment.resolved ? "text-primary" : "text-muted-foreground")}
+                    aria-label={comment.resolved ? "Reopen" : "Resolve"}
+                  >
+                    {comment.resolved ? <RotateCcw /> : <Check />}
+                  </Button>
+                }
+              />
+              <TooltipContent>{comment.resolved ? "Reopen" : "Resolve"}</TooltipContent>
+            </Tooltip>
             {isOwn && (
               <>
-                <Button variant="ghost" size="icon-xs"
-                  onClick={() => { setEditing(!editing); setEditBody(comment.body) }}
-                  className="text-muted-foreground" title="Edit"
-                ><Pencil /></Button>
-                <Button
-                  variant={confirmDelete ? "destructive" : "ghost"} size="icon-xs"
-                  onClick={handleDelete}
-                  className={cn(!confirmDelete && "text-muted-foreground")}
-                  title={confirmDelete ? "Click again to confirm" : "Delete"}
-                >{confirmDelete ? <X /> : <Trash2 />}</Button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button variant="ghost" size="icon-xs"
+                        onClick={() => { setEditing(!editing); setEditBody(comment.body) }}
+                        className="text-muted-foreground"
+                        aria-label="Edit"
+                      ><Pencil /></Button>
+                    }
+                  />
+                  <TooltipContent>Edit</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant={confirmDelete ? "destructive" : "ghost"} size="icon-xs"
+                        onClick={handleDelete}
+                        className={cn(!confirmDelete && "text-muted-foreground")}
+                        aria-label={confirmDelete ? "Click again to confirm" : "Delete"}
+                      >{confirmDelete ? <X /> : <Trash2 />}</Button>
+                    }
+                  />
+                  <TooltipContent>{confirmDelete ? "Click again to confirm" : "Delete"}</TooltipContent>
+                </Tooltip>
               </>
             )}
           </div>
@@ -218,12 +245,27 @@ function ReplyItem({ reply, path, currentUserId }: { reply: CommentEntry; path: 
         </div>
         {isOwn && (
           <div className="flex items-center gap-0.5 shrink-0">
-            <Button variant="ghost" size="icon-xs" onClick={() => { setEditing(!editing); setEditBody(reply.body) }} className="text-muted-foreground"><Pencil /></Button>
-            <Button
-              variant={confirmDelete ? "destructive" : "ghost"} size="icon-xs"
-              onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return } deleteComment.mutate({ id: reply.id, path }); setConfirmDelete(false) }}
-              className={cn(!confirmDelete && "text-muted-foreground")}
-            >{confirmDelete ? <X /> : <Trash2 />}</Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button variant="ghost" size="icon-xs" onClick={() => { setEditing(!editing); setEditBody(reply.body) }} className="text-muted-foreground" aria-label="Edit"><Pencil /></Button>
+                }
+              />
+              <TooltipContent>Edit</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={confirmDelete ? "destructive" : "ghost"} size="icon-xs"
+                    onClick={() => { if (!confirmDelete) { setConfirmDelete(true); return } deleteComment.mutate({ id: reply.id, path }); setConfirmDelete(false) }}
+                    className={cn(!confirmDelete && "text-muted-foreground")}
+                    aria-label={confirmDelete ? "Click again to confirm" : "Delete"}
+                  >{confirmDelete ? <X /> : <Trash2 />}</Button>
+                }
+              />
+              <TooltipContent>{confirmDelete ? "Click again to confirm" : "Delete"}</TooltipContent>
+            </Tooltip>
           </div>
         )}
       </div>
