@@ -7,21 +7,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { SearchModeToggle, type SearchTab, type SearchType } from "./SearchModeToggle"
-import { SearchResults } from "./SearchResults"
-import { useFtsSearch } from "@/hooks/use-fts-search"
-import { useSemanticSearch } from "@/hooks/use-semantic-search"
+import { SearchModeToggle, type SearchTab } from "./SearchModeToggle"
+import { SearchModal } from "./SearchModal"
 import { useGlobSearch } from "@/hooks/use-glob-search"
-import { useHybridSearch } from "@/hooks/use-hybrid-search"
 import { useSearchInput } from "@/contexts/search-input"
-import { setSearchLoading, setSearchResults, clearSearchFilter } from "@/stores/file-search"
+import {
+  setSearchLoading,
+  setSearchResults,
+  clearSearchFilter,
+} from "@/stores/file-search"
 
 export function SearchBar() {
   const [query, setQuery] = useState("")
   const [debouncedQuery, setDebouncedQuery] = useState("")
   const [tab, setTab] = useState<SearchTab>("files")
-  const [searchType, setSearchType] = useState<SearchType>("hybrid")
   const [isSearching, setIsSearching] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalQuery, setModalQuery] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const { register } = useSearchInput()
 
@@ -38,12 +40,8 @@ export function SearchBar() {
     return () => clearTimeout(t)
   }, [query])
 
-  // Determine which query to pass to each hook
-  const isSearch = tab === "search"
+  // Glob search drives the in-tree filter for the Files tab.
   const globResult = useGlobSearch(tab === "files" ? debouncedQuery : "")
-  const hybridResult = useHybridSearch(isSearch && searchType === "hybrid" ? debouncedQuery : "")
-  const ftsResult = useFtsSearch(isSearch && searchType === "fulltext" ? debouncedQuery : "")
-  const semanticResult = useSemanticSearch(isSearch && searchType === "semantic" ? debouncedQuery : "")
 
   // Files tab: populate the in-tree filter so the existing FileTree filters
   // in place rather than showing a separate flat results pane. While the
@@ -67,33 +65,41 @@ export function SearchBar() {
     return () => clearSearchFilter()
   }, [])
 
-  const results = (() => {
-    if (tab === "files") {
-      return (globResult.data?.matches ?? []).map((m) => ({ path: m.path }))
-    }
-    switch (searchType) {
-      case "hybrid":
-        return (hybridResult.data?.results ?? []).map((r) => ({ path: r.path, snippet: r.snippet, score: r.score }))
-      case "fulltext":
-        return (ftsResult.data?.matches ?? []).map((m) => ({ path: m.path, snippet: m.snippet }))
-      case "semantic":
-        return (semanticResult.data?.results ?? []).map((r) => ({ path: r.path, snippet: r.snippet, score: r.score }))
-    }
-  })()
-
-  const loading = (() => {
-    if (tab === "files") return globResult.isLoading
-    switch (searchType) {
-      case "hybrid": return hybridResult.isLoading
-      case "fulltext": return ftsResult.isLoading
-      case "semantic": return semanticResult.isLoading
-    }
-  })()
-
   const handleClear = useCallback(() => {
     setQuery("")
     setDebouncedQuery("")
     setIsSearching(false)
+    setTab("files")
+    clearSearchFilter()
+  }, [])
+
+  /**
+   * Switching to the "Search" tab opens a self-contained modal — full-text
+   * / semantic / hybrid search is a different mental mode than browsing the
+   * tree, so we surface it as an overlay. On modal close we reset back to
+   * the Files tab.
+   */
+  const handleTabChange = useCallback((next: SearchTab) => {
+    if (next === "search") {
+      setModalQuery(query)
+      setModalOpen(true)
+      // Don't actually switch tab state — keep "files" so when the modal
+      // closes we're already where we should be.
+    } else {
+      setTab(next)
+    }
+  }, [query])
+
+  const handleModalOpenChange = useCallback((open: boolean) => {
+    setModalOpen(open)
+    if (!open) {
+      // Per Taras: on close, reset query and go back to normal.
+      setQuery("")
+      setDebouncedQuery("")
+      setIsSearching(false)
+      setTab("files")
+      clearSearchFilter()
+    }
   }, [])
 
   return (
@@ -134,19 +140,17 @@ export function SearchBar() {
         {isSearching && (
           <SearchModeToggle
             tab={tab}
-            searchType={searchType}
-            onTabChange={setTab}
-            onSearchTypeChange={setSearchType}
+            onTabChange={handleTabChange}
+            onClose={handleClear}
           />
         )}
       </div>
 
-      {/* Only the full-text Search tab uses the separate results pane.
-          The Files tab filters the live tree in place via the file-search
-          store, so the user keeps folder context. */}
-      {isSearching && debouncedQuery && tab === "search" && (
-        <SearchResults results={results} isLoading={loading} onClear={handleClear} />
-      )}
+      <SearchModal
+        open={modalOpen}
+        onOpenChange={handleModalOpenChange}
+        initialQuery={modalQuery}
+      />
     </>
   )
 }

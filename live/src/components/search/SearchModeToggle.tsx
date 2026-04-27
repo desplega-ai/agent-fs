@@ -1,34 +1,25 @@
 import { cn } from "@/lib/utils"
-import { ChevronDown } from "lucide-react"
+import { X } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 export type SearchTab = "files" | "search"
 export type SearchType = "hybrid" | "fulltext" | "semantic"
 
 interface SearchModeToggleProps {
   tab: SearchTab
-  searchType: SearchType
   onTabChange: (tab: SearchTab) => void
-  onSearchTypeChange: (type: SearchType) => void
+  onClose: () => void
 }
 
-const searchTypes: { value: SearchType; label: string; description: string }[] = [
-  { value: "hybrid", label: "Hybrid", description: "Semantic + keyword" },
-  { value: "fulltext", label: "Full-text", description: "FTS5 keyword matching" },
-  { value: "semantic", label: "Semantic", description: "Vector embeddings" },
-]
-
-export function SearchModeToggle({ tab, searchType, onTabChange, onSearchTypeChange }: SearchModeToggleProps) {
-  const activeType = searchTypes.find((t) => t.value === searchType)!
-
+export function SearchModeToggle({ tab, onTabChange, onClose }: SearchModeToggleProps) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex rounded-md border border-border text-xs">
+    <div className="flex items-center gap-1">
+      <div className="flex flex-1 rounded-md border border-border text-xs">
         {(["files", "search"] as const).map((t) => (
           <button
             key={t}
@@ -37,44 +28,29 @@ export function SearchModeToggle({ tab, searchType, onTabChange, onSearchTypeCha
               "flex-1 px-2 py-1 transition-colors first:rounded-l-md last:rounded-r-md",
               tab === t
                 ? "bg-primary text-primary-foreground"
-                : "hover:bg-accent"
+                : "hover:bg-accent",
             )}
           >
             {t === "files" ? "Files" : "Search"}
           </button>
         ))}
       </div>
-
-      {tab === "search" && (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className="flex w-full items-center justify-between rounded-md border border-border px-2 py-1 text-xs hover:bg-accent transition-colors"
-          >
-            <span>
-              <span className="font-medium">{activeType.label}</span>
-              <span className="text-muted-foreground ml-1.5">{activeType.description}</span>
-            </span>
-            <ChevronDown className="size-3 text-muted-foreground" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            {searchTypes.map((t) => (
-              <DropdownMenuItem
-                key={t.value}
-                onClick={() => onSearchTypeChange(t.value)}
-                className={cn(
-                  "text-xs cursor-pointer",
-                  searchType === t.value && "bg-accent"
-                )}
-              >
-                <div>
-                  <div className="font-medium">{t.label}</div>
-                  <div className="text-muted-foreground">{t.description}</div>
-                </div>
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={onClose}
+              className="text-muted-foreground"
+              aria-label="Exit search"
+            >
+              <X />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">Exit search</TooltipContent>
+      </Tooltip>
     </div>
   )
 }
