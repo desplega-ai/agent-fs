@@ -1,6 +1,11 @@
 import { Sun, Moon, Monitor } from "lucide-react"
 import { useThemeContext } from "@/contexts/theme"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 export function ThemeToggle() {
   const { theme, cycleTheme } = useThemeContext()
@@ -9,14 +14,21 @@ export function ThemeToggle() {
   const label = theme === "light" ? "Light" : theme === "dark" ? "Dark" : "System"
 
   return (
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      onClick={cycleTheme}
-      className="text-muted-foreground"
-      title={`Theme: ${label}`}
-    >
-      <Icon />
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={cycleTheme}
+            className="text-muted-foreground"
+            aria-label={`Theme: ${label}`}
+          >
+            <Icon />
+          </Button>
+        }
+      />
+      <TooltipContent>Theme: {label}</TooltipContent>
+    </Tooltip>
   )
 }

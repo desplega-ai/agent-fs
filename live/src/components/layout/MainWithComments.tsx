@@ -154,20 +154,27 @@ function MobileCommentToggle({
   return (
     <>
       <div className="lg:hidden fixed bottom-4 right-4 z-30">
-        <Button
-          size="icon"
-          variant="outline"
-          onClick={onToggle}
-          className={cn("rounded-full shadow-lg size-10")}
-          aria-label="Toggle comments"
-        >
-          <MessageSquare className="size-4" />
-          {commentCount > 0 && (
-            <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
-              {commentCount}
-            </span>
-          )}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon"
+                variant="outline"
+                onClick={onToggle}
+                className={cn("rounded-full shadow-lg size-10")}
+                aria-label="Toggle comments"
+              >
+                <MessageSquare className="size-4" />
+                {commentCount > 0 && (
+                  <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">
+                    {commentCount}
+                  </span>
+                )}
+              </Button>
+            }
+          />
+          <TooltipContent side="left">Toggle comments</TooltipContent>
+        </Tooltip>
       </div>
 
       {open && (
@@ -181,9 +188,16 @@ function MobileCommentToggle({
                   <span className="ml-1.5 text-xs text-muted-foreground">({commentCount})</span>
                 )}
               </span>
-              <Button variant="ghost" size="icon-xs" onClick={onClose} aria-label="Close comments">
-                <X />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button variant="ghost" size="icon-xs" onClick={onClose} aria-label="Close comments">
+                      <X />
+                    </Button>
+                  }
+                />
+                <TooltipContent>Close comments</TooltipContent>
+              </Tooltip>
             </div>
             <CommentSidebar path={path} showHeader={false} onCommentClick={onCommentClick} />
           </div>

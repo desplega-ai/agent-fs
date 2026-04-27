@@ -16,6 +16,7 @@ import { useExpanded, useToggleExpanded } from "@/stores/tree-expansion"
 import { MiddleEllipsis } from "@/lib/middle-ellipsis"
 import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"
 import { glyphFor } from "@/lib/file-glyphs"
+import { downloadFile } from "@/lib/download"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import {
   ContextMenu,
@@ -83,6 +84,12 @@ export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
   const handleOpenInNewTab = () => {
     if (!deepLink) return
     window.open(deepLink, "_blank", "noopener,noreferrer")
+  }
+
+  const canDownload = !isDir && !!orgId && !!driveId
+  const handleDownload = () => {
+    if (!canDownload) return
+    void downloadFile(client, orgId!, driveId!, fullPath, entry.name)
   }
 
   const glyph = !isDir ? glyphFor(fullPath) : null
@@ -168,17 +175,10 @@ export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
             <LinkIcon className="h-4 w-4" />
             Copy link
           </ContextMenuItem>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <ContextMenuItem disabled>
-                  <Download className="h-4 w-4" />
-                  Download
-                </ContextMenuItem>
-              }
-            />
-            <TooltipContent side="right">Available in Phase 4</TooltipContent>
-          </Tooltip>
+          <ContextMenuItem onClick={handleDownload} disabled={!canDownload}>
+            <Download className="h-4 w-4" />
+            Download
+          </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             onClick={handleOpenInNewTab}

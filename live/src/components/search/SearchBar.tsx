@@ -2,6 +2,11 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Search, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { SearchModeToggle, type SearchTab, type SearchType } from "./SearchModeToggle"
 import { SearchResults } from "./SearchResults"
 import { useFtsSearch } from "@/hooks/use-fts-search"
@@ -88,14 +93,22 @@ export function SearchBar() {
             className="pl-8 pr-8"
           />
           {query && (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={handleClear}
-              className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
-            >
-              <X />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={handleClear}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    aria-label="Clear search"
+                  >
+                    <X />
+                  </Button>
+                }
+              />
+              <TooltipContent>Clear search</TooltipContent>
+            </Tooltip>
           )}
         </div>
         {isSearching && (

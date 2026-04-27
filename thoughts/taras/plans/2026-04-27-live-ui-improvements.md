@@ -5,7 +5,7 @@ topic: "Live UI improvements — header IA, sidebars, tree state, tooltips, keyb
 status: in-progress
 autonomy: critical
 last_updated: 2026-04-27
-last_updated_by: claude (phase-3)
+last_updated_by: claude (phase-4)
 related:
   - thoughts/taras/brainstorms/2026-04-27-live-ui-improvements.md
   - thoughts/taras/research/2026-04-27-live-ui-improvements.md
@@ -375,9 +375,9 @@ Audit every icon-only button across `live/src/` and wrap with `<Tooltip>`; add a
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] Typecheck: `cd live && bun run build`
-- [ ] Every icon button has a tooltip ancestor: run a custom check via `grep -rE 'size="icon"' live/src/components/ live/src/pages/ | wc -l` and visually confirm each is wrapped (manual since grep can't enforce ancestry).
-- [ ] `lib/download.ts` exports `downloadFile`: `grep -n "export.*downloadFile" live/src/lib/download.ts`
+- [x] Typecheck: `cd live && bun run build`
+- [x] Every icon button has a tooltip ancestor: run a custom check via `grep -rE 'size="icon"' live/src/components/ live/src/pages/ | wc -l` and visually confirm each is wrapped (manual since grep can't enforce ancestry).
+- [x] `lib/download.ts` exports `downloadFile`: `grep -n "export.*downloadFile" live/src/lib/download.ts`
 
 #### Manual Verification:
 - [ ] Hover any icon button (theme, health, comments add, viewer toggle) → tooltip shows.

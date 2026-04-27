@@ -13,6 +13,11 @@ import { PdfViewer } from "./PdfViewer"
 import { FallbackViewer } from "./FallbackViewer"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"])
@@ -181,13 +186,39 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
     <div className="flex h-10 items-center justify-between border-b border-border px-4 shrink-0">
       <div className="flex items-center gap-1 min-w-0">
         <span className="text-sm font-medium truncate">{filename}</span>
-        <Button variant="ghost" size="icon-xs" onClick={handleCopyPath} title="Copy path" className="text-muted-foreground shrink-0">
-          {copiedPath ? <Check className="size-3" /> : <Copy className="size-3" />}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={handleCopyPath}
+                className="text-muted-foreground shrink-0"
+                aria-label="Copy path"
+              >
+                {copiedPath ? <Check className="size-3" /> : <Copy className="size-3" />}
+              </Button>
+            }
+          />
+          <TooltipContent>Copy path</TooltipContent>
+        </Tooltip>
         {orgId && driveId && (
-          <Button variant="ghost" size="icon-xs" onClick={handleCopyUrl} title="Copy URL" className="text-muted-foreground shrink-0">
-            {copiedUrl ? <Check className="size-3" /> : <Link className="size-3" />}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleCopyUrl}
+                  className="text-muted-foreground shrink-0"
+                  aria-label="Copy URL"
+                >
+                  {copiedUrl ? <Check className="size-3" /> : <Link className="size-3" />}
+                </Button>
+              }
+            />
+            <TooltipContent>Copy URL</TooltipContent>
+          </Tooltip>
         )}
       </div>
       <div className="flex items-center gap-1">
@@ -198,14 +229,40 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
           </span>
         )}
         {isMd && onToggleRaw && (
-          <Button variant="ghost" size="icon-xs" onClick={onToggleRaw} title={showRaw ? "Preview" : "Source"} className="text-muted-foreground">
-            {showRaw ? <Eye /> : <Code />}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onToggleRaw}
+                  className="text-muted-foreground"
+                  aria-label={showRaw ? "Preview" : "Source"}
+                >
+                  {showRaw ? <Eye /> : <Code />}
+                </Button>
+              }
+            />
+            <TooltipContent>{showRaw ? "Preview" : "Source"}</TooltipContent>
+          </Tooltip>
         )}
         {showExpand && (
-          <Button variant="ghost" size="icon-xs" onClick={onExpand} title="Open full page" className="text-muted-foreground">
-            <Maximize2 />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onExpand}
+                  className="text-muted-foreground"
+                  aria-label="Open full page"
+                >
+                  <Maximize2 />
+                </Button>
+              }
+            />
+            <TooltipContent>Open full page</TooltipContent>
+          </Tooltip>
         )}
       </div>
     </div>

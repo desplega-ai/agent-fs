@@ -58,13 +58,20 @@ export function Shell({ sidebar, children }: ShellProps) {
         )}
       >
         <div className="absolute right-2 top-2 z-10">
-          <button
-            onClick={() => setMobileOpen(false)}
-            className="rounded-md p-1 hover:bg-sidebar-accent transition-colors"
-            aria-label="Close sidebar"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <button
+                  onClick={() => setMobileOpen(false)}
+                  className="rounded-md p-1 hover:bg-sidebar-accent transition-colors"
+                  aria-label="Close sidebar"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              }
+            />
+            <TooltipContent side="bottom">Close sidebar</TooltipContent>
+          </Tooltip>
         </div>
         <Sidebar>{sidebar}</Sidebar>
       </div>
@@ -104,13 +111,20 @@ export function Shell({ sidebar, children }: ShellProps) {
       <div className="lg:hidden flex flex-1 flex-col min-w-0">
         <TopBar
           leading={
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
-              aria-label="Open sidebar"
-            >
-              <Menu className="h-4 w-4" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    onClick={() => setMobileOpen(true)}
+                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
+                    aria-label="Open sidebar"
+                  >
+                    <Menu className="h-4 w-4" />
+                  </button>
+                }
+              />
+              <TooltipContent side="bottom">Open sidebar</TooltipContent>
+            </Tooltip>
           }
         />
         <PathBreadcrumb />

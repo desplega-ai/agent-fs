@@ -2,6 +2,11 @@ import { useState } from "react"
 import { Send } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useAddComment } from "@/hooks/use-comments"
 
 interface AddCommentProps {
@@ -72,15 +77,23 @@ export function AddComment({
             }
           }}
         />
-        <Button
-          type="submit"
-          variant="ghost"
-          size="icon"
-          disabled={!body.trim() || addComment.isPending}
-          className="self-end text-primary"
-        >
-          <Send />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="submit"
+                variant="ghost"
+                size="icon"
+                disabled={!body.trim() || addComment.isPending}
+                className="self-end text-primary"
+                aria-label="Send comment"
+              >
+                <Send />
+              </Button>
+            }
+          />
+          <TooltipContent>Send (⌘⏎)</TooltipContent>
+        </Tooltip>
       </div>
     </form>
   )
