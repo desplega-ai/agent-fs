@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Menu, X, PanelLeftOpen } from "lucide-react"
 import type { PanelSize } from "react-resizable-panels"
 import {
@@ -14,7 +14,12 @@ import {
 import { Sidebar } from "./Sidebar"
 import { TopBar } from "./TopBar"
 import { PathBreadcrumb } from "@/components/PathBreadcrumb"
+import { HelpOverlay } from "@/components/HelpOverlay"
 import { useResizableSidebar } from "@/hooks/use-resizable-sidebar"
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
+import { SearchInputProvider, useSearchInput } from "@/contexts/search-input"
+import { uiChromeStore, useHelpOpen, useSetHelpOpen } from "@/stores/ui-chrome"
+import { useBrowser } from "@/contexts/browser"
 import { cn } from "@/lib/utils"
 
 interface ShellProps {
@@ -26,8 +31,60 @@ const TREE_KEY = "liveui:tree"
 const TREE_DEFAULTS = { open: true, width: 256, min: 180, max: 480 }
 
 export function Shell({ sidebar, children }: ShellProps) {
+  return (
+    <SearchInputProvider>
+      <ShellInner sidebar={sidebar}>{children}</ShellInner>
+    </SearchInputProvider>
+  )
+}
+
+function ShellInner({ sidebar, children }: ShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const tree = useResizableSidebar(TREE_KEY, TREE_DEFAULTS)
+  const helpOpen = useHelpOpen()
+  const setHelpOpen = useSetHelpOpen()
+  const { focus: focusSearch } = useSearchInput()
+  const { selectFile } = useBrowser()
+
+  // Register the left-sidebar toggle into the UI chrome store so the shortcut
+  // hook (mounted here) and any other component can flip it.
+  useEffect(() => {
+    uiChromeStore.registerLeftToggle(() => tree.toggle())
+    return () => uiChromeStore.registerLeftToggle(null)
+  }, [tree])
+
+  // Global keyboard shortcuts. The right sidebar toggle is registered by
+  // MainWithComments and may be unset in routes without a comments rail.
+  useKeyboardShortcuts({
+    "cmd+k": (e) => {
+      e.preventDefault()
+      focusSearch()
+    },
+    "/": (e) => {
+      // `/` should only steal focus when not typing — the hook already skips
+      // editable targets, but guard against an existing focused input.
+      e.preventDefault()
+      focusSearch()
+    },
+    esc: () => {
+      // If the help overlay is open, base-ui Dialog handles esc itself.
+      // Skip here to avoid also clearing the file selection.
+      if (helpOpen) return
+      selectFile(null)
+    },
+    "[": (e) => {
+      e.preventDefault()
+      uiChromeStore.toggleLeft()
+    },
+    "]": (e) => {
+      e.preventDefault()
+      uiChromeStore.toggleRight()
+    },
+    "?": (e) => {
+      e.preventDefault()
+      setHelpOpen(true)
+    },
+  })
 
   const handleLeftResize = (panelSize: PanelSize) => {
     tree.setWidth(Math.round(panelSize.inPixels))
@@ -130,6 +187,8 @@ export function Shell({ sidebar, children }: ShellProps) {
         <PathBreadcrumb />
         <main className="flex-1 overflow-hidden">{children}</main>
       </div>
+
+      <HelpOverlay open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   )
 }
@@ -157,4 +216,3 @@ function SidebarCollapsedRail({ onOpen }: { onOpen: () => void }) {
     </div>
   )
 }
-

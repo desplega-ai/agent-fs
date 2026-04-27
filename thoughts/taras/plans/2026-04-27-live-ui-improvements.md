@@ -5,7 +5,7 @@ topic: "Live UI improvements — header IA, sidebars, tree state, tooltips, keyb
 status: in-progress
 autonomy: critical
 last_updated: 2026-04-27
-last_updated_by: claude (phase-4)
+last_updated_by: claude (phase-5)
 related:
   - thoughts/taras/brainstorms/2026-04-27-live-ui-improvements.md
   - thoughts/taras/research/2026-04-27-live-ui-improvements.md
@@ -446,9 +446,9 @@ Extend `use-keyboard-shortcuts.ts` to cover the full pro-tool set; add a `?` hel
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] Typecheck: `cd live && bun run build`
-- [ ] `cmd+k` listener no longer in SearchBar: `grep -nE "metaKey|ctrlKey" live/src/components/search/SearchBar.tsx` returns nothing relevant.
-- [ ] All shortcut keys registered: `grep -nE "'\\?'|'\\['|']'|'enter'|'/'|'esc'|'arrowdown'" live/src/hooks/use-keyboard-shortcuts.ts | wc -l` → ≥ 7.
+- [x] Typecheck: `cd live && bun run build`
+- [x] `cmd+k` listener no longer in SearchBar: `grep -nE "metaKey|ctrlKey" live/src/components/search/SearchBar.tsx` returns nothing relevant.
+- [x] All shortcut keys registered: `grep -nE "'\\?'|'\\['|']'|'enter'|'/'|'esc'|'arrowdown'" live/src/hooks/use-keyboard-shortcuts.ts | wc -l` → ≥ 7.
 
 #### Manual Verification:
 - [ ] `cmd+k` focuses the sidebar search input.

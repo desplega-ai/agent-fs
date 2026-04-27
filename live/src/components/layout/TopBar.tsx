@@ -1,8 +1,16 @@
+import { CircleHelp } from "lucide-react"
 import { OrgSwitcher } from "./OrgSwitcher"
 import { DriveSwitcher } from "./DriveSwitcher"
 import { HealthIndicator } from "./HealthIndicator"
 import { ThemeToggle } from "./ThemeToggle"
 import { AccountSwitcher } from "@/components/AccountSwitcher"
+import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { useSetHelpOpen } from "@/stores/ui-chrome"
 
 export function TopBar({ leading }: { leading?: React.ReactNode }) {
   return (
@@ -16,11 +24,35 @@ export function TopBar({ leading }: { leading?: React.ReactNode }) {
       <div className="flex items-center gap-1 shrink-0">
         <SearchHint />
         <HealthIndicator />
+        <HelpButton />
         <ThemeToggle />
         <div className="w-px h-4 bg-border mx-1" aria-hidden />
         <AccountSwitcher />
       </div>
     </header>
+  )
+}
+
+function HelpButton() {
+  const setHelpOpen = useSetHelpOpen()
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => setHelpOpen(true)}
+            aria-label="Keyboard shortcuts"
+          >
+            <CircleHelp />
+          </Button>
+        }
+      />
+      <TooltipContent side="bottom">
+        Keyboard shortcuts <kbd data-slot="kbd" className="ml-1 px-1 text-[10px]">?</kbd>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

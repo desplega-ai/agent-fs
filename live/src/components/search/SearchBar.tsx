@@ -13,6 +13,7 @@ import { useFtsSearch } from "@/hooks/use-fts-search"
 import { useSemanticSearch } from "@/hooks/use-semantic-search"
 import { useGlobSearch } from "@/hooks/use-glob-search"
 import { useHybridSearch } from "@/hooks/use-hybrid-search"
+import { useSearchInput } from "@/contexts/search-input"
 
 export function SearchBar() {
   const [query, setQuery] = useState("")
@@ -21,24 +22,20 @@ export function SearchBar() {
   const [searchType, setSearchType] = useState<SearchType>("hybrid")
   const [isSearching, setIsSearching] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const { register } = useSearchInput()
+
+  // Register the input ref so the global keyboard shortcut hook can focus it
+  // via cmd+k / `/`. The cmd+k listener itself lives in the central registry.
+  useEffect(() => {
+    register(inputRef.current)
+    return () => register(null)
+  }, [register])
 
   // Debounce
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query), 300)
     return () => clearTimeout(t)
   }, [query])
-
-  // Cmd+K shortcut
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault()
-        inputRef.current?.focus()
-      }
-    }
-    document.addEventListener("keydown", handler)
-    return () => document.removeEventListener("keydown", handler)
-  }, [])
 
   // Determine which query to pass to each hook
   const isSearch = tab === "search"

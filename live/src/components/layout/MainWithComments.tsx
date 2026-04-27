@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { MessageSquare, X, PanelRightOpen } from "lucide-react"
 import type { Layout, PanelSize } from "react-resizable-panels"
 import {
@@ -14,6 +14,7 @@ import {
 import { CommentSidebar } from "@/components/comments/CommentSidebar"
 import { useComments } from "@/hooks/use-comments"
 import { useResizableSidebar } from "@/hooks/use-resizable-sidebar"
+import { uiChromeStore } from "@/stores/ui-chrome"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -45,6 +46,14 @@ export function MainWithComments({
 }: MainWithCommentsProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const comments = useResizableSidebar(COMMENTS_KEY, COMMENTS_DEFAULTS)
+
+  // Register the right (comments) sidebar toggle so the global `]` shortcut
+  // can flip it. Only meaningful when a file is selected (rail is rendered).
+  useEffect(() => {
+    if (!filePath) return
+    uiChromeStore.registerRightToggle(() => comments.toggle())
+    return () => uiChromeStore.registerRightToggle(null)
+  }, [filePath, comments])
 
   const handleResize = (panelSize: PanelSize) => {
     comments.setWidth(Math.round(panelSize.inPixels))

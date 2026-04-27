@@ -12,7 +12,12 @@ import {
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
-import { useExpanded, useToggleExpanded } from "@/stores/tree-expansion"
+import {
+  useExpanded,
+  useToggleExpanded,
+  useFocusedPath,
+  useSetFocusedPath,
+} from "@/stores/tree-expansion"
 import { MiddleEllipsis } from "@/lib/middle-ellipsis"
 import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"
 import { glyphFor } from "@/lib/file-glyphs"
@@ -31,9 +36,15 @@ interface FileTreeNodeProps {
   entry: LsEntry
   path: string
   depth: number
+  /**
+   * When true and no other tree row holds focus, this row is the roving
+   * tabindex anchor (i.e. tabIndex={0}). Used to make the tree initially
+   * tabbable from outside.
+   */
+  isDefaultFocus?: boolean
 }
 
-export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
+export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: FileTreeNodeProps) {
   const { client, orgId, driveId } = useAuth()
   const { selectedFile, selectFile } = useBrowser()
   const fullPath = path ? `${path}/${entry.name}` : entry.name
@@ -41,6 +52,11 @@ export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
   const isSelected = selectedFile === fullPath
   const expanded = useExpanded(fullPath)
   const toggleExpanded = useToggleExpanded()
+  const focusedPath = useFocusedPath()
+  const setFocusedPath = useSetFocusedPath()
+  const isFocused = focusedPath === fullPath
+  // Roving tabindex: only one row in the tree is tabbable at a time.
+  const tabIndex = isFocused || (focusedPath === null && isDefaultFocus) ? 0 : -1
   const isUuidDir = isDir && isUuidLike(entry.name)
   const resolvedUuidName = useUuidName(path, isUuidDir ? entry.name : "")
 
@@ -57,6 +73,7 @@ export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
     } else {
       selectFile(fullPath)
     }
+    setFocusedPath(fullPath)
   }
 
   const deepLink =
@@ -122,9 +139,14 @@ export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
           render={
             <button
               type="button"
+              data-tree-path={fullPath}
+              data-tree-is-dir={isDir ? "true" : "false"}
+              data-tree-expanded={expanded ? "true" : "false"}
+              tabIndex={tabIndex}
               onClick={handleClick}
+              onFocus={() => setFocusedPath(fullPath)}
               className={cn(
-                "flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-sm hover:bg-sidebar-accent transition-colors",
+                "flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-sm hover:bg-sidebar-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
                 isSelected &&
                   "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
               )}

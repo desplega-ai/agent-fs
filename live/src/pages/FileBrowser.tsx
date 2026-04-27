@@ -1,7 +1,6 @@
 import { useCallback, useRef } from "react"
 import { Files } from "lucide-react"
 import { useBrowser } from "@/contexts/browser"
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { FileViewer } from "@/components/viewers/FileViewer"
 import { MainWithComments } from "@/components/layout/MainWithComments"
 
@@ -10,7 +9,7 @@ export type ScrollToCommentCallback = (opts: { lineStart?: number; quotedContent
 export function FileBrowserPage() {
   const { selectedFile } = useBrowser()
   const scrollToCommentRef = useRef<ScrollToCommentCallback | null>(null)
-  useKeyboardShortcuts()
+  // Keyboard shortcuts are now registered globally in Shell — no per-page hook needed.
 
   const handleCommentClick = useCallback((lineStart?: number, _lineEnd?: number, quotedContent?: string) => {
     scrollToCommentRef.current?.({ lineStart, quotedContent })
