@@ -5,7 +5,7 @@ topic: "Live UI improvements — header IA, sidebars, tree state, tooltips, keyb
 status: in-progress
 autonomy: critical
 last_updated: 2026-04-27
-last_updated_by: claude (phase-5)
+last_updated_by: claude (phase-6)
 related:
   - thoughts/taras/brainstorms/2026-04-27-live-ui-improvements.md
   - thoughts/taras/research/2026-04-27-live-ui-improvements.md
@@ -505,9 +505,9 @@ Today the main area shows only a selected file (or an empty card). Add a **folde
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] Typecheck: `cd live && bun run build`
-- [ ] Both views render: `grep -l "FolderView\|ListView\|GridView" live/src/` returns the new files.
-- [ ] Persistence reads the right key: `grep -n "liveui:browser:view" live/src/`
+- [x] Typecheck: `cd live && bun run build`
+- [x] Both views render: `grep -l "FolderView\|ListView\|GridView" live/src/` returns the new files.
+- [x] Persistence reads the right key: `grep -n "liveui:browser:view" live/src/`
 
 #### Manual Verification:
 - [ ] Navigate to a drive root with no file selected → folder content visible (list by default).

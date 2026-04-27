@@ -1,8 +1,8 @@
-import { useCallback, useRef } from "react"
-import { Files } from "lucide-react"
+import { useCallback, useMemo, useRef } from "react"
 import { useBrowser } from "@/contexts/browser"
 import { FileViewer } from "@/components/viewers/FileViewer"
 import { MainWithComments } from "@/components/layout/MainWithComments"
+import { FolderView } from "@/components/folder-view/FolderView"
 
 export type ScrollToCommentCallback = (opts: { lineStart?: number; quotedContent?: string }) => void
 
@@ -15,20 +15,29 @@ export function FileBrowserPage() {
     scrollToCommentRef.current?.({ lineStart, quotedContent })
   }, [])
 
-  if (!selectedFile) {
+  // A trailing slash on the URL splat indicates folder mode. When the splat is
+  // empty/null (e.g. /files cold-load or /file/~/<org>/<drive>/), render the
+  // FolderView at the drive root.
+  const folderPath = useMemo<string | null>(() => {
+    if (!selectedFile) return ""
+    if (selectedFile.endsWith("/")) return selectedFile.replace(/\/+$/, "")
+    return null
+  }, [selectedFile])
+
+  if (folderPath !== null) {
+    // Folder mode — comments rail is hidden by MainWithComments when filePath
+    // is null, so we just render the FolderView full-width.
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-        <Files className="size-10 opacity-30" />
-        <p className="text-sm">Select a file from the sidebar to view it.</p>
-        <p className="text-xs">Use <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd> to search</p>
-      </div>
+      <MainWithComments filePath={null} onCommentClick={handleCommentClick}>
+        <FolderView path={folderPath} />
+      </MainWithComments>
     )
   }
 
   return (
     <MainWithComments filePath={selectedFile} onCommentClick={handleCommentClick}>
       <FileViewer
-        path={selectedFile}
+        path={selectedFile!}
         className="h-full"
         onScrollToCommentRef={scrollToCommentRef}
       />
