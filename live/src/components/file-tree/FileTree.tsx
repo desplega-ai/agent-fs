@@ -1,15 +1,17 @@
 import { useCallback, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { FolderOpen } from "lucide-react"
+import { FolderOpen, SearchX } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { FileTreeNode } from "./FileTreeNode"
 import { treeExpansionStore, useFocusedPath } from "@/stores/tree-expansion"
+import { useFileSearch } from "@/stores/file-search"
 import type { LsResult } from "@/api/types"
 
 export function FileTree() {
   const { client, orgId, driveId } = useAuth()
   const containerRef = useRef<HTMLDivElement>(null)
   const focusedPath = useFocusedPath()
+  const filter = useFileSearch()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["ls", orgId, driveId, ""],
@@ -159,6 +161,9 @@ export function FileTree() {
     return a.name.localeCompare(b.name)
   })
 
+  const noFilterMatches =
+    filter.status === "loaded" && filter.query.length > 0 && filter.matchedPaths.length === 0
+
   return (
     <div
       ref={containerRef}
@@ -166,15 +171,27 @@ export function FileTree() {
       role="tree"
       onKeyDown={handleKeyDown}
     >
-      {sorted.map((entry, idx) => (
-        <FileTreeNode
-          key={entry.name}
-          entry={entry}
-          path=""
-          depth={0}
-          isDefaultFocus={idx === 0}
-        />
-      ))}
+      {noFilterMatches ? (
+        <div className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
+          <SearchX className="size-8 text-muted-foreground/60" strokeWidth={1.5} />
+          <div className="space-y-1">
+            <p className="text-sm font-medium">No matches</p>
+            <p className="text-xs text-muted-foreground break-all">
+              Nothing in this drive matches "{filter.query}".
+            </p>
+          </div>
+        </div>
+      ) : (
+        sorted.map((entry, idx) => (
+          <FileTreeNode
+            key={entry.name}
+            entry={entry}
+            path=""
+            depth={0}
+            isDefaultFocus={idx === 0}
+          />
+        ))
+      )}
     </div>
   )
 }

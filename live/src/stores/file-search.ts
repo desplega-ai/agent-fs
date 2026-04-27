@@ -8,15 +8,23 @@ import { useSyncExternalStore } from "react"
  *   - force-expands any folder that has a matching descendant, so the user
  *     sees the path leading to each match without manual expansion
  *
- * `setSearchFilter("", [])` clears the filter (back to normal tree view).
+ * Three states:
+ *   - idle: query is empty → no filter, render the full tree
+ *   - loading: query set but glob hasn't returned yet → don't filter, render
+ *     the full tree (avoids a blank tree while typing)
+ *   - loaded: glob returned → filter applies; FileTree shows a "no matches"
+ *     empty state when matchedPaths is empty
  */
 
+type Status = "idle" | "loading" | "loaded"
+
 interface FileSearchState {
+  status: Status
   query: string
   matchedPaths: readonly string[]
 }
 
-let snapshot: FileSearchState = { query: "", matchedPaths: [] }
+let snapshot: FileSearchState = { status: "idle", query: "", matchedPaths: [] }
 const listeners = new Set<() => void>()
 
 function emit() {
@@ -31,14 +39,33 @@ function pathsEqual(a: readonly string[], b: readonly string[]): boolean {
   return true
 }
 
-export function setSearchFilter(query: string, paths: readonly string[]) {
-  if (query === snapshot.query && pathsEqual(paths, snapshot.matchedPaths)) return
-  snapshot = { query, matchedPaths: paths }
+function normalize(p: string): string {
+  return p.replace(/^\/+|\/+$/g, "")
+}
+
+export function setSearchLoading(query: string) {
+  if (snapshot.status === "loading" && snapshot.query === query) return
+  snapshot = { status: "loading", query, matchedPaths: [] }
+  emit()
+}
+
+export function setSearchResults(query: string, paths: readonly string[]) {
+  const normalized = paths.map(normalize)
+  if (
+    snapshot.status === "loaded" &&
+    snapshot.query === query &&
+    pathsEqual(normalized, snapshot.matchedPaths)
+  ) {
+    return
+  }
+  snapshot = { status: "loaded", query, matchedPaths: normalized }
   emit()
 }
 
 export function clearSearchFilter() {
-  setSearchFilter("", [])
+  if (snapshot.status === "idle") return
+  snapshot = { status: "idle", query: "", matchedPaths: [] }
+  emit()
 }
 
 function subscribe(callback: () => void): () => void {
@@ -56,24 +83,28 @@ export function useFileSearch(): FileSearchState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
 
+/** Filter is "active" only when results have arrived. While loading we show
+ * the full tree so the user isn't staring at a blank pane. */
 export function isFilterActive(): boolean {
-  return snapshot.query.length > 0
+  return snapshot.status === "loaded" && snapshot.query.length > 0
 }
 
 export function isPathVisible(nodePath: string): boolean {
   if (!isFilterActive()) return true
+  const target = normalize(nodePath)
   for (const m of snapshot.matchedPaths) {
-    if (m === nodePath) return true
-    if (m.startsWith(nodePath + "/")) return true
+    if (m === target) return true
+    if (m.startsWith(target + "/")) return true
   }
   return false
 }
 
 export function hasMatchingDescendant(nodePath: string): boolean {
   if (!isFilterActive()) return false
+  const target = normalize(nodePath)
   for (const m of snapshot.matchedPaths) {
-    if (m === nodePath) continue
-    if (m.startsWith(nodePath + "/")) return true
+    if (m === target) continue
+    if (m.startsWith(target + "/")) return true
   }
   return false
 }

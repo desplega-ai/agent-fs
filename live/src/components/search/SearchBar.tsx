@@ -14,7 +14,7 @@ import { useSemanticSearch } from "@/hooks/use-semantic-search"
 import { useGlobSearch } from "@/hooks/use-glob-search"
 import { useHybridSearch } from "@/hooks/use-hybrid-search"
 import { useSearchInput } from "@/contexts/search-input"
-import { setSearchFilter, clearSearchFilter } from "@/stores/file-search"
+import { setSearchLoading, setSearchResults, clearSearchFilter } from "@/stores/file-search"
 
 export function SearchBar() {
   const [query, setQuery] = useState("")
@@ -46,15 +46,21 @@ export function SearchBar() {
   const semanticResult = useSemanticSearch(isSearch && searchType === "semantic" ? debouncedQuery : "")
 
   // Files tab: populate the in-tree filter so the existing FileTree filters
-  // in place rather than showing a separate flat results pane.
+  // in place rather than showing a separate flat results pane. While the
+  // glob query is in-flight we mark the filter as `loading` (no filtering)
+  // so the user keeps seeing the tree instead of a flash of blank.
   useEffect(() => {
-    if (tab !== "files") {
+    if (tab !== "files" || !debouncedQuery) {
       clearSearchFilter()
       return
     }
+    if (globResult.isFetching && !globResult.data) {
+      setSearchLoading(debouncedQuery)
+      return
+    }
     const matches = (globResult.data?.matches ?? []).map((m) => m.path)
-    setSearchFilter(debouncedQuery, matches)
-  }, [tab, debouncedQuery, globResult.data])
+    setSearchResults(debouncedQuery, matches)
+  }, [tab, debouncedQuery, globResult.data, globResult.isFetching])
 
   // Always clear the filter on unmount so the tree returns to normal.
   useEffect(() => {
