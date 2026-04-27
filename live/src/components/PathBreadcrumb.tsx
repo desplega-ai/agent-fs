@@ -18,14 +18,9 @@ export function PathBreadcrumb() {
 
   const path = (selectedFile ?? "").replace(/^\/+|\/+$/g, "")
   const segments = path ? path.split("/") : []
-
-  // When the path has more than one segment, collapse everything except the
-  // last one behind a `...` dropdown. Keeps the row compact and predictable
-  // even with long UUID / dated segments; the dropdown gives full ancestor
-  // access in one click.
   const last = segments.length > 0 ? segments[segments.length - 1]! : null
   const ancestors = segments.slice(0, -1)
-  const showCollapse = ancestors.length > 0
+  const hasAncestors = ancestors.length > 0
 
   return (
     <nav
@@ -42,8 +37,10 @@ export function PathBreadcrumb() {
         /
       </Button>
 
-      {showCollapse && (
-        <>
+      {/* Mobile / tablet (< lg): collapse every ancestor behind a single
+          "..." dropdown so a long UUID path doesn't blow out the row. */}
+      {hasAncestors && (
+        <span className="flex items-center gap-0.5 lg:hidden">
           <ChevronRight className="size-3 shrink-0" />
           <DropdownMenu>
             <Tooltip>
@@ -81,8 +78,38 @@ export function PathBreadcrumb() {
               })}
             </DropdownMenuContent>
           </DropdownMenu>
-        </>
+        </span>
       )}
+
+      {/* Desktop (>= lg): render every ancestor inline. Each segment is
+          width-clamped + truncated so a single UUID can't dominate. */}
+      {hasAncestors &&
+        ancestors.map((segment, i) => {
+          const segPath = ancestors.slice(0, i + 1).join("/")
+          return (
+            <span
+              key={segPath}
+              className="hidden min-w-0 items-center gap-0.5 lg:flex"
+            >
+              <ChevronRight className="size-3 shrink-0" />
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => navigateToFolder(segPath)}
+                      className="block min-w-0 max-w-[10rem] truncate"
+                    >
+                      {segment}
+                    </Button>
+                  }
+                />
+                <TooltipContent side="bottom">{segment}</TooltipContent>
+              </Tooltip>
+            </span>
+          )
+        })}
 
       {last !== null && <CurrentSegment segment={last} />}
     </nav>
