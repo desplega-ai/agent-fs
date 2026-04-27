@@ -1,11 +1,13 @@
 import { useState, useRef, useCallback, useEffect, isValidElement, type MutableRefObject, type ReactNode } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
+import rehypeHighlight from "rehype-highlight"
 import { MessageSquarePlus, MessageSquare } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AddComment } from "@/components/comments/AddComment"
 import { MermaidDiagram } from "./MermaidDiagram"
 import { ExpandableImage } from "./ExpandableImage"
+import { CodeBlock } from "./CodeBlock"
 import type { CommentListEntry } from "@/api/types"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 
@@ -22,10 +24,10 @@ function extractMermaidCode(children: ReactNode): string | null {
 }
 
 const markdownComponents: Components = {
-  pre(props) {
+  pre({ node: _node, ...props }) {
     const code = extractMermaidCode(props.children)
     if (code !== null) return <MermaidDiagram code={code} />
-    return <pre {...props} />
+    return <CodeBlock {...props} />
   },
   img({ src, alt, title }) {
     if (typeof src !== "string" || !src) return null
@@ -179,7 +181,13 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
         onMouseUp={handleMouseUp}
       >
         <div className="prose prose-neutral dark:prose-invert prose-sm max-w-none leading-relaxed prose-headings:scroll-mt-8 prose-pre:bg-muted/60 prose-pre:text-foreground prose-pre:border prose-pre:border-border">
-          <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</Markdown>
+          <Markdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
+            components={markdownComponents}
+          >
+            {content}
+          </Markdown>
         </div>
       </div>
 

@@ -155,3 +155,93 @@
   border-radius: 0.25rem;
   animation: flash-fade 2s ease-out forwards;
 }
+
+/* highlight.js token colors — themed via CSS variables so light/dark share the
+   same selectors. Tokens picked to be readable against the prose-pre muted bg. */
+:root {
+  --hljs-comment: oklch(0.55 0.005 250);
+  --hljs-keyword: oklch(0.45 0.18 295);
+  --hljs-string: oklch(0.45 0.13 145);
+  --hljs-number: oklch(0.5 0.16 35);
+  --hljs-function: oklch(0.5 0.14 255);
+  --hljs-type: oklch(0.5 0.13 200);
+  --hljs-variable: oklch(0.45 0.13 25);
+  --hljs-meta: oklch(0.5 0.04 250);
+  --hljs-tag: oklch(0.5 0.14 255);
+  --hljs-attr: oklch(0.5 0.13 35);
+}
+.dark {
+  --hljs-comment: oklch(0.62 0.005 250);
+  --hljs-keyword: oklch(0.78 0.16 295);
+  --hljs-string: oklch(0.82 0.14 145);
+  --hljs-number: oklch(0.8 0.15 35);
+  --hljs-function: oklch(0.78 0.14 255);
+  --hljs-type: oklch(0.82 0.13 200);
+  --hljs-variable: oklch(0.8 0.13 25);
+  --hljs-meta: oklch(0.7 0.04 250);
+  --hljs-tag: oklch(0.78 0.14 255);
+  --hljs-attr: oklch(0.8 0.13 35);
+}
+
+.hljs {
+  color: var(--foreground);
+  background: transparent;
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--hljs-comment);
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-link,
+.hljs-doctag {
+  color: var(--hljs-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: var(--hljs-string);
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-deletion {
+  color: var(--hljs-number);
+}
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.function_,
+.hljs-name {
+  color: var(--hljs-function);
+}
+.hljs-built_in,
+.hljs-type,
+.hljs-class .hljs-title {
+  color: var(--hljs-type);
+}
+.hljs-variable,
+.hljs-template-variable,
+.hljs-template-tag {
+  color: var(--hljs-variable);
+}
+.hljs-meta,
+.hljs-meta-keyword {
+  color: var(--hljs-meta);
+}
+.hljs-tag {
+  color: var(--hljs-tag);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property {
+  color: var(--hljs-attr);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: 600;
+}
