@@ -8,6 +8,7 @@ import {
   setActiveCredential as setStoredActive,
   type Credential,
 } from "@/stores/credentials"
+import { treeExpansionStore } from "@/stores/tree-expansion"
 
 interface AuthContextValue {
   credential: Credential
@@ -91,6 +92,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       queryClient.invalidateQueries({ queryKey: ["drives"] })
       queryClient.invalidateQueries({ queryKey: ["ls"] })
       queryClient.invalidateQueries({ queryKey: ["comments"] })
+      // Tree-expansion paths are scoped to the prior drive — clear them.
+      treeExpansionStore.clear()
       // Reset drive when org changes
       setActiveDriveId(null)
       return id
@@ -103,6 +106,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem("agent-fs-active-drive", id)
       queryClient.invalidateQueries({ queryKey: ["ls"] })
       queryClient.invalidateQueries({ queryKey: ["comments"] })
+      // Tree-expansion paths are scoped to the prior drive — clear them.
+      treeExpansionStore.clear()
       return id
     })
   }, [queryClient])
@@ -114,6 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setActiveDriveId(null)
     localStorage.removeItem("agent-fs-active-org")
     localStorage.removeItem("agent-fs-active-drive")
+    treeExpansionStore.clear()
     queryClient.clear()
   }, [queryClient])
 

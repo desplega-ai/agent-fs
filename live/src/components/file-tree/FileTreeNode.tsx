@@ -1,9 +1,9 @@
-import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Folder, FolderOpen, File, ChevronRight, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
+import { useExpanded, useToggleExpanded } from "@/stores/tree-expansion"
 import type { LsEntry, LsResult } from "@/api/types"
 
 function fileIcon(name: string) {
@@ -44,12 +44,13 @@ interface FileTreeNodeProps {
 }
 
 export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
-  const [expanded, setExpanded] = useState(false)
   const { client, orgId, driveId } = useAuth()
   const { selectedFile, selectFile } = useBrowser()
   const fullPath = path ? `${path}/${entry.name}` : entry.name
   const isDir = entry.type === "directory"
   const isSelected = selectedFile === fullPath
+  const expanded = useExpanded(fullPath)
+  const toggleExpanded = useToggleExpanded()
 
   const { data: children } = useQuery({
     queryKey: ["ls", orgId, driveId, fullPath],
@@ -60,7 +61,7 @@ export function FileTreeNode({ entry, path, depth }: FileTreeNodeProps) {
 
   const handleClick = () => {
     if (isDir) {
-      setExpanded(!expanded)
+      toggleExpanded(fullPath)
     } else {
       selectFile(fullPath)
     }

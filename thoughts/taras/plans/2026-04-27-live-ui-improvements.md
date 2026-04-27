@@ -5,7 +5,7 @@ topic: "Live UI improvements — header IA, sidebars, tree state, tooltips, keyb
 status: in-progress
 autonomy: critical
 last_updated: 2026-04-27
-last_updated_by: claude (phase-1)
+last_updated_by: claude (phase-2)
 related:
   - thoughts/taras/brainstorms/2026-04-27-live-ui-improvements.md
   - thoughts/taras/research/2026-04-27-live-ui-improvements.md
@@ -227,10 +227,10 @@ Add `react-resizable-panels`-backed resize/collapse for both sidebars; persist w
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] Typecheck: `cd live && bun run build`
-- [ ] `react-resizable-panels` is the only new dep: `cd live && cat package.json | grep -A1 dependencies`
-- [ ] No `useState.*expanded` left in tree files: `grep -r "useState.*expanded" live/src/components/file-tree/`
-- [ ] No manual resize math left: `grep -nE "onMouseDown.*clientX|isResizing" live/src/pages/FileBrowser.tsx` returns nothing.
+- [x] Typecheck: `cd live && bun run build`
+- [x] `react-resizable-panels` is the only new dep: `cd live && cat package.json | grep -A1 dependencies`
+- [x] No `useState.*expanded` left in tree files: `grep -r "useState.*expanded" live/src/components/file-tree/`
+- [x] No manual resize math left: `grep -nE "onMouseDown.*clientX|isResizing" live/src/pages/FileBrowser.tsx` returns nothing.
 
 #### Manual Verification:
 - [ ] Drag the left sidebar handle — width updates smoothly; releases at clamp bounds.
