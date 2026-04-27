@@ -13,23 +13,19 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 
-/** Number of trailing segments to keep inline when the path is long. */
-const TAIL_VISIBLE = 2
-
 export function PathBreadcrumb() {
   const { selectedFile, navigateToFolder } = useBrowser()
 
   const path = (selectedFile ?? "").replace(/^\/+|\/+$/g, "")
   const segments = path ? path.split("/") : []
 
-  // When the path has more than `TAIL_VISIBLE + 1` segments we hide the
-  // middle ones behind a `...` dropdown that lets the user jump back to any
-  // ancestor. Always keep the very first segment visible plus the last
-  // `TAIL_VISIBLE` so the user has both anchors.
-  const collapse = segments.length > TAIL_VISIBLE + 1
-  const head = collapse ? segments.slice(0, 1) : segments
-  const middle = collapse ? segments.slice(1, segments.length - TAIL_VISIBLE) : []
-  const tail = collapse ? segments.slice(segments.length - TAIL_VISIBLE) : []
+  // When the path has more than one segment, collapse everything except the
+  // last one behind a `...` dropdown. Keeps the row compact and predictable
+  // even with long UUID / dated segments; the dropdown gives full ancestor
+  // access in one click.
+  const last = segments.length > 0 ? segments[segments.length - 1]! : null
+  const ancestors = segments.slice(0, -1)
+  const showCollapse = ancestors.length > 0
 
   return (
     <nav
@@ -46,20 +42,7 @@ export function PathBreadcrumb() {
         /
       </Button>
 
-      {head.map((segment, i) => {
-        const segPath = head.slice(0, i + 1).join("/")
-        const isOnlyVisibleAndLast = !collapse && segments.length === 1
-        return (
-          <SegmentItem
-            key={segPath}
-            segment={segment}
-            onClick={isOnlyVisibleAndLast ? undefined : () => navigateToFolder(segPath)}
-            isLast={isOnlyVisibleAndLast}
-          />
-        )
-      })}
-
-      {collapse && (
+      {showCollapse && (
         <>
           <ChevronRight className="size-3 shrink-0" />
           <DropdownMenu>
@@ -72,7 +55,7 @@ export function PathBreadcrumb() {
                         variant="ghost"
                         size="icon-xs"
                         className="shrink-0 text-muted-foreground"
-                        aria-label="Show hidden path segments"
+                        aria-label="Show ancestor folders"
                       >
                         <MoreHorizontal />
                       </Button>
@@ -81,12 +64,12 @@ export function PathBreadcrumb() {
                 }
               />
               <TooltipContent side="bottom">
-                {middle.join(" / ")}
+                {ancestors.join(" / ")}
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="start">
-              {middle.map((segment, i) => {
-                const segPath = segments.slice(0, head.length + i + 1).join("/")
+              {ancestors.map((segment, i) => {
+                const segPath = ancestors.slice(0, i + 1).join("/")
                 return (
                   <DropdownMenuItem
                     key={segPath}
@@ -101,65 +84,28 @@ export function PathBreadcrumb() {
         </>
       )}
 
-      {tail.map((segment, i) => {
-        const isLast = i === tail.length - 1
-        const segPath = segments.slice(0, head.length + middle.length + i + 1).join("/")
-        return (
-          <SegmentItem
-            key={segPath}
-            segment={segment}
-            onClick={isLast ? undefined : () => navigateToFolder(segPath)}
-            isLast={isLast}
-          />
-        )
-      })}
+      {last !== null && <CurrentSegment segment={last} />}
     </nav>
   )
 }
 
-function SegmentItem({
-  segment,
-  isLast,
-  onClick,
-}: {
-  segment: string
-  isLast: boolean
-  onClick?: () => void
-}) {
+function CurrentSegment({ segment }: { segment: string }) {
   return (
     <span className="flex min-w-0 items-center gap-0.5">
       <ChevronRight className="size-3 shrink-0" />
-      {isLast ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span
-                className="block min-w-0 max-w-[16rem] truncate font-medium text-foreground"
-                title={segment}
-              >
-                {segment}
-              </span>
-            }
-          />
-          <TooltipContent side="bottom">{segment}</TooltipContent>
-        </Tooltip>
-      ) : (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={onClick}
-                className="block min-w-0 max-w-[10rem] truncate"
-              >
-                {segment}
-              </Button>
-            }
-          />
-          <TooltipContent side="bottom">{segment}</TooltipContent>
-        </Tooltip>
-      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              className="block min-w-0 truncate font-medium text-foreground"
+              title={segment}
+            >
+              {segment}
+            </span>
+          }
+        />
+        <TooltipContent side="bottom">{segment}</TooltipContent>
+      </Tooltip>
     </span>
   )
 }
