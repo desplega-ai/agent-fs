@@ -1,11 +1,37 @@
-import { useState, useRef, useCallback, useEffect, type MutableRefObject } from "react"
-import Markdown from "react-markdown"
+import { useState, useRef, useCallback, useEffect, isValidElement, type MutableRefObject, type ReactNode } from "react"
+import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { MessageSquarePlus, MessageSquare } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AddComment } from "@/components/comments/AddComment"
+import { MermaidDiagram } from "./MermaidDiagram"
+import { ExpandableImage } from "./ExpandableImage"
 import type { CommentListEntry } from "@/api/types"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
+
+function extractMermaidCode(children: ReactNode): string | null {
+  if (!isValidElement(children)) return null
+  const props = children.props as { className?: string; children?: ReactNode }
+  if (!/(?:^|\s)language-mermaid(?:\s|$)/.test(props.className ?? "")) return null
+  const text = typeof props.children === "string"
+    ? props.children
+    : Array.isArray(props.children)
+      ? props.children.filter((c) => typeof c === "string").join("")
+      : ""
+  return text.replace(/\n$/, "")
+}
+
+const markdownComponents: Components = {
+  pre(props) {
+    const code = extractMermaidCode(props.children)
+    if (code !== null) return <MermaidDiagram code={code} />
+    return <pre {...props} />
+  },
+  img({ src, alt, title }) {
+    if (typeof src !== "string" || !src) return null
+    return <ExpandableImage src={src} alt={alt} title={title} />
+  },
+}
 
 interface MarkdownViewerProps {
   content: string
@@ -152,8 +178,8 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
         className="flex-1 overflow-auto px-6 py-8 lg:px-12"
         onMouseUp={handleMouseUp}
       >
-        <div className="prose prose-neutral dark:prose-invert prose-sm max-w-none leading-relaxed prose-headings:scroll-mt-8 prose-pre:bg-muted/60 prose-pre:border prose-pre:border-border">
-          <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+        <div className="prose prose-neutral dark:prose-invert prose-sm max-w-none leading-relaxed prose-headings:scroll-mt-8 prose-pre:bg-muted/60 prose-pre:text-foreground prose-pre:border prose-pre:border-border">
+          <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</Markdown>
         </div>
       </div>
 

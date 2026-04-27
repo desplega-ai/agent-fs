@@ -118,6 +118,19 @@ export function SearchBar() {
         e.currentTarget.blur()
         return
       }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        // While typing in Files-mode search, ↓/↑ jump focus into the filtered
+        // tree so the user can step through matches without grabbing the
+        // mouse. The tree's own handler then takes over.
+        if (tab !== "files") return
+        const sidebar = e.currentTarget.closest("aside") ?? document
+        const buttons = sidebar.querySelectorAll<HTMLButtonElement>("[data-tree-path]")
+        if (buttons.length === 0) return
+        e.preventDefault()
+        const target = e.key === "ArrowDown" ? buttons[0] : buttons[buttons.length - 1]
+        target?.focus()
+        return
+      }
       if (e.key === "Enter") {
         e.preventDefault()
         if (e.metaKey || e.ctrlKey) {
@@ -130,7 +143,7 @@ export function SearchBar() {
         }
       }
     },
-    [openSearchModal, query],
+    [openSearchModal, query, tab],
   )
 
   return (

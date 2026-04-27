@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/auth"
 import { FileTreeNode } from "./FileTreeNode"
 import { treeExpansionStore, useFocusedPath } from "@/stores/tree-expansion"
 import { useFileSearch } from "@/stores/file-search"
+import { useSearchInput } from "@/contexts/search-input"
 import type { LsResult } from "@/api/types"
 
 export function FileTree() {
@@ -12,6 +13,7 @@ export function FileTree() {
   const containerRef = useRef<HTMLDivElement>(null)
   const focusedPath = useFocusedPath()
   const filter = useFileSearch()
+  const { focus: focusSearchInput } = useSearchInput()
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["ls", orgId, driveId, ""],
@@ -85,7 +87,13 @@ export function FileTree() {
         }
         case "ArrowUp": {
           e.preventDefault()
-          const prev = paths[Math.max(0, safeIdx - 1)]
+          if (safeIdx === 0) {
+            // At the top of the tree — return focus to the search input so
+            // ↑ can escape back out of the results.
+            focusSearchInput()
+            return
+          }
+          const prev = paths[safeIdx - 1]
           if (prev) focusByPath(prev)
           return
         }
@@ -121,7 +129,7 @@ export function FileTree() {
         }
       }
     },
-    [collectVisible, focusByPath, focusedPath],
+    [collectVisible, focusByPath, focusedPath, focusSearchInput],
   )
 
   if (isLoading) {

@@ -46,6 +46,48 @@ export async function downloadFile(
   }
 }
 
+/**
+ * Trigger a download for an in-memory Blob (e.g. SVG generated client-side).
+ */
+export function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob)
+  try {
+    triggerAnchorDownload(url, filename, false)
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+}
+
+/**
+ * Trigger a download for an arbitrary URL. Tries `<a download>` first; if the
+ * browser ignores `download` (typical for cross-origin), fetches and re-saves
+ * as a Blob so the user still gets a save-as instead of a navigate.
+ */
+export async function downloadUrl(url: string, filename: string): Promise<void> {
+  // Same-origin and most blob: / data: URLs honor `download` directly.
+  if (url.startsWith("blob:") || url.startsWith("data:") || isSameOrigin(url)) {
+    triggerAnchorDownload(url, filename, false)
+    return
+  }
+  try {
+    const res = await fetch(url, { mode: "cors" })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const blob = await res.blob()
+    downloadBlob(blob, filename)
+  } catch {
+    // Last resort: open in new tab so the user can save manually.
+    triggerAnchorDownload(url, filename, true)
+  }
+}
+
+function isSameOrigin(url: string): boolean {
+  try {
+    return new URL(url, window.location.href).origin === window.location.origin
+  } catch {
+    return false
+  }
+}
+
 function triggerAnchorDownload(href: string, filename: string, newWindow: boolean): void {
   const a = document.createElement("a")
   a.href = href
