@@ -15,8 +15,8 @@ export function DriveSwitcher() {
 
   if (drives.length <= 1) {
     return (
-      <span className="flex items-center gap-1 rounded-md px-1.5 py-0.5 shrink-0">
-        <HardDrive className="size-3.5" />
+      <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[10px] px-2 text-xs">
+        <HardDrive className="size-3" />
         <span className="font-medium text-foreground">{driveName || driveId.slice(0, 8)}</span>
         <span className="text-[11px] text-muted-foreground">({drives.length})</span>
       </span>
@@ -27,7 +27,7 @@ export function DriveSwitcher() {
     <DropdownMenu>
       <DropdownMenuTrigger>
         <Button variant="ghost" size="xs" className="gap-1 text-foreground">
-          <HardDrive className="size-3.5" />
+          <HardDrive className="size-3" />
           <span className="font-medium">{driveName || driveId.slice(0, 8)}</span>
           <span className="text-[11px] text-muted-foreground">({drives.length})</span>
         </Button>

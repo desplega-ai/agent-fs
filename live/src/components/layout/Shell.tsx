@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Menu, X, PanelLeftOpen } from "lucide-react"
-import type { Layout, PanelSize } from "react-resizable-panels"
+import type { PanelSize } from "react-resizable-panels"
 import {
   ResizablePanelGroup,
   ResizablePanel,
@@ -33,14 +33,12 @@ export function Shell({ sidebar, children }: ShellProps) {
     tree.setWidth(Math.round(panelSize.inPixels))
   }
 
-  // Compose initial percentages for the Group's defaultLayout. The library
-  // rebalances at runtime based on container width; we feed the persisted
-  // width as a reasonable starting point.
-  const initialLayout: Layout | undefined = (() => {
-    const vp = typeof window !== "undefined" ? window.innerWidth : 1280
-    const pct = Math.min(40, Math.max(10, (tree.width / Math.max(vp, 1)) * 100))
-    return { left: pct, main: 100 - pct }
-  })()
+  // Initial panel size as a percentage of viewport. The persisted width
+  // (clamped to [min, max]) is converted to a percentage relative to the
+  // current viewport. v4 of react-resizable-panels respects Panel-level
+  // `defaultSize` over Group-level `defaultLayout`.
+  const vp = typeof window !== "undefined" ? window.innerWidth : 1400
+  const leftDefaultSize = Math.min(35, Math.max(15, (tree.width / Math.max(vp, 1)) * 100))
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -73,13 +71,14 @@ export function Shell({ sidebar, children }: ShellProps) {
 
       {/* Desktop: resizable two-pane shell */}
       <div className="hidden lg:flex flex-1 min-w-0">
-        <ResizablePanelGroup direction="horizontal" defaultLayout={initialLayout}>
+        <ResizablePanelGroup direction="horizontal">
           {tree.open ? (
             <>
               <ResizablePanel
                 id="left"
-                minSize={10}
-                maxSize={40}
+                defaultSize={leftDefaultSize}
+                minSize={15}
+                maxSize={35}
                 collapsible
                 collapsedSize={0}
                 onResize={handleLeftResize}
@@ -91,7 +90,7 @@ export function Shell({ sidebar, children }: ShellProps) {
           ) : (
             <SidebarCollapsedRail onOpen={() => tree.setOpen(true)} />
           )}
-          <ResizablePanel id="main" minSize={40}>
+          <ResizablePanel id="main" minSize={50}>
             <div className="flex h-full flex-1 flex-col min-w-0">
               <TopBar />
               <PathBreadcrumb />
