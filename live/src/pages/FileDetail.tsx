@@ -75,9 +75,10 @@ export function FileDetailPage() {
   return (
     <MainWithComments filePath={filePath} onCommentClick={handleCommentClick} showCommentsHeader>
       <div className="flex h-full flex-col min-w-0">
-        {/* Sub-header: filename + meta + toolbar */}
-        <div className="flex border-b border-border">
-          <div className="flex-1 min-w-0 px-4 py-2 flex items-center gap-3">
+        {/* Sub-header: filename + meta + toolbar (fixed h-10 to align its
+            bottom border with the comments rail header). */}
+        <div className="flex h-10 items-center border-b border-border shrink-0">
+          <div className="flex-1 min-w-0 px-4 flex items-center gap-3">
             <span className="text-sm font-medium truncate">{filename}</span>
             {stat && (
               <span className="hidden sm:inline-flex items-center gap-1 text-xs text-muted-foreground shrink-0">
