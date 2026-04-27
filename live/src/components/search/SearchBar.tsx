@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Search, X } from "lucide-react"
+import { Search, X, PanelLeftClose } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,6 +11,7 @@ import { SearchModeToggle, type SearchTab } from "./SearchModeToggle"
 import { SearchModal } from "./SearchModal"
 import { useGlobSearch } from "@/hooks/use-glob-search"
 import { useSearchInput } from "@/contexts/search-input"
+import { uiChromeStore } from "@/stores/ui-chrome"
 import {
   setSearchLoading,
   setSearchResults,
@@ -135,43 +136,62 @@ export function SearchBar() {
   return (
     <>
       <div className="flex min-h-[72px] flex-col justify-center gap-2 border-b border-sidebar-border px-3 py-2">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <Input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              setIsSearching(true)
-            }}
-            onFocus={() => setIsSearching(true)}
-            onBlur={() => {
-              // If user focused the input but never typed, hide the toggle
-              // again on blur so the sidebar isn't permanently widened.
-              if (!query) setIsSearching(false)
-            }}
-            onKeyDown={handleInputKeyDown}
-            placeholder="Search... ⌘K"
-            className="pl-8 pr-8"
-          />
-          {query && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={handleClear}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
-                    aria-label="Clear search"
-                  >
-                    <X />
-                  </Button>
-                }
-              />
-              <TooltipContent>Clear search</TooltipContent>
-            </Tooltip>
-          )}
+        <div className="flex items-center gap-1">
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <Input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value)
+                setIsSearching(true)
+              }}
+              onFocus={() => setIsSearching(true)}
+              onBlur={() => {
+                if (!query) setIsSearching(false)
+              }}
+              onKeyDown={handleInputKeyDown}
+              placeholder="Search... ⌘K"
+              className="pl-8 pr-8"
+            />
+            {query && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={handleClear}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground"
+                      aria-label="Clear search"
+                    >
+                      <X />
+                    </Button>
+                  }
+                />
+                <TooltipContent>Clear search</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => uiChromeStore.setLeft(false)}
+                  className="text-muted-foreground"
+                  aria-label="Collapse sidebar"
+                >
+                  <PanelLeftClose />
+                </Button>
+              }
+            />
+            <TooltipContent side="bottom">
+              Collapse sidebar{" "}
+              <kbd className="ml-1 px-1 text-[10px]">[</kbd>
+            </TooltipContent>
+          </Tooltip>
         </div>
         {isSearching && (
           <SearchModeToggle

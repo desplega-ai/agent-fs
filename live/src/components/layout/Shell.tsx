@@ -42,10 +42,16 @@ function ShellInner({ sidebar, children }: ShellProps) {
   const { selectFile } = useBrowser()
 
   // Register the left-sidebar toggle into the UI chrome store so the shortcut
-  // hook (mounted here) and any other component can flip it.
+  // hook (mounted here) and any other component can flip it. Also register
+  // setOpen for explicit collapse/uncollapse (FileDetail auto-collapses on
+  // mount via this).
   useEffect(() => {
     uiChromeStore.registerLeftToggle(() => tree.toggle())
-    return () => uiChromeStore.registerLeftToggle(null)
+    uiChromeStore.registerLeftSetOpen((open) => tree.setOpen(open))
+    return () => {
+      uiChromeStore.registerLeftToggle(null)
+      uiChromeStore.registerLeftSetOpen(null)
+    }
   }, [tree])
 
   // Global keyboard shortcuts. The right sidebar toggle is registered by

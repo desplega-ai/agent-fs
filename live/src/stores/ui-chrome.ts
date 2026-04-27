@@ -13,10 +13,13 @@ import { useSyncExternalStore } from "react"
 type Listener = () => void
 
 type Toggle = () => void
+type SetOpen = (open: boolean) => void
 
 class UIChromeStore {
   private leftToggle: Toggle | null = null
+  private leftSetOpen: SetOpen | null = null
   private rightToggle: Toggle | null = null
+  private rightSetOpen: SetOpen | null = null
   private helpOpen = false
   private listeners = new Set<Listener>()
 
@@ -29,8 +32,18 @@ class UIChromeStore {
     this.emit()
   }
 
+  registerLeftSetOpen(fn: SetOpen | null) {
+    this.leftSetOpen = fn
+    this.emit()
+  }
+
   registerRightToggle(fn: Toggle | null) {
     this.rightToggle = fn
+    this.emit()
+  }
+
+  registerRightSetOpen(fn: SetOpen | null) {
+    this.rightSetOpen = fn
     this.emit()
   }
 
@@ -38,8 +51,16 @@ class UIChromeStore {
     this.leftToggle?.()
   }
 
+  setLeft(open: boolean) {
+    this.leftSetOpen?.(open)
+  }
+
   toggleRight() {
     this.rightToggle?.()
+  }
+
+  setRight(open: boolean) {
+    this.rightSetOpen?.(open)
   }
 
   isHelpOpen() {
@@ -64,9 +85,13 @@ const store = new UIChromeStore()
 
 export const uiChromeStore = {
   registerLeftToggle: (fn: Toggle | null) => store.registerLeftToggle(fn),
+  registerLeftSetOpen: (fn: SetOpen | null) => store.registerLeftSetOpen(fn),
   registerRightToggle: (fn: Toggle | null) => store.registerRightToggle(fn),
+  registerRightSetOpen: (fn: SetOpen | null) => store.registerRightSetOpen(fn),
   toggleLeft: () => store.toggleLeft(),
+  setLeft: (open: boolean) => store.setLeft(open),
   toggleRight: () => store.toggleRight(),
+  setRight: (open: boolean) => store.setRight(open),
   setHelpOpen: (open: boolean) => store.setHelpOpen(open),
   isHelpOpen: () => store.isHelpOpen(),
 }

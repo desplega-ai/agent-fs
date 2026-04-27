@@ -14,6 +14,7 @@ import {
 import { useFileStat } from "@/hooks/use-file-stat"
 import { useAuth } from "@/contexts/auth"
 import { downloadFile } from "@/lib/download"
+import { uiChromeStore } from "@/stores/ui-chrome"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 
 export function FileDetailPage() {
@@ -42,6 +43,13 @@ export function FileDetailPage() {
     document.title = `${filename} — agent-fs`
     return () => { document.title = "agent-fs" }
   }, [filename])
+
+  // Detail view is reading-first: auto-collapse the file tree on mount so
+  // the user gets the full reading width. Collapse runs in a microtask so
+  // the Shell registers its setLeftOpen handler first.
+  useEffect(() => {
+    queueMicrotask(() => uiChromeStore.setLeft(false))
+  }, [])
 
   const handleCopyName = async () => {
     try {
