@@ -5,7 +5,7 @@ topic: "Live UI improvements — header IA, sidebars, tree state, tooltips, keyb
 status: in-progress
 autonomy: critical
 last_updated: 2026-04-27
-last_updated_by: claude (phase-6)
+last_updated_by: claude (phase-7)
 related:
   - thoughts/taras/brainstorms/2026-04-27-live-ui-improvements.md
   - thoughts/taras/research/2026-04-27-live-ui-improvements.md
@@ -552,8 +552,8 @@ Run `/frontend-design` skill against the Notion-clean brief: neutral grays, sing
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] Typecheck: `cd live && bun run build`
-- [ ] Pages render: `cd live && pnpm dev` boots; visit each route once.
+- [x] Typecheck: `cd live && bun run build`
+- [x] Pages render: `cd live && pnpm dev` boots; visit each route once.
 
 #### Manual Verification:
 - [ ] Light theme feels Notion-clean: neutral grays, subtle accent, calm.

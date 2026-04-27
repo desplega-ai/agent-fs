@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { useNavigate } from "react-router"
 import { useQuery } from "@tanstack/react-query"
-import { FolderOpen } from "lucide-react"
+import { FolderOpen, FilePlus } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
 import { Spinner } from "@/components/ui/spinner"
@@ -98,9 +98,16 @@ export function FolderView({ path }: FolderViewProps) {
             Failed to load folder: {(error as Error).message}
           </p>
         ) : sorted.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-            <FolderOpen className="size-10 opacity-30" />
-            <p className="text-sm">This folder is empty.</p>
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
+            <FilePlus className="size-8 text-muted-foreground/60" strokeWidth={1.5} />
+            <div className="space-y-1">
+              <p className="text-sm font-medium">
+                {currentPath ? "This folder is empty" : "This drive is empty"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Files added here will appear automatically.
+              </p>
+            </div>
           </div>
         ) : mode === "grid" ? (
           <GridView

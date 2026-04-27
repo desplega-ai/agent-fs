@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
+import { FolderOpen } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { FileTreeNode } from "./FileTreeNode"
 import { treeExpansionStore, useFocusedPath } from "@/stores/tree-expansion"
@@ -141,7 +142,15 @@ export function FileTree() {
 
   if (!data || data.entries.length === 0) {
     return (
-      <p className="p-3 text-sm text-muted-foreground">No files yet</p>
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
+        <FolderOpen className="size-8 text-muted-foreground/60" strokeWidth={1.5} />
+        <div className="space-y-1">
+          <p className="text-sm font-medium">No files yet</p>
+          <p className="text-xs text-muted-foreground">
+            Files in this drive will appear here.
+          </p>
+        </div>
+      </div>
     )
   }
 
