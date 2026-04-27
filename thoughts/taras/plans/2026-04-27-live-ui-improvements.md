@@ -5,7 +5,7 @@ topic: "Live UI improvements — header IA, sidebars, tree state, tooltips, keyb
 status: in-progress
 autonomy: critical
 last_updated: 2026-04-27
-last_updated_by: claude (phase-7)
+last_updated_by: claude (phase-8)
 related:
   - thoughts/taras/brainstorms/2026-04-27-live-ui-improvements.md
   - thoughts/taras/research/2026-04-27-live-ui-improvements.md
@@ -603,9 +603,9 @@ Below `lg:` (1024 px), both sidebars become slide-in `Sheet` drawers; main conte
 ### Success Criteria
 
 #### Automated Verification:
-- [ ] Typecheck: `cd live && bun run build`
-- [ ] No `MobileCommentToggle` inline JSX left in FileBrowser: `grep -n "MobileCommentToggle\|fixed bottom" live/src/pages/FileBrowser.tsx`
-- [ ] Viewport-switched class present: `grep -n "hidden lg:" live/src/components/`
+- [x] Typecheck: `cd live && bun run build`
+- [x] No `MobileCommentToggle` inline JSX left in FileBrowser: `grep -n "MobileCommentToggle\|fixed bottom" live/src/pages/FileBrowser.tsx`
+- [x] Viewport-switched class present: `grep -n "hidden lg:" live/src/components/`
 
 #### Manual Verification:
 - [ ] Resize browser to 800 px → both sidebars hidden; hamburger + comments icons in header.

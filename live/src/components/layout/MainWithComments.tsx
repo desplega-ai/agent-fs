@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react"
-import { MessageSquare, X, PanelRightOpen } from "lucide-react"
+import { MessageSquare, PanelRightOpen } from "lucide-react"
 import type { Layout, PanelSize } from "react-resizable-panels"
 import {
   ResizablePanelGroup,
@@ -11,6 +11,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { CommentSidebar } from "@/components/comments/CommentSidebar"
 import { useComments } from "@/hooks/use-comments"
 import { useResizableSidebar } from "@/hooks/use-resizable-sidebar"
@@ -81,7 +87,7 @@ export function MainWithComments({
           </ResizablePanel>
           {comments.open ? (
             <>
-              <ResizableHandle />
+              <ResizableHandle className="hidden lg:flex" />
               <ResizablePanel
                 id="comments"
                 minSize={15}
@@ -105,14 +111,14 @@ export function MainWithComments({
         </ResizablePanelGroup>
       </div>
 
-      {/* Mobile / tablet: full-width content + floating toggle + drawer */}
+      {/* Mobile / tablet: full-width content + floating toggle + Sheet drawer */}
       <div className="lg:hidden flex flex-1 min-w-0">
         <div className="flex-1 min-w-0">{children}</div>
         <MobileCommentToggle
           path={filePath}
           open={mobileOpen}
           onToggle={() => setMobileOpen((v) => !v)}
-          onClose={() => setMobileOpen(false)}
+          onOpenChange={setMobileOpen}
           onCommentClick={onCommentClick}
         />
       </div>
@@ -148,13 +154,13 @@ function MobileCommentToggle({
   path,
   open,
   onToggle,
-  onClose,
+  onOpenChange,
   onCommentClick,
 }: {
   path: string
   open: boolean
   onToggle: () => void
-  onClose: () => void
+  onOpenChange: (open: boolean) => void
   onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
 }) {
   const { data: commentsData } = useComments(path)
@@ -170,7 +176,11 @@ function MobileCommentToggle({
                 size="icon"
                 variant="outline"
                 onClick={onToggle}
-                className={cn("rounded-full shadow-lg size-10")}
+                className={cn(
+                  "rounded-full shadow-lg",
+                  // Touch target ≥ 44×44 px on mobile
+                  "min-h-[44px] min-w-[44px]"
+                )}
                 aria-label="Toggle comments"
               >
                 <MessageSquare className="size-4" />
@@ -186,32 +196,30 @@ function MobileCommentToggle({
         </Tooltip>
       </div>
 
-      {open && (
-        <>
-          <div className="lg:hidden fixed inset-0 z-40 bg-black/50" onClick={onClose} />
-          <div className="lg:hidden fixed inset-y-0 right-0 z-50 w-80 max-w-[85vw] bg-background border-l border-border flex flex-col shadow-xl">
-            <div className="flex h-10 items-center justify-between border-b border-border px-3">
-              <span className="text-sm font-medium">
-                Comments
-                {commentCount > 0 && (
-                  <span className="ml-1.5 text-xs text-muted-foreground">({commentCount})</span>
-                )}
-              </span>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button variant="ghost" size="icon-xs" onClick={onClose} aria-label="Close comments">
-                      <X />
-                    </Button>
-                  }
-                />
-                <TooltipContent>Close comments</TooltipContent>
-              </Tooltip>
-            </div>
-            <CommentSidebar path={path} showHeader={false} onCommentClick={onCommentClick} />
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent
+          side="right"
+          className="lg:hidden p-0 bg-background flex flex-col"
+        >
+          <SheetHeader>
+            <SheetTitle>
+              Comments
+              {commentCount > 0 && (
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                  ({commentCount})
+                </span>
+              )}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <CommentSidebar
+              path={path}
+              showHeader={false}
+              onCommentClick={onCommentClick}
+            />
           </div>
-        </>
-      )}
+        </SheetContent>
+      </Sheet>
     </>
   )
 }

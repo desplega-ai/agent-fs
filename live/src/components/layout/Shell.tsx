@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Menu, X, PanelLeftOpen } from "lucide-react"
+import { Menu, PanelLeftOpen } from "lucide-react"
 import type { PanelSize } from "react-resizable-panels"
 import {
   ResizablePanelGroup,
@@ -11,6 +11,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Sidebar } from "./Sidebar"
 import { TopBar } from "./TopBar"
 import { PathBreadcrumb } from "@/components/PathBreadcrumb"
@@ -20,7 +21,6 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { SearchInputProvider, useSearchInput } from "@/contexts/search-input"
 import { uiChromeStore, useHelpOpen, useSetHelpOpen } from "@/stores/ui-chrome"
 import { useBrowser } from "@/contexts/browser"
-import { cn } from "@/lib/utils"
 
 interface ShellProps {
   sidebar?: React.ReactNode
@@ -99,39 +99,17 @@ function ShellInner({ sidebar, children }: ShellProps) {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Mobile slide-in sidebar */}
-      <div
-        className={cn(
-          "fixed inset-y-0 left-0 z-50 lg:hidden transition-transform duration-200 w-64",
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
-        )}
-      >
-        <div className="absolute right-2 top-2 z-10">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <button
-                  onClick={() => setMobileOpen(false)}
-                  className="rounded-md p-1 hover:bg-sidebar-accent transition-colors"
-                  aria-label="Close sidebar"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              }
-            />
-            <TooltipContent side="bottom">Close sidebar</TooltipContent>
-          </Tooltip>
-        </div>
-        <Sidebar>{sidebar}</Sidebar>
-      </div>
+      {/* Mobile drawer (left): base-ui Dialog under Sheet primitive. */}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent
+          side="left"
+          className="lg:hidden p-0 bg-sidebar"
+          aria-label="Sidebar"
+          showCloseButton={false}
+        >
+          <Sidebar>{sidebar}</Sidebar>
+        </SheetContent>
+      </Sheet>
 
       {/* Desktop: resizable two-pane shell */}
       <div className="hidden lg:flex flex-1 min-w-0">
@@ -149,7 +127,7 @@ function ShellInner({ sidebar, children }: ShellProps) {
               >
                 <Sidebar>{sidebar}</Sidebar>
               </ResizablePanel>
-              <ResizableHandle />
+              <ResizableHandle className="hidden lg:flex" />
             </>
           ) : (
             <SidebarCollapsedRail onOpen={() => tree.setOpen(true)} />
@@ -173,7 +151,7 @@ function ShellInner({ sidebar, children }: ShellProps) {
                 render={
                   <button
                     onClick={() => setMobileOpen(true)}
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-accent transition-colors"
+                    className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md text-muted-foreground hover:bg-accent transition-colors"
                     aria-label="Open sidebar"
                   >
                     <Menu className="h-4 w-4" />
