@@ -66,7 +66,7 @@ export function MainWithComments({
           handle. Drops the ResizablePanelGroup which produced unreliable
           widths on wide viewports. */}
       <div className="hidden lg:flex flex-1 min-w-0">
-        <div className="flex flex-1 min-w-0">{children}</div>
+        <div className="flex-1 min-w-0 overflow-hidden">{children}</div>
         {comments.open ? (
           <>
             <CommentsDragHandle

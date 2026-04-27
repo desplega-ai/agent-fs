@@ -146,7 +146,7 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
               onClick={handleClick}
               onFocus={() => setFocusedPath(fullPath)}
               className={cn(
-                "flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-sm hover:bg-sidebar-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
+                "flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-left text-sm hover:bg-sidebar-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
                 isSelected &&
                   "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
               )}

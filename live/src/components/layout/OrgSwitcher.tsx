@@ -7,31 +7,55 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 
 export function OrgSwitcher() {
   const { orgs, orgId, orgName, setOrgId } = useAuth()
   const { selectFile } = useBrowser()
+  const displayName = orgName || orgId?.slice(0, 8) || "..."
 
   if (orgs.length <= 1) {
     return (
-      <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[10px] px-2 text-xs">
-        <Building2 className="size-3" />
-        <span className="font-medium text-foreground">{orgName || orgId?.slice(0, 8) || "..."}</span>
-        <span className="text-[11px] text-muted-foreground">({orgs.length})</span>
-      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[10px] px-2 text-xs">
+              <Building2 className="size-3 shrink-0" />
+              <span className="hidden sm:inline font-medium text-foreground">{displayName}</span>
+              <span className="hidden sm:inline text-[11px] text-muted-foreground">({orgs.length})</span>
+            </span>
+          }
+        />
+        <TooltipContent side="bottom">{displayName}</TooltipContent>
+      </Tooltip>
     )
   }
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger>
-        <Button variant="ghost" size="xs" className="gap-1 text-foreground">
-          <Building2 className="size-3" />
-          <span className="font-medium">{orgName || orgId?.slice(0, 8) || "..."}</span>
-          <span className="text-[11px] text-muted-foreground">({orgs.length})</span>
-        </Button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={
+                <Button variant="ghost" size="xs" className="gap-1 text-foreground">
+                  <Building2 className="size-3 shrink-0" />
+                  <span className="hidden sm:inline font-medium">{displayName}</span>
+                  <span className="hidden sm:inline text-[11px] text-muted-foreground">({orgs.length})</span>
+                </Button>
+              }
+            />
+          }
+        />
+        <TooltipContent side="bottom">
+          {displayName} <span className="text-muted-foreground">({orgs.length} orgs)</span>
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="start">
         {orgs.map((org) => (
           <DropdownMenuItem

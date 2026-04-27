@@ -78,7 +78,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   if (isImg) {
     return (
-      <div className={cn("flex flex-col h-full", className)}>
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
         {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <ImageViewer path={path} className="flex-1" />
       </div>
@@ -87,7 +87,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   if (isPdf(path)) {
     return (
-      <div className={cn("flex flex-col h-full", className)}>
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
         {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <PdfViewer path={path} className="flex-1" />
       </div>
@@ -110,7 +110,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   if (!textable) {
     return (
-      <div className={cn("flex flex-col h-full", className)}>
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
         {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <FallbackViewer path={path} className="flex-1" />
       </div>
@@ -121,7 +121,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   const viewingRaw = isMd ? showRaw : true
 
   return (
-    <div className={cn("flex flex-col h-full", className)}>
+    <div className={cn("flex flex-col h-full min-w-0", className)}>
       {showHeader && (
         <ViewerHeader
           path={path}

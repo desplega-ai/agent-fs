@@ -7,31 +7,55 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 
 export function DriveSwitcher() {
   const { drives, driveId, driveName, setDriveId } = useAuth()
   const { selectFile } = useBrowser()
+  const displayName = driveName || driveId.slice(0, 8)
 
   if (drives.length <= 1) {
     return (
-      <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[10px] px-2 text-xs">
-        <HardDrive className="size-3" />
-        <span className="font-medium text-foreground">{driveName || driveId.slice(0, 8)}</span>
-        <span className="text-[11px] text-muted-foreground">({drives.length})</span>
-      </span>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[10px] px-2 text-xs">
+              <HardDrive className="size-3 shrink-0" />
+              <span className="hidden sm:inline font-medium text-foreground">{displayName}</span>
+              <span className="hidden sm:inline text-[11px] text-muted-foreground">({drives.length})</span>
+            </span>
+          }
+        />
+        <TooltipContent side="bottom">{displayName}</TooltipContent>
+      </Tooltip>
     )
   }
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger>
-        <Button variant="ghost" size="xs" className="gap-1 text-foreground">
-          <HardDrive className="size-3" />
-          <span className="font-medium">{driveName || driveId.slice(0, 8)}</span>
-          <span className="text-[11px] text-muted-foreground">({drives.length})</span>
-        </Button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <DropdownMenuTrigger
+              render={
+                <Button variant="ghost" size="xs" className="gap-1 text-foreground">
+                  <HardDrive className="size-3 shrink-0" />
+                  <span className="hidden sm:inline font-medium">{displayName}</span>
+                  <span className="hidden sm:inline text-[11px] text-muted-foreground">({drives.length})</span>
+                </Button>
+              }
+            />
+          }
+        />
+        <TooltipContent side="bottom">
+          {displayName} <span className="text-muted-foreground">({drives.length} drives)</span>
+        </TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="start">
         {drives.map((drive) => (
           <DropdownMenuItem

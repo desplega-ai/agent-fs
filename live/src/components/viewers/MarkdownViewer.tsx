@@ -152,7 +152,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
         className="flex-1 overflow-auto px-6 py-8 lg:px-12"
         onMouseUp={handleMouseUp}
       >
-        <div className="prose prose-neutral dark:prose-invert prose-sm mx-auto max-w-[72ch] leading-relaxed prose-headings:scroll-mt-8 prose-pre:bg-muted/60 prose-pre:border prose-pre:border-border">
+        <div className="prose prose-neutral dark:prose-invert prose-sm max-w-none leading-relaxed prose-headings:scroll-mt-8 prose-pre:bg-muted/60 prose-pre:border prose-pre:border-border">
           <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
         </div>
       </div>

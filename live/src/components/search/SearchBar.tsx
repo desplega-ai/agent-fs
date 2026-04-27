@@ -75,7 +75,7 @@ export function SearchBar() {
 
   return (
     <>
-      <div className="border-b border-sidebar-border px-3 py-2 space-y-2">
+      <div className="flex min-h-[72px] flex-col justify-center gap-2 border-b border-sidebar-border px-3 py-2">
         <div className="relative">
           <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <Input
