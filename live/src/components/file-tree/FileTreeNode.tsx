@@ -18,6 +18,7 @@ import {
   useFocusedPath,
   useSetFocusedPath,
 } from "@/stores/tree-expansion"
+import { useFileSearch, isPathVisible, hasMatchingDescendant } from "@/stores/file-search"
 import { MiddleEllipsis } from "@/lib/middle-ellipsis"
 import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"
 import { glyphFor } from "@/lib/file-glyphs"
@@ -50,8 +51,16 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
   const fullPath = path ? `${path}/${entry.name}` : entry.name
   const isDir = entry.type === "directory"
   const isSelected = selectedFile === fullPath
-  const expanded = useExpanded(fullPath)
+  const userExpanded = useExpanded(fullPath)
   const toggleExpanded = useToggleExpanded()
+  // When the in-tree search filter is active, hide nodes outside the match
+  // path and force-expand folders that contain matching descendants. Subscribe
+  // to the store so re-renders fire on every keystroke.
+  const filter = useFileSearch()
+  const filterActive = filter.query.length > 0
+  const visible = isPathVisible(fullPath)
+  const expandedByFilter = filterActive && isDir && hasMatchingDescendant(fullPath)
+  const expanded = userExpanded || expandedByFilter
   const focusedPath = useFocusedPath()
   const setFocusedPath = useSetFocusedPath()
   const isFocused = focusedPath === fullPath
@@ -69,12 +78,17 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
 
   const handleClick = () => {
     if (isDir) {
-      toggleExpanded(fullPath)
+      // While the filter is force-expanding this folder, treat the click as
+      // a no-op for expansion (the user can't really "collapse" a filter
+      // expansion); just move focus.
+      if (!expandedByFilter) toggleExpanded(fullPath)
     } else {
       selectFile(fullPath)
     }
     setFocusedPath(fullPath)
   }
+
+  if (filterActive && !visible) return null
 
   const deepLink =
     orgId && driveId

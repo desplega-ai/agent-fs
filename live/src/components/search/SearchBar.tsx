@@ -14,6 +14,7 @@ import { useSemanticSearch } from "@/hooks/use-semantic-search"
 import { useGlobSearch } from "@/hooks/use-glob-search"
 import { useHybridSearch } from "@/hooks/use-hybrid-search"
 import { useSearchInput } from "@/contexts/search-input"
+import { setSearchFilter, clearSearchFilter } from "@/stores/file-search"
 
 export function SearchBar() {
   const [query, setQuery] = useState("")
@@ -43,6 +44,22 @@ export function SearchBar() {
   const hybridResult = useHybridSearch(isSearch && searchType === "hybrid" ? debouncedQuery : "")
   const ftsResult = useFtsSearch(isSearch && searchType === "fulltext" ? debouncedQuery : "")
   const semanticResult = useSemanticSearch(isSearch && searchType === "semantic" ? debouncedQuery : "")
+
+  // Files tab: populate the in-tree filter so the existing FileTree filters
+  // in place rather than showing a separate flat results pane.
+  useEffect(() => {
+    if (tab !== "files") {
+      clearSearchFilter()
+      return
+    }
+    const matches = (globResult.data?.matches ?? []).map((m) => m.path)
+    setSearchFilter(debouncedQuery, matches)
+  }, [tab, debouncedQuery, globResult.data])
+
+  // Always clear the filter on unmount so the tree returns to normal.
+  useEffect(() => {
+    return () => clearSearchFilter()
+  }, [])
 
   const results = (() => {
     if (tab === "files") {
@@ -118,7 +135,10 @@ export function SearchBar() {
         )}
       </div>
 
-      {isSearching && debouncedQuery && (
+      {/* Only the full-text Search tab uses the separate results pane.
+          The Files tab filters the live tree in place via the file-search
+          store, so the user keeps folder context. */}
+      {isSearching && debouncedQuery && tab === "search" && (
         <SearchResults results={results} isLoading={loading} onClear={handleClear} />
       )}
     </>
