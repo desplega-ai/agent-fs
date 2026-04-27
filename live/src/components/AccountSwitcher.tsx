@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router"
-import { ChevronDown, Plus, Check } from "lucide-react"
+import { ChevronDown, Plus, Check, User } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { getCredentials } from "@/stores/credentials"
 import {
@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
+import { Button } from "@/components/ui/button"
 
 export function AccountSwitcher() {
   const { credential, switchAccount, user } = useAuth()
@@ -17,17 +18,21 @@ export function AccountSwitcher() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-sm hover:bg-sidebar-accent transition-colors outline-none">
-        <div className="flex-1 min-w-0 text-left">
-          <p className="font-medium truncate">{credential.name}</p>
-          {user && (
-            <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
-          )}
-        </div>
-        <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+      <DropdownMenuTrigger>
+        <Button variant="ghost" size="xs" className="gap-1 text-foreground max-w-[10rem]">
+          <User className="size-3.5 text-muted-foreground" />
+          <span className="font-medium truncate">{credential.name}</span>
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+        </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="start" className="w-[var(--anchor-width)]">
+      <DropdownMenuContent align="end" className="min-w-[14rem]">
+        {user && (
+          <>
+            <div className="px-2 py-1.5 text-[11px] text-muted-foreground truncate">{user.email}</div>
+            <DropdownMenuSeparator />
+          </>
+        )}
         {allCredentials.map((cred) => (
           <DropdownMenuItem
             key={cred.id}

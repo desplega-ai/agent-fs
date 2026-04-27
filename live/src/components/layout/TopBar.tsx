@@ -13,14 +13,12 @@ export function TopBar({ leading }: { leading?: React.ReactNode }) {
         <DriveSwitcher />
       </div>
       <div className="flex-1" />
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
         <SearchHint />
         <HealthIndicator />
         <ThemeToggle />
-        <div className="w-px h-5 bg-border mx-1" aria-hidden />
-        <div className="min-w-0 max-w-[12rem]">
-          <AccountSwitcher />
-        </div>
+        <div className="w-px h-4 bg-border mx-1" aria-hidden />
+        <AccountSwitcher />
       </div>
     </header>
   )
@@ -28,7 +26,7 @@ export function TopBar({ leading }: { leading?: React.ReactNode }) {
 
 function SearchHint() {
   return (
-    <span className="hidden md:inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+    <span className="hidden md:inline-flex h-6 items-center gap-1 px-1.5 text-[11px] text-muted-foreground">
       <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd>
     </span>
   )
