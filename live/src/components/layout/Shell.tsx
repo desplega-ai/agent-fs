@@ -1,11 +1,5 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Menu, PanelLeftOpen } from "lucide-react"
-import type { PanelSize } from "react-resizable-panels"
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable"
 import {
   Tooltip,
   TooltipContent,
@@ -21,6 +15,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { SearchInputProvider, useSearchInput } from "@/contexts/search-input"
 import { uiChromeStore, useHelpOpen, useSetHelpOpen } from "@/stores/ui-chrome"
 import { useBrowser } from "@/contexts/browser"
+import { cn } from "@/lib/utils"
 
 interface ShellProps {
   sidebar?: React.ReactNode
@@ -86,17 +81,6 @@ function ShellInner({ sidebar, children }: ShellProps) {
     },
   })
 
-  const handleLeftResize = (panelSize: PanelSize) => {
-    tree.setWidth(Math.round(panelSize.inPixels))
-  }
-
-  // Initial panel size as a percentage of viewport. The persisted width
-  // (clamped to [min, max]) is converted to a percentage relative to the
-  // current viewport. v4 of react-resizable-panels respects Panel-level
-  // `defaultSize` over Group-level `defaultLayout`.
-  const vp = typeof window !== "undefined" ? window.innerWidth : 1400
-  const leftDefaultSize = Math.min(35, Math.max(18, (tree.width / Math.max(vp, 1)) * 100))
-
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Mobile drawer (left): base-ui Dialog under Sheet primitive. */}
@@ -111,35 +95,34 @@ function ShellInner({ sidebar, children }: ShellProps) {
         </SheetContent>
       </Sheet>
 
-      {/* Desktop: resizable two-pane shell */}
+      {/* Desktop: fixed-px sidebar + flex-1 main. Drop ResizablePanelGroup
+          for the outer shell — v4's percentage layout was producing tiny
+          sidebars on wide viewports. The sidebar uses an explicit pixel
+          width (persisted to liveui:tree) and is dragged via a custom
+          handle below. */}
       <div className="hidden lg:flex flex-1 min-w-0">
-        <ResizablePanelGroup direction="horizontal">
-          {tree.open ? (
-            <>
-              <ResizablePanel
-                id="left"
-                defaultSize={leftDefaultSize}
-                minSize={18}
-                maxSize={35}
-                collapsible
-                collapsedSize={0}
-                onResize={handleLeftResize}
-              >
-                <Sidebar>{sidebar}</Sidebar>
-              </ResizablePanel>
-              <ResizableHandle className="hidden lg:flex" />
-            </>
-          ) : (
-            <SidebarCollapsedRail onOpen={() => tree.setOpen(true)} />
-          )}
-          <ResizablePanel id="main" minSize={50}>
-            <div className="flex h-full flex-1 flex-col min-w-0">
-              <TopBar />
-              <PathBreadcrumb />
-              <main className="flex-1 overflow-hidden">{children}</main>
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+        {tree.open ? (
+          <>
+            <aside
+              className="shrink-0 h-full"
+              style={{ width: `${tree.width}px` }}
+            >
+              <Sidebar>{sidebar}</Sidebar>
+            </aside>
+            <DragHandle
+              orientation="vertical"
+              onDrag={(dx) => tree.setWidth(tree.width + dx)}
+              onCollapse={() => tree.setOpen(false)}
+            />
+          </>
+        ) : (
+          <SidebarCollapsedRail onOpen={() => tree.setOpen(true)} />
+        )}
+        <div className="flex flex-1 flex-col min-w-0">
+          <TopBar />
+          <PathBreadcrumb />
+          <main className="flex-1 overflow-hidden">{children}</main>
+        </div>
       </div>
 
       {/* Mobile single-column */}
@@ -168,6 +151,73 @@ function ShellInner({ sidebar, children }: ShellProps) {
 
       <HelpOverlay open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
+  )
+}
+
+/**
+ * A 1px draggable handle with a wider invisible hit area. `onDrag(dx)` is
+ * called with the cumulative delta from drag start each pointer move; the
+ * caller decides what to do with it. Vertical orientation = drags horizontally
+ * (used between left sidebar and main).
+ */
+function DragHandle({
+  orientation = "vertical",
+  onDrag,
+  onCollapse,
+  className,
+}: {
+  orientation?: "vertical" | "horizontal"
+  onDrag: (delta: number) => void
+  onCollapse?: () => void
+  className?: string
+}) {
+  const startRef = useRef<{ x: number; y: number } | null>(null)
+  const lastRef = useRef<{ x: number; y: number } | null>(null)
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    ;(e.target as Element).setPointerCapture?.(e.pointerId)
+    startRef.current = { x: e.clientX, y: e.clientY }
+    lastRef.current = { x: e.clientX, y: e.clientY }
+  }
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!startRef.current || !lastRef.current) return
+    const dx = orientation === "vertical" ? e.clientX - lastRef.current.x : e.clientY - lastRef.current.y
+    if (dx !== 0) {
+      onDrag(dx)
+      lastRef.current = { x: e.clientX, y: e.clientY }
+    }
+  }
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    ;(e.target as Element).releasePointerCapture?.(e.pointerId)
+    startRef.current = null
+    lastRef.current = null
+  }
+
+  const handleDoubleClick = () => {
+    onCollapse?.()
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation={orientation === "vertical" ? "vertical" : "horizontal"}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onDoubleClick={handleDoubleClick}
+      className={cn(
+        "relative shrink-0 bg-border transition-colors",
+        orientation === "vertical"
+          ? "w-px cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2"
+          : "h-px cursor-row-resize after:absolute after:inset-x-0 after:top-1/2 after:h-2 after:-translate-y-1/2",
+        "hover:bg-primary/40 active:bg-primary/60",
+        className,
+      )}
+    />
   )
 }
 

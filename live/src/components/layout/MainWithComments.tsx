@@ -1,11 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { MessageSquare, PanelRightOpen } from "lucide-react"
-import type { Layout, PanelSize } from "react-resizable-panels"
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable"
 import {
   Tooltip,
   TooltipContent,
@@ -36,7 +30,7 @@ interface MainWithCommentsProps {
 }
 
 const COMMENTS_KEY = "liveui:comments"
-const COMMENTS_DEFAULTS = { open: true, width: 320, min: 200, max: 600 }
+const COMMENTS_DEFAULTS = { open: true, width: 360, min: 240, max: 600 }
 
 /**
  * Shared layout for pages that show a main area + a right-side comments rail.
@@ -61,17 +55,6 @@ export function MainWithComments({
     return () => uiChromeStore.registerRightToggle(null)
   }, [filePath, comments])
 
-  const handleResize = (panelSize: PanelSize) => {
-    comments.setWidth(Math.round(panelSize.inPixels))
-  }
-
-  const initialLayout: Layout | undefined = (() => {
-    if (!filePath) return undefined
-    const vp = typeof window !== "undefined" ? window.innerWidth : 1280
-    const pct = Math.min(50, Math.max(15, (comments.width / Math.max(vp, 1)) * 100))
-    return { main: 100 - pct, comments: pct }
-  })()
-
   // No file selected — just render children full-width, no rail.
   if (!filePath) {
     return <div className="h-full">{children}</div>
@@ -79,36 +62,31 @@ export function MainWithComments({
 
   return (
     <div className="flex h-full">
-      {/* Desktop: resizable panel group */}
+      {/* Desktop: fixed-px comments rail + flex-1 main, dragged via custom
+          handle. Drops the ResizablePanelGroup which produced unreliable
+          widths on wide viewports. */}
       <div className="hidden lg:flex flex-1 min-w-0">
-        <ResizablePanelGroup direction="horizontal" defaultLayout={initialLayout}>
-          <ResizablePanel id="main" minSize={30}>
-            <div className="h-full min-w-0">{children}</div>
-          </ResizablePanel>
-          {comments.open ? (
-            <>
-              <ResizableHandle className="hidden lg:flex" />
-              <ResizablePanel
-                id="comments"
-                minSize={15}
-                maxSize={60}
-                collapsible
-                collapsedSize={0}
-                onResize={handleResize}
-              >
-                <div className="h-full border-l border-border">
-                  <CommentSidebar
-                    path={filePath}
-                    showHeader={showCommentsHeader}
-                    onCommentClick={onCommentClick}
-                  />
-                </div>
-              </ResizablePanel>
-            </>
-          ) : (
-            <CommentsCollapsedRail onOpen={() => comments.setOpen(true)} />
-          )}
-        </ResizablePanelGroup>
+        <div className="flex flex-1 min-w-0">{children}</div>
+        {comments.open ? (
+          <>
+            <CommentsDragHandle
+              onDrag={(dx) => comments.setWidth(comments.width - dx)}
+              onCollapse={() => comments.setOpen(false)}
+            />
+            <aside
+              className="shrink-0 h-full border-l border-border"
+              style={{ width: `${comments.width}px` }}
+            >
+              <CommentSidebar
+                path={filePath}
+                showHeader={showCommentsHeader}
+                onCommentClick={onCommentClick}
+              />
+            </aside>
+          </>
+        ) : (
+          <CommentsCollapsedRail onOpen={() => comments.setOpen(true)} />
+        )}
       </div>
 
       {/* Mobile / tablet: full-width content + floating toggle + Sheet drawer */}
@@ -123,6 +101,54 @@ export function MainWithComments({
         />
       </div>
     </div>
+  )
+}
+
+/**
+ * 1px column-resize handle for the comments rail. Drag left increases the
+ * rail width; drag right decreases it. Double-click collapses.
+ */
+function CommentsDragHandle({
+  onDrag,
+  onCollapse,
+}: {
+  onDrag: (delta: number) => void
+  onCollapse: () => void
+}) {
+  const lastRef = useRef<number | null>(null)
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      onPointerDown={(e) => {
+        e.preventDefault()
+        ;(e.target as Element).setPointerCapture?.(e.pointerId)
+        lastRef.current = e.clientX
+      }}
+      onPointerMove={(e) => {
+        if (lastRef.current == null) return
+        const dx = e.clientX - lastRef.current
+        if (dx !== 0) {
+          onDrag(dx)
+          lastRef.current = e.clientX
+        }
+      }}
+      onPointerUp={(e) => {
+        ;(e.target as Element).releasePointerCapture?.(e.pointerId)
+        lastRef.current = null
+      }}
+      onPointerCancel={(e) => {
+        ;(e.target as Element).releasePointerCapture?.(e.pointerId)
+        lastRef.current = null
+      }}
+      onDoubleClick={onCollapse}
+      className={cn(
+        "relative shrink-0 w-px cursor-col-resize bg-border transition-colors",
+        "after:absolute after:inset-y-0 after:left-1/2 after:w-2 after:-translate-x-1/2",
+        "hover:bg-primary/40 active:bg-primary/60",
+      )}
+    />
   )
 }
 
