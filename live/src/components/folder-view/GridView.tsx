@@ -1,6 +1,5 @@
 import { Folder } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { MiddleEllipsis } from "@/lib/middle-ellipsis"
 import { glyphFor } from "@/lib/file-glyphs"
 import type { LsEntry } from "@/api/types"
 
@@ -54,13 +53,11 @@ function GridTile({
       ) : glyph ? (
         <glyph.Icon className={cn("size-10 shrink-0", glyph.className)} />
       ) : null}
-      <span className="w-full min-w-0 text-center text-xs leading-tight">
-        <span
-          className="block break-words line-clamp-2"
-          title={entry.name}
-        >
-          <MiddleEllipsis text={entry.name} />
-        </span>
+      <span
+        className="w-full min-w-0 break-all text-center text-xs leading-tight line-clamp-2"
+        title={entry.name}
+      >
+        {entry.name}
       </span>
     </button>
   )

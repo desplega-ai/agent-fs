@@ -69,7 +69,7 @@ export function FileDetailPage() {
   const canDownload = !!orgId && !!driveId
   const handleDownload = () => {
     if (!canDownload) return
-    void downloadFile(client, orgId!, driveId!, filePath, filename)
+    void downloadFile(client, orgId!, driveId!, filePath, filename, { newWindow: true })
   }
 
   return (

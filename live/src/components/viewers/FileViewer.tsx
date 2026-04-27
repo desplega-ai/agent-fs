@@ -1,7 +1,8 @@
 import { useState, type MutableRefObject } from "react"
-import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check } from "lucide-react"
+import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download } from "lucide-react"
 import { useNavigate } from "react-router"
 import { useAuth } from "@/contexts/auth"
+import { downloadFile } from "@/lib/download"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
@@ -163,7 +164,7 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
   showRaw?: boolean
   onToggleRaw?: () => void
 }) {
-  const { orgId, driveId } = useAuth()
+  const { client, orgId, driveId } = useAuth()
   const [copiedPath, setCopiedPath] = useState(false)
   const [copiedUrl, setCopiedUrl] = useState(false)
   const filename = path.split("/").pop() ?? path
@@ -182,10 +183,24 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
     setTimeout(() => setCopiedUrl(false), 1500)
   }
 
+  const canDownload = !!orgId && !!driveId
+  const handleDownload = () => {
+    if (!canDownload) return
+    void downloadFile(client, orgId!, driveId!, path, filename, { newWindow: true })
+  }
+
   return (
     <div className="flex h-10 items-center justify-between border-b border-border px-4 shrink-0">
-      <div className="flex items-center gap-1 min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
         <span className="text-sm font-medium truncate">{filename}</span>
+        {commentCount > 0 && (
+          <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+            <MessageSquare className="size-3" />
+            {commentCount}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
         <Tooltip>
           <TooltipTrigger
             render={
@@ -193,10 +208,10 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
                 variant="ghost"
                 size="icon-xs"
                 onClick={handleCopyPath}
-                className="text-muted-foreground shrink-0"
+                className="text-muted-foreground"
                 aria-label="Copy path"
               >
-                {copiedPath ? <Check className="size-3" /> : <Copy className="size-3" />}
+                {copiedPath ? <Check /> : <Copy />}
               </Button>
             }
           />
@@ -210,24 +225,33 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
                   variant="ghost"
                   size="icon-xs"
                   onClick={handleCopyUrl}
-                  className="text-muted-foreground shrink-0"
-                  aria-label="Copy URL"
+                  className="text-muted-foreground"
+                  aria-label="Copy link"
                 >
-                  {copiedUrl ? <Check className="size-3" /> : <Link className="size-3" />}
+                  {copiedUrl ? <Check /> : <Link />}
                 </Button>
               }
             />
-            <TooltipContent>Copy URL</TooltipContent>
+            <TooltipContent>Copy link</TooltipContent>
           </Tooltip>
         )}
-      </div>
-      <div className="flex items-center gap-1">
-        {commentCount > 0 && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground mr-1">
-            <MessageSquare className="size-3" />
-            {commentCount}
-          </span>
-        )}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={handleDownload}
+                disabled={!canDownload}
+                className="text-muted-foreground"
+                aria-label="Download"
+              >
+                <Download />
+              </Button>
+            }
+          />
+          <TooltipContent>Download</TooltipContent>
+        </Tooltip>
         {isMd && onToggleRaw && (
           <Tooltip>
             <TooltipTrigger

@@ -21,13 +21,15 @@ export async function downloadFile(
   driveId: string,
   path: string,
   filename?: string,
+  options?: { newWindow?: boolean },
 ): Promise<void> {
   const inferredName = filename ?? path.split("/").filter(Boolean).pop() ?? "download"
+  const newWindow = options?.newWindow ?? false
 
   // Try signed URL first — preferred path; lets the browser stream binaries.
   try {
     const { url } = await client.getSignedUrl(orgId, driveId, path)
-    triggerAnchorDownload(url, inferredName)
+    triggerAnchorDownload(url, inferredName, newWindow)
     return
   } catch {
     // fall through to raw fetch
@@ -37,18 +39,19 @@ export async function downloadFile(
   const blob = await client.fetchRaw(orgId, driveId, path)
   const url = URL.createObjectURL(blob)
   try {
-    triggerAnchorDownload(url, inferredName)
+    triggerAnchorDownload(url, inferredName, newWindow)
   } finally {
     // Defer revoke slightly to give the browser a chance to start the download.
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 }
 
-function triggerAnchorDownload(href: string, filename: string): void {
+function triggerAnchorDownload(href: string, filename: string, newWindow: boolean): void {
   const a = document.createElement("a")
   a.href = href
   a.download = filename
   a.rel = "noopener"
+  if (newWindow) a.target = "_blank"
   document.body.appendChild(a)
   a.click()
   a.remove()

@@ -28,7 +28,7 @@ interface ShellProps {
 }
 
 const TREE_KEY = "liveui:tree"
-const TREE_DEFAULTS = { open: true, width: 256, min: 180, max: 480 }
+const TREE_DEFAULTS = { open: true, width: 288, min: 220, max: 480 }
 
 export function Shell({ sidebar, children }: ShellProps) {
   return (
@@ -95,7 +95,7 @@ function ShellInner({ sidebar, children }: ShellProps) {
   // current viewport. v4 of react-resizable-panels respects Panel-level
   // `defaultSize` over Group-level `defaultLayout`.
   const vp = typeof window !== "undefined" ? window.innerWidth : 1400
-  const leftDefaultSize = Math.min(35, Math.max(15, (tree.width / Math.max(vp, 1)) * 100))
+  const leftDefaultSize = Math.min(35, Math.max(18, (tree.width / Math.max(vp, 1)) * 100))
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -119,7 +119,7 @@ function ShellInner({ sidebar, children }: ShellProps) {
               <ResizablePanel
                 id="left"
                 defaultSize={leftDefaultSize}
-                minSize={15}
+                minSize={18}
                 maxSize={35}
                 collapsible
                 collapsedSize={0}

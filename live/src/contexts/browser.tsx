@@ -21,7 +21,17 @@ export function BrowserProvider({ children }: { children: ReactNode }) {
 
   const navigateToFolder = useCallback((path: string) => {
     setCurrentPath(path)
-  }, [])
+    setSelectedFile(null)
+    if (orgId && driveId) {
+      const clean = path.replace(/^\/+|\/+$/g, "")
+      const target = clean
+        ? `/file/~/${orgId}/${driveId}/${clean}/`
+        : `/file/~/${orgId}/${driveId}/`
+      navigate(target)
+    } else {
+      navigate("/files")
+    }
+  }, [navigate, orgId, driveId])
 
   const selectFile = useCallback((path: string | null) => {
     setSelectedFile(path)
