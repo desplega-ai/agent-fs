@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { MessageSquarePlus, MessageCircle, ChevronDown, ChevronRight } from "lucide-react"
+import { MessageSquarePlus, MessageCircle, ChevronDown, ChevronRight, PanelRightClose } from "lucide-react"
 import { useAllComments } from "@/hooks/use-comments"
 import { useAuth } from "@/contexts/auth"
 import { Button } from "@/components/ui/button"
@@ -16,9 +16,11 @@ interface CommentSidebarProps {
   path: string
   showHeader?: boolean
   onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
+  /** When provided, renders a collapse button in the header that calls this callback. */
+  onCollapse?: () => void
 }
 
-export function CommentSidebar({ path, showHeader = true, onCommentClick }: CommentSidebarProps) {
+export function CommentSidebar({ path, showHeader = true, onCommentClick, onCollapse }: CommentSidebarProps) {
   const { user } = useAuth()
   const { unresolvedComments, resolvedComments, isLoading } = useAllComments(path)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -35,26 +37,48 @@ export function CommentSidebar({ path, showHeader = true, onCommentClick }: Comm
               <span className="ml-1.5 text-xs text-muted-foreground">({unresolvedComments.length})</span>
             )}
           </span>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => setShowAddForm(!showAddForm)}
-                  className="text-muted-foreground"
-                  aria-label="Add comment"
-                >
-                  <MessageSquarePlus />
-                </Button>
-              }
-            />
-            <TooltipContent>Add comment</TooltipContent>
-          </Tooltip>
+          <div className="flex items-center gap-0.5">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => setShowAddForm(!showAddForm)}
+                    className="text-muted-foreground"
+                    aria-label="Add comment"
+                  >
+                    <MessageSquarePlus />
+                  </Button>
+                }
+              />
+              <TooltipContent>Add comment</TooltipContent>
+            </Tooltip>
+            {onCollapse && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={onCollapse}
+                      className="text-muted-foreground"
+                      aria-label="Collapse comments"
+                    >
+                      <PanelRightClose />
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  Collapse <kbd data-slot="kbd" className="ml-1 px-1 text-[10px]">]</kbd>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         </div>
       )}
       {!showHeader && (
-        <div className="flex justify-end px-3 py-1 shrink-0">
+        <div className="flex justify-end gap-0.5 px-3 py-1 shrink-0">
           <Tooltip>
             <TooltipTrigger
               render={
@@ -71,6 +95,24 @@ export function CommentSidebar({ path, showHeader = true, onCommentClick }: Comm
             />
             <TooltipContent>Add comment</TooltipContent>
           </Tooltip>
+          {onCollapse && (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={onCollapse}
+                    className="text-muted-foreground"
+                    aria-label="Collapse comments"
+                  >
+                    <PanelRightClose />
+                  </Button>
+                }
+              />
+              <TooltipContent>Collapse</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       )}
 

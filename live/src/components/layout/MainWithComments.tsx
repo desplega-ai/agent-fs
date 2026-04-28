@@ -81,6 +81,7 @@ export function MainWithComments({
                 path={filePath}
                 showHeader={showCommentsHeader}
                 onCommentClick={onCommentClick}
+                onCollapse={() => comments.setOpen(false)}
               />
             </aside>
           </>

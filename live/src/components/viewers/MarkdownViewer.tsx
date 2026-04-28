@@ -1,13 +1,20 @@
-import { useState, useRef, useCallback, useEffect, isValidElement, type MutableRefObject, type ReactNode } from "react"
+import { useState, useRef, useCallback, useEffect, useMemo, isValidElement, Fragment, type MutableRefObject, type ReactNode } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeHighlight from "rehype-highlight"
-import { MessageSquarePlus, MessageSquare } from "lucide-react"
+import { MessageSquarePlus, MessageSquare, Maximize2, Minimize2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AddComment } from "@/components/comments/AddComment"
 import { MermaidDiagram } from "./MermaidDiagram"
 import { ExpandableImage } from "./ExpandableImage"
 import { CodeBlock } from "./CodeBlock"
+import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import type { CommentListEntry } from "@/api/types"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 
@@ -35,6 +42,114 @@ const markdownComponents: Components = {
   },
 }
 
+type FrontmatterValue = string | number | boolean | null | FrontmatterValue[]
+type FrontmatterRecord = Record<string, FrontmatterValue>
+
+function parseScalar(raw: string): FrontmatterValue {
+  const v = raw.trim()
+  if (v === "" || v === "~" || v === "null") return null
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    return v.slice(1, -1)
+  }
+  if (v === "true") return true
+  if (v === "false") return false
+  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v)
+  return v
+}
+
+/**
+ * Extract leading YAML frontmatter (delimited by `---` lines) and parse the
+ * common subset: `key: scalar`, inline `[a, b]` arrays, and block `- item`
+ * lists. Anything beyond that falls through as a string. Returns the parsed
+ * record (or null if no frontmatter) plus the markdown body with the block
+ * stripped.
+ */
+function extractFrontmatter(content: string): { frontmatter: FrontmatterRecord | null; body: string } {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content)
+  if (!match) return { frontmatter: null, body: content }
+  const body = content.slice(match[0].length)
+  const lines = match[1].split(/\r?\n/)
+  const result: FrontmatterRecord = {}
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+    if (!line.trim() || line.trimStart().startsWith("#")) { i++; continue }
+    const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
+    if (!m) { i++; continue }
+    const key = m[1]
+    const rest = m[2]
+    if (rest.trim() === "") {
+      const items: FrontmatterValue[] = []
+      i++
+      while (i < lines.length) {
+        const child = lines[i]
+        if (!child.startsWith("  ") && !child.startsWith("\t") && child.trim() !== "") break
+        const trimmed = child.replace(/^(?:\t|  )/, "")
+        if (trimmed.startsWith("- ")) items.push(parseScalar(trimmed.slice(2)))
+        i++
+      }
+      result[key] = items
+      continue
+    }
+    if (rest.trim().startsWith("[") && rest.trim().endsWith("]")) {
+      const inner = rest.trim().slice(1, -1).trim()
+      result[key] = inner ? inner.split(/\s*,\s*/).map(parseScalar) : []
+    } else {
+      result[key] = parseScalar(rest)
+    }
+    i++
+  }
+  return { frontmatter: Object.keys(result).length ? result : null, body }
+}
+
+function FrontmatterValueDisplay({ value }: { value: FrontmatterValue }) {
+  if (value === null) {
+    return <span className="text-muted-foreground italic">null</span>
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return <span className="text-muted-foreground italic">empty</span>
+    }
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {value.map((item, i) => (
+          <span
+            key={i}
+            className="inline-flex rounded-md bg-accent px-1.5 py-0.5 text-xs text-foreground"
+          >
+            {item === null ? "null" : String(item)}
+          </span>
+        ))}
+      </div>
+    )
+  }
+  if (typeof value === "boolean" || typeof value === "number") {
+    return <span className="font-mono text-xs">{String(value)}</span>
+  }
+  return <span className="break-words">{value}</span>
+}
+
+function FrontmatterBlock({ data }: { data: FrontmatterRecord }) {
+  const entries = Object.entries(data)
+  if (entries.length === 0) return null
+  return (
+    <div className="not-prose mb-6 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2">
+        {entries.map(([key, value]) => (
+          <Fragment key={key}>
+            <dt className="self-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {key}
+            </dt>
+            <dd className="min-w-0 self-center">
+              <FrontmatterValueDisplay value={value} />
+            </dd>
+          </Fragment>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
 interface MarkdownViewerProps {
   content: string
   path: string
@@ -47,6 +162,8 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
   const contentRef = useRef<HTMLDivElement>(null)
   const [selection, setSelection] = useState<{ text: string; rect: DOMRect } | null>(null)
   const [showCommentForm, setShowCommentForm] = useState(false)
+  const [fullWidth, setFullWidth] = useLocalStorage("liveui:markdown:full-width", false)
+  const { frontmatter, body } = useMemo(() => extractFrontmatter(content), [content])
 
   // Scroll to comment: find matching text in preview and scroll + flash
   if (onScrollToCommentRef) {
@@ -175,18 +292,42 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
 
   return (
     <div className={cn("relative flex flex-col", className)}>
+      <div className="absolute top-2 right-3 z-10">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setFullWidth(!fullWidth)}
+                className="text-muted-foreground bg-background/70 backdrop-blur"
+                aria-label={fullWidth ? "Reading width" : "Full width"}
+              >
+                {fullWidth ? <Minimize2 /> : <Maximize2 />}
+              </Button>
+            }
+          />
+          <TooltipContent>{fullWidth ? "Reading width" : "Full width"}</TooltipContent>
+        </Tooltip>
+      </div>
       <div
         ref={contentRef}
         className="flex-1 overflow-auto px-6 py-8 lg:px-12"
         onMouseUp={handleMouseUp}
       >
-        <div className="prose prose-neutral dark:prose-invert prose-sm max-w-none leading-relaxed prose-headings:scroll-mt-8 prose-pre:bg-muted/60 prose-pre:text-foreground prose-pre:border prose-pre:border-border">
+        <div
+          className={cn(
+            "prose prose-neutral dark:prose-invert prose-sm leading-relaxed prose-headings:scroll-mt-8 prose-pre:bg-muted/60 prose-pre:text-foreground prose-pre:border prose-pre:border-border",
+            fullWidth ? "max-w-none" : "max-w-3xl mx-auto",
+          )}
+        >
+          {frontmatter && <FrontmatterBlock data={frontmatter} />}
           <Markdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }]]}
             components={markdownComponents}
           >
-            {content}
+            {body}
           </Markdown>
         </div>
       </div>
