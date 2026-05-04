@@ -1,4 +1,4 @@
-import type { MeResponse, Drive, OrgMembersResult } from "./types"
+import type { MeResponse, Drive, OrgMembersResult, RegisterResponse } from "./types"
 
 export interface ApiError {
   error: string
@@ -16,6 +16,32 @@ export class AgentFsClient {
     // Strip trailing slash
     this.endpoint = opts.endpoint.replace(/\/+$/, "")
     this.apiKey = opts.apiKey
+  }
+
+  /**
+   * Register a new user account against a given endpoint.
+   * Public route (no Authorization header). Mirrors error-shape handling from
+   * `request<T>()` so the thrown error has `.error` (e.g. "CONFLICT") and `.message`.
+   */
+  static async register(opts: { endpoint: string; email: string }): Promise<RegisterResponse> {
+    const endpoint = opts.endpoint.replace(/\/+$/, "")
+    const res = await fetch(`${endpoint}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: opts.email }),
+    })
+
+    if (!res.ok) {
+      let body: ApiError
+      try {
+        body = await res.json()
+      } catch {
+        body = { error: "UNKNOWN", message: res.statusText }
+      }
+      throw Object.assign(new Error(body.message), body)
+    }
+
+    return res.json() as Promise<RegisterResponse>
   }
 
   private async request<T>(path: string, opts?: RequestInit): Promise<T> {

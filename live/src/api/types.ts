@@ -206,6 +206,12 @@ export interface MeResponse {
   defaultDriveId: string | null
 }
 
+export interface RegisterResponse {
+  apiKey: string
+  userId: string
+  orgId: string
+}
+
 export interface Drive {
   id: string
   name: string
