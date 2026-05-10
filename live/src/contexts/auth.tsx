@@ -47,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!credential) {
-      navigate("/credentials", { replace: true })
+      navigate(`/credentials${window.location.search}`, { replace: true })
     }
   }, [credential, navigate])
 
@@ -131,7 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (meError) {
-      navigate("/credentials", { replace: true })
+      navigate(`/credentials${window.location.search}`, { replace: true })
     }
   }, [meError, navigate])
 

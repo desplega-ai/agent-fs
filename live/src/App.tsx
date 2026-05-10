@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useParams } from "react-router"
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/contexts/theme"
@@ -30,10 +30,40 @@ function AuthenticatedLayout() {
   return (
     <AuthProvider>
       <BrowserProvider>
+        <QueryParamHandler />
         <Outlet />
       </BrowserProvider>
     </AuthProvider>
   )
+}
+
+/**
+ * Consumes ?orgId=...&driveId=... on any authenticated route by navigating to
+ * the matching path-based URL and stripping the query string. Lets agent-generated
+ * "open here" links work without recipients having to manually construct a path.
+ */
+function QueryParamHandler() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const orgId = params.get("orgId")
+    const driveId = params.get("driveId")
+    if (!orgId) return
+
+    const target = driveId
+      ? `/file/~/${orgId}/${driveId}/`
+      : `/orgs/${orgId}/files/`
+
+    if (location.pathname === target || location.pathname.startsWith(target)) {
+      navigate(location.pathname, { replace: true })
+    } else {
+      navigate(target, { replace: true })
+    }
+  }, [location.pathname, location.search, navigate])
+
+  return null
 }
 
 /**

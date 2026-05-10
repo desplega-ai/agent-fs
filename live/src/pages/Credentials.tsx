@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { Eye, EyeOff, Trash2, LogIn, Plus, UserPlus, Info } from "lucide-react"
 import { AgentFsClient } from "@/api/client"
@@ -22,16 +22,28 @@ type Mode = "connect" | "register"
 
 export function CredentialsPage() {
   const navigate = useNavigate()
-  const [mode, setMode] = useState<Mode>("connect")
-  const [endpoint, setEndpoint] = useState("")
-  const [apiKey, setApiKey] = useState("")
-  const [email, setEmail] = useState("")
-  const [name, setName] = useState("")
+  const initialParams = useMemo(() => new URLSearchParams(window.location.search), [])
+  const [mode, setMode] = useState<Mode>(() => {
+    const v = initialParams.get("variant")
+    return v === "register" ? "register" : "connect"
+  })
+  const [endpoint, setEndpoint] = useState(() => initialParams.get("apiUrl") ?? "")
+  const [apiKey, setApiKey] = useState(() => initialParams.get("apiKey") ?? "")
+  const [email, setEmail] = useState(() => initialParams.get("email") ?? "")
+  const [name, setName] = useState(() => initialParams.get("name") ?? "")
   const [showKey, setShowKey] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
   const [credentials, setCredentials] = useState(getCredentials)
   const [detailsCred, setDetailsCred] = useState<Credential | null>(null)
+
+  const successTarget = useMemo(() => {
+    const orgId = initialParams.get("orgId")
+    const driveId = initialParams.get("driveId")
+    if (orgId && driveId) return `/file/~/${orgId}/${driveId}/`
+    if (orgId) return `/orgs/${orgId}/files/`
+    return "/files"
+  }, [initialParams])
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -51,7 +63,7 @@ export function CredentialsPage() {
       }
       saveCredential(cred)
       setActiveCredential(id)
-      navigate("/files", { replace: true })
+      navigate(successTarget, { replace: true })
     } catch (err) {
       setError((err as Error).message || "Connection failed")
     } finally {
@@ -76,7 +88,7 @@ export function CredentialsPage() {
       }
       saveCredential(cred)
       setActiveCredential(id)
-      navigate("/files", { replace: true })
+      navigate(successTarget, { replace: true })
     } catch (err) {
       const e = err as Error & { error?: string }
       if (e.error === "CONFLICT") {
@@ -93,8 +105,19 @@ export function CredentialsPage() {
 
   const handleQuickConnect = (cred: Credential) => {
     setActiveCredential(cred.id)
-    navigate("/files", { replace: true })
+    navigate(successTarget, { replace: true })
   }
+
+  const autoSubmittedRef = useRef(false)
+  useEffect(() => {
+    if (autoSubmittedRef.current) return
+    if (mode !== "connect") return
+    if (!endpoint || !apiKey) return
+    if (!initialParams.get("apiUrl") || !initialParams.get("apiKey")) return
+    autoSubmittedRef.current = true
+    void handleConnect({ preventDefault: () => {} } as React.FormEvent)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleRemove = (id: string) => {
     removeCredential(id)
