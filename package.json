@@ -17,5 +17,15 @@
     "typescript": "^5.7.0",
     "yaml": "^2.8.2",
     "zod-to-json-schema": "^3.25.1"
+  },
+  "overrides": {
+    "chromadb": "npm:empty-npm-package@1.0.0",
+    "chromadb-default-embed": "npm:empty-npm-package@1.0.0",
+    "@xenova/transformers": "npm:empty-npm-package@1.0.0",
+    "tree-sitter-wasms": "npm:empty-npm-package@1.0.0",
+    "web-tree-sitter": "npm:empty-npm-package@1.0.0",
+    "cohere-ai": "npm:empty-npm-package@1.0.0",
+    "voyageai": "npm:empty-npm-package@1.0.0",
+    "ollama": "npm:empty-npm-package@1.0.0"
   }
 }
