@@ -7,8 +7,11 @@
     "dev": "vite",
     "generate:md": "tsx scripts/generate-markdown.ts",
     "build": "npm run generate:md && tsc -b && vite build",
+    "postbuild": "tsx scripts/submit-indexnow.ts",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "indexnow:backfill": "tsx scripts/submit-indexnow.ts --backfill",
+    "indexnow:dry-run": "tsx scripts/submit-indexnow.ts --dry-run"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
