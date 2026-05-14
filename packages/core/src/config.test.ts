@@ -16,6 +16,7 @@ import { createTestConfigDir } from "./test-utils.js";
 const OVERRIDE_ENV_VARS = [
   "AWS_ENDPOINT_URL_S3",
   "S3_ENDPOINT",
+  "S3_PUBLIC_ENDPOINT",
   "AWS_ACCESS_KEY_ID",
   "S3_ACCESS_KEY_ID",
   "AWS_SECRET_ACCESS_KEY",
@@ -292,6 +293,22 @@ describe("Env var overrides", () => {
     expect(config.s3.bucket).toBe("env-wins-bucket");
     expect(config.s3.endpoint).toBe("http://json-endpoint:9000"); // not overridden by env
     expect(config.server.port).toBe(8888);
+  });
+
+  test("S3_PUBLIC_ENDPOINT sets s3.publicEndpoint", () => {
+    process.env.S3_PUBLIC_ENDPOINT = "https://public.s3.example.com";
+
+    const config = getConfig();
+
+    expect(config.s3.publicEndpoint).toBe("https://public.s3.example.com");
+    // s3.endpoint should remain at default (not overridden)
+    expect(config.s3.endpoint).toBe("http://localhost:9000");
+  });
+
+  test("s3.publicEndpoint is undefined when S3_PUBLIC_ENDPOINT is unset", () => {
+    const config = getConfig();
+
+    expect(config.s3.publicEndpoint).toBeUndefined();
   });
 
   test("auth.apiKey is NOT overridable via env vars", () => {

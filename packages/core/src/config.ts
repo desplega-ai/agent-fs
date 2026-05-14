@@ -16,6 +16,7 @@ export interface AgentFSConfig {
     bucket: string;
     region: string;
     endpoint: string;
+    publicEndpoint?: string;
     accessKeyId: string;
     secretAccessKey: string;
     versioningEnabled?: boolean;
@@ -143,6 +144,7 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
   if (env.AWS_REGION || env.S3_REGION)
     config.s3.region = (env.AWS_REGION || env.S3_REGION)!;
   if (env.S3_PROVIDER) config.s3.provider = env.S3_PROVIDER;
+  if (env.S3_PUBLIC_ENDPOINT) config.s3.publicEndpoint = env.S3_PUBLIC_ENDPOINT;
 
   // Server overrides (SERVER_* takes precedence over generic PORT/HOST)
   if (env.SERVER_PORT || env.PORT)

@@ -29,4 +29,36 @@ describe("S3 Client", () => {
 
     expect(client.versioningEnabled).toBe(true);
   });
+
+  test("getPresignedUrl uses publicEndpoint host when set", async () => {
+    const client = new AgentS3Client({
+      provider: "minio",
+      bucket: "test-bucket",
+      region: "us-east-1",
+      endpoint: "http://internal-minio:9000",
+      publicEndpoint: "https://public.s3.example.com",
+      accessKeyId: "minioadmin",
+      secretAccessKey: "minioadmin",
+    });
+
+    const url = await client.getPresignedUrl("some/key.txt", 3600);
+    const parsed = new URL(url);
+    expect(parsed.host).toBe("public.s3.example.com");
+    expect(parsed.host).not.toBe("internal-minio:9000");
+  });
+
+  test("getPresignedUrl falls back to endpoint when publicEndpoint is not set", async () => {
+    const client = new AgentS3Client({
+      provider: "minio",
+      bucket: "test-bucket",
+      region: "us-east-1",
+      endpoint: "http://localhost:9000",
+      accessKeyId: "minioadmin",
+      secretAccessKey: "minioadmin",
+    });
+
+    const url = await client.getPresignedUrl("some/key.txt", 3600);
+    const parsed = new URL(url);
+    expect(parsed.host).toBe("localhost:9000");
+  });
 });
