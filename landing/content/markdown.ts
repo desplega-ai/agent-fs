@@ -2,7 +2,15 @@
 // Imported by `middleware.ts` (served at runtime) and by
 // `scripts/generate-markdown.ts` (written to `public/` as static files).
 
-export const INDEX_MD = `# agent-fs
+export const INDEX_MD = `---
+title: "agent-fs — A file system built for AI agents"
+description: "A sharable, searchable, persistent file system that any AI agent can use — via CLI or MCP. Write, search, comment, and share files across systems."
+doc_version: "1.0"
+last_updated: "2026-05-14"
+canonical: "https://agent-fs.dev"
+---
+
+# agent-fs
 
 > A file system built for AI agents.
 
