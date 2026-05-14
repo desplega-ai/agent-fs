@@ -50,19 +50,27 @@ export interface HeadObjectResult {
 
 export class AgentS3Client {
   private client: S3Client;
+  private presignClient: S3Client;
   private bucket: string;
   versioningEnabled: boolean = false;
 
   constructor(config: AgentFSConfig["s3"]) {
     this.bucket = config.bucket;
+    const credentials = {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey,
+    };
     this.client = new S3Client({
       region: config.region,
       endpoint: config.endpoint,
-      credentials: {
-        accessKeyId: config.accessKeyId,
-        secretAccessKey: config.secretAccessKey,
-      },
+      credentials,
       forcePathStyle: true, // Required for MinIO and most S3-compatible providers
+    });
+    this.presignClient = new S3Client({
+      region: config.region,
+      endpoint: config.publicEndpoint ?? config.endpoint,
+      credentials,
+      forcePathStyle: true,
     });
     this.versioningEnabled = config.versioningEnabled ?? false;
   }
@@ -221,6 +229,6 @@ export class AgentS3Client {
       ...(responseContentType && { ResponseContentType: responseContentType }),
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AWS SDK type mismatch between client-s3 and s3-request-presigner
-    return getSignedUrl(this.client as any, command, { expiresIn });
+    return getSignedUrl(this.presignClient as any, command, { expiresIn });
   }
 }
