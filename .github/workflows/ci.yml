@@ -30,3 +30,27 @@ jobs:
         run: |
           bun run scripts/sync-openapi.ts
           git diff --exit-code docs/openapi.json
+
+  # FUSE smoke (Linux-only): build the helper, run the in-container mount test.
+  # macOS/Windows runners are excluded — FUSE is Linux-only by design.
+  fuse-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Build FUSE helper (host target)
+        run: |
+          cd packages/fuse-helper
+          cargo build --release
+      - name: Run Docker FUSE smoke
+        run: |
+          # The harness builds a Ubuntu 24.04 image with fuse3 + /dev/fuse and
+          # mounts the helper against a stub socket. Linux-only.
+          bash packages/fuse-helper/docker/run-mount-test.sh
+
+  # Phase 5 will extend this with `bun run scripts/e2e.ts ... --fuse-only`
+  # once the e2e harness gains a --fuse-only flag. For Phase 4 the Docker
+  # smoke above is the single FUSE regression check.

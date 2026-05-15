@@ -1,5 +1,10 @@
+import { createHash } from "node:crypto";
 import type { OpContext, AppendParams, AppendResult } from "./types.js";
-import { getS3Key, createVersion } from "./versioning.js";
+import {
+  getS3Key,
+  createVersion,
+  assertExpectedVersion,
+} from "./versioning.js";
 import { NotFoundError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
 import { indexFile } from "../search/fts.js";
@@ -10,6 +15,11 @@ export async function append(
   params: AppendParams
 ): Promise<AppendResult> {
   const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
+
+  // Optimistic concurrency check before reading current content.
+  if (params.expectedVersion !== undefined) {
+    await assertExpectedVersion(ctx, params.path, params.expectedVersion);
+  }
 
   // 1. Get current content
   let currentContent = "";
@@ -29,6 +39,7 @@ export async function append(
   const newContent = currentContent + params.content;
   const size = Buffer.byteLength(newContent);
   const contentType = detectMimeType(params.path);
+  const contentHash = createHash("sha256").update(newContent).digest("hex");
 
   const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
 
@@ -41,6 +52,7 @@ export async function append(
     size,
     etag: s3Result.etag,
     contentType,
+    contentHash,
   });
 
   // FTS5 index (sync)

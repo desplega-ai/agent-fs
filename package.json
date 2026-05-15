@@ -1,8 +1,10 @@
 {
   "name": "agent-fs",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "private": true,
-  "workspaces": ["packages/*"],
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "typecheck": "tsc --build",
     "test": "bun test packages/*/src/",

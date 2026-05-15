@@ -7,7 +7,7 @@ import {
   listOrgMembers,
   updateOrgMemberRole,
   removeOrgMember,
-  listDrives,
+  listDrivesForUser,
   createDrive,
   listDriveMembers,
   updateDriveMemberRole,
@@ -40,8 +40,9 @@ export function orgRoutes(db: DB) {
   });
 
   router.get("/:orgId/drives", (c) => {
+    const user = c.get("user");
     const orgId = c.req.param("orgId");
-    const drives = listDrives(db, orgId);
+    const drives = listDrivesForUser(db, orgId, user.id);
     return c.json({ drives });
   });
 

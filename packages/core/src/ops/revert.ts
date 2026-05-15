@@ -1,7 +1,12 @@
 import { eq, and } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { schema } from "../db/index.js";
 import type { OpContext, RevertParams, RevertResult } from "./types.js";
-import { getS3Key, createVersion } from "./versioning.js";
+import {
+  getS3Key,
+  createVersion,
+  assertExpectedVersion,
+} from "./versioning.js";
 import { NotFoundError, AgentFSError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
 
@@ -9,6 +14,12 @@ export async function revert(
   ctx: OpContext,
   params: RevertParams
 ): Promise<RevertResult> {
+  // Optimistic concurrency: head must match expectedVersion before
+  // a new revert version is created on top of it.
+  if (params.expectedVersion !== undefined) {
+    await assertExpectedVersion(ctx, params.path, params.expectedVersion);
+  }
+
   // 1. Find the target version
   const targetVersion = ctx.db
     .select()
@@ -45,6 +56,7 @@ export async function revert(
   // 3. Write it as the new current version
   const s3Result = await ctx.s3.putObject(s3Key, oldContent.body, undefined, contentType);
   const size = oldContent.body.length;
+  const contentHash = createHash("sha256").update(oldContent.body).digest("hex");
 
   // 4. Create version record
   const version = await createVersion(ctx, {
@@ -55,6 +67,7 @@ export async function revert(
     size,
     etag: s3Result.etag,
     contentType,
+    contentHash,
   });
 
   return { version, revertedTo: params.version };

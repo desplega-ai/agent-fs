@@ -32,12 +32,14 @@ export interface EditParams {
   old_string: string;
   new_string: string;
   message?: string;
+  expectedVersion?: number;
 }
 
 export interface AppendParams {
   path: string;
   content: string;
   message?: string;
+  expectedVersion?: number;
 }
 
 export interface LsParams {
@@ -50,17 +52,22 @@ export interface StatParams {
 
 export interface RmParams {
   path: string;
+  expectedVersion?: number;
 }
 
 export interface MvParams {
   from: string;
   to: string;
   message?: string;
+  /** Expected current version of the source file. */
+  expectedVersion?: number;
 }
 
 export interface CpParams {
   from: string;
   to: string;
+  /** Expected current version of the destination file. Pass `0` for "create new". */
+  expectedVersion?: number;
 }
 
 export interface TailParams {
@@ -82,6 +89,8 @@ export interface DiffParams {
 export interface RevertParams {
   path: string;
   version: number;
+  /** Expected current head version (the one being replaced). */
+  expectedVersion?: number;
 }
 
 export interface RecentParams {
@@ -96,6 +105,10 @@ export interface WriteResult {
   version: number;
   path: string;
   size: number;
+  /** SHA-256 of the bytes that ended up being head (matches what was sent if no dedup). */
+  contentHash?: string;
+  /** True when the write was a no-op because head already had identical content. */
+  deduped?: boolean;
 }
 
 export interface CatResult {

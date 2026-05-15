@@ -29,6 +29,8 @@ export {
   dispatchOp,
   getRegisteredOps,
   getOpDefinition,
+  write,
+  writeRaw,
   commentAdd,
   commentList,
   commentGet,
@@ -36,7 +38,17 @@ export {
   commentDelete,
   commentResolve,
 } from "./ops/index.js";
+export {
+  getS3Key,
+  getNextVersion,
+  getHeadContentHash,
+  getHeadVersionRow,
+  assertExpectedVersion,
+  createVersion,
+} from "./ops/versioning.js";
+export type { HeadVersionRow } from "./ops/versioning.js";
 export type { OpContext, OpDefinition } from "./ops/index.js";
+export type { WriteParams, WriteResult } from "./ops/types.js";
 export type {
   CommentAddParams,
   CommentAddResult,
@@ -65,6 +77,7 @@ export {
   removeOrgMember,
   createDrive,
   listDrives,
+  listDrivesForUser,
   getDrive,
   setDriveMember,
   listDriveMembers,

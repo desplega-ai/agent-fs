@@ -1,0 +1,20 @@
+# cross-rs configuration for the agent-fs FUSE helper.
+#
+# We target musl-libc so the resulting binary is statically linked and ships
+# with no glibc / libfuse-dev runtime dependency. The fuser crate is built
+# pure-Rust (default-features = false in Cargo.toml) so libfuse is not
+# needed.
+#
+# Usage:
+#   cross build --release --target x86_64-unknown-linux-musl
+#   cross build --release --target aarch64-unknown-linux-musl
+
+[target.x86_64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/rust-musl-cross:x86_64-musl"
+
+[target.aarch64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/rust-musl-cross:aarch64-musl"
+
+[build.env]
+# Reproducible builds knob.
+passthrough = ["SOURCE_DATE_EPOCH"]

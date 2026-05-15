@@ -11,6 +11,10 @@ function getLogPath(): string {
   return join(getHome(), "agent-fs.log");
 }
 
+function getSocketPath(): string {
+  return join(getHome(), "agent-fs.sock");
+}
+
 export function startDaemon(): void {
   const pidPath = getPidPath();
   if (existsSync(pidPath)) {
@@ -22,6 +26,17 @@ export function startDaemon(): void {
     } catch {
       // Stale PID file — clean up
       unlinkSync(pidPath);
+      // Also unlink a stale socket if no PID owns it anymore. Bun.listen
+      // refuses to bind to an existing socket file, so leftover artifacts
+      // from a hard-killed daemon must be cleaned out here.
+      const sockPath = getSocketPath();
+      if (existsSync(sockPath)) {
+        try {
+          unlinkSync(sockPath);
+        } catch {
+          /* ignore */
+        }
+      }
     }
   }
 
@@ -62,6 +77,16 @@ export function stopDaemon(): void {
     console.log(`Process ${pid} not found (already stopped)`);
   }
   unlinkSync(pidPath);
+  // Best-effort socket cleanup in case the daemon didn't get a chance to
+  // unlink it on its way out.
+  const sockPath = getSocketPath();
+  if (existsSync(sockPath)) {
+    try {
+      unlinkSync(sockPath);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export function daemonStatus(): { running: boolean; pid?: number } {

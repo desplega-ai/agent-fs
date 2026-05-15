@@ -143,6 +143,191 @@ describe("mv and cp operations", () => {
   });
 });
 
+describe("expectedVersion across mutating ops", () => {
+  // Each op below has three cases:
+  //  - matching expectedVersion → succeeds
+  //  - stale expectedVersion → throws EditConflictError
+  //  - omitted expectedVersion → unconditional, still succeeds (backward compat)
+
+  test("edit honors expectedVersion match / mismatch / omit", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/ev-edit.txt", content: "hello world" });
+
+    // Stale
+    await expect(
+      dispatchOp(ctx, "edit", {
+        path: "/ev-edit.txt",
+        old_string: "world",
+        new_string: "there",
+        expectedVersion: 99,
+      })
+    ).rejects.toThrow();
+
+    // Match
+    const ok = await dispatchOp(ctx, "edit", {
+      path: "/ev-edit.txt",
+      old_string: "world",
+      new_string: "there",
+      expectedVersion: 1,
+    });
+    expect((ok as any).version).toBe(2);
+
+    // Omit (no check, still succeeds)
+    const okAgain = await dispatchOp(ctx, "edit", {
+      path: "/ev-edit.txt",
+      old_string: "there",
+      new_string: "again",
+    });
+    expect((okAgain as any).version).toBe(3);
+  });
+
+  test("append honors expectedVersion match / mismatch / omit", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/ev-app.txt", content: "a" });
+
+    await expect(
+      dispatchOp(ctx, "append", {
+        path: "/ev-app.txt",
+        content: "b",
+        expectedVersion: 99,
+      })
+    ).rejects.toThrow();
+
+    const ok = await dispatchOp(ctx, "append", {
+      path: "/ev-app.txt",
+      content: "b",
+      expectedVersion: 1,
+    });
+    expect((ok as any).version).toBe(2);
+
+    const okAgain = await dispatchOp(ctx, "append", {
+      path: "/ev-app.txt",
+      content: "c",
+    });
+    expect((okAgain as any).version).toBe(3);
+  });
+
+  test("mv honors source expectedVersion match / mismatch / omit", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/ev-src.txt", content: "x" });
+
+    await expect(
+      dispatchOp(ctx, "mv", {
+        from: "/ev-src.txt",
+        to: "/ev-dst.txt",
+        expectedVersion: 99,
+      })
+    ).rejects.toThrow();
+
+    const ok = await dispatchOp(ctx, "mv", {
+      from: "/ev-src.txt",
+      to: "/ev-dst.txt",
+      expectedVersion: 1,
+    });
+    expect((ok as any).to).toBe("/ev-dst.txt");
+
+    // Omit — set up fresh, mv unconditionally
+    await dispatchOp(ctx, "write", { path: "/ev-src2.txt", content: "y" });
+    const okAgain = await dispatchOp(ctx, "mv", {
+      from: "/ev-src2.txt",
+      to: "/ev-dst2.txt",
+    });
+    expect((okAgain as any).to).toBe("/ev-dst2.txt");
+  });
+
+  test("cp honors destination expectedVersion: 0 / mismatch / omit", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/ev-cp-src.txt", content: "z" });
+
+    // expectedVersion: 0 → must not exist → succeeds first time
+    const created = await dispatchOp(ctx, "cp", {
+      from: "/ev-cp-src.txt",
+      to: "/ev-cp-dst.txt",
+      expectedVersion: 0,
+    });
+    expect((created as any).version).toBe(1);
+
+    // Re-cp with expectedVersion: 0 → file now exists at v1 → conflict
+    await expect(
+      dispatchOp(ctx, "cp", {
+        from: "/ev-cp-src.txt",
+        to: "/ev-cp-dst.txt",
+        expectedVersion: 0,
+      })
+    ).rejects.toThrow();
+
+    // Match: pass current dst version
+    const overwrite = await dispatchOp(ctx, "cp", {
+      from: "/ev-cp-src.txt",
+      to: "/ev-cp-dst.txt",
+      expectedVersion: 1,
+    });
+    expect((overwrite as any).version).toBe(2);
+
+    // Omit — still works
+    const omit = await dispatchOp(ctx, "cp", {
+      from: "/ev-cp-src.txt",
+      to: "/ev-cp-dst.txt",
+    });
+    expect((omit as any).version).toBe(3);
+  });
+
+  test("rm honors expectedVersion match / mismatch / omit", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/ev-rm.txt", content: "rm" });
+
+    await expect(
+      dispatchOp(ctx, "rm", { path: "/ev-rm.txt", expectedVersion: 99 })
+    ).rejects.toThrow();
+
+    const ok = await dispatchOp(ctx, "rm", {
+      path: "/ev-rm.txt",
+      expectedVersion: 1,
+    });
+    expect((ok as any).deleted).toBe(true);
+
+    // Omit
+    await dispatchOp(ctx, "write", { path: "/ev-rm2.txt", content: "rm" });
+    const okAgain = await dispatchOp(ctx, "rm", { path: "/ev-rm2.txt" });
+    expect((okAgain as any).deleted).toBe(true);
+  });
+
+  test("revert honors expectedVersion match / mismatch / omit", async () => {
+    // revert needs S3 versioning to fetch the old body.
+    const { ctx } = createTestContext({ versioningEnabled: true });
+    await dispatchOp(ctx, "write", { path: "/ev-rev.txt", content: "v1" });
+    await dispatchOp(ctx, "edit", {
+      path: "/ev-rev.txt",
+      old_string: "v1",
+      new_string: "v2",
+    });
+
+    // head is now v2
+    await expect(
+      dispatchOp(ctx, "revert", {
+        path: "/ev-rev.txt",
+        version: 1,
+        expectedVersion: 99,
+      })
+    ).rejects.toThrow();
+
+    const ok = await dispatchOp(ctx, "revert", {
+      path: "/ev-rev.txt",
+      version: 1,
+      expectedVersion: 2,
+    });
+    expect((ok as any).revertedTo).toBe(1);
+    expect((ok as any).version).toBe(3);
+
+    // Omit — still works
+    const okAgain = await dispatchOp(ctx, "revert", {
+      path: "/ev-rev.txt",
+      version: 1,
+    });
+    expect((okAgain as any).revertedTo).toBe(1);
+  });
+});
+
 describe("ls operation", () => {
   test("ls returns files in directory", async () => {
     const { ctx } = createTestContext();

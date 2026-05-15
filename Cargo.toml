@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["packages/fuse-helper"]
+
+# Release profile knobs for the FUSE helper. Workspace-level so cargo picks
+# them up regardless of where `cargo build --release` is invoked from.
+[profile.release]
+lto = "thin"
+strip = true
+codegen-units = 1
+opt-level = "z"
+panic = "abort"

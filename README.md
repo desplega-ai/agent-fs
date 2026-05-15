@@ -63,6 +63,43 @@ Agent FS is a Bun monorepo with four packages:
 | `@desplega.ai/agent-fs-mcp` | MCP stdio proxy + tool registration for the HTTP server |
 | `@desplega.ai/agent-fs-server` | HTTP server — RESTful API powered by Hono |
 
+## FUSE mount (Linux)
+
+agent-fs can expose your drives as a Linux FUSE filesystem so agents can use plain shell verbs (`cat`, `grep`, `mv`, `rm`) against agent-fs content.
+
+```bash
+# Linux only — the FUSE helper sub-package auto-installs via optionalDependencies.
+npm install -g @desplega.ai/agent-fs
+agent-fs daemon start
+agent-fs mount /mnt/agent-fs
+```
+
+**Requirements**
+
+- Linux x86_64 or aarch64. macOS and Windows are not supported (FUSE is a Linux kernel feature here).
+- `/dev/fuse` must be accessible. In Docker, run with `--cap-add SYS_ADMIN --device /dev/fuse`.
+- Sandboxes that use gVisor (GKE Sandbox, Cloud Run gen1), GitHub Codespaces, Modal sandboxes, or Fly.io Machines cannot mount FUSE — fall back to the CLI/MCP path.
+
+**Local-dev escape hatch (`AGENT_FS_FUSE_BIN`)**
+
+If you're building the helper from source (e.g. macOS dev host or a custom Linux build), point the CLI at your local binary:
+
+```bash
+cd packages/fuse-helper && cargo build --release
+export AGENT_FS_FUSE_BIN="$PWD/target/release/agent-fs-fuse"
+agent-fs mount /tmp/m
+```
+
+`AGENT_FS_FUSE_BIN` takes precedence over the auto-resolved sub-package binary.
+
+**macOS testing harness**
+
+macOS can build the helper but not mount it. Use the Docker harness to test mount behaviour from a Mac host:
+
+```bash
+bash packages/fuse-helper/docker/run-mount-test.sh
+```
+
 ## Documentation
 
 - [MCP Setup Guide](./docs/mcp-setup.md) — Connect agent-fs to Claude Code, Cursor, or any MCP client

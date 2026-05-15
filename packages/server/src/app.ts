@@ -71,7 +71,7 @@ export function createApp(db: DB, s3: AgentS3Client, embeddingProvider: Embeddin
   app.route("/orgs", orgRoutes(db));
   app.route("/orgs", opsRoutes(db, s3, embeddingProvider, config.appUrl));
   app.route("/docs", docsRoutes());
-  app.route("/orgs", fileRoutes(db, s3));
+  app.route("/orgs", fileRoutes(db, s3, embeddingProvider, config.appUrl));
 
   return app;
 }

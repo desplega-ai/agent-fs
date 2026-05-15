@@ -1,0 +1,53 @@
+# E2E FUSE test runner.
+#
+# Ubuntu 24.04 + fuse3 + Bun + Rust toolchain. The repo is bind-mounted at
+# /work; the in-container test driver uses Bun to run the agent-fs CLI and
+# cargo to build the FUSE helper.
+#
+# Used by scripts/e2e.ts when the `--use-docker-fuse=1` env var is set (or
+# when running on a Linux host with /dev/fuse available). The container is
+# started with --cap-add SYS_ADMIN --device /dev/fuse --security-opt
+# apparmor=unconfined.
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        unzip \
+        build-essential \
+        pkg-config \
+        fuse3 \
+        kmod \
+        sqlite3 \
+        bsdmainutils \
+        util-linux \
+        coreutils \
+        procps \
+        sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Rust toolchain — pinned to keep the image reproducible.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:/usr/local/bun/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+        sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.85.0
+
+# Bun toolchain — installs to /usr/local/bun via BUN_INSTALL.
+ENV BUN_INSTALL=/usr/local/bun
+RUN curl -fsSL https://bun.sh/install | bash
+
+# Allow non-root mounts (the harness runs as root inside the disposable
+# container; this is fine for tests).
+RUN echo "user_allow_other" >> /etc/fuse.conf
+
+WORKDIR /work
+
+# Source bind-mounted at /work at runtime — no COPY so source edits don't
+# invalidate the image cache. The driver script is invoked by scripts/e2e.ts
+# via `docker exec`, so no ENTRYPOINT is set; the container stays alive via
+# `tail -f /dev/null` driven from the runner.
+CMD ["tail", "-f", "/dev/null"]

@@ -2,7 +2,11 @@ import { eq, and } from "drizzle-orm";
 import { Database } from "bun:sqlite";
 import { schema } from "../db/index.js";
 import type { OpContext, RmParams, RmResult } from "./types.js";
-import { getS3Key, createVersion } from "./versioning.js";
+import {
+  getS3Key,
+  createVersion,
+  assertExpectedVersion,
+} from "./versioning.js";
 import { removeFromIndex } from "../search/fts.js";
 
 export async function rm(
@@ -10,6 +14,11 @@ export async function rm(
   params: RmParams
 ): Promise<RmResult> {
   const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
+
+  // Optimistic concurrency: assert the head version we are deleting.
+  if (params.expectedVersion !== undefined) {
+    await assertExpectedVersion(ctx, params.path, params.expectedVersion);
+  }
 
   // 1. Delete from S3 (creates delete marker if versioning enabled)
   await ctx.s3.deleteObject(s3Key);
