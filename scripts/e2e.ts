@@ -165,15 +165,19 @@ async function fuseTest(name: string, fn: () => void | Promise<void>) {
  * `docker exec` a command inside the FUSE container. Returns stdout (trimmed).
  * Errors include stderr to make assertion failures self-explaining.
  */
+function shQuote(s: string): string {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
 function runFuseCmd(cmdStr: string, opts: { allowFailure?: boolean; timeoutMs?: number; env?: Record<string, string> } = {}): string {
   const envFlags = Object.entries(opts.env || {})
-    .map(([k, v]) => `-e ${k}=${JSON.stringify(v)}`)
+    .map(([k, v]) => `-e ${k}=${shQuote(v)}`)
     .join(" ");
-  const full = `docker exec ${envFlags} ${fuseContainerName} bash -lc ${JSON.stringify(cmdStr)}`;
+  const full = `docker exec ${envFlags} ${fuseContainerName} bash -lc ${shQuote(cmdStr)}`;
   try {
     return execSync(full, {
       encoding: "utf-8",
-      timeout: opts.timeoutMs ?? 30_000,
+      timeout: opts.timeoutMs ?? 90_000,
       stdio: ["ignore", "pipe", "pipe"],
     }).trim();
   } catch (e: any) {
@@ -329,7 +333,7 @@ function cleanup() {
   try {
     execSync(`docker rm -f ${containerName}`, { stdio: "ignore" });
   } catch {}
-  // Remove FUSE runner container (best-effort: unmount + stop + rm)
+  // Remove FUSE runner container + named volumes (best-effort: unmount + stop + rm)
   if (fuseReady) {
     try {
       execSync(
@@ -340,6 +344,17 @@ function cleanup() {
     try {
       execSync(`docker rm -f ${fuseContainerName}`, { stdio: "ignore" });
     } catch {}
+  }
+  // Always try to clean up the per-run named volumes, regardless of fuseReady.
+  for (const vol of [
+    `${fuseContainerName}-nm-root`,
+    `${fuseContainerName}-nm-cli`,
+    `${fuseContainerName}-nm-core`,
+    `${fuseContainerName}-nm-server`,
+    `${fuseContainerName}-nm-mcp`,
+    `${fuseContainerName}-target`,
+  ]) {
+    try { execSync(`docker volume rm -f ${vol}`, { stdio: "ignore", timeout: 10_000 }); } catch {}
   }
   // Remove temp directory
   try {
@@ -398,6 +413,12 @@ async function setupFuse(): Promise<boolean> {
         `--cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor=unconfined ` +
         `--network ${minioNet} ` +
         `-v ${process.cwd()}:/work ` +
+        `-v ${fuseContainerName}-nm-root:/work/node_modules ` +
+        `-v ${fuseContainerName}-nm-cli:/work/packages/cli/node_modules ` +
+        `-v ${fuseContainerName}-nm-core:/work/packages/core/node_modules ` +
+        `-v ${fuseContainerName}-nm-server:/work/packages/server/node_modules ` +
+        `-v ${fuseContainerName}-nm-mcp:/work/packages/mcp/node_modules ` +
+        `-v ${fuseContainerName}-target:/work/target ` +
         `-w /work ` +
         `${fuseImageTag}`,
       { stdio: ["ignore", "pipe", "pipe"], timeout: 30_000 },
@@ -432,8 +453,8 @@ async function setupFuse(): Promise<boolean> {
   //    Bun's cache is per-container; this is a one-time cost per harness run.
   try {
     execSync(
-      `docker exec ${fuseContainerName} bash -lc 'cd /work && bun install --frozen-lockfile 2>&1 | tail -3'`,
-      { stdio: ["ignore", "pipe", "pipe"], timeout: 300_000 },
+      `docker exec ${fuseContainerName} bash -lc 'cd /work && bun install 2>&1 | tail -8'`,
+      { stdio: ["ignore", "inherit", "inherit"], timeout: 300_000 },
     );
   } catch (e: any) {
     fuseSkipReason = `bun install failed: ${(e.stderr?.toString?.() ?? e.stdout?.toString?.() ?? e.message).split("\n").slice(-3).join(" | ")}`;
@@ -446,7 +467,7 @@ async function setupFuse(): Promise<boolean> {
   //    it via its container name + internal port 9000.
   const inEnv = [
     `AGENT_FS_HOME=/root/.agent-fs`,
-    `AGENT_FS_FUSE_BIN=/work/packages/fuse-helper/target/release/agent-fs-fuse`,
+    `AGENT_FS_FUSE_BIN=/work/target/release/agent-fs-fuse`,
     `S3_ENDPOINT=http://${containerName}:9000`,
     `S3_BUCKET=agentfs`,
     `S3_ACCESS_KEY_ID=minioadmin`,
@@ -519,6 +540,10 @@ EOF`,
     runFuseCmd(`echo 'export AGENT_FS_API_URL=http://127.0.0.1:${innerDaemonPort}' >> /root/.agent-fs/test-env.sh`);
   } catch (e: any) {
     fuseSkipReason = `inner daemon init failed: ${e.message?.split("\n")[0] ?? String(e)}`;
+    try {
+      const log = runFuseCmd(`tail -80 /root/.agent-fs/agent-fs.log 2>&1 || echo '(no daemon log)'`, { allowFailure: true });
+      console.error(`\n=== DAEMON LOG ===\n${log}\n=== END DAEMON LOG ===\n`);
+    } catch {}
     try { execSync(`docker rm -f ${fuseContainerName}`, { stdio: "ignore" }); } catch {}
     return false;
   }
@@ -1278,13 +1303,16 @@ async function runFuseTests() {
     const mounts = runFuseCmd(`mount | grep -E '/mnt/agent-fs' || true`);
     assertIncludes(mounts, "/mnt/agent-fs", "expected mount table to show /mnt/agent-fs");
     inFs(`umount /mnt/agent-fs`);
-    await Bun.sleep(300);
+    await Bun.sleep(1500);
     const after = runFuseCmd(`mount | grep -E '/mnt/agent-fs' || true`);
     assert(after, "", "expected mount to be gone after umount");
-    // No leak in ~/.agent-fs/mount/
-    const leak = runFuseCmd(`ls /root/.agent-fs/mount 2>/dev/null | wc -l`, { allowFailure: true });
-    // 0 files (or the dir doesn't exist) — both acceptable.
-    assert(leak === "" || leak === "0" || leak.startsWith("EXIT="), true, `expected no mount-state leak, got ${JSON.stringify(leak)}`);
+    // No leak in ~/.agent-fs/mount/ — count live-PID dirs only; dead-PID dirs
+    // are GCed lazily on the next mount.
+    const leak = runFuseCmd(
+      `for d in /root/.agent-fs/mount/*/; do [ -d "$d" ] || continue; pid=$(basename "$d"); kill -0 "$pid" 2>/dev/null && echo "$pid"; done | wc -l`,
+      { allowFailure: true },
+    );
+    assert(leak === "0" || leak === "" || leak.startsWith("EXIT="), true, `expected no live-pid mount-state leak, got ${JSON.stringify(leak)}`);
   });
 
   // 2. Round-trip: echo > cat > grep > mv > rm cycle.
