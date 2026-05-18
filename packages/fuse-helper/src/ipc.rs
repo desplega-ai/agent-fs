@@ -425,11 +425,11 @@ impl IpcTrait for MockIpc {
 /// (Sprite, E2B, Hetzner VM, GitHub Actions, etc.) that can reach a
 /// hosted daemon but can't run one locally.
 ///
-/// **Read-only in Phase 3** — mutating ops (`OpenWrite`, `CreateFile`,
-/// `Unlink`, `Rename`, `Truncate`, `Mkdir`, `Rmdir`) return a synthetic
-/// `Response::Error` so the kernel surfaces EROFS via `errno::map`. The
-/// next phase fills them in via the binary `PUT .../files/*/raw` endpoint
-/// and the `POST /orgs/:orgId/ops` dispatcher.
+/// Phase 3 landed read-only ops; Phase 4 fills in writes (`OpenWrite`,
+/// `CreateFile`, `Truncate`, `Unlink`, `Rename`, `Mkdir`, `Rmdir`) via
+/// the binary `PUT .../files/*/raw` endpoint and the
+/// `POST /orgs/:orgId/ops` dispatcher. Cross-drive renames short-circuit
+/// to `EXDEV` so the kernel falls back to copy-then-unlink.
 pub struct HttpIpcClient {
     base_url: String,
     api_key: String,
@@ -675,20 +675,30 @@ impl HttpIpcClient {
             Request::GetAttr { drive, path } => self.do_get_attr(&drive, &path).await,
             Request::ReadDir { drive, path } => self.do_read_dir(&drive, &path).await,
             Request::OpenRead { drive, path } => self.do_open_read(&drive, &path).await,
-            // Phase 4 fills in writes. Until then we surface EROFS-shaped
-            // errors so the kernel sees a read-only mount rather than
-            // panicking the helper.
-            Request::OpenWrite { .. }
-            | Request::CreateFile { .. }
-            | Request::Truncate { .. }
-            | Request::Unlink { .. }
-            | Request::Rename { .. }
-            | Request::Mkdir { .. }
-            | Request::Rmdir { .. } => Ok(Response::Error {
-                http_status: 0,
-                code: Some("EROFS".into()),
-                message: "remote mount is read-only in this build (Phase 3)".into(),
-            }),
+            Request::OpenWrite {
+                drive,
+                path,
+                base_version,
+                content_hash,
+                bytes,
+            } => {
+                self.do_open_write(&drive, &path, base_version, &content_hash, bytes)
+                    .await
+            }
+            Request::CreateFile { drive, path } => self.do_create_file(&drive, &path).await,
+            Request::Truncate { drive, path, size } => self.do_truncate(&drive, &path, size).await,
+            Request::Unlink { drive, path } => self.do_unlink(&drive, &path).await,
+            Request::Rename {
+                drive,
+                from_path,
+                to_drive,
+                to_path,
+            } => {
+                self.do_rename(&drive, &from_path, &to_drive, &to_path)
+                    .await
+            }
+            Request::Mkdir { drive, path } => self.do_mkdir(&drive, &path).await,
+            Request::Rmdir { drive, path } => self.do_rmdir(&drive, &path).await,
             // Diagnostic-only ops have no HTTP equivalent — log + ack so the
             // helper doesn't EIO on housekeeping calls.
             Request::RecordConflict { .. } => {
@@ -933,6 +943,227 @@ impl HttpIpcClient {
             mtime_unix,
         })
     }
+
+    /// `PUT /orgs/:orgId/drives/:driveId/files/:path/raw` — close-time write
+    /// from the FUSE mount. `base_version` of `Some(n)` maps to `If-Match`
+    /// (overwrite known head), `None` is unconditional (overwrite-anything).
+    /// `content_hash` is currently informational only — the daemon doesn't
+    /// honour it as a precondition yet (no `Content-SHA256` handler in
+    /// `routes/files.ts`), but we forward it so the wire shape is ready
+    /// once the server-side check lands.
+    async fn do_open_write(
+        &self,
+        drive: &str,
+        path: &str,
+        base_version: Option<u64>,
+        content_hash: &str,
+        bytes: Vec<u8>,
+    ) -> Result<Response> {
+        let (org_id, drive_id) = self.resolve_drive(drive).await?;
+        let stripped = path.strip_prefix('/').unwrap_or(path);
+        let url = format!(
+            "{}/orgs/{}/drives/{}/files/{}/raw",
+            self.base_url,
+            org_id,
+            drive_id,
+            url_encode_path(stripped)
+        );
+        let mut req = self
+            .http
+            .put(&url)
+            .header("Authorization", self.auth_header())
+            // Hono routes /raw expect a non-JSON Content-Type so the
+            // 415-guard in files.ts:104-114 doesn't trip.
+            .header("Content-Type", "application/octet-stream")
+            .body(bytes);
+        if let Some(v) = base_version {
+            req = req.header("If-Match", v.to_string());
+        }
+        if !content_hash.is_empty() {
+            req = req.header("Content-SHA256", content_hash);
+        }
+        let resp = req.send().await.context("PUT /files/.../raw")?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Ok(decode_http_error(resp).await);
+        }
+        let (version, content_hash, deduped) = parse_version_headers(resp.headers());
+        Ok(Response::OpenWrite {
+            version,
+            content_hash,
+            deduped,
+        })
+    }
+
+    /// `PUT /orgs/:orgId/drives/:driveId/files/:path/raw` with `If-None-Match: *`
+    /// — fails 409 if the file already exists. Mirrors the daemon's
+    /// `create_file` IPC handler (writes with `expectedVersion: 0`).
+    async fn do_create_file(&self, drive: &str, path: &str) -> Result<Response> {
+        let (org_id, drive_id) = self.resolve_drive(drive).await?;
+        let stripped = path.strip_prefix('/').unwrap_or(path);
+        let url = format!(
+            "{}/orgs/{}/drives/{}/files/{}/raw",
+            self.base_url,
+            org_id,
+            drive_id,
+            url_encode_path(stripped)
+        );
+        let resp = self
+            .http
+            .put(&url)
+            .header("Authorization", self.auth_header())
+            .header("Content-Type", "application/octet-stream")
+            .header("If-None-Match", "*")
+            .body(Vec::<u8>::new())
+            .send()
+            .await
+            .context("PUT /files/.../raw (create)")?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Ok(decode_http_error(resp).await);
+        }
+        let (version, content_hash, deduped) = parse_version_headers(resp.headers());
+        Ok(Response::OpenWrite {
+            version,
+            content_hash,
+            deduped,
+        })
+    }
+
+    /// `truncate` is RMW because the HTTP API exposes no direct truncate
+    /// endpoint: `GET .../files/.../raw` → slice → `PUT` back. This races
+    /// with concurrent writes; matches the daemon's `truncate` handler
+    /// behaviour in `packages/server/src/ipc/handlers.ts:355-374`.
+    async fn do_truncate(&self, drive: &str, path: &str, size: u64) -> Result<Response> {
+        // Reuse the open_read helper for the GET leg so URL encoding,
+        // header parsing, and 404 handling stay in one place.
+        let read_resp = self.do_open_read(drive, path).await?;
+        let (current_bytes, base_version) = match read_resp {
+            Response::OpenRead { bytes, version, .. } => (bytes, Some(version)),
+            // Pass through any 404 / error from the GET — the kernel sees it.
+            err @ Response::Error { .. } => return Ok(err),
+            other => {
+                anyhow::bail!(
+                    "unexpected response from open_read during truncate: {:?}",
+                    other
+                )
+            }
+        };
+        let new_len = (size as usize).min(current_bytes.len());
+        let trimmed = current_bytes[..new_len].to_vec();
+        self.do_open_write(drive, path, base_version, "", trimmed)
+            .await
+    }
+
+    /// `POST /orgs/:orgId/ops {op:"rm",path}` — matches the daemon's
+    /// `unlink` handler which itself calls `dispatchOp(..., "rm", ...)`.
+    async fn do_unlink(&self, drive: &str, path: &str) -> Result<Response> {
+        let (org_id, drive_id) = self.resolve_drive(drive).await?;
+        let url = format!("{}/orgs/{}/ops", self.base_url, org_id);
+        let body = serde_json::json!({
+            "op": "rm",
+            "driveId": drive_id,
+            "path": path,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&body)
+            .send()
+            .await
+            .context("POST /ops rm")?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Ok(decode_http_error(resp).await);
+        }
+        Ok(Response::Ok)
+    }
+
+    /// Cross-drive rename short-circuits to `EXDEV` so the kernel knows to
+    /// fall back to copy + unlink; same-drive rename dispatches `mv` via
+    /// `POST /ops`.
+    async fn do_rename(
+        &self,
+        drive: &str,
+        from_path: &str,
+        to_drive: &str,
+        to_path: &str,
+    ) -> Result<Response> {
+        if drive != to_drive {
+            // `http_status: 0` is the sentinel the helper uses for
+            // transport-internal errors; `errno::map` keys off the `code`.
+            return Ok(http_error(
+                0,
+                Some("EXDEV".into()),
+                "cross-drive rename not supported",
+            ));
+        }
+        let (org_id, drive_id) = self.resolve_drive(drive).await?;
+        let url = format!("{}/orgs/{}/ops", self.base_url, org_id);
+        let body = serde_json::json!({
+            "op": "mv",
+            "driveId": drive_id,
+            "from": from_path,
+            "to": to_path,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&body)
+            .send()
+            .await
+            .context("POST /ops mv")?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Ok(decode_http_error(resp).await);
+        }
+        Ok(Response::Ok)
+    }
+
+    /// Object storage has no directory marker — the namespace populates on
+    /// first file write under the prefix. Match the daemon's local-no-op
+    /// behaviour (`handlers.ts:395-401`) so the kernel doesn't surface a
+    /// spurious error.
+    async fn do_mkdir(&self, drive: &str, path: &str) -> Result<Response> {
+        tracing::debug!(drive = drive, path = path, "mkdir (http transport, no-op)");
+        Ok(Response::Ok)
+    }
+
+    /// `rmdir` checks emptiness via `ls` to mirror the daemon (which does
+    /// the same in `handlers.ts:403-413`). No dedicated HTTP rmdir endpoint
+    /// today; an empty `ls` is the cheapest cross-drive check.
+    async fn do_rmdir(&self, drive: &str, path: &str) -> Result<Response> {
+        let (org_id, drive_id) = self.resolve_drive(drive).await?;
+        let url = format!("{}/orgs/{}/ops", self.base_url, org_id);
+        let body = serde_json::json!({
+            "op": "ls",
+            "driveId": drive_id,
+            "path": path,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&body)
+            .send()
+            .await
+            .context("POST /ops ls (rmdir probe)")?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Ok(decode_http_error(resp).await);
+        }
+        let ls: LsResponse = resp.json().await.context("decode ls (rmdir probe)")?;
+        if !ls.entries.is_empty() {
+            return Ok(http_error(
+                409,
+                Some("VALIDATION".into()),
+                "directory not empty",
+            ));
+        }
+        Ok(Response::Ok)
+    }
 }
 
 impl IpcTrait for HttpIpcClient {
@@ -950,6 +1181,57 @@ fn http_error(http_status: u16, code: Option<String>, message: &str) -> Response
         code,
         message: message.to_string(),
     }
+}
+
+/// Read a non-2xx response body and translate the daemon's JSON error
+/// payload (`{ error, message }`, per
+/// `packages/server/src/middleware/error.ts:20-32`) into a
+/// `Response::Error`. Falls back to `("<empty>", "")` if the body isn't
+/// JSON-shaped.
+async fn decode_http_error(resp: reqwest::Response) -> Response {
+    let status = resp.status().as_u16();
+    let body: HttpErrorBody = resp.json().await.unwrap_or(HttpErrorBody {
+        error: None,
+        message: None,
+    });
+    http_error(
+        status,
+        body.error,
+        &body.message.unwrap_or_else(|| format!("HTTP {}", status)),
+    )
+}
+
+/// Extract `(version, content_hash, deduped)` from the headers the daemon
+/// emits on a successful raw write. The header names mirror those set in
+/// `packages/server/src/routes/files.ts:183-194`:
+///   ETag                       → `"<version>"`  (preferred; canonical)
+///   X-Agent-FS-Version         → `<version>`    (fallback)
+///   X-Agent-FS-Content-Hash    → `<sha256-hex>`
+///   X-Agent-FS-Deduped         → `"0" | "1"`
+fn parse_version_headers(headers: &reqwest::header::HeaderMap) -> (u64, String, bool) {
+    let version = headers
+        .get("ETag")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim_matches('"').to_string())
+        .and_then(|s| s.parse::<u64>().ok())
+        .or_else(|| {
+            headers
+                .get("X-Agent-FS-Version")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
+        })
+        .unwrap_or(0);
+    let content_hash = headers
+        .get("X-Agent-FS-Content-Hash")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let deduped = headers
+        .get("X-Agent-FS-Deduped")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s == "1")
+        .unwrap_or(false);
+    (version, content_hash, deduped)
 }
 
 /// Percent-encode a path while preserving `/` segment separators. The

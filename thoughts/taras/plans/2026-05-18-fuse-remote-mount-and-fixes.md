@@ -5,8 +5,8 @@ topic: "FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan"
 tags: [plan, agent-fs, fuse, mount, sprite, e2b, hetzner, npm-install]
 status: in-progress
 autonomy: autopilot
-last_updated: 2026-05-18T22:15:00Z
-last_updated_by: Claude (phase-running, Phase 3)
+last_updated: 2026-05-18T22:45:00Z
+last_updated_by: Claude (phase-running, Phase 4)
 ---
 
 # FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan
@@ -392,10 +392,12 @@ Fill in the remaining `HttpIpcClient` ops: writes, creates, deletes, renames, tr
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Rust tests pass: `cd packages/fuse-helper && cargo test`
-- [ ] Clippy clean: `cd packages/fuse-helper && cargo clippy --all-targets -- -D warnings`
-- [ ] Docker harness with full read+write: `packages/fuse-helper/docker/run-mount-test.sh --http` (or whatever the Phase 3 script becomes) writes, reads back, asserts roundtrip.
-- [ ] Existing IPC tests still pass: `cd packages/fuse-helper && cargo test --test ipc_roundtrip --test filesystem_smoke`
+- [x] Rust tests pass: `cd packages/fuse-helper && cargo test` (64 tests across 4 binaries — 31 lib + 12 filesystem_smoke + 20 http_ipc_roundtrip + 1 ipc_roundtrip)
+- [x] Clippy clean: `cd packages/fuse-helper && cargo clippy --all-targets -- -D warnings`
+- [ ] Docker harness with full read+write: `packages/fuse-helper/docker/run-mount-test.sh --http` (or whatever the Phase 3 script becomes) writes, reads back, asserts roundtrip. — Deferred to Phase 5 (proper end-to-end HTTP harness lands there); wiremock tests in `http_ipc_roundtrip.rs` cover the per-op HTTP contract.
+- [x] Existing IPC tests still pass: `cd packages/fuse-helper && cargo test --test ipc_roundtrip --test filesystem_smoke` (12 + 1 passing)
+- [x] Release build: `cd packages/fuse-helper && cargo build --release` (Darwin host, 2.6 MB binary)
+- [x] Format check: `cd packages/fuse-helper && cargo fmt --check`
 
 #### Automated QA:
 - [ ] Agent script in a Docker container: `agent-fs mount /mnt --remote`, then `echo "hello $(date)" > /mnt/current/.../qa-test-$(date +%s).txt`, read it back, `rm` it, `ls` and assert it's gone. Uses the fly instance with a dedicated test API key (if one exists) or a local-daemon's HTTP API.

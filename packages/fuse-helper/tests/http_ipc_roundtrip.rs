@@ -4,11 +4,11 @@
 //! Rust helper produces for each `Request` variant matches what the
 //! `agent-fs` daemon exposes (`packages/server/src/{routes,ipc/handlers}.ts`).
 //!
-//! Phase 3 covers read-only ops only: `Ping`, `Hello`, `ListDrives`,
-//! `DefaultDriveSlug`, `GetAttr`, `ReadDir`, `OpenRead`. Write paths
-//! (`OpenWrite`, `CreateFile`, `Unlink`, `Rename`, `Truncate`) return a
-//! synthetic `Response::Error { code: Some("EROFS"), .. }` until Phase 4
-//! lights them up — the read-only-EROFS test below pins that contract.
+//! Phase 3 landed read-only ops: `Ping`, `Hello`, `ListDrives`,
+//! `DefaultDriveSlug`, `GetAttr`, `ReadDir`, `OpenRead`.
+//! Phase 4 lights up writes: `OpenWrite`, `CreateFile`, `Truncate`,
+//! `Unlink`, `Rename`, `Mkdir`, `Rmdir`, including 409 EDIT_CONFLICT
+//! propagation and the cross-drive rename short-circuit to EXDEV.
 
 use agent_fs_fuse::ipc::{HttpIpcClient, IpcTrait, NodeKind, Request, Response};
 use serde_json::json;
@@ -277,28 +277,395 @@ async fn open_read_404_returns_error_with_not_found_code() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 4: write ops + conflict handling
+// ---------------------------------------------------------------------------
+
 #[tokio::test]
-async fn write_ops_return_synthetic_erofs_in_phase_3() {
-    // Drive table needs to be reachable for the resolve step that some
-    // ops would take in Phase 4 — keeping the auth/orgs stubs here makes
-    // future test extensions trivial. Phase 3 short-circuits before any
-    // HTTP call for mutating ops, so the stubs are unused.
+async fn open_write_happy_path_returns_new_version() {
     let server = MockServer::start().await;
     server_with_default_drive(&server).await;
+
+    Mock::given(method("PUT"))
+        .and(path("/orgs/org1/drives/d1/files/x.txt/raw"))
+        .and(header("Authorization", "Bearer test-key"))
+        .and(header("If-Match", "3"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("ETag", "\"4\"")
+                .insert_header("X-Agent-FS-Version", "4")
+                .insert_header("X-Agent-FS-Content-Hash", "newhash")
+                .insert_header("X-Agent-FS-Deduped", "0")
+                .set_body_json(json!({
+                    "path": "/x.txt",
+                    "version": 4,
+                    "contentHash": "newhash",
+                    "deduped": false,
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::OpenWrite {
+            drive: "brain".into(),
+            path: "/x.txt".into(),
+            base_version: Some(3),
+            content_hash: "oldhash".into(),
+            bytes: b"hello world".to_vec(),
+        })
+        .await
+        .unwrap();
+    match resp {
+        Response::OpenWrite {
+            version,
+            content_hash,
+            deduped,
+        } => {
+            assert_eq!(version, 4);
+            assert_eq!(content_hash, "newhash");
+            assert!(!deduped);
+        }
+        other => panic!("expected OpenWrite, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn open_write_409_returns_edit_conflict_error() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    Mock::given(method("PUT"))
+        .and(path("/orgs/org1/drives/d1/files/x.txt/raw"))
+        .and(header("If-Match", "2"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "error": "EDIT_CONFLICT",
+            "message": "expected version 2 but head is 3",
+            "path": "/x.txt",
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::OpenWrite {
+            drive: "brain".into(),
+            path: "/x.txt".into(),
+            base_version: Some(2),
+            content_hash: "h".into(),
+            bytes: b"stale".to_vec(),
+        })
+        .await
+        .unwrap();
+    match resp {
+        Response::Error {
+            http_status,
+            code,
+            message,
+        } => {
+            assert_eq!(http_status, 409);
+            assert_eq!(code.as_deref(), Some("EDIT_CONFLICT"));
+            assert!(message.contains("expected version"));
+        }
+        other => panic!("expected Error(EDIT_CONFLICT), got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn create_file_uses_if_none_match_star() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    Mock::given(method("PUT"))
+        .and(path("/orgs/org1/drives/d1/files/new.txt/raw"))
+        .and(header("If-None-Match", "*"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("ETag", "\"1\"")
+                .insert_header("X-Agent-FS-Version", "1")
+                .insert_header("X-Agent-FS-Content-Hash", "empty")
+                .insert_header("X-Agent-FS-Deduped", "0")
+                .set_body_json(json!({ "version": 1 })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::CreateFile {
+            drive: "brain".into(),
+            path: "/new.txt".into(),
+        })
+        .await
+        .unwrap();
+    match resp {
+        Response::OpenWrite { version, .. } => assert_eq!(version, 1),
+        other => panic!("expected OpenWrite, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn create_file_409_returns_edit_conflict_error() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    Mock::given(method("PUT"))
+        .and(path("/orgs/org1/drives/d1/files/exists.txt/raw"))
+        .and(header("If-None-Match", "*"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "error": "EDIT_CONFLICT",
+            "message": "file already exists",
+            "path": "/exists.txt",
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::CreateFile {
+            drive: "brain".into(),
+            path: "/exists.txt".into(),
+        })
+        .await
+        .unwrap();
+    match resp {
+        Response::Error {
+            http_status, code, ..
+        } => {
+            assert_eq!(http_status, 409);
+            assert_eq!(code.as_deref(), Some("EDIT_CONFLICT"));
+        }
+        other => panic!("expected Error(EDIT_CONFLICT), got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn unlink_posts_rm_op() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/orgs/org1/ops"))
+        .and(body_json(json!({
+            "op": "rm",
+            "driveId": "d1",
+            "path": "/doomed.txt",
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "path": "/doomed.txt",
+            "deleted": true,
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
 
     let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
     let resp = client
         .send(Request::Unlink {
             drive: "brain".into(),
-            path: "/x.txt".into(),
+            path: "/doomed.txt".into(),
+        })
+        .await
+        .unwrap();
+    assert!(matches!(resp, Response::Ok));
+}
+
+#[tokio::test]
+async fn rename_same_drive_posts_mv_op() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/orgs/org1/ops"))
+        .and(body_json(json!({
+            "op": "mv",
+            "driveId": "d1",
+            "from": "/a.txt",
+            "to": "/b.txt",
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "from": "/a.txt",
+            "to": "/b.txt",
+            "version": 2,
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::Rename {
+            drive: "brain".into(),
+            from_path: "/a.txt".into(),
+            to_drive: "brain".into(),
+            to_path: "/b.txt".into(),
+        })
+        .await
+        .unwrap();
+    assert!(matches!(resp, Response::Ok));
+}
+
+#[tokio::test]
+async fn rename_across_drives_short_circuits_to_exdev() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    // Note: NO mv mock — the helper must not hit the server when the
+    // rename crosses drives. wiremock will reject any unmatched POST.
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::Rename {
+            drive: "brain".into(),
+            from_path: "/a.txt".into(),
+            to_drive: "other".into(),
+            to_path: "/b.txt".into(),
         })
         .await
         .unwrap();
     match resp {
-        Response::Error { code, .. } => {
-            assert_eq!(code.as_deref(), Some("EROFS"));
+        Response::Error { code, .. } => assert_eq!(code.as_deref(), Some("EXDEV")),
+        other => panic!("expected Error(EXDEV), got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn mkdir_is_local_noop() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    // No mkdir-shaped mock — `do_mkdir` must not touch the network.
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::Mkdir {
+            drive: "brain".into(),
+            path: "/newdir".into(),
+        })
+        .await
+        .unwrap();
+    assert!(matches!(resp, Response::Ok));
+}
+
+#[tokio::test]
+async fn rmdir_empty_succeeds() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/orgs/org1/ops"))
+        .and(body_json(json!({
+            "op": "ls",
+            "driveId": "d1",
+            "path": "/empty",
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "entries": [] })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::Rmdir {
+            drive: "brain".into(),
+            path: "/empty".into(),
+        })
+        .await
+        .unwrap();
+    assert!(matches!(resp, Response::Ok));
+}
+
+#[tokio::test]
+async fn rmdir_non_empty_returns_validation_error() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    Mock::given(method("POST"))
+        .and(path("/orgs/org1/ops"))
+        .and(body_json(json!({
+            "op": "ls",
+            "driveId": "d1",
+            "path": "/full",
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "entries": [
+                { "name": "child.txt", "type": "file", "size": 1 },
+            ],
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::Rmdir {
+            drive: "brain".into(),
+            path: "/full".into(),
+        })
+        .await
+        .unwrap();
+    match resp {
+        Response::Error {
+            http_status, code, ..
+        } => {
+            assert_eq!(http_status, 409);
+            assert_eq!(code.as_deref(), Some("VALIDATION"));
         }
-        other => panic!("expected Error (EROFS), got {:?}", other),
+        other => panic!("expected Error(VALIDATION), got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn truncate_round_trips_via_open_read_then_open_write() {
+    let server = MockServer::start().await;
+    server_with_default_drive(&server).await;
+
+    // GET leg: returns 11-byte body + ETag/version headers.
+    Mock::given(method("GET"))
+        .and(path("/orgs/org1/drives/d1/files/big.txt/raw"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(b"hello world".to_vec())
+                .insert_header("ETag", "\"5\"")
+                .insert_header("X-Agent-FS-Version", "5")
+                .insert_header("X-Agent-FS-Content-Hash", "h5"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    // PUT leg: must carry the truncated payload (`"hello"`, 5 bytes) and
+    // If-Match: 5 from the read.
+    Mock::given(method("PUT"))
+        .and(path("/orgs/org1/drives/d1/files/big.txt/raw"))
+        .and(header("If-Match", "5"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("ETag", "\"6\"")
+                .insert_header("X-Agent-FS-Version", "6")
+                .insert_header("X-Agent-FS-Content-Hash", "h6")
+                .insert_header("X-Agent-FS-Deduped", "0")
+                .set_body_json(json!({ "version": 6 })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = HttpIpcClient::new(server.uri(), "test-key").unwrap();
+    let resp = client
+        .send(Request::Truncate {
+            drive: "brain".into(),
+            path: "/big.txt".into(),
+            size: 5,
+        })
+        .await
+        .unwrap();
+    match resp {
+        Response::OpenWrite { version, .. } => assert_eq!(version, 6),
+        other => panic!("expected OpenWrite, got {:?}", other),
     }
 }
 
