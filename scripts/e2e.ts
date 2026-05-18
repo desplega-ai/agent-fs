@@ -219,14 +219,18 @@ function cleanupFuseMount(): void {
       // Belt-and-suspenders: kill leftover helper (Bug 1), unmount, pause,
       // remove & recreate mountpoint. Every step is `|| true` so a clean
       // state doesn't fail the cleanup.
-      `pkill -9 -f agent-fs-fuse 2>/dev/null || true; ` +
+      // NB: do NOT use `pkill -f agent-fs-fuse` here — the parent docker-exec
+      // shell's argv contains that literal string and -f would kill the
+      // cleanup process itself, leaving subsequent steps unexecuted. Match by
+      // process name only (15-char Linux comm name).
+      `pkill -9 -x agent-fs-fuse 2>/dev/null || true; ` +
         `fusermount3 -u /mnt/agent-fs 2>/dev/null || true; ` +
         `sleep 0.5; ` +
         `rmdir /mnt/agent-fs 2>/dev/null || rm -rf /mnt/agent-fs 2>/dev/null || true; ` +
         `mkdir -p /mnt/agent-fs; ` +
-        // Bug 2.b: the CLI's mount command refuses with "mount already running"
-        // if `~/.agent-fs/mount.pid` exists and the PID is alive. After pkill,
-        // the PID file is stale; drop it so the next test can mount.
+        // Bug 2.b: CLI's mount command refuses if mount.pid exists and the
+        // PID is alive. After pkill the PID is stale; drop the file so the
+        // next test can mount.
         `rm -f /root/.agent-fs/mount.pid 2>/dev/null || true`,
       { allowFailure: true, timeoutMs: 15_000 },
     );
@@ -370,9 +374,12 @@ function cleanup() {
   try {
     runRaw("daemon stop");
   } catch {}
-  // Remove MinIO container
+  // Remove MinIO container + the per-run docker network we created for it
   try {
     execSync(`docker rm -f ${containerName}`, { stdio: "ignore" });
+  } catch {}
+  try {
+    execSync(`docker network rm ${containerName}-net`, { stdio: "ignore" });
   } catch {}
   // Remove FUSE runner container + named volumes (best-effort: unmount + stop + rm)
   if (fuseReady) {
@@ -436,16 +443,21 @@ async function setupFuse(): Promise<boolean> {
   // 2. Run the FUSE container with caps + bind-mount the repo at /work.
   //    We also bind-mount the MinIO container's network namespace so the
   //    daemon inside the FUSE container can reach MinIO on host.docker.internal.
-  const minioNet = (() => {
-    try {
-      return execSync(
-        `docker inspect --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' ${containerName}`,
-        { encoding: "utf-8" },
-      ).trim();
-    } catch {
-      return "bridge";
-    }
-  })();
+  // MinIO is started on the default `bridge` network which has no
+  // inter-container DNS, so the FUSE container can't resolve
+  // `${containerName}` to MinIO's IP. Create a user-defined network and
+  // attach MinIO to it (idempotent — `connect` errors if already joined).
+  const minioNet = `${containerName}-net`;
+  try {
+    execSync(`docker network create ${minioNet}`, { stdio: "ignore" });
+  } catch {
+    /* already exists from a prior run */
+  }
+  try {
+    execSync(`docker network connect ${minioNet} ${containerName}`, { stdio: "ignore" });
+  } catch {
+    /* already connected */
+  }
 
   try {
     execSync(
@@ -532,6 +544,14 @@ async function setupFuse(): Promise<boolean> {
     );
     // Pick a fixed in-container daemon port (host port isn't exposed; we go via docker exec).
     const innerDaemonPort = 19872;
+    // Resolve MinIO's IP on the shared docker network — using the container
+    // name as a hostname doesn't always resolve from a sibling container
+    // (default bridge has no DNS; user-defined network DNS can race with
+    // attach). IP pinning sidesteps both.
+    const minioIp = execSync(
+      `docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' ${containerName}`,
+      { encoding: "utf-8" },
+    ).trim().split(/\s+/).filter(Boolean)[0];
     runFuseCmd(
       `source /root/.agent-fs/test-env.sh && ` +
         `cd /work && cat > /root/.agent-fs/config.json <<EOF
@@ -540,7 +560,7 @@ async function setupFuse(): Promise<boolean> {
     "provider": "minio",
     "bucket": "agentfs",
     "region": "us-east-1",
-    "endpoint": "http://${containerName}:9000",
+    "endpoint": "http://${minioIp}:9000",
     "accessKeyId": "minioadmin",
     "secretAccessKey": "minioadmin",
     "versioningEnabled": true
