@@ -6,10 +6,10 @@
 // path as the JSON op route.
 //
 // Wire encoding mirrors the Rust helper's `serde` enums (see
-// `packages/fuse-helper/src/ipc.rs`):
+// `packages/fuse-helper/src/ipc.rs` — `#[serde(rename_all = "snake_case")]`):
 //   - Requests are `{ op: "<snake_case>", ...fields }`.
-//   - Responses are `{ <CamelCase variant>: { ...fields } }` for data
-//     variants, or bare strings `"Ok"` / `"Pong"` for the unit variants.
+//   - Responses are `{ <snake_case variant>: { ...fields } }` for data
+//     variants, or bare strings `"ok"` / `"pong"` for the unit variants.
 
 import {
   dispatchOp,
@@ -41,7 +41,7 @@ export interface IpcContext {
 // ---------------------------------------------------------------------------
 
 interface ErrorResponse {
-  Error: {
+  error: {
     http_status: number;
     code: string | null;
     message: string;
@@ -49,7 +49,7 @@ interface ErrorResponse {
 }
 
 function err(http_status: number, code: string | null, message: string): ErrorResponse {
-  return { Error: { http_status, code, message } };
+  return { error: { http_status, code, message } };
 }
 
 function classifyError(e: any): ErrorResponse {
@@ -194,14 +194,14 @@ export async function dispatchIpc(ctx: IpcContext, body: unknown): Promise<unkno
 async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
   switch (req.op) {
     case "ping":
-      return "Pong";
+      return "pong";
 
     case "hello":
       // Stateless v1 — we acknowledge but don't persist per-conn state in
       // this minimal handler. The plan's MountSession lives in sidecar.ts
       // and is hooked up by the daemon's connect callback (out of scope of
       // a pure dispatcher).
-      return "Ok";
+      return "ok";
 
     case "list_drives": {
       const auth = resolveAuth(ctx);
@@ -213,7 +213,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
           out.push({ slug: d.name, id: d.id, org_id: org.id });
         }
       }
-      return { Drives: out };
+      return { drives: out };
     }
 
     case "default_drive_slug": {
@@ -224,10 +224,10 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
         const drives = listDrivesForUser(ctx.db, org.id, auth.userId);
         const def = drives.find((d) => d.isDefault) ?? drives[0];
         if (def) {
-          return { DefaultDriveSlug: def.name };
+          return { default_drive_slug: def.name };
         }
       }
-      return { DefaultDriveSlug: null };
+      return { default_drive_slug: null };
     }
 
     case "get_attr": {
@@ -238,7 +238,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       try {
         const stat = (await dispatchOp(opCtx, "stat", { path })) as any;
         return {
-          Attr: {
+          attr: {
             kind: "File",
             size: stat.size,
             mtime_unix: Math.floor(new Date(stat.modifiedAt).getTime() / 1000),
@@ -253,7 +253,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
             const lsRes = (await dispatchOp(opCtx, "ls", { path })) as any;
             if (lsRes && Array.isArray(lsRes.entries)) {
               return {
-                Attr: {
+                attr: {
                   kind: "Dir",
                   size: 0,
                   mtime_unix: 0,
@@ -286,7 +286,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
         version: null,
         content_hash: null,
       }));
-      return { DirEntries: entries };
+      return { dir_entries: entries };
     }
 
     case "open_read": {
@@ -300,7 +300,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       const content: string = catRes?.content ?? "";
       const bytes = new TextEncoder().encode(content);
       return {
-        OpenRead: {
+        open_read: {
           bytes,
           version: head?.version ?? 0,
           content_hash: head?.contentHash ?? "",
@@ -325,7 +325,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
         expectedVersion: req.base_version ?? undefined,
       });
       return {
-        OpenWrite: {
+        open_write: {
           version: result.version,
           content_hash: result.contentHash ?? "",
           deduped: result.deduped ?? false,
@@ -345,7 +345,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
         expectedVersion: 0,
       });
       return {
-        OpenWrite: {
+        open_write: {
           version: result.version,
           content_hash: result.contentHash ?? "",
           deduped: result.deduped ?? false,
@@ -366,7 +366,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       const content = new TextDecoder("utf-8").decode(trimmed);
       const result = await writeRaw(opCtx, { path, content });
       return {
-        OpenWrite: {
+        open_write: {
           version: result.version,
           content_hash: result.contentHash ?? "",
           deduped: result.deduped ?? false,
@@ -380,7 +380,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       const path = req.path!;
       const opCtx = buildOpCtx(ctx, auth, orgId, driveId);
       await dispatchOp(opCtx, "rm", { path });
-      return "Ok";
+      return "ok";
     }
 
     case "rename": {
@@ -390,7 +390,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       const to = req.to_path!;
       const opCtx = buildOpCtx(ctx, auth, orgId, driveId);
       await dispatchOp(opCtx, "mv", { from, to });
-      return "Ok";
+      return "ok";
     }
 
     case "mkdir": {
@@ -398,7 +398,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       // populates on first write under the prefix. Return Ok so the kernel
       // doesn't surface a spurious error.
       resolveAuth(ctx);
-      return "Ok";
+      return "ok";
     }
 
     case "rmdir": {
@@ -410,7 +410,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       if (lsRes?.entries?.length > 0) {
         return err(409, "VALIDATION", "directory not empty");
       }
-      return "Ok";
+      return "ok";
     }
 
     case "record_conflict": {
@@ -427,12 +427,12 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
           bytes: req.bytes,
         })
       );
-      return "Ok";
+      return "ok";
     }
 
     case "write_status": {
       console.warn("[agent-fs ipc] status:", req.line);
-      return "Ok";
+      return "ok";
     }
 
     default:

@@ -13,7 +13,7 @@
     },
     "packages/cli": {
       "name": "@desplega.ai/agent-fs",
-      "version": "0.5.5",
+      "version": "0.6.0",
       "bin": {
         "agent-fs": "dist/cli.js",
       },
@@ -32,6 +32,8 @@
         "zod": "^3.24.0",
       },
       "optionalDependencies": {
+        "@desplega.ai/agent-fs-fuse-linux-arm64": "0.6.0",
+        "@desplega.ai/agent-fs-fuse-linux-x64": "0.6.0",
         "sqlite-vec-darwin-arm64": "^0.1.9",
         "sqlite-vec-darwin-x64": "^0.1.9",
         "sqlite-vec-linux-arm64": "^0.1.9",
@@ -41,7 +43,7 @@
     },
     "packages/core": {
       "name": "@desplega.ai/agent-fs-core",
-      "version": "0.5.5",
+      "version": "0.6.0",
       "dependencies": {
         "@aws-sdk/client-s3": "^3.750.0",
         "@aws-sdk/s3-request-presigner": "^3.750.0",
@@ -60,9 +62,17 @@
         "typescript": "^5.7.0",
       },
     },
+    "packages/fuse-helper-linux-arm64": {
+      "name": "@desplega.ai/agent-fs-fuse-linux-arm64",
+      "version": "0.6.0",
+    },
+    "packages/fuse-helper-linux-x64": {
+      "name": "@desplega.ai/agent-fs-fuse-linux-x64",
+      "version": "0.6.0",
+    },
     "packages/mcp": {
       "name": "@desplega.ai/agent-fs-mcp",
-      "version": "0.5.5",
+      "version": "0.6.0",
       "dependencies": {
         "@desplega.ai/agent-fs-core": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.27.1",
@@ -71,7 +81,7 @@
     },
     "packages/server": {
       "name": "@desplega.ai/agent-fs-server",
-      "version": "0.5.5",
+      "version": "0.6.0",
       "dependencies": {
         "@desplega.ai/agent-fs-core": "workspace:*",
         "@desplega.ai/agent-fs-mcp": "workspace:*",
@@ -179,6 +189,10 @@
     "@desplega.ai/agent-fs": ["@desplega.ai/agent-fs@workspace:packages/cli"],
 
     "@desplega.ai/agent-fs-core": ["@desplega.ai/agent-fs-core@workspace:packages/core"],
+
+    "@desplega.ai/agent-fs-fuse-linux-arm64": ["@desplega.ai/agent-fs-fuse-linux-arm64@workspace:packages/fuse-helper-linux-arm64"],
+
+    "@desplega.ai/agent-fs-fuse-linux-x64": ["@desplega.ai/agent-fs-fuse-linux-x64@workspace:packages/fuse-helper-linux-x64"],
 
     "@desplega.ai/agent-fs-mcp": ["@desplega.ai/agent-fs-mcp@workspace:packages/mcp"],
 

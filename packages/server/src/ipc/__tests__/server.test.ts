@@ -118,7 +118,7 @@ describe("IPC server — round-trip", () => {
 
   test("Ping returns Pong", async () => {
     const resp = await roundTrip(harness.socketPath, { op: "ping" });
-    expect(resp).toBe("Pong");
+    expect(resp).toBe("pong");
   });
 
   test("Hello returns Ok", async () => {
@@ -127,23 +127,23 @@ describe("IPC server — round-trip", () => {
       client_version: "0.0.0-test",
       pid: 1,
     });
-    expect(resp).toBe("Ok");
+    expect(resp).toBe("ok");
   });
 
   test("ListDrives returns the user's visible drives", async () => {
     const resp: any = await roundTrip(harness.socketPath, { op: "list_drives" });
     expect(resp).toBeDefined();
-    expect(resp.Drives).toBeInstanceOf(Array);
+    expect(resp.drives).toBeInstanceOf(Array);
     // The freshly-created user has a personal org with one default drive.
-    expect(resp.Drives.length).toBeGreaterThanOrEqual(1);
-    expect(resp.Drives[0].slug).toBe(harness.driveSlug);
+    expect(resp.drives.length).toBeGreaterThanOrEqual(1);
+    expect(resp.drives[0].slug).toBe(harness.driveSlug);
   });
 
   test("DefaultDriveSlug returns the user's default drive slug", async () => {
     const resp: any = await roundTrip(harness.socketPath, {
       op: "default_drive_slug",
     });
-    expect(resp.DefaultDriveSlug).toBe(harness.driveSlug);
+    expect(resp.default_drive_slug).toBe(harness.driveSlug);
   });
 
   test("OpenWrite then OpenRead round-trip the file content", async () => {
@@ -156,19 +156,19 @@ describe("IPC server — round-trip", () => {
       content_hash: "",
       bytes,
     });
-    expect(wresp.OpenWrite).toBeDefined();
-    expect(wresp.OpenWrite.version).toBeGreaterThanOrEqual(1);
-    expect(wresp.OpenWrite.deduped).toBe(false);
+    expect(wresp.open_write).toBeDefined();
+    expect(wresp.open_write.version).toBeGreaterThanOrEqual(1);
+    expect(wresp.open_write.deduped).toBe(false);
 
     const rresp: any = await roundTrip(harness.socketPath, {
       op: "open_read",
       drive: harness.driveSlug,
       path: "/ipc-write.md",
     });
-    expect(rresp.OpenRead).toBeDefined();
-    const out = new TextDecoder().decode(new Uint8Array(rresp.OpenRead.bytes));
+    expect(rresp.open_read).toBeDefined();
+    const out = new TextDecoder().decode(new Uint8Array(rresp.open_read.bytes));
     expect(out).toBe("hello ipc\n");
-    expect(rresp.OpenRead.version).toBeGreaterThanOrEqual(1);
+    expect(rresp.open_read.version).toBeGreaterThanOrEqual(1);
   });
 
   test("GetAttr after a write returns size + version", async () => {
@@ -186,9 +186,9 @@ describe("IPC server — round-trip", () => {
       drive: harness.driveSlug,
       path: "/attrs.md",
     });
-    expect(resp.Attr).toBeDefined();
-    expect(resp.Attr.size).toBe(5);
-    expect(resp.Attr.version).toBeGreaterThanOrEqual(1);
+    expect(resp.attr).toBeDefined();
+    expect(resp.attr.size).toBe(5);
+    expect(resp.attr.version).toBeGreaterThanOrEqual(1);
   });
 
   test("OpenWrite with base_version: 0 against existing file → 409 EditConflict", async () => {
@@ -210,15 +210,15 @@ describe("IPC server — round-trip", () => {
       content_hash: "",
       bytes: new TextEncoder().encode("second"),
     });
-    expect(resp.Error).toBeDefined();
-    expect(resp.Error.http_status).toBe(409);
-    expect(resp.Error.code).toBe("EDIT_CONFLICT");
+    expect(resp.error).toBeDefined();
+    expect(resp.error.http_status).toBe(409);
+    expect(resp.error.code).toBe("EDIT_CONFLICT");
   });
 
   test("unknown op returns a structured validation error", async () => {
     const resp: any = await roundTrip(harness.socketPath, { op: "nope" });
-    expect(resp.Error).toBeDefined();
-    expect(resp.Error.http_status).toBe(400);
+    expect(resp.error).toBeDefined();
+    expect(resp.error.http_status).toBe(400);
   });
 });
 

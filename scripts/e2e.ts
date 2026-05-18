@@ -538,6 +538,25 @@ EOF`,
     if (!innerKey) throw new Error(`failed to register inner user: ${reg.slice(0, 200)}`);
     runFuseCmd(`echo 'export AGENT_FS_API_KEY=${innerKey}' >> /root/.agent-fs/test-env.sh`);
     runFuseCmd(`echo 'export AGENT_FS_API_URL=http://127.0.0.1:${innerDaemonPort}' >> /root/.agent-fs/test-env.sh`);
+
+    // Persist the registered key into config.auth.apiKey so the daemon's IPC
+    // handlers (which read config, not env) can resolve it for the helper.
+    // Then bounce the daemon so it picks up the new config.
+    runFuseCmd(
+      `jq --arg k '${innerKey}' '.auth.apiKey = $k' /root/.agent-fs/config.json > /root/.agent-fs/config.json.new && mv /root/.agent-fs/config.json.new /root/.agent-fs/config.json`,
+    );
+    runFuseCmd(
+      `source /root/.agent-fs/test-env.sh && cd /work && bun run packages/cli/src/index.ts daemon stop && bun run packages/cli/src/index.ts daemon start`,
+      { timeoutMs: 30_000 },
+    );
+    for (let i = 0; i < 30; i++) {
+      const r = runFuseCmd(
+        `curl -sf http://127.0.0.1:${innerDaemonPort}/health >/dev/null && echo OK || echo FAIL`,
+        { allowFailure: true },
+      );
+      if (r.includes("OK")) break;
+      await Bun.sleep(500);
+    }
   } catch (e: any) {
     fuseSkipReason = `inner daemon init failed: ${e.message?.split("\n")[0] ?? String(e)}`;
     try {
