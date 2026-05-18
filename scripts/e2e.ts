@@ -158,7 +158,14 @@ async function fuseTest(name: string, fn: () => void | Promise<void>) {
     console.log(`  ⊘ ${tag} — skipped (${fuseSkipReason || "FUSE not available"})`);
     return;
   }
-  await test(tag, fn);
+  // Bug 2: aggressively reset /mnt/agent-fs after every test (pass or fail)
+  // so leftover mount state doesn't cascade into the next test as
+  // "Mountpoint is not empty".
+  try {
+    await test(tag, fn);
+  } finally {
+    cleanupFuseMount();
+  }
 }
 
 /**
@@ -191,6 +198,36 @@ function runFuseCmd(cmdStr: string, opts: { allowFailure?: boolean; timeoutMs?: 
     throw new Error(
       `docker exec failed (exit=${e.status ?? "?"}): ${stderr || stdout || e.message}`,
     );
+  }
+}
+
+/**
+ * Aggressively reset /mnt/agent-fs between FUSE tests.
+ *
+ * Bug 2: when a test's `umount` doesn't fully unwind (or a previous test
+ * leaves a leftover helper process from Bug 1), the next test's
+ * `mount /mnt/agent-fs` fails with "Mountpoint is not empty", which cascades
+ * across the rest of the FUSE suite. This helper unmounts, kills stragglers,
+ * removes & recreates the mountpoint dir, and is safe to call repeatedly.
+ *
+ * No-ops gracefully when the FUSE container isn't ready.
+ */
+function cleanupFuseMount(): void {
+  if (!fuseReady) return;
+  try {
+    runFuseCmd(
+      // Belt-and-suspenders: kill leftover helper (Bug 1), unmount, pause,
+      // remove & recreate mountpoint. Every step is `|| true` so a clean
+      // state doesn't fail the cleanup.
+      `pkill -9 -f agent-fs-fuse 2>/dev/null || true; ` +
+        `fusermount3 -u /mnt/agent-fs 2>/dev/null || true; ` +
+        `sleep 0.5; ` +
+        `rmdir /mnt/agent-fs 2>/dev/null || rm -rf /mnt/agent-fs 2>/dev/null || true; ` +
+        `mkdir -p /mnt/agent-fs`,
+      { allowFailure: true, timeoutMs: 15_000 },
+    );
+  } catch {
+    // Never let cleanup itself fail the test pipeline.
   }
 }
 
@@ -1311,6 +1348,9 @@ async function runFuseTests() {
     console.log(`  ⊘ All 10 FUSE test cases will be skipped.`);
   } else {
     console.log(`  FUSE container: ${fuseContainerName} (image: ${fuseImageTag})`);
+    // Bug 2: start from a known-clean /mnt/agent-fs so the first test
+    // can't inherit state from an earlier aborted run.
+    cleanupFuseMount();
   }
 
   // 1. Mount lifecycle: mount → mount table shows it → umount → no leak.
