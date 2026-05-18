@@ -26,7 +26,7 @@
     "README.md"
   ],
   "scripts": {
-    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external chonkie --external zod --external @modelcontextprotocol/sdk --external hono",
+    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external chonkie --external zod --external @modelcontextprotocol/sdk --external hono --external msgpackr",
     "prepublishOnly": "bun run build:npm"
   },
   "optionalDependencies": {
