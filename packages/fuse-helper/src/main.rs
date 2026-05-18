@@ -1,17 +1,38 @@
 //! `agent-fs-fuse` binary entry point.
 //!
 //! Builds a tokio multi-thread runtime, instantiates the IPC client and
-//! `AgentFsFs`, and hands them to `fuser::mount2` running on the main thread.
-//! A SIGTERM/SIGINT handler unmounts cleanly.
+//! `AgentFsFs`, and hands them to `fuser::spawn_mount2`. The main thread
+//! then watches a shutdown flag toggled by the SIGTERM/SIGINT handler.
+//! When tripped (or when the FUSE event loop exits on its own), we
+//! `umount_and_join` the background session, run cleanup (remove our
+//! per-pid working-copy dir), and exit normally — so Drop runs on stack
+//! values, atexit hooks fire, and `${AGENT_FS_HOME}/mount/<pid>/` is
+//! removed even when `agent-fs umount` SIGTERMs us mid-event-loop.
+//!
+//! Previously the handler called `libc::_exit(0)` from the signal
+//! context, which is async-signal-safe but skips Drop and atexit
+//! handlers entirely — leaving the per-pid working dir behind and
+//! occasionally leaving the kernel mountpoint busy because the FUSE
+//! session never had a chance to unwind.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 
 use agent_fs_fuse::fs::{AgentFsFs, FuserAdapter};
 use agent_fs_fuse::ipc::{IpcTrait, UnixIpcClient};
+
+/// Set by the SIGTERM/SIGINT handler. The main thread polls this flag
+/// and, when set, unmounts the FUSE session and runs cleanup. Using an
+/// atomic flag (rather than `_exit`) is the standard async-signal-safe
+/// pattern: storing to an `AtomicBool` is safe from a signal handler,
+/// and the actual unmount + Drop chain runs in normal context where it
+/// can free resources properly.
+static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Parser)]
 #[command(
@@ -129,8 +150,58 @@ fn main() -> Result<()> {
     // runtime.block_on. See `fs.rs` for the wired callbacks.
     let adapter = FuserAdapter::new(fs);
 
-    fuser::mount2(adapter, &args.mountpoint, &config).context("fuser::mount2")?;
-    Ok(())
+    // We use `spawn_mount2` rather than `mount2` so the FUSE event loop
+    // runs on a background thread. That frees the main thread to poll the
+    // shutdown flag and to react to a signal *without* tripping the
+    // async-signal-safety rules (we never touch the mount handle from
+    // inside the signal handler — only an AtomicBool).
+    let bg =
+        fuser::spawn_mount2(adapter, &args.mountpoint, &config).context("fuser::spawn_mount2")?;
+
+    // Wait for either: (a) the signal handler to set the shutdown flag,
+    // or (b) the background FUSE thread to exit on its own (e.g.
+    // somebody ran `fusermount -u` from the outside).
+    loop {
+        if SHUTDOWN.load(Ordering::SeqCst) {
+            tracing::info!("shutdown flag tripped — unmounting");
+            break;
+        }
+        if bg.guard.is_finished() {
+            tracing::info!("background FUSE thread exited on its own");
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // Explicitly unmount + join. If the bg thread already exited, the
+    // inner `mount.umount()` is still safe (idempotent — `Option::take`
+    // guards against a double-umount). If the umount itself fails we
+    // still want to clean up the per-pid workdir, so we log + continue.
+    if let Err(e) = bg.umount_and_join() {
+        tracing::warn!(error = %e, "umount_and_join failed; proceeding with cleanup");
+    }
+
+    cleanup_pid_dir(&home, pid);
+
+    // Normal exit. atexit hooks run; nothing important relies on Drop of
+    // stack values past this point (we already explicitly cleaned up the
+    // workdir + unmounted the session).
+    std::process::exit(0);
+}
+
+/// Remove this process's per-pid working-copy dir at
+/// `${AGENT_FS_HOME}/mount/<pid>/`. Best-effort; failures are logged but
+/// not fatal — the next helper start runs `gc_dead_pid_dirs` and will
+/// sweep us up anyway once our PID is gone.
+fn cleanup_pid_dir(home: &Path, pid: u32) {
+    let dir = agent_fs_fuse::layout::working_copy_dir(home, pid);
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => tracing::info!(dir = %dir.display(), "removed per-pid workdir"),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Already gone (e.g. FUSE `destroy` callback won the race).
+        }
+        Err(e) => tracing::warn!(error = %e, dir = %dir.display(), "remove per-pid workdir failed"),
+    }
 }
 
 fn init_tracing(log_file: PathBuf) -> Result<()> {
@@ -149,9 +220,9 @@ fn init_tracing(log_file: PathBuf) -> Result<()> {
 
 fn install_signal_handler() -> Result<()> {
     use nix::sys::signal::{self, SigHandler, Signal};
-    // SAFETY: registering a process-wide signal handler. The handler only
-    // calls async-signal-safe libc::_exit-equivalent via exiting via the
-    // libfuse auto-unmount path.
+    // SAFETY: registering a process-wide signal handler. The handler is
+    // async-signal-safe: it only stores into a `static AtomicBool`, which
+    // is documented as safe to mutate from a signal context.
     unsafe {
         signal::signal(Signal::SIGTERM, SigHandler::Handler(handle_signal))
             .context("register SIGTERM")?;
@@ -162,9 +233,10 @@ fn install_signal_handler() -> Result<()> {
 }
 
 extern "C" fn handle_signal(_sig: libc::c_int) {
-    // fuser's AutoUnmount option unmounts the filesystem when the session
-    // drops, so simply exiting cleanly is sufficient. We use _exit to avoid
-    // running destructors from a signal context.
-    // SAFETY: _exit is async-signal-safe.
-    unsafe { libc::_exit(0) };
+    // Async-signal-safe: only flip an atomic flag. The main thread polls
+    // it, then unmounts the FUSE session and runs cleanup in normal
+    // (non-signal) context. This is the standard pattern for getting
+    // proper Drop / atexit semantics out of a signal handler — `_exit`
+    // here would skip both and leave the per-pid working dir behind.
+    SHUTDOWN.store(true, Ordering::SeqCst);
 }

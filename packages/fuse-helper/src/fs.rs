@@ -690,20 +690,31 @@ impl<I: IpcTrait> AgentFsFs<I> {
     }
 
     /// Per-pid temp-dir GC. Call on startup to clean dead-PID dirs in
-    /// `${AGENT_FS_HOME}/mount/`. Best-effort; failures are logged not fatal.
+    /// `${AGENT_FS_HOME}/mount/`. Best-effort; failures are logged not
+    /// fatal. Skips our own PID (so we never wipe the workdir we're
+    /// about to use ourselves), names that don't parse as a PID, and
+    /// non-positive integers (`kill(0, ...)` is a process-group check
+    /// on Unix and `kill(-1, 0)` would target every process — neither
+    /// is a valid filename anyway, but we defend explicitly).
     pub fn gc_dead_pid_dirs(home: &std::path::Path) {
         let mount_dir = home.join("mount");
         let Ok(entries) = std::fs::read_dir(&mount_dir) else {
             return;
         };
+        let self_pid = std::process::id();
         for ent in entries.flatten() {
             let name = ent.file_name();
             let Some(name) = name.to_str() else { continue };
             let Ok(pid) = name.parse::<i32>() else {
                 continue;
             };
+            if pid <= 0 || pid as u32 == self_pid {
+                continue;
+            }
             if !pid_alive(pid) {
-                let _ = std::fs::remove_dir_all(ent.path());
+                if let Err(e) = std::fs::remove_dir_all(ent.path()) {
+                    tracing::warn!(error = %e, pid, "gc: remove dead-pid workdir failed");
+                }
             }
         }
     }
