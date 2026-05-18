@@ -17,8 +17,10 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { getHome } from "@/core";
+import { getConfigPath, getHome } from "@/core";
 import { resolveFuseBinary, verifyFuseBinaryHash } from "../lib/fuse-binary.js";
+import { buildHelperSpawnArgs } from "../lib/fuse-args.js";
+import { resolveRemoteCreds } from "../lib/remote-config.js";
 
 function getMountPidPath(): string {
   return join(getHome(), "mount.pid");
@@ -118,7 +120,19 @@ export function mountCommand() {
   const cmd = new Command("mount")
     .description("FUSE mount commands for agent-fs (Linux only).")
     .argument("[path]", "Directory to mount the agent-fs filesystem at")
-    .option("--socket <path>", "Path to the daemon's Unix socket")
+    .option("--socket <path>", "Path to the daemon's Unix socket (local mode)")
+    .option(
+      "--remote",
+      "Mount against a remote agent-fs HTTP API (no local daemon required)"
+    )
+    .option(
+      "--api-url <url>",
+      "Remote agent-fs API base URL (implies --remote)"
+    )
+    .option(
+      "--api-key <key>",
+      "Remote API key (DEPRECATED — prefer AGENT_FS_API_KEY env or config)"
+    )
     .option("--allow-other", "Allow other users to access the mount")
     .option("--foreground", "Run the helper in the foreground (logs to stdout)")
     .action(async (path: string | undefined, opts) => {
@@ -168,10 +182,16 @@ export function umountCommand() {
 // Internals
 // ---------------------------------------------------------------------------
 
-async function runMount(
-  pathArg: string,
-  opts: { socket?: string; allowOther?: boolean; foreground?: boolean }
-): Promise<void> {
+interface MountOpts {
+  socket?: string;
+  remote?: boolean;
+  apiUrl?: string;
+  apiKey?: string;
+  allowOther?: boolean;
+  foreground?: boolean;
+}
+
+async function runMount(pathArg: string, opts: MountOpts): Promise<void> {
   const mountpoint = pathArg;
 
   // Linux-only feature check. The `--help` path doesn't hit this — that's
@@ -222,14 +242,66 @@ async function runMount(
     process.exit(1);
   }
 
-  // Ensure the daemon's Unix socket exists. We don't auto-start the daemon
-  // here — the user explicitly opted into the mount; if their daemon's down
-  // they need to know. (Auto-start would silently take over the user's env.)
-  const socketPath = opts.socket ?? getSocketPath();
-  if (!existsSync(socketPath)) {
-    console.error(`Daemon socket not found at ${socketPath}.`);
-    console.error("Start the daemon first: agent-fs daemon start");
+  // Decide mode. Treat `--api-url` / `--api-key` as implicit opt-ins to
+  // `--remote` (less surprising than erroring out).
+  const wantsRemote = Boolean(opts.remote || opts.apiUrl || opts.apiKey);
+
+  // `--remote` and `--socket` are mutually exclusive — surface the conflict
+  // here so the user sees a CLI-level error rather than a buildHelperSpawnArgs
+  // stack trace.
+  if (wantsRemote && opts.socket) {
+    console.error(
+      "Cannot combine --remote with --socket — they select different transports."
+    );
+    console.error("Drop --socket to use remote HTTP transport.");
     process.exit(1);
+  }
+
+  let mode: "local" | "remote" = "local";
+  let apiUrl: string | undefined;
+  let apiKey: string | undefined;
+  let socketPath: string | undefined;
+
+  if (wantsRemote) {
+    if (opts.apiKey) {
+      console.error(
+        "Warning: --api-key on the command line is deprecated and leaks via " +
+          "shell history. Prefer the AGENT_FS_API_KEY env var or the `apiKey` " +
+          "field in ~/.agent-fs/config.json."
+      );
+    }
+    const creds = resolveRemoteCreds(
+      { apiUrl: opts.apiUrl, apiKey: opts.apiKey },
+      getConfigPath(),
+      {
+        AGENT_FS_API_URL: process.env.AGENT_FS_API_URL,
+        AGENT_FS_API_KEY: process.env.AGENT_FS_API_KEY,
+      }
+    );
+    if (!creds) {
+      console.error(
+        "--remote requires both an API URL and an API key. " +
+          "Set via --api-url + --api-key, env vars AGENT_FS_API_URL + " +
+          "AGENT_FS_API_KEY, or `apiUrl` + `apiKey` in ~/.agent-fs/config.json."
+      );
+      process.exit(1);
+    }
+    mode = "remote";
+    apiUrl = creds.apiUrl;
+    apiKey = creds.apiKey;
+  } else {
+    // Ensure the daemon's Unix socket exists. We don't auto-start the daemon
+    // here — the user explicitly opted into the mount; if their daemon's down
+    // they need to know. (Auto-start would silently take over the user's env.)
+    socketPath = opts.socket ?? getSocketPath();
+    if (!existsSync(socketPath)) {
+      console.error(`Daemon socket not found at ${socketPath}.`);
+      console.error("Start the daemon first: agent-fs daemon start");
+      console.error(
+        "Or pass --remote to mount against a remote agent-fs HTTP API."
+      );
+      process.exit(1);
+    }
   }
 
   // Resolve the helper binary.
@@ -252,19 +324,34 @@ async function runMount(
     );
   }
 
-  // Spawn the helper.
-  const args: string[] = [
-    "--mountpoint",
-    mountpoint,
-    "--socket",
-    socketPath,
-    "--log-file",
-    getMountLogPath(),
-  ];
-  if (opts.allowOther) args.push("--allow-other");
+  // Build argv + env via the pure helper. Any invariant violation throws —
+  // we catch + render to stderr to keep the user-facing error consistent.
+  let spawnArgs;
+  try {
+    spawnArgs = buildHelperSpawnArgs({
+      mode,
+      mountpoint,
+      socket: socketPath,
+      apiUrl,
+      apiKey,
+      allowOther: opts.allowOther,
+      foreground: opts.foreground,
+      logFile: getMountLogPath(),
+    });
+  } catch (err: any) {
+    console.error(err.message);
+    process.exit(1);
+  }
+
+  // Child env: inherit parent env, then layer the helper-specific keys. We
+  // never put the API key on argv (would leak via `ps`).
+  const childEnv = { ...process.env, ...spawnArgs.env };
 
   if (opts.foreground) {
-    const child = spawn(resolved.binPath, args, { stdio: "inherit" });
+    const child = spawn(resolved.binPath, spawnArgs.argv, {
+      stdio: "inherit",
+      env: childEnv,
+    });
     child.on("exit", (code) => {
       clearMountPid();
       process.exit(code ?? 0);
@@ -273,9 +360,10 @@ async function runMount(
     return;
   }
 
-  const child = spawn(resolved.binPath, args, {
+  const child = spawn(resolved.binPath, spawnArgs.argv, {
     detached: true,
     stdio: "ignore",
+    env: childEnv,
   });
   if (child.pid === undefined) {
     console.error("Failed to spawn FUSE helper.");
@@ -283,7 +371,8 @@ async function runMount(
   }
   writeMountPid(child.pid, mountpoint);
   child.unref();
-  console.log(`Mount started (PID: ${child.pid}, ${resolved.source})`);
+  const modeLabel = mode === "remote" ? `remote: ${apiUrl}` : `socket: ${socketPath}`;
+  console.log(`Mount started (PID: ${child.pid}, ${resolved.source}, ${modeLabel})`);
   console.log(`Mountpoint: ${mountpoint}`);
   console.log(`Logs: ${getMountLogPath()}`);
 }

@@ -5,8 +5,8 @@ topic: "FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan"
 tags: [plan, agent-fs, fuse, mount, sprite, e2b, hetzner, npm-install]
 status: in-progress
 autonomy: autopilot
-last_updated: 2026-05-18T20:00:00Z
-last_updated_by: Claude (phase-running, Phase 1)
+last_updated: 2026-05-18T20:45:00Z
+last_updated_by: Claude (phase-running, Phase 2)
 ---
 
 # FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan
@@ -245,9 +245,9 @@ When `--remote` is active:
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Typecheck passes: `bun run typecheck`
-- [ ] Unit tests pass: `bun test packages/cli/src/lib/__tests__/`
-- [ ] Build still works: `bun run build`
+- [x] Typecheck passes: `bun run typecheck`
+- [x] Unit tests pass: `bun test packages/cli/src/lib/__tests__/`
+- [x] Build still works: `bun run build`
 
 #### Automated QA:
 - [ ] Agent runs `agent-fs mount /tmp/m --remote --api-url https://example.invalid --api-key dummy` against a local CLI build and verifies the spawned helper command line ( via a strace-style or by intercepting via a stubbed helper binary) carries `--api-url https://example.invalid` and `AGENT_FS_API_KEY=dummy` in env but NOT in argv.
