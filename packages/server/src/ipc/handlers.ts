@@ -247,11 +247,16 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
           },
         };
       } catch (e: any) {
-        // If `stat` 404s, treat it as a directory if `ls` returns entries.
+        // If `stat` 404s, treat it as a directory ONLY if `ls` returns a
+        // non-empty entry list. `ls` on a missing path returns
+        // `{ entries: [] }` (no error) — without the length check, every
+        // non-existent path was reported as a directory, causing the
+        // kernel to reject `create()` with EISDIR (Bug 3 — first FUSE
+        // write op failed before any OpenWrite IPC was ever sent).
         if (String(e?.name) === "NotFoundError") {
           try {
             const lsRes = (await dispatchOp(opCtx, "ls", { path })) as any;
-            if (lsRes && Array.isArray(lsRes.entries)) {
+            if (lsRes && Array.isArray(lsRes.entries) && lsRes.entries.length > 0) {
               return {
                 attr: {
                   kind: "Dir",
