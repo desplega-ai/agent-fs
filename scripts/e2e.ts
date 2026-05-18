@@ -223,7 +223,11 @@ function cleanupFuseMount(): void {
         `fusermount3 -u /mnt/agent-fs 2>/dev/null || true; ` +
         `sleep 0.5; ` +
         `rmdir /mnt/agent-fs 2>/dev/null || rm -rf /mnt/agent-fs 2>/dev/null || true; ` +
-        `mkdir -p /mnt/agent-fs`,
+        `mkdir -p /mnt/agent-fs; ` +
+        // Bug 2.b: the CLI's mount command refuses with "mount already running"
+        // if `~/.agent-fs/mount.pid` exists and the PID is alive. After pkill,
+        // the PID file is stale; drop it so the next test can mount.
+        `rm -f /root/.agent-fs/mount.pid 2>/dev/null || true`,
       { allowFailure: true, timeoutMs: 15_000 },
     );
   } catch {
