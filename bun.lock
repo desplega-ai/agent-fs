@@ -26,6 +26,7 @@
         "diff": "^8.0.3",
         "drizzle-orm": "^0.44.0",
         "hono": "^4.12.8",
+        "msgpackr": "^1",
         "node-llama-cpp": "^3.17.1",
         "openai": "^6.29.0",
         "sqlite-vec": "^0.1.9",
