@@ -44,13 +44,27 @@ thiserror = "1"
 libc = "0.2"
 nix = { version = "0.27", features = ["signal", "process"] }
 
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 
 ulid = "1"
 tempfile = "3"
 
+# HTTP client for the `HttpIpcClient` transport (used by `agent-fs mount
+# --remote`). `default-features = false` drops `native-tls` so we ship a
+# fully static musl binary; `rustls-tls` keeps TLS support via a pure-Rust
+# implementation. `json` + `stream` cover the response shapes; no `blocking`
+# feature — we already host a tokio runtime.
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "stream",
+] }
+bytes = "1"
+once_cell = "1"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "sync", "time", "test-util"] }
+wiremock = "0.6"
 
 # NOTE: release profile knobs live in the workspace root Cargo.toml because
 # cargo ignores `[profile.*]` on non-root packages in a workspace.

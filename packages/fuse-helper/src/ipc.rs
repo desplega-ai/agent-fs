@@ -331,25 +331,39 @@ pub use ipc_trait::Ipc as IpcTrait;
 impl UnixIpcClient {
     /// Send a request with bounded retry for idempotent ops.
     ///
-    /// `is_idempotent(&req)` decides whether transport errors (no response,
-    /// disconnected) should retry up to 3× within 1 s. Mutating ops never
-    /// retry — they map transport failures straight to the caller.
+    /// Delegates to the shared `with_retry` helper so both `UnixIpcClient`
+    /// and `HttpIpcClient` honour the same policy (3× backoff for safe ops,
+    /// no retry for mutating ops).
     async fn send_with_retry(&self, req: Request) -> Result<Response> {
-        let idempotent = is_idempotent(&req);
-        let mut attempts: u32 = 0;
-        let mut backoff_ms: u64 = 50;
-        loop {
-            attempts += 1;
-            match self.send_inner(req.clone()).await {
-                Ok(r) => return Ok(r),
-                Err(e) if idempotent && attempts < 3 => {
-                    tracing::debug!(?e, attempts, "ipc retry");
-                    sleep(Duration::from_millis(backoff_ms)).await;
-                    backoff_ms = (backoff_ms * 2).min(1000);
-                    continue;
-                }
-                Err(e) => return Err(e),
+        with_retry(req, |r| self.send_inner(r)).await
+    }
+}
+
+/// Shared retry shape used by both `UnixIpcClient` and `HttpIpcClient`.
+///
+/// `is_idempotent(&req)` decides whether transport errors (no response,
+/// disconnected, network blip) should retry up to 3× within ~1 s.
+/// Mutating ops never retry — they map transport failures straight to the
+/// caller so we don't silently double-write.
+pub(crate) async fn with_retry<F, Fut>(req: Request, mut send: F) -> Result<Response>
+where
+    F: FnMut(Request) -> Fut,
+    Fut: std::future::Future<Output = Result<Response>>,
+{
+    let idempotent = is_idempotent(&req);
+    let mut attempts: u32 = 0;
+    let mut backoff_ms: u64 = 50;
+    loop {
+        attempts += 1;
+        match send(req.clone()).await {
+            Ok(r) => return Ok(r),
+            Err(e) if idempotent && attempts < 3 => {
+                tracing::debug!(?e, attempts, "ipc retry");
+                sleep(Duration::from_millis(backoff_ms)).await;
+                backoff_ms = (backoff_ms * 2).min(1000);
+                continue;
             }
+            Err(e) => return Err(e),
         }
     }
 }
@@ -400,6 +414,633 @@ impl IpcTrait for MockIpc {
             Ok((self.handler)(req))
         })
     }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP implementation (remote-mount mode)
+// ---------------------------------------------------------------------------
+
+/// IPC client that talks to a remote `agent-fs` HTTP API instead of a
+/// local Unix socket. Used by `agent-fs mount --remote` in environments
+/// (Sprite, E2B, Hetzner VM, GitHub Actions, etc.) that can reach a
+/// hosted daemon but can't run one locally.
+///
+/// **Read-only in Phase 3** — mutating ops (`OpenWrite`, `CreateFile`,
+/// `Unlink`, `Rename`, `Truncate`, `Mkdir`, `Rmdir`) return a synthetic
+/// `Response::Error` so the kernel surfaces EROFS via `errno::map`. The
+/// next phase fills them in via the binary `PUT .../files/*/raw` endpoint
+/// and the `POST /orgs/:orgId/ops` dispatcher.
+pub struct HttpIpcClient {
+    base_url: String,
+    api_key: String,
+    http: reqwest::Client,
+    /// Cached `defaultOrgId` from `/auth/me`. Populated lazily on first
+    /// request so we don't block the constructor on a network round-trip.
+    default_org: once_cell::sync::OnceCell<String>,
+    /// Cached `defaultDriveId` from `/auth/me`. Same lazy pattern.
+    default_drive: once_cell::sync::OnceCell<String>,
+    /// Cached `(slug → (drive_id, org_id))` table built from
+    /// `GET /orgs/:orgId/drives` per visible org. Populated on first call
+    /// that needs id-resolution and reused for the lifetime of the helper.
+    drive_table: tokio::sync::Mutex<Option<DriveTable>>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct DriveTable {
+    /// slug → (driveId, orgId)
+    by_slug: HashMap<String, (String, String)>,
+    /// driveId → slug (reverse lookup for `default_drive_slug`)
+    slug_by_id: HashMap<String, String>,
+    /// flattened DriveInfo list (returned verbatim by `ListDrives`)
+    all: Vec<DriveInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OrgsResponse {
+    orgs: Vec<OrgEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OrgEntry {
+    id: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DrivesResponse {
+    drives: Vec<DriveEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DriveEntry {
+    id: String,
+    name: String,
+    #[serde(default, rename = "isDefault")]
+    #[allow(dead_code)]
+    is_default: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct AuthMeResponse {
+    #[serde(rename = "defaultOrgId")]
+    default_org_id: Option<String>,
+    #[serde(rename = "defaultDriveId")]
+    default_drive_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LsEntryResponse {
+    name: String,
+    /// "file" | "directory"
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    size: Option<u64>,
+    #[serde(default, rename = "modifiedAt")]
+    modified_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LsResponse {
+    entries: Vec<LsEntryResponse>,
+}
+
+#[derive(Debug, Deserialize)]
+struct StatResponse {
+    #[allow(dead_code)]
+    path: String,
+    size: u64,
+    #[serde(default, rename = "currentVersion")]
+    current_version: Option<u64>,
+    #[serde(default, rename = "modifiedAt")]
+    modified_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HttpErrorBody {
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+}
+
+impl HttpIpcClient {
+    /// Construct a new HTTP IPC client.
+    ///
+    /// `base_url` is the daemon's HTTP origin (e.g. `https://agent-fs-taras.fly.dev`).
+    /// `api_key` is forwarded as `Authorization: Bearer <key>` on every
+    /// request. Trailing slash on `base_url` is stripped so URL assembly
+    /// never double-slashes.
+    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> Result<Self> {
+        let base_url = base_url.into();
+        let base_url = base_url.trim_end_matches('/').to_string();
+        let api_key = api_key.into();
+        let http = reqwest::Client::builder()
+            .user_agent(concat!("agent-fs-fuse/", env!("CARGO_PKG_VERSION")))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .context("build reqwest client")?;
+        Ok(Self {
+            base_url,
+            api_key,
+            http,
+            default_org: once_cell::sync::OnceCell::new(),
+            default_drive: once_cell::sync::OnceCell::new(),
+            drive_table: tokio::sync::Mutex::new(None),
+        })
+    }
+
+    fn auth_header(&self) -> String {
+        format!("Bearer {}", self.api_key)
+    }
+
+    /// Fetch `/auth/me` once and stash `defaultOrgId` + `defaultDriveId`.
+    /// Called by ops that need an org id (`get_attr`, `read_dir`, `open_read`).
+    async fn ensure_auth_me(&self) -> Result<()> {
+        if self.default_org.get().is_some() {
+            return Ok(());
+        }
+        let url = format!("{}/auth/me", self.base_url);
+        let resp = self
+            .http
+            .get(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("GET /auth/me")?;
+        let status = resp.status();
+        if !status.is_success() {
+            anyhow::bail!("/auth/me returned HTTP {}", status.as_u16());
+        }
+        let body: AuthMeResponse = resp.json().await.context("decode /auth/me")?;
+        if let Some(org_id) = body.default_org_id {
+            let _ = self.default_org.set(org_id);
+        } else {
+            anyhow::bail!("/auth/me returned no defaultOrgId");
+        }
+        if let Some(drive_id) = body.default_drive_id {
+            let _ = self.default_drive.set(drive_id);
+        }
+        Ok(())
+    }
+
+    /// Lazily build the slug → (driveId, orgId) lookup table. Walks every
+    /// org the API key can see and collects drives across all of them so
+    /// `ListDrives` / `DefaultDriveSlug` / `resolve_drive` agree.
+    async fn ensure_drive_table(&self) -> Result<()> {
+        {
+            let guard = self.drive_table.lock().await;
+            if guard.is_some() {
+                return Ok(());
+            }
+        }
+        let orgs_url = format!("{}/orgs", self.base_url);
+        let orgs_resp = self
+            .http
+            .get(&orgs_url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("GET /orgs")?;
+        let status = orgs_resp.status();
+        if !status.is_success() {
+            anyhow::bail!("/orgs returned HTTP {}", status.as_u16());
+        }
+        let orgs: OrgsResponse = orgs_resp.json().await.context("decode /orgs")?;
+
+        let mut table = DriveTable::default();
+        for org in orgs.orgs {
+            let drives_url = format!("{}/orgs/{}/drives", self.base_url, org.id);
+            let drives_resp = self
+                .http
+                .get(&drives_url)
+                .header("Authorization", self.auth_header())
+                .send()
+                .await
+                .with_context(|| format!("GET /orgs/{}/drives", org.id))?;
+            let dstatus = drives_resp.status();
+            if !dstatus.is_success() {
+                // Skip orgs we can't see drives for — partial visibility
+                // shouldn't fail the whole call.
+                tracing::warn!(
+                    org_id = %org.id,
+                    status = dstatus.as_u16(),
+                    "skipping org drives listing"
+                );
+                continue;
+            }
+            let drives: DrivesResponse =
+                drives_resp.json().await.context("decode drives response")?;
+            for d in drives.drives {
+                // Slug == name in this codebase (see daemon
+                // `handlers.ts:213`). Keep the same mapping here.
+                table
+                    .by_slug
+                    .insert(d.name.clone(), (d.id.clone(), org.id.clone()));
+                table.slug_by_id.insert(d.id.clone(), d.name.clone());
+                table.all.push(DriveInfo {
+                    slug: d.name,
+                    id: d.id,
+                    org_id: org.id.clone(),
+                });
+            }
+        }
+        *self.drive_table.lock().await = Some(table);
+        Ok(())
+    }
+
+    /// Resolve a drive slug (the helper's id of choice) to `(orgId, driveId)`.
+    /// Builds the cache on first use.
+    async fn resolve_drive(&self, slug: &str) -> Result<(String, String)> {
+        self.ensure_drive_table().await?;
+        let guard = self.drive_table.lock().await;
+        let table = guard.as_ref().expect("drive_table populated above");
+        let entry = table
+            .by_slug
+            .get(slug)
+            .ok_or_else(|| anyhow::anyhow!("drive not found: {}", slug))?;
+        Ok((entry.1.clone(), entry.0.clone())) // (orgId, driveId)
+    }
+
+    /// Inner request dispatcher. Mirrors `UnixIpcClient::send_inner` shape so
+    /// `with_retry` can drive both transports identically.
+    async fn send_inner(&self, req: Request) -> Result<Response> {
+        match req {
+            Request::Ping => self.do_ping().await,
+            Request::Hello { .. } => self.do_hello().await,
+            Request::ListDrives => self.do_list_drives().await,
+            Request::DefaultDriveSlug => self.do_default_drive_slug().await,
+            Request::GetAttr { drive, path } => self.do_get_attr(&drive, &path).await,
+            Request::ReadDir { drive, path } => self.do_read_dir(&drive, &path).await,
+            Request::OpenRead { drive, path } => self.do_open_read(&drive, &path).await,
+            // Phase 4 fills in writes. Until then we surface EROFS-shaped
+            // errors so the kernel sees a read-only mount rather than
+            // panicking the helper.
+            Request::OpenWrite { .. }
+            | Request::CreateFile { .. }
+            | Request::Truncate { .. }
+            | Request::Unlink { .. }
+            | Request::Rename { .. }
+            | Request::Mkdir { .. }
+            | Request::Rmdir { .. } => Ok(Response::Error {
+                http_status: 0,
+                code: Some("EROFS".into()),
+                message: "remote mount is read-only in this build (Phase 3)".into(),
+            }),
+            // Diagnostic-only ops have no HTTP equivalent — log + ack so the
+            // helper doesn't EIO on housekeeping calls.
+            Request::RecordConflict { .. } => {
+                tracing::warn!("record_conflict (http transport, no-op)");
+                Ok(Response::Ok)
+            }
+            Request::WriteStatus { line } => {
+                tracing::info!(line, "write_status (http transport, no-op)");
+                Ok(Response::Ok)
+            }
+        }
+    }
+
+    async fn do_ping(&self) -> Result<Response> {
+        let url = format!("{}/health", self.base_url);
+        // /health is public but we still send auth so wiremock-style stubs
+        // can assert the header is present on every call.
+        let resp = self
+            .http
+            .get(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("GET /health")?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Ok(http_error(status.as_u16(), None, "/health failed"));
+        }
+        Ok(Response::Pong)
+    }
+
+    async fn do_hello(&self) -> Result<Response> {
+        self.ensure_auth_me().await?;
+        Ok(Response::Ok)
+    }
+
+    async fn do_list_drives(&self) -> Result<Response> {
+        self.ensure_drive_table().await?;
+        let guard = self.drive_table.lock().await;
+        let drives = guard.as_ref().map(|t| t.all.clone()).unwrap_or_default();
+        Ok(Response::Drives(drives))
+    }
+
+    async fn do_default_drive_slug(&self) -> Result<Response> {
+        self.ensure_auth_me().await?;
+        let drive_id = match self.default_drive.get() {
+            Some(id) => id.clone(),
+            None => return Ok(Response::DefaultDriveSlug(None)),
+        };
+        self.ensure_drive_table().await?;
+        let guard = self.drive_table.lock().await;
+        let slug = guard
+            .as_ref()
+            .and_then(|t| t.slug_by_id.get(&drive_id).cloned());
+        Ok(Response::DefaultDriveSlug(slug))
+    }
+
+    async fn do_get_attr(&self, drive: &str, path: &str) -> Result<Response> {
+        let (org_id, drive_id) = self.resolve_drive(drive).await?;
+        let url = format!("{}/orgs/{}/ops", self.base_url, org_id);
+        let body = serde_json::json!({
+            "op": "stat",
+            "driveId": drive_id,
+            "path": path,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&body)
+            .send()
+            .await
+            .context("POST /ops stat")?;
+        let status = resp.status();
+        if status.as_u16() == 404 {
+            // The daemon falls back to a directory probe via `ls` when
+            // stat 404s. Mirror that here so `ls /mnt/drive/dir` works.
+            return self.dir_attr_or_404(&org_id, &drive_id, path).await;
+        }
+        if !status.is_success() {
+            let body: HttpErrorBody = resp.json().await.unwrap_or(HttpErrorBody {
+                error: None,
+                message: None,
+            });
+            return Ok(http_error(
+                status.as_u16(),
+                body.error,
+                &body.message.unwrap_or_default(),
+            ));
+        }
+        let stat: StatResponse = resp.json().await.context("decode stat response")?;
+        let mtime_unix = parse_iso8601(stat.modified_at.as_deref()).unwrap_or(0);
+        Ok(Response::Attr(AttrInfo {
+            kind: NodeKind::File,
+            size: stat.size,
+            mtime_unix,
+            version: stat.current_version,
+            content_hash: None,
+        }))
+    }
+
+    /// Fallback used when `stat` returns 404 — probe via `ls` and, if the
+    /// path has children, synthesize a directory `AttrInfo`. Matches the
+    /// daemon's `get_attr` handler in `packages/server/src/ipc/handlers.ts`.
+    async fn dir_attr_or_404(&self, org_id: &str, drive_id: &str, path: &str) -> Result<Response> {
+        let url = format!("{}/orgs/{}/ops", self.base_url, org_id);
+        let body = serde_json::json!({
+            "op": "ls",
+            "driveId": drive_id,
+            "path": path,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&body)
+            .send()
+            .await
+            .context("POST /ops ls (dir probe)")?;
+        let status = resp.status();
+        if !status.is_success() {
+            return Ok(http_error(404, Some("NOT_FOUND".into()), "not found"));
+        }
+        let ls: LsResponse = resp.json().await.context("decode ls (dir probe)")?;
+        if ls.entries.is_empty() {
+            return Ok(http_error(404, Some("NOT_FOUND".into()), "not found"));
+        }
+        Ok(Response::Attr(AttrInfo {
+            kind: NodeKind::Dir,
+            size: 0,
+            mtime_unix: 0,
+            version: None,
+            content_hash: None,
+        }))
+    }
+
+    async fn do_read_dir(&self, drive: &str, path: &str) -> Result<Response> {
+        let (org_id, drive_id) = self.resolve_drive(drive).await?;
+        let url = format!("{}/orgs/{}/ops", self.base_url, org_id);
+        let body = serde_json::json!({
+            "op": "ls",
+            "driveId": drive_id,
+            "path": path,
+        });
+        let resp = self
+            .http
+            .post(&url)
+            .header("Authorization", self.auth_header())
+            .json(&body)
+            .send()
+            .await
+            .context("POST /ops ls")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body: HttpErrorBody = resp.json().await.unwrap_or(HttpErrorBody {
+                error: None,
+                message: None,
+            });
+            return Ok(http_error(
+                status.as_u16(),
+                body.error,
+                &body.message.unwrap_or_default(),
+            ));
+        }
+        let ls: LsResponse = resp.json().await.context("decode ls response")?;
+        let entries = ls
+            .entries
+            .into_iter()
+            .map(|e| {
+                let kind = match e.kind.as_str() {
+                    "directory" => NodeKind::Dir,
+                    _ => NodeKind::File,
+                };
+                DirEntry {
+                    name: e.name,
+                    kind,
+                    size: e.size.unwrap_or(0),
+                    mtime_unix: parse_iso8601(e.modified_at.as_deref()).unwrap_or(0),
+                    version: None,
+                    content_hash: None,
+                }
+            })
+            .collect();
+        Ok(Response::DirEntries(entries))
+    }
+
+    async fn do_open_read(&self, drive: &str, path: &str) -> Result<Response> {
+        let (org_id, drive_id) = self.resolve_drive(drive).await?;
+        // Server's `GET /files/*/raw` already URL-decodes the wildcard
+        // capture — match exactly what `files.ts:24-84` expects. The
+        // leading slash is stripped because the route already contributes
+        // one.
+        let stripped = path.strip_prefix('/').unwrap_or(path);
+        let url = format!(
+            "{}/orgs/{}/drives/{}/files/{}/raw",
+            self.base_url,
+            org_id,
+            drive_id,
+            url_encode_path(stripped)
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .header("Authorization", self.auth_header())
+            .send()
+            .await
+            .context("GET /files/.../raw")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let code = if status.as_u16() == 404 {
+                Some("NOT_FOUND".into())
+            } else {
+                None
+            };
+            return Ok(http_error(status.as_u16(), code, "raw read failed"));
+        }
+        let version = resp
+            .headers()
+            .get("X-Agent-FS-Version")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+        let content_hash = resp
+            .headers()
+            .get("X-Agent-FS-Content-Hash")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let last_modified = resp
+            .headers()
+            .get("Last-Modified")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let bytes = resp.bytes().await.context("read raw bytes")?.to_vec();
+        let size = bytes.len() as u64;
+        let mtime_unix = last_modified.and_then(|s| parse_http_date(&s)).unwrap_or(0);
+        Ok(Response::OpenRead {
+            bytes,
+            version,
+            content_hash,
+            size,
+            mtime_unix,
+        })
+    }
+}
+
+impl IpcTrait for HttpIpcClient {
+    fn send<'a>(
+        &'a self,
+        req: Request,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Response>> + Send + 'a>> {
+        Box::pin(async move { with_retry(req, |r| async move { self.send_inner(r).await }).await })
+    }
+}
+
+fn http_error(http_status: u16, code: Option<String>, message: &str) -> Response {
+    Response::Error {
+        http_status,
+        code,
+        message: message.to_string(),
+    }
+}
+
+/// Percent-encode a path while preserving `/` segment separators. The
+/// raw-files route is `*` (Hono multi-segment wildcard) so we need to
+/// keep slashes literal.
+fn url_encode_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for ch in path.chars() {
+        match ch {
+            '/' => out.push('/'),
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => out.push(ch),
+            other => {
+                let mut buf = [0u8; 4];
+                for b in other.encode_utf8(&mut buf).as_bytes() {
+                    out.push_str(&format!("%{:02X}", b));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Best-effort parse of an ISO-8601 / RFC-3339 timestamp into unix seconds.
+/// Falls back to `None` on parse failure (caller substitutes 0). We avoid
+/// pulling `chrono` in just for this — `time` is already a transitive dep.
+fn parse_iso8601(s: Option<&str>) -> Option<i64> {
+    let s = s?;
+    // Tolerate a "Z" suffix and millisecond precision. Common shapes:
+    //   "2026-05-18T18:30:00.000Z"
+    //   "2026-05-18T18:30:00Z"
+    // SystemTime::from_str isn't a thing, so do a manual minimal parse.
+    let trimmed = s.trim_end_matches('Z');
+    let (date, time) = trimmed.split_once('T')?;
+    let mut date_parts = date.split('-');
+    let year: i64 = date_parts.next()?.parse().ok()?;
+    let month: i64 = date_parts.next()?.parse().ok()?;
+    let day: i64 = date_parts.next()?.parse().ok()?;
+    let time = time.split('.').next().unwrap_or(time);
+    let mut time_parts = time.split(':');
+    let hour: i64 = time_parts.next()?.parse().ok()?;
+    let minute: i64 = time_parts.next()?.parse().ok()?;
+    let second: i64 = time_parts.next()?.parse().ok()?;
+    // Days since unix epoch via Howard Hinnant's date algorithm.
+    let y = year - (if month <= 2 { 1 } else { 0 });
+    let era = (if y >= 0 { y } else { y - 399 }) / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days_since_epoch = era * 146097 + doe - 719468;
+    Some(days_since_epoch * 86400 + hour * 3600 + minute * 60 + second)
+}
+
+/// Parse an HTTP-date (`Last-Modified` header) into unix seconds. Tolerates
+/// only the most common IMF-fixdate shape since that's what Hono emits;
+/// returns `None` otherwise.
+fn parse_http_date(s: &str) -> Option<i64> {
+    // "Mon, 18 May 2026 18:30:00 GMT"
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    if parts.len() < 6 {
+        return None;
+    }
+    let day: i64 = parts[1].parse().ok()?;
+    let month = match parts[2] {
+        "Jan" => 1,
+        "Feb" => 2,
+        "Mar" => 3,
+        "Apr" => 4,
+        "May" => 5,
+        "Jun" => 6,
+        "Jul" => 7,
+        "Aug" => 8,
+        "Sep" => 9,
+        "Oct" => 10,
+        "Nov" => 11,
+        "Dec" => 12,
+        _ => return None,
+    };
+    let year: i64 = parts[3].parse().ok()?;
+    let time_parts: Vec<&str> = parts[4].split(':').collect();
+    if time_parts.len() != 3 {
+        return None;
+    }
+    let hour: i64 = time_parts[0].parse().ok()?;
+    let minute: i64 = time_parts[1].parse().ok()?;
+    let second: i64 = time_parts[2].parse().ok()?;
+    // Reuse iso8601 math.
+    let synthetic = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        year, month, day, hour, minute, second
+    );
+    parse_iso8601(Some(synthetic.as_str()))
 }
 
 // ---------------------------------------------------------------------------

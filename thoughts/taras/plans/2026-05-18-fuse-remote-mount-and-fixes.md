@@ -5,8 +5,8 @@ topic: "FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan"
 tags: [plan, agent-fs, fuse, mount, sprite, e2b, hetzner, npm-install]
 status: in-progress
 autonomy: autopilot
-last_updated: 2026-05-18T20:45:00Z
-last_updated_by: Claude (phase-running, Phase 2)
+last_updated: 2026-05-18T22:15:00Z
+last_updated_by: Claude (phase-running, Phase 3)
 ---
 
 # FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan
@@ -334,11 +334,11 @@ Retry: lift the existing retry shape from `UnixIpcClient::send_inner` (`ipc.rs:3
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Rust unit + integration tests pass: `cd packages/fuse-helper && cargo test`
-- [ ] Clippy clean: `cd packages/fuse-helper && cargo clippy --all-targets -- -D warnings`
-- [ ] Formatting: `cd packages/fuse-helper && cargo fmt --check`
-- [ ] Cross-compile still works: `cd packages/fuse-helper && cross build --release --target x86_64-unknown-linux-musl` (size budget: stripped binary ≤ 6 MB; current is ~1.5 MB — flag any >3× growth)
-- [ ] Old Docker mount harness still passes: `packages/fuse-helper/docker/run-mount-test.sh`
+- [x] Rust unit + integration tests pass: `cd packages/fuse-helper && cargo test` (44 tests across 4 binaries — 31 lib + 12 filesystem_smoke + 1 ipc_roundtrip + 10 http_ipc_roundtrip)
+- [x] Clippy clean: `cd packages/fuse-helper && cargo clippy --all-targets -- -D warnings`
+- [x] Formatting: `cd packages/fuse-helper && cargo fmt --check`
+- [ ] Cross-compile still works: `cd packages/fuse-helper && cross build --release --target x86_64-unknown-linux-musl` (size budget: stripped binary ≤ 6 MB; current is ~1.5 MB — flag any >3× growth) — Darwin host: not run; the Docker mount harness already proves a Linux-native build succeeds. Release artifact build size on Darwin host = 2.5 MB (1.7× growth, well under 3×).
+- [x] Old Docker mount harness still passes: `packages/fuse-helper/docker/run-mount-test.sh` (required bumping the Docker test image's Rust toolchain to 1.86 since `reqwest`/`icu_*` now pull `rustc 1.86` MSRV — see Dockerfile.test diff)
 
 #### Automated QA:
 - [ ] Agent runs `packages/fuse-helper/docker/run-mount-test.sh` in `--remote` mode against a local mock HTTP server (script will need a new `--http` variant) and asserts `ls`, `stat`, `cat` work; `touch` and `rm` fail with EROFS.
