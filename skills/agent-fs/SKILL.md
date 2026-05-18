@@ -11,8 +11,10 @@ description: >-
   manage org/drive members, generate presigned URLs, check recent activity, or use
   semantic search across stored files. Also use when the user wants to mount or
   unmount agent-fs as a Linux FUSE filesystem ("mount agent-fs", "fuse mount",
-  "expose drives as files", "use cat/grep/mv on my agent-fs files", "umount the
-  drive"). If the user mentions agent-fs in any context, always consult this skill.
+  "fuse", "remote mount", "sandbox mount", "expose drives as files",
+  "use cat/grep/mv on my agent-fs files", "umount the drive", "mount a remote
+  drive", "mount from sprite", "mount from e2b", "mount from hetzner"). If the
+  user mentions agent-fs in any context, always consult this skill.
 ---
 
 # agent-fs CLI
@@ -165,9 +167,14 @@ The `--drive` flag is a global option — place it before the subcommand: `agent
 
 Expose all org drives as a Linux FUSE filesystem so agents can use plain shell verbs (`cat`, `grep`, `mv`, `rm`) against agent-fs content. Requires `/dev/fuse` and `SYS_ADMIN` cap; not available on macOS or in gVisor-based sandboxes.
 
+Two topologies are supported:
+- **Local mode** (default): helper talks to a local daemon over a Unix socket. Daemon must be running and have an S3 backend configured.
+- **Remote mode** (`--remote`): helper talks directly to a remote agent-fs HTTP API. No local daemon required — ideal for sandboxes (sprite, E2B, Hetzner VMs, GitHub Actions runners) that can reach a hosted agent-fs but can't run the full daemon stack.
+
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `mount` | `agent-fs mount <path> [--allow-other] [--foreground]` | Mount drives at `<path>` (e.g. `/mnt/agent-fs/<drive>/`). Daemon must be running. |
+| `mount` | `agent-fs mount <path> [--allow-other] [--foreground]` | Mount drives at `<path>` via local daemon (e.g. `/mnt/agent-fs/<drive>/`). |
+| `mount --remote` | `agent-fs mount <path> --remote [--api-url <url>] [--api-key <key>]` | Mount against a remote agent-fs HTTP API. Reads `apiUrl`/`apiKey` from `~/.agent-fs/config.json` or `AGENT_FS_API_URL`/`AGENT_FS_API_KEY` env if flags omitted. Prefer env over `--api-key` (the latter exposes the key in `ps`). |
 | `umount` | `agent-fs umount <path>` | Unmount the FUSE mountpoint. |
 | `mount status` | `agent-fs mount status` | Show whether a mount is active and where. |
 
@@ -313,3 +320,33 @@ This applies to any op that returns a `path` or `to` field (write, stat, edit, a
 ```bash
 agent-fs config validate
 ```
+
+### Mount a remote drive from a sandbox
+
+Use `--remote` when the agent is running in a Linux sandbox (sprite, E2B, Hetzner VM, GitHub Actions runner, etc.) that can reach a hosted agent-fs HTTP API but cannot run the full daemon + S3 stack locally.
+
+```bash
+# Linux prereqs (run once per sandbox)
+sudo apt-get install -y fuse3
+sudo chmod 666 /dev/fuse
+sudo ln -sf /proc/mounts /etc/mtab
+echo user_allow_other | sudo tee -a /etc/fuse.conf
+
+# Auth — either env vars or ~/.agent-fs/config.json
+export AGENT_FS_API_URL=https://agent-fs.example.com
+export AGENT_FS_API_KEY=<key>
+
+# Mount — no local daemon needed
+mkdir -p ~/mnt
+agent-fs mount ~/mnt --remote
+
+# Use plain shell verbs against remote content
+ls ~/mnt
+cat ~/mnt/current/docs/spec.md
+echo "edit from sandbox $(date)" > ~/mnt/current/notes.txt
+
+# Unmount
+fusermount3 -u ~/mnt
+```
+
+See `docs/mounting/` for per-environment guides (sprite, E2B, Hetzner).

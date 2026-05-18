@@ -5,8 +5,8 @@ topic: "FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan"
 tags: [plan, agent-fs, fuse, mount, sprite, e2b, hetzner, npm-install]
 status: in-progress
 autonomy: autopilot
-last_updated: 2026-05-18T23:55:00Z
-last_updated_by: Claude (phase-running, Phase 6)
+last_updated: 2026-05-19T00:30:00Z
+last_updated_by: Claude (phase-running, Phase 7 prep)
 ---
 
 # FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan
@@ -574,9 +574,9 @@ Tag and ship `v0.7.0` with all of the above. This is a feature release (new `mou
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Sync-versions clean: `bun run scripts/sync-versions.ts 0.7.0` exits 0 and rewrites the expected files (verified via `git diff`).
-- [ ] Typecheck + tests + E2E all green pre-release: `bun run typecheck && bun run test && bun run scripts/e2e.ts ... && bun run scripts/e2e-remote-mount.ts`
-- [ ] Rust tests + clippy + fmt: `cd packages/fuse-helper && cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt --check`
+- [x] Sync-versions clean: `bun run scripts/sync-versions.ts 0.7.0` exits 0 and rewrites the expected files (verified via `git diff` — 9 files: package.json + 4 workspace packages + 2 fuse subpackages + Cargo.toml + plugin.json. `docs/openapi.json` regenerated separately via `bun run scripts/sync-openapi.ts`. `Cargo.lock` auto-updated by cargo test).
+- [x] Typecheck + tests + E2E all green pre-release: `bun run typecheck` ✓ — `bun run test` 324 pass / 57 skip / 0 fail ✓ — `bun run scripts/e2e.ts ...` 68/68 passed (10 FUSE skipped on Darwin host) ✓ — `bun run scripts/e2e-remote-mount.ts` 9/9 passed ✓
+- [x] Rust tests + clippy + fmt: `cd packages/fuse-helper && cargo test` 64 tests (31 + 12 + 20 + 1) all green ✓ — `cargo clippy --all-targets -- -D warnings` clean ✓ — `cargo fmt --check` clean ✓
 - [ ] After tag push: GH Actions `Release & Publish` workflow finishes green.
 - [ ] After tag push: GH Actions `Publish Docker Image` finishes green.
 - [ ] Post-release `npm view @desplega.ai/agent-fs@0.7.0` returns the new version with `optionalDependencies` showing `^0.7.0` pins.
