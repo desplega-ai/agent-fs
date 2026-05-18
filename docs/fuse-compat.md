@@ -46,7 +46,7 @@ docker run -d \
 # Inside the container:
 docker exec -it agent-fs-runner bash
 apt-get update && apt-get install -y fuse3
-# install agent-fs (Linux x64): npm install -g @desplega.ai/agent-fs
+# install agent-fs (Linux x64): bun install -g @desplega.ai/agent-fs
 agent-fs daemon start
 agent-fs mount /mnt/agent-fs
 ```

@@ -13,8 +13,9 @@ A Hetzner Cloud Ubuntu 24.04 or Debian 12 server. The `fuse3` package is missing
 hcloud server create \
   --name agent-fs-host \
   --image ubuntu-24.04 \
-  --type cx22 \
+  --type cx23 \
   --ssh-key <your-key>
+# Use `cax11` for ARM (same 2 vCPU / 4 GB tier, slightly cheaper).
 
 ssh root@$(hcloud server ip agent-fs-host)
 ```
@@ -24,8 +25,8 @@ ssh root@$(hcloud server ip agent-fs-host)
 Inside the VM:
 
 ```bash
-# 1. Install fuse3.
-apt-get update -qq && apt-get install -y fuse3 curl
+# 1. Install fuse3 + Bun installer prereqs (unzip is required by bun.sh/install).
+apt-get update -qq && apt-get install -y fuse3 curl unzip
 
 # 2. Install Bun + agent-fs.
 curl -fsSL https://bun.sh/install | bash

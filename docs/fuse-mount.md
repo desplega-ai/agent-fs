@@ -8,8 +8,9 @@
 
 ```bash
 # 1. Install the CLI (Linux x64 or arm64 — the FUSE helper ships in an
-#    optionalDependencies sub-package).
-npm install -g @desplega.ai/agent-fs
+#    optionalDependencies sub-package). Prefer Bun's installer; stock
+#    Ubuntu/Debian Node 18.x aborts on a transitive dep's postinstall.
+bun install -g @desplega.ai/agent-fs
 
 # 2. Start a daemon (uses your local agent-fs config).
 agent-fs daemon start

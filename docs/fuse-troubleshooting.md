@@ -84,12 +84,13 @@ sudo umount -l /mnt/agent-fs   # lazy unmount
 
 1. **Confirm you're on Linux**: `uname -s` should say `Linux`. macOS / Windows have no FUSE helper in v1.
 
-2. **Reinstall the main package** so npm picks up the right optional dependency:
+2. **Reinstall the main package** so the right optional dependency is resolved. Prefer Bun's installer — `npm install -g` against stock Ubuntu/Debian Node 18.x aborts on a transitive dep's postinstall (`SyntaxError: Unexpected token 'with'`) before the binary lands:
    ```bash
-   npm install -g @desplega.ai/agent-fs
+   bun install -g @desplega.ai/agent-fs
    # Check the sub-package landed:
-   ls $(npm root -g)/@desplega.ai/agent-fs-fuse-linux-*/bin/agent-fs-fuse
+   ls "$(bun pm -g bin)/../install/global/node_modules/@desplega.ai/agent-fs-fuse-linux-"*/bin/agent-fs-fuse
    ```
+   With npm (Node 20+ required): `ls $(npm root -g)/@desplega.ai/agent-fs-fuse-linux-*/bin/agent-fs-fuse`
 
 3. **Use the `AGENT_FS_FUSE_BIN` env override** for local dev or unusual install layouts:
    ```bash

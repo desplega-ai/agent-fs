@@ -69,7 +69,9 @@ agent-fs can expose your drives as a Linux FUSE filesystem so agents can use pla
 
 ```bash
 # Linux only — the FUSE helper sub-package auto-installs via optionalDependencies.
-npm install -g @desplega.ai/agent-fs
+# Use Bun's installer; stock Ubuntu/Debian Node (18.x) chokes on a dep's
+# postinstall and aborts the global install.
+bun install -g @desplega.ai/agent-fs
 agent-fs daemon start
 agent-fs mount /mnt/agent-fs
 ```

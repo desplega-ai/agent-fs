@@ -48,7 +48,9 @@ Save as `prereqs.sh`, then `chmod +x prereqs.sh && ./prereqs.sh`.
 
 ```bash
 # 1. Install the CLI (pulls the right FUSE sub-package via optionalDependencies).
-npm install -g @desplega.ai/agent-fs
+# Sprite ships Bun pre-installed; use it. `npm install -g` against the stock
+# Node aborts on a transitive dep's postinstall syntax.
+bun install -g @desplega.ai/agent-fs
 
 # 2. Configure auth (writes ~/.agent-fs/config.json).
 mkdir -p ~/.agent-fs

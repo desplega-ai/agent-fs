@@ -9,8 +9,8 @@
 sudo apt-get install -y fuse3
 # (or equivalent for your distro)
 
-# Build/install
-npm install -g @desplega.ai/agent-fs    # picks up the right Linux binary via optionalDependencies
+# Build/install (use Bun's installer — stock Ubuntu/Debian Node 18.x aborts on a transitive dep's postinstall)
+bun install -g @desplega.ai/agent-fs    # picks up the right Linux binary via optionalDependencies
 
 # Daemon + mount
 agent-fs daemon start

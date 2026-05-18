@@ -20,7 +20,7 @@ RUN apt-get update -qq \
  && apt-get install -y --no-install-recommends fuse3 ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 
-# Bun (for npm install -g @desplega.ai/agent-fs)
+# Bun (for `bun install -g @desplega.ai/agent-fs` — npm install -g aborts on stock Node 18.x)
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:${PATH}"
 
