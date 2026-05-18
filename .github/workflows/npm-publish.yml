@@ -44,6 +44,8 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
+      # daemon-respawn.test.ts probes dist/cli.js, so build first.
+      - run: bun run build
       - run: bun run test
 
   # ----------------------------------------------------------------------
