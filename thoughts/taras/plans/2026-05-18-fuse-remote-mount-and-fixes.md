@@ -5,8 +5,8 @@ topic: "FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan"
 tags: [plan, agent-fs, fuse, mount, sprite, e2b, hetzner, npm-install]
 status: in-progress
 autonomy: autopilot
-last_updated: 2026-05-18T23:30:00Z
-last_updated_by: Claude (phase-running, Phase 5)
+last_updated: 2026-05-18T23:55:00Z
+last_updated_by: Claude (phase-running, Phase 6)
 ---
 
 # FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan
@@ -510,9 +510,9 @@ Add a systemd unit example for auto-mount on boot.
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Lint markdown: `npx markdownlint-cli2 'docs/mounting/**/*.md'` (or whatever linter the repo uses)
-- [ ] No dead links in mounting docs: `npx markdown-link-check docs/mounting/**/*.md` (or equivalent)
-- [ ] OpenAPI/site freshness check: re-run any docs-site build (`live/` if mounting docs feed into the landing)
+- [x] Lint markdown: skipped — `markdownlint-cli2` not installed in repo; Phase 6 brief said "don't install new tooling for this — skip if not already present". All four files written with consistent heading levels and no obvious markdown syntax issues.
+- [x] No dead links in mounting docs: verified manually — all relative links (`./README.md`, `./sprite.md`, `./e2b.md`, `./hetzner.md`, `../fuse-mount.md`, `../fuse-compat.md`, `../fuse-troubleshooting.md`, `../api-reference.md`) resolve to existing files. The `#e2b` anchor in `../fuse-compat.md` matches the existing `### E2B` heading.
+- [ ] OpenAPI/site freshness check: not applicable — mounting docs do not feed into the `live/` landing.
 
 #### Automated QA:
 - [ ] Agent follows the sprite doc step-by-step against the actual code-health-scan sprite (or a fresh sprite) and confirms each step works as documented. Captures the session log.
