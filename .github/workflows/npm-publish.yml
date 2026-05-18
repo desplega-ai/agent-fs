@@ -141,12 +141,15 @@ jobs:
           chmod +x packages/fuse-helper-linux-arm64/bin/agent-fs-fuse
 
       - name: Publish linux-x64 sub-package
-        run: npm publish packages/fuse-helper-linux-x64 --provenance --access public
+        # `cd` into the package — npm 10+ parses a path like "packages/x" as a
+        # `<gh-user>/<repo>` short-spec and tries to git-clone it. Run from
+        # inside the dir so npm sees a local package.
+        run: cd packages/fuse-helper-linux-x64 && npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish linux-arm64 sub-package
-        run: npm publish packages/fuse-helper-linux-arm64 --provenance --access public
+        run: cd packages/fuse-helper-linux-arm64 && npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
