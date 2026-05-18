@@ -1,0 +1,27 @@
+{
+  "name": "@desplega.ai/agent-fs-fuse-linux-arm64",
+  "version": "0.6.0",
+  "description": "Linux aarch64 FUSE helper binary for @desplega.ai/agent-fs. Do not install directly.",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "libc": [
+    "glibc",
+    "musl"
+  ],
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/desplega-ai/agent-fs.git"
+  }
+}

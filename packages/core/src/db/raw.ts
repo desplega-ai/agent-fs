@@ -64,8 +64,12 @@ CREATE TABLE IF NOT EXISTS file_versions (
   diff_summary TEXT,
   size INTEGER,
   etag TEXT,
+  content_hash TEXT,
   created_at INTEGER NOT NULL
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS file_versions_path_drive_version_uq
+  ON file_versions(path, drive_id, version);
 
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,

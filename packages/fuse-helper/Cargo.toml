@@ -1,0 +1,56 @@
+[package]
+name = "agent-fs-fuse"
+version = "0.6.0"
+edition = "2021"
+description = "FUSE helper for agent-fs — mounts agent-fs drives as a Linux filesystem."
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "agent-fs-fuse"
+path = "src/main.rs"
+
+[lib]
+name = "agent_fs_fuse"
+path = "src/lib.rs"
+
+[dependencies]
+# FUSE bindings. default-features = false drops the optional `libfuse` runtime
+# dependency — we want pure-Rust + the kernel FUSE protocol so the helper can
+# ship as a single static musl binary with no libfuse-dev on the target box.
+fuser = { version = "0.17", default-features = false }
+
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "net",
+    "macros",
+    "io-util",
+    "sync",
+    "time",
+] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rmp-serde = "1"
+
+sha2 = "0.10"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+anyhow = "1"
+thiserror = "1"
+
+libc = "0.2"
+nix = { version = "0.27", features = ["signal", "process"] }
+
+clap = { version = "4", features = ["derive"] }
+
+ulid = "1"
+tempfile = "3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "sync", "time", "test-util"] }
+
+# NOTE: release profile knobs live in the workspace root Cargo.toml because
+# cargo ignores `[profile.*]` on non-root packages in a workspace.

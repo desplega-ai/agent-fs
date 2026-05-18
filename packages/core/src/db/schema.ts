@@ -3,6 +3,7 @@ import {
   text,
   integer,
   primaryKey,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 // users
@@ -99,22 +100,31 @@ export const files = sqliteTable(
 // file_versions
 // No FK to `files` table — intentional. Files use soft-delete (isDeleted=true),
 // so file records are never removed. Version history is preserved even for deleted files.
-export const fileVersions = sqliteTable("file_versions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  path: text("path").notNull(),
-  driveId: text("drive_id").notNull(),
-  version: integer("version").notNull(),
-  s3VersionId: text("s3_version_id").notNull(),
-  author: text("author").notNull(),
-  operation: text("operation", {
-    enum: ["write", "edit", "append", "delete", "revert"],
-  }).notNull(),
-  message: text("message"),
-  diffSummary: text("diff_summary"),
-  size: integer("size"),
-  etag: text("etag"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+export const fileVersions = sqliteTable(
+  "file_versions",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    path: text("path").notNull(),
+    driveId: text("drive_id").notNull(),
+    version: integer("version").notNull(),
+    s3VersionId: text("s3_version_id").notNull(),
+    author: text("author").notNull(),
+    operation: text("operation", {
+      enum: ["write", "edit", "append", "delete", "revert"],
+    }).notNull(),
+    message: text("message"),
+    diffSummary: text("diff_summary"),
+    size: integer("size"),
+    etag: text("etag"),
+    contentHash: text("content_hash"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => ({
+    pathDriveVersionUq: uniqueIndex(
+      "file_versions_path_drive_version_uq"
+    ).on(table.path, table.driveId, table.version),
+  })
+);
 
 // comments (document comments with threading)
 export const comments = sqliteTable("comments", {

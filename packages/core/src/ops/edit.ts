@@ -1,5 +1,10 @@
+import { createHash } from "node:crypto";
 import type { OpContext, EditParams, EditResult } from "./types.js";
-import { getS3Key, createVersion } from "./versioning.js";
+import {
+  getS3Key,
+  createVersion,
+  assertExpectedVersion,
+} from "./versioning.js";
 import { NotFoundError, EditConflictError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
 import { indexFile } from "../search/fts.js";
@@ -10,6 +15,12 @@ export async function edit(
   params: EditParams
 ): Promise<EditResult> {
   const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
+
+  // Optimistic concurrency: check head version matches expectedVersion
+  // before any S3 mutation (avoids edit-on-stale-read).
+  if (params.expectedVersion !== undefined) {
+    await assertExpectedVersion(ctx, params.path, params.expectedVersion);
+  }
 
   // 1. Get current content
   let body: Uint8Array;
@@ -52,6 +63,7 @@ export async function edit(
   const newContent = content.replace(params.old_string, params.new_string);
   const size = Buffer.byteLength(newContent);
   const contentType = detectMimeType(params.path);
+  const contentHash = createHash("sha256").update(newContent).digest("hex");
 
   const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
 
@@ -70,6 +82,7 @@ export async function edit(
     size,
     etag: s3Result.etag,
     contentType,
+    contentHash,
   });
 
   // FTS5 index (sync)

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { OpContext } from "./types.js";
 import { checkPermission, getRequiredRole } from "../identity/rbac.js";
-import { write } from "./write.js";
+import { write, writeRaw } from "./write.js";
 import { cat } from "./cat.js";
 import { edit } from "./edit.js";
 import { append } from "./append.js";
@@ -67,6 +67,7 @@ const opRegistry: Record<string, OpDefinition> = {
       old_string: z.string(),
       new_string: z.string(),
       message: z.string().optional(),
+      expectedVersion: z.number().int().optional(),
     }),
   },
   append: {
@@ -76,6 +77,7 @@ const opRegistry: Record<string, OpDefinition> = {
       path: z.string(),
       content: z.string(),
       message: z.string().optional(),
+      expectedVersion: z.number().int().optional(),
     }),
   },
   ls: {
@@ -91,7 +93,10 @@ const opRegistry: Record<string, OpDefinition> = {
   rm: {
     description: "Delete a file. Removes from S3, cleans up FTS5 index and vector embeddings. Returns { path, deleted }.",
     handler: rm,
-    schema: z.object({ path: z.string() }),
+    schema: z.object({
+      path: z.string(),
+      expectedVersion: z.number().int().optional(),
+    }),
   },
   mv: {
     description: "Move or rename a file. Preserves version history at the new path. Returns { from, to, version }.",
@@ -100,6 +105,7 @@ const opRegistry: Record<string, OpDefinition> = {
       from: z.string(),
       to: z.string(),
       message: z.string().optional(),
+      expectedVersion: z.number().int().optional(),
     }),
   },
   cp: {
@@ -108,6 +114,7 @@ const opRegistry: Record<string, OpDefinition> = {
     schema: z.object({
       from: z.string(),
       to: z.string(),
+      expectedVersion: z.number().int().optional(),
     }),
   },
   tail: {
@@ -141,6 +148,7 @@ const opRegistry: Record<string, OpDefinition> = {
     schema: z.object({
       path: z.string(),
       version: z.number().int(),
+      expectedVersion: z.number().int().optional(),
     }),
   },
   recent: {
@@ -316,5 +324,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
+export { write, writeRaw, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
 export type * from "./types.js";

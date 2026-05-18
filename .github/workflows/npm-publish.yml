@@ -15,41 +15,234 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
+  # ----------------------------------------------------------------------
+  # 1. Validate the tag and run typecheck + tests once.
+  # ----------------------------------------------------------------------
+  validate:
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    outputs:
+      release_tag: ${{ env.RELEASE_TAG }}
+      pkg_version: ${{ steps.pkg.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           ref: ${{ inputs.tag || github.ref_name }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          registry-url: 'https://registry.npmjs.org'
-
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
 
       - name: Verify tag matches package.json version
+        id: pkg
         run: |
-          PKG_VERSION="v$(jq -r .version package.json)"
-          if [ "$PKG_VERSION" != "$RELEASE_TAG" ]; then
-            echo "::error::Tag $RELEASE_TAG doesn't match package.json version ${PKG_VERSION}"
+          PKG_VERSION="$(jq -r .version package.json)"
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+          if [ "v$PKG_VERSION" != "$RELEASE_TAG" ]; then
+            echo "::error::Tag $RELEASE_TAG doesn't match package.json version v$PKG_VERSION"
             exit 1
           fi
 
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run test
+
+  # ----------------------------------------------------------------------
+  # 2. Build the Rust FUSE helper for each Linux target (musl-static).
+  #    Each job stages the binary into the matching sub-package directory
+  #    and uploads it as an artifact.
+  # ----------------------------------------------------------------------
+  build-fuse:
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            pkg_dir: packages/fuse-helper-linux-x64
+          - target: aarch64-unknown-linux-musl
+            pkg_dir: packages/fuse-helper-linux-arm64
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          ref: ${{ needs.validate.outputs.release_tag }}
+
+      - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # stable, 2024-09-23
+        with:
+          toolchain: stable
+
+      - uses: taiki-e/install-action@9ca1734d8940023f074414ee621fd530c4ce10f2 # v2.44.66
+        with:
+          tool: cross
+
+      - name: Cross-build agent-fs-fuse
+        run: |
+          cd packages/fuse-helper
+          cross build --release --target ${{ matrix.target }}
+
+      - name: Strip binary
+        run: |
+          BIN=packages/fuse-helper/target/${{ matrix.target }}/release/agent-fs-fuse
+          ls -lh "$BIN"
+          # `strip` from binutils works for both x86_64 and aarch64 ELF on the runner.
+          strip "$BIN" || true
+          ls -lh "$BIN"
+
+      - name: Stage binary into sub-package
+        run: |
+          mkdir -p ${{ matrix.pkg_dir }}/bin
+          cp packages/fuse-helper/target/${{ matrix.target }}/release/agent-fs-fuse \
+             ${{ matrix.pkg_dir }}/bin/agent-fs-fuse
+          chmod +x ${{ matrix.pkg_dir }}/bin/agent-fs-fuse
+
+      - name: Upload prepared sub-package
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: fuse-subpackage-${{ matrix.target }}
+          path: ${{ matrix.pkg_dir }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # ----------------------------------------------------------------------
+  # 3. Publish each sub-package to npm. Must run BEFORE publish-main so that
+  #    `optionalDependencies` resolve cleanly for end-users.
+  # ----------------------------------------------------------------------
+  publish-fuse-subpackages:
+    needs: build-fuse
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          ref: ${{ needs.validate.outputs.release_tag }}
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Pin npm version
+        run: npm install -g npm@10.9.0
+
+      - name: Download linux-x64 artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: fuse-subpackage-x86_64-unknown-linux-musl
+          path: packages/fuse-helper-linux-x64
+
+      - name: Download linux-arm64 artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: fuse-subpackage-aarch64-unknown-linux-musl
+          path: packages/fuse-helper-linux-arm64
+
+      - name: Restore +x on staged binaries
+        run: |
+          chmod +x packages/fuse-helper-linux-x64/bin/agent-fs-fuse
+          chmod +x packages/fuse-helper-linux-arm64/bin/agent-fs-fuse
+
+      - name: Publish linux-x64 sub-package
+        run: npm publish packages/fuse-helper-linux-x64 --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish linux-arm64 sub-package
+        run: npm publish packages/fuse-helper-linux-arm64 --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ----------------------------------------------------------------------
+  # 4. Build the SHA-256 manifest from the staged binaries.
+  #    Bundles it into packages/cli/dist/ for the main publish step.
+  # ----------------------------------------------------------------------
+  build-manifest:
+    needs: build-fuse
+    runs-on: ubuntu-latest
+    outputs:
+      manifest_artifact: fuse-bin-manifest
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          ref: ${{ needs.validate.outputs.release_tag }}
+
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
+
+      - name: Download linux-x64 artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: fuse-subpackage-x86_64-unknown-linux-musl
+          path: packages/fuse-helper-linux-x64
+
+      - name: Download linux-arm64 artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: fuse-subpackage-aarch64-unknown-linux-musl
+          path: packages/fuse-helper-linux-arm64
+
+      - name: Compute manifest
+        run: bun run packages/cli/scripts/build-fuse-manifest.ts
+
+      - name: Upload manifest
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08 # v4.6.0
+        with:
+          name: fuse-bin-manifest
+          path: packages/cli/dist/fuse-bin.manifest.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # ----------------------------------------------------------------------
+  # 5. Publish the main package. Depends on both:
+  #      - publish-fuse-subpackages: optionalDependencies must already be on
+  #        the registry so `npm install @desplega.ai/agent-fs` resolves.
+  #      - build-manifest: dist/fuse-bin.manifest.json must be present in the
+  #        published tarball so the CLI can verify binary hashes at mount time.
+  # ----------------------------------------------------------------------
+  publish-main:
+    needs: [validate, publish-fuse-subpackages, build-manifest]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          ref: ${{ needs.validate.outputs.release_tag }}
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
+
+      - run: bun install --frozen-lockfile
       - run: bun run build
       - run: cp README.md packages/cli/README.md
+
+      - name: Download fuse-bin manifest
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: fuse-bin-manifest
+          path: packages/cli/dist
+
+      - name: Verify manifest is present in dist/
+        run: |
+          ls -lh packages/cli/dist/fuse-bin.manifest.json
+          jq '.binaries | keys' packages/cli/dist/fuse-bin.manifest.json
+
+      - name: Ensure dist/fuse-bin.manifest.json is published
+        run: |
+          # Add the manifest to the published files list if it isn't already covered by dist/cli.js.
+          jq '.files |= (. + ["dist/fuse-bin.manifest.json"] | unique)' packages/cli/package.json > /tmp/pkg.json
+          mv /tmp/pkg.json packages/cli/package.json
+          jq '.files' packages/cli/package.json
+
       - run: cd packages/cli && bun pm pack
 
-      - name: Publish to npm
+      - name: Publish main package to npm
         run: npm publish packages/cli/*.tgz --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Pin npm version
+        run: npm install -g npm@10.9.0
 
       - name: Create GitHub Release
         run: |

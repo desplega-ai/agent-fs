@@ -9,14 +9,14 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Sync version to all sub-packages
-for pkg in packages/*/package.json; do
-  jq --arg v "$VERSION" '.version = $v' "$pkg" > "$pkg.tmp" && mv "$pkg.tmp" "$pkg"
-done
+# Sync version across every package.json, the FUSE helper Cargo.toml, and the plugin metadata.
+# scripts/sync-versions.ts is the source of truth — it also rewrites the optionalDependencies
+# pins for the FUSE sub-packages so a one-liner jq loop is no longer enough.
+bun run scripts/sync-versions.ts "$VERSION"
 
-# Commit if versions changed
-if ! git diff --quiet packages/*/package.json; then
-  git add packages/*/package.json
+# Commit if anything was rewritten.
+if ! git diff --quiet packages/ .claude-plugin/ 2>/dev/null; then
+  git add packages/*/package.json packages/*/Cargo.toml .claude-plugin/plugin.json 2>/dev/null || true
   git commit -m "chore: sync sub-package versions to ${VERSION}"
   git push origin main
 fi

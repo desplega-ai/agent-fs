@@ -34,6 +34,49 @@ export function listDrives(
     .map((d) => ({ id: d.id, name: d.name, isDefault: d.isDefault }));
 }
 
+/**
+ * List drives in an org that the user can see.
+ *
+ * A drive is visible to the user iff one of:
+ *   1. The drive has at least one row in `drive_members` and one of those
+ *      rows references this user, OR
+ *   2. The drive has NO rows in `drive_members` (treated as "public" to
+ *      anyone in the org — preserves the existing default-drive bootstrap
+ *      where the org is created without an explicit member row).
+ *
+ * The FUSE mount uses this to populate its root readdir without seeing
+ * drives it can't access.
+ */
+export function listDrivesForUser(
+  db: DB,
+  orgId: string,
+  userId: string
+): Array<{ id: string; name: string; isDefault: boolean }> {
+  // Pull all drives in the org first; partition them client-side. Tiny
+  // tables, no need to fold this into one query.
+  const drives = db
+    .select()
+    .from(schema.drives)
+    .where(eq(schema.drives.orgId, orgId))
+    .all();
+
+  // For each drive, decide visibility.
+  return drives
+    .filter((d) => {
+      const memberRows = db
+        .select({ userId: schema.driveMembers.userId })
+        .from(schema.driveMembers)
+        .where(eq(schema.driveMembers.driveId, d.id))
+        .all();
+
+      if (memberRows.length === 0) {
+        return true; // public drive
+      }
+      return memberRows.some((m) => m.userId === userId);
+    })
+    .map((d) => ({ id: d.id, name: d.name, isDefault: d.isDefault }));
+}
+
 export function getDrive(
   db: DB,
   driveId: string

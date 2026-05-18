@@ -13,6 +13,7 @@ import { onboardCommand } from "./commands/onboard.js";
 import { commentCommands } from "./commands/comment.js";
 import { memberCommands } from "./commands/member.js";
 import { docsCommand } from "./commands/docs.js";
+import { mountCommand, umountCommand } from "./commands/mount.js";
 
 const program = new Command();
 
@@ -61,6 +62,8 @@ program.addCommand(initCommand());
 program.addCommand(onboardCommand());
 program.addCommand(commentCommands(client, getOrgId));
 program.addCommand(memberCommands(client, getOrgId));
+program.addCommand(mountCommand());
+program.addCommand(umountCommand());
 
 // MCP command
 program

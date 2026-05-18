@@ -9,6 +9,7 @@ import { dirname } from "node:path";
 import { getDbPath } from "../config.js";
 import * as schema from "./schema.js";
 import { CREATE_TABLES_SQL, VIRTUAL_TABLE_SQL } from "./raw.js";
+import { runMigrations } from "./migrate.js";
 
 export type DB = ReturnType<typeof createDatabase>;
 
@@ -37,6 +38,9 @@ export function createDatabase(dbPath?: string): ReturnType<typeof drizzle> {
   // Create all tables (idempotent)
   sqlite.exec(CREATE_TABLES_SQL);
   sqlite.exec(VIRTUAL_TABLE_SQL);
+
+  // Run additive migrations for older DBs (idempotent)
+  runMigrations(sqlite);
 
   const db = drizzle(sqlite, { schema });
   return db;

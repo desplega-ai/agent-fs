@@ -9,8 +9,10 @@ description: >-
   "update role", file persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
   manage org/drive members, generate presigned URLs, check recent activity, or use
-  semantic search across stored files. If the user mentions agent-fs in any context,
-  always consult this skill.
+  semantic search across stored files. Also use when the user wants to mount or
+  unmount agent-fs as a Linux FUSE filesystem ("mount agent-fs", "fuse mount",
+  "expose drives as files", "use cat/grep/mv on my agent-fs files", "umount the
+  drive"). If the user mentions agent-fs in any context, always consult this skill.
 ---
 
 # agent-fs CLI
@@ -158,6 +160,16 @@ The `--drive` flag is a global option — place it before the subcommand: `agent
 | `daemon start` | `agent-fs daemon start` | Start the background daemon |
 | `daemon stop` | `agent-fs daemon stop` | Stop the daemon |
 | `daemon status` | `agent-fs daemon status` | Check if daemon is running |
+
+### FUSE Mount (Linux only)
+
+Expose all org drives as a Linux FUSE filesystem so agents can use plain shell verbs (`cat`, `grep`, `mv`, `rm`) against agent-fs content. Requires `/dev/fuse` and `SYS_ADMIN` cap; not available on macOS or in gVisor-based sandboxes.
+
+| Command | Usage | Description |
+|---------|-------|-------------|
+| `mount` | `agent-fs mount <path> [--allow-other] [--foreground]` | Mount drives at `<path>` (e.g. `/mnt/agent-fs/<drive>/`). Daemon must be running. |
+| `umount` | `agent-fs umount <path>` | Unmount the FUSE mountpoint. |
+| `mount status` | `agent-fs mount status` | Show whether a mount is active and where. |
 
 ## Common Workflows
 
