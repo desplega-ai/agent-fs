@@ -92,6 +92,25 @@ agent-fs mount /tmp/m
 
 `AGENT_FS_FUSE_BIN` takes precedence over the auto-resolved sub-package binary.
 
+**Remote mount (`--remote`)**
+
+When your agents run inside a sandbox that can't host a local daemon (Sprite, E2B, ephemeral CI runners), point the mount at a remote agent-fs HTTP API instead of a local Unix socket:
+
+```bash
+agent-fs mount /mnt/agent-fs --remote \
+  --api-url https://my-agent-fs.example.com \
+  --api-key "$AGENT_FS_API_KEY"
+```
+
+The helper talks to the remote API directly — no local daemon, no S3 credentials in the sandbox. End-to-end coverage for this topology lives at `scripts/e2e-remote-mount.ts`:
+
+```bash
+# Spins up MinIO, a host-side daemon, and a Docker container with fuse3.
+# Mounts via --remote against the daemon's HTTP API and exercises ~8 ops.
+# Requires Docker Desktop / OrbStack on Mac.
+bun run scripts/e2e-remote-mount.ts
+```
+
 **macOS testing harness**
 
 macOS can build the helper but not mount it. Use the Docker harness to test mount behaviour from a Mac host:

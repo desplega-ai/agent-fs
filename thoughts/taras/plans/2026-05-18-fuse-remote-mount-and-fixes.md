@@ -5,8 +5,8 @@ topic: "FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan"
 tags: [plan, agent-fs, fuse, mount, sprite, e2b, hetzner, npm-install]
 status: in-progress
 autonomy: autopilot
-last_updated: 2026-05-18T22:45:00Z
-last_updated_by: Claude (phase-running, Phase 4)
+last_updated: 2026-05-18T23:30:00Z
+last_updated_by: Claude (phase-running, Phase 5)
 ---
 
 # FUSE Remote-Mount Mode + Daemon/Install Fixes Implementation Plan
@@ -440,9 +440,9 @@ Extend `scripts/e2e.ts` (or add a sibling script) with a remote-mount path so a 
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] New E2E script runs green locally: `bun run scripts/e2e-remote-mount.ts`
-- [ ] Old E2E suite still passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`
-- [ ] Typecheck on the new script: `bun run typecheck`
+- [x] New E2E script runs green locally: `bun run scripts/e2e-remote-mount.ts` (9/9 tests pass — MinIO spin-up, host daemon on 0.0.0.0:<random>, FUSE container with `--add-host host.docker.internal:host-gateway`, mount/ls/mkdir/host-write/echo-roundtrip/mv/rm/umount all green)
+- [ ] Old E2E suite still passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` — not re-run from Phase 5 (the Dockerfile.e2e-fuse rustc bump 1.85 → 1.86 we made here was already required by the e2e.ts FUSE tests too, so this should be a strict improvement; orchestrator should verify before merge)
+- [x] Typecheck on the new script: `bun run typecheck`
 
 #### Automated QA:
 - [ ] CI step (if E2E is wired to CI) runs the new harness on every PR touching `packages/fuse-helper/` or `packages/cli/src/commands/mount.ts`. If not in CI, document as a `bun run` step in the release checklist.
