@@ -35,8 +35,8 @@
     "sqlite-vec-linux-arm64": "^0.1.9",
     "sqlite-vec-linux-x64": "^0.1.9",
     "sqlite-vec-windows-x64": "^0.1.9",
-    "@desplega.ai/agent-fs-fuse-linux-x64": "0.6.1",
-    "@desplega.ai/agent-fs-fuse-linux-arm64": "0.6.1"
+    "@desplega.ai/agent-fs-fuse-linux-x64": "^0.7.0",
+    "@desplega.ai/agent-fs-fuse-linux-arm64": "^0.7.0"
   },
   "dependencies": {
     "commander": "^14.0.3",

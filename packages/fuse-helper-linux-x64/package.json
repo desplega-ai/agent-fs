@@ -8,10 +8,6 @@
   "cpu": [
     "x64"
   ],
-  "libc": [
-    "glibc",
-    "musl"
-  ],
   "files": [
     "bin/",
     "README.md"
