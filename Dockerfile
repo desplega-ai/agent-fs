@@ -6,6 +6,12 @@ COPY packages/core/package.json packages/core/
 COPY packages/cli/package.json packages/cli/
 COPY packages/mcp/package.json packages/mcp/
 COPY packages/server/package.json packages/server/
+# fuse-helper sub-packages are workspace members; bun needs their manifests to
+# resolve the lockfile cleanly (`--frozen-lockfile` fails otherwise). The
+# binaries themselves aren't needed inside this image — the daemon container
+# never mounts FUSE.
+COPY packages/fuse-helper-linux-x64/package.json packages/fuse-helper-linux-x64/
+COPY packages/fuse-helper-linux-arm64/package.json packages/fuse-helper-linux-arm64/
 RUN bun install --frozen-lockfile
 
 COPY . .
@@ -19,6 +25,8 @@ COPY --from=builder /app/packages/core/package.json packages/core/
 COPY --from=builder /app/packages/cli/package.json packages/cli/
 COPY --from=builder /app/packages/mcp/package.json packages/mcp/
 COPY --from=builder /app/packages/server/package.json packages/server/
+COPY --from=builder /app/packages/fuse-helper-linux-x64/package.json packages/fuse-helper-linux-x64/
+COPY --from=builder /app/packages/fuse-helper-linux-arm64/package.json packages/fuse-helper-linux-arm64/
 RUN bun install --frozen-lockfile --production
 COPY --from=builder /app/packages/cli/dist/ packages/cli/dist/
 
