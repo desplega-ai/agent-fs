@@ -81,7 +81,8 @@ jobs:
 
       - name: Strip binary
         run: |
-          BIN=packages/fuse-helper/target/${{ matrix.target }}/release/agent-fs-fuse
+          # Cargo workspace at repo root -> target/ lives at workspace root, not the crate dir.
+          BIN=target/${{ matrix.target }}/release/agent-fs-fuse
           ls -lh "$BIN"
           # `strip` from binutils works for both x86_64 and aarch64 ELF on the runner.
           strip "$BIN" || true
@@ -90,7 +91,7 @@ jobs:
       - name: Stage binary into sub-package
         run: |
           mkdir -p ${{ matrix.pkg_dir }}/bin
-          cp packages/fuse-helper/target/${{ matrix.target }}/release/agent-fs-fuse \
+          cp target/${{ matrix.target }}/release/agent-fs-fuse \
              ${{ matrix.pkg_dir }}/bin/agent-fs-fuse
           chmod +x ${{ matrix.pkg_dir }}/bin/agent-fs-fuse
 
