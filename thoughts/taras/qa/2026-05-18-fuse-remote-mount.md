@@ -276,6 +276,41 @@ npm view @desplega.ai/agent-fs-fuse-linux-x64@0.7.0 libc  # expect: undefined
 - [x] **B-7: Hetzner — FUSE subpackage in npm tree (Bug 2 sanity)** — both `agent-fs` and `agent-fs-fuse-linux-x64` present under `/usr/lib/node_modules/@desplega.ai/`
 - [x] **C-1..C-6: Sprite (`code-health-scan`, Ubuntu 25.10)** — all 4 FUSE prereqs were already in place on this sprite (fuse3, /dev/fuse 0666, /etc/mtab → /proc/mounts, user_allow_other). bun install -g + helper build natively (1m6s) + inject into subpackage bin/. agent-fs 0.7.0 ran cleanly. mount --remote against fly succeeded; write/cat/mv/rm roundtrip succeeded; fusermount3 -u clean. Daemon start spawned correctly (Bug 1 fixed) but port 7433 was already occupied by a leftover bun process from a prior sprite test — separate issue, not a regression.
 
+## Environment D — Real npm registry (post-release validation)
+
+After v0.7.0 was published to npm (release workflow run `26065064538`, tag at commit `169935b`), re-ran the install + mount path against the actual published artifacts to confirm Bug 2 was end-to-end fixed on the wire.
+
+### D-1: Hetzner cx23 Ubuntu 24.04 (fresh VM)
+
+```bash
+apt install -y fuse3 unzip curl
+curl -fsSL https://bun.sh/install | bash
+bun install -g @desplega.ai/agent-fs@0.7.0   # — pulls from real npm registry
+```
+
+Result:
+- ✅ `agent-fs --version` → `0.7.0`
+- ✅ Both `@desplega.ai/agent-fs` and `@desplega.ai/agent-fs-fuse-linux-x64` auto-installed in global `node_modules/@desplega.ai/`
+- ✅ Helper binary present at `node_modules/@desplega.ai/agent-fs-fuse-linux-x64/bin/agent-fs-fuse` (3.67 MB, ELF 64-bit x86-64, stripped, dynamically linked) — shipped by the release workflow, **Bug 2 fully fixed on the wire**
+- ✅ `agent-fs daemon start` → PID assigned, log clean, no `Module not found` / `dist/index.ts` — **Bug 1 fully fixed on the wire**
+- ✅ `agent-fs auth whoami` against fly returns Taras's identity
+- ✅ `mount --remote` against fly: mount table healthy, drive listing matches, write/cat/mv/rm roundtrip clean (file `hetzner-realnpm-1779145567.txt` → renamed → removed)
+- ✅ `fusermount3 -u` clean exit
+
+### D-2: Sprite `code-health-scan` Ubuntu 25.10
+
+```bash
+bun install -g @desplega.ai/agent-fs@0.7.0   # — fuse3 + /dev/fuse + mtab + user_allow_other already in place on this sprite
+```
+
+Result:
+- ✅ same shape as Hetzner — both packages auto-installed, helper binary present (3.7 MB)
+- ✅ `agent-fs daemon start` clean (had to clear a leftover bun process from earlier QA; daemon picked a fresh port 3013)
+- ✅ `mount --remote` against fly: write/cat/mv/rm roundtrip clean (file `sprite-realnpm-1779145622.txt`)
+- ✅ `fusermount3 -u` clean
+
+**Bottom line**: a real-world user running `bun install -g @desplega.ai/agent-fs@0.7.0` on a fresh Ubuntu 24.04 (Hetzner) or 25.10 (sprite) machine gets a working `agent-fs mount --remote` against any agent-fs HTTP API. Both v0.7.0 bug fixes are validated against the published artifacts.
+
 ## Findings
 
 ### F-1: `npm install -g` fails on Ubuntu 24.04 default Node 18.19.1 (pre-existing, NOT a v0.7.0 regression)
