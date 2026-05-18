@@ -92,6 +92,25 @@ agent-fs mount /tmp/m
 
 `AGENT_FS_FUSE_BIN` takes precedence over the auto-resolved sub-package binary.
 
+**Remote mount (`--remote`)**
+
+When your agents run inside a sandbox that can't host a local daemon (Sprite, E2B, ephemeral CI runners), point the mount at a remote agent-fs HTTP API instead of a local Unix socket:
+
+```bash
+agent-fs mount /mnt/agent-fs --remote \
+  --api-url https://my-agent-fs.example.com \
+  --api-key "$AGENT_FS_API_KEY"
+```
+
+The helper talks to the remote API directly — no local daemon, no S3 credentials in the sandbox. End-to-end coverage for this topology lives at `scripts/e2e-remote-mount.ts`:
+
+```bash
+# Spins up MinIO, a host-side daemon, and a Docker container with fuse3.
+# Mounts via --remote against the daemon's HTTP API and exercises ~8 ops.
+# Requires Docker Desktop / OrbStack on Mac.
+bun run scripts/e2e-remote-mount.ts
+```
+
 **macOS testing harness**
 
 macOS can build the helper but not mount it. Use the Docker harness to test mount behaviour from a Mac host:
@@ -100,8 +119,13 @@ macOS can build the helper but not mount it. Use the Docker harness to test moun
 bash packages/fuse-helper/docker/run-mount-test.sh
 ```
 
+**Per-environment guides**
+
+See [`docs/mounting/`](./docs/mounting/README.md) for the general overview plus step-by-step guides for [Sprite](./docs/mounting/sprite.md), [E2B](./docs/mounting/e2b.md), and [Hetzner Cloud](./docs/mounting/hetzner.md). Existing FUSE references — [`fuse-mount.md`](./docs/fuse-mount.md), [`fuse-compat.md`](./docs/fuse-compat.md), [`fuse-troubleshooting.md`](./docs/fuse-troubleshooting.md) — cover mount semantics, sandbox compatibility, and the full error catalogue.
+
 ## Documentation
 
+- [Mounting Guides](./docs/mounting/README.md) — General overview + per-env guides (Sprite, E2B, Hetzner)
 - [MCP Setup Guide](./docs/mcp-setup.md) — Connect agent-fs to Claude Code, Cursor, or any MCP client
 - [Deployment Guide](./docs/deployment.md) — Local, remote S3, team, and multi-agent deployments
 - [API Reference](./docs/api-reference.md) — HTTP API and OpenAPI spec

@@ -24,7 +24,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 
 use agent_fs_fuse::fs::{AgentFsFs, FuserAdapter};
-use agent_fs_fuse::ipc::{IpcTrait, UnixIpcClient};
+use agent_fs_fuse::ipc::{HttpIpcClient, IpcTrait, UnixIpcClient};
 
 /// Set by the SIGTERM/SIGINT handler. The main thread polls this flag
 /// and, when set, unmounts the FUSE session and runs cleanup. Using an
@@ -58,6 +58,20 @@ struct Args {
     /// Optional log file path. Defaults to `${AGENT_FS_HOME}/mount.log`.
     #[arg(long)]
     log_file: Option<PathBuf>,
+
+    /// Remote `agent-fs` HTTP API URL. When provided together with
+    /// `--api-key`, the helper bypasses the local Unix socket and routes
+    /// ops to this endpoint instead. Used by `agent-fs mount --remote`.
+    /// Falls back to the `AGENT_FS_API_URL` env var.
+    #[arg(long, env = "AGENT_FS_API_URL")]
+    api_url: Option<String>,
+
+    /// API key for remote-mount mode. Always read from env (`AGENT_FS_API_KEY`)
+    /// in production — the CLI flag is hidden so the key never lands in
+    /// `ps` output. Passing it on the command line emits a warning in the
+    /// CLI but is supported for ad-hoc debugging.
+    #[arg(long, env = "AGENT_FS_API_KEY", hide_env_values = true)]
+    api_key: Option<String>,
 }
 
 fn home_dir() -> PathBuf {
@@ -81,12 +95,10 @@ fn main() -> Result<()> {
             .unwrap_or_else(|| home.join("mount.log")),
     )?;
 
-    let socket = args
-        .socket
-        .clone()
-        .unwrap_or_else(|| home.join("agent-fs.sock"));
-
-    // GC dead-PID working-copy dirs left behind by previous mounts.
+    // GC dead-PID working-copy dirs left behind by previous mounts. The
+    // generic parameter is irrelevant here — `gc_dead_pid_dirs` doesn't
+    // touch `Self`. We pick `UnixIpcClient` so we don't have to spell out
+    // the trait-object form.
     AgentFsFs::<UnixIpcClient>::gc_dead_pid_dirs(&home);
 
     // Build a multi-thread runtime separate from the FUSE thread.
@@ -98,9 +110,33 @@ fn main() -> Result<()> {
         .context("build tokio runtime")?;
     let handle = runtime.handle().clone();
 
-    let ipc = Arc::new(UnixIpcClient::new(socket));
+    // Pick a transport. `--api-url` + `--api-key` (or the matching env
+    // vars) → HTTP. Otherwise → Unix socket against the local daemon.
+    // The trait-object form lets `main` hand a single `Arc<dyn IpcTrait>`
+    // down to `AgentFsFs` regardless of which client we picked.
+    let ipc: Arc<dyn IpcTrait> = match (args.api_url.as_deref(), args.api_key.as_deref()) {
+        (Some(url), Some(key)) => {
+            tracing::info!(api_url = %url, "using HTTP transport (remote mount)");
+            Arc::new(HttpIpcClient::new(url, key).context("build HttpIpcClient")?)
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            anyhow::bail!(
+                "remote mode requires both --api-url and --api-key (or AGENT_FS_API_URL + AGENT_FS_API_KEY)"
+            );
+        }
+        (None, None) => {
+            let socket = args
+                .socket
+                .clone()
+                .unwrap_or_else(|| home.join("agent-fs.sock"));
+            tracing::info!(socket = %socket.display(), "using Unix socket transport");
+            Arc::new(UnixIpcClient::new(socket))
+        }
+    };
+
     // Smoke-test the connection with a Ping; failures here are warned but
-    // don't block the mount (the daemon may come up after us).
+    // don't block the mount (the daemon may come up after us, or the
+    // remote endpoint may flap and recover).
     let ipc_for_ping = ipc.clone();
     let handle_for_ping = handle.clone();
     handle_for_ping.spawn(async move {
@@ -114,7 +150,12 @@ fn main() -> Result<()> {
     let workdir = agent_fs_fuse::layout::working_copy_dir(&home, pid);
     std::fs::create_dir_all(&workdir).context("create per-pid mount workdir")?;
 
-    let fs = AgentFsFs::new(handle, ipc, workdir, pid);
+    let fs: AgentFsFs<dyn IpcTrait> = AgentFsFs::new(handle, ipc, workdir, pid);
+    // Wrap the (Sized) `AgentFsFs<dyn IpcTrait>` in an `Arc` so we can hand
+    // it to the trait-object-aware `FuserAdapter::from_arc`. The `Sized`
+    // constructor `FuserAdapter::new` doesn't apply when the inner `I` is
+    // a trait object.
+    let fs_arc: Arc<AgentFsFs<dyn IpcTrait>> = Arc::new(fs);
 
     // Build mount options. fuser 0.17 uses a Config struct; `AllowOther` is
     // represented via SessionACL::All on `Config::acl`. AutoUnmount requires
@@ -148,7 +189,7 @@ fn main() -> Result<()> {
     // Adapter from our inner FS state to the fuser::Filesystem trait. The
     // trait impl delegates each callback into AgentFsFs's typed helpers via
     // runtime.block_on. See `fs.rs` for the wired callbacks.
-    let adapter = FuserAdapter::new(fs);
+    let adapter = FuserAdapter::from_arc(fs_arc);
 
     // We use `spawn_mount2` rather than `mount2` so the FUSE event loop
     // runs on a background thread. That frees the main thread to poll the

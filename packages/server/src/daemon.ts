@@ -43,12 +43,19 @@ export function startDaemon(): void {
   const logPath = getLogPath();
   const logFd = openSync(logPath, "a");
 
-  // In compiled binary, spawn self with "server" command.
-  // In dev mode (bun run), spawn bun on the source file.
-  const isCompiled = !import.meta.dir.startsWith("/") || import.meta.dir.startsWith("/$bunfs");
-  const cmd = isCompiled ? process.execPath : "bun";
-  const args = isCompiled ? ["server"] : ["run", join(import.meta.dir, "index.ts")];
-  const child = spawn(cmd, args, {
+  // Respawn `<runtime> <entry-script> server`. The entry script is whatever
+  // the user launched (process.argv[1]) — works for:
+  //   - npm install: entry is `.../dist/cli.js`
+  //   - dev (bun run): entry is `packages/cli/src/index.ts`
+  //   - bun --compile single-file: entry resolves to `/$bunfs/...`
+  // process.execPath is the Bun runtime in all three cases.
+  const entryScript = process.argv[1];
+  if (!entryScript) {
+    throw new Error(
+      "Cannot determine entry script (process.argv[1] is empty). Daemon start aborted.",
+    );
+  }
+  const child = spawn(process.execPath, [entryScript, "server"], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
   });

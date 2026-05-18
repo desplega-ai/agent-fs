@@ -51,7 +51,7 @@ pub struct OpenFile {
 /// FUSE filesystem state.
 ///
 /// Generic over the IPC backend so unit tests can swap in `MockIpc`.
-pub struct AgentFsFs<I: IpcTrait> {
+pub struct AgentFsFs<I: IpcTrait + ?Sized> {
     pub handle: Handle,
     pub ipc: Arc<I>,
     pub mount_workdir: PathBuf,
@@ -72,7 +72,7 @@ pub struct AgentFsFs<I: IpcTrait> {
     pub gid: u32,
 }
 
-impl<I: IpcTrait> AgentFsFs<I> {
+impl<I: IpcTrait + ?Sized> AgentFsFs<I> {
     pub fn new(handle: Handle, ipc: Arc<I>, mount_workdir: PathBuf, pid: u32) -> Self {
         let mut inodes = HashMap::new();
         inodes.insert(ROOT_INODE, FsNode::root());
@@ -727,15 +727,25 @@ impl<I: IpcTrait> AgentFsFs<I> {
 // per-callback closures (the trait callbacks take `&self`, not `&mut self`).
 // ---------------------------------------------------------------------------
 
-pub struct FuserAdapter<I: IpcTrait> {
+pub struct FuserAdapter<I: IpcTrait + ?Sized> {
     pub inner: Arc<AgentFsFs<I>>,
 }
 
-impl<I: IpcTrait> FuserAdapter<I> {
-    pub fn new(fs: AgentFsFs<I>) -> Self {
+impl<I: IpcTrait + ?Sized> FuserAdapter<I> {
+    pub fn new(fs: AgentFsFs<I>) -> Self
+    where
+        I: Sized,
+    {
         Self {
             inner: Arc::new(fs),
         }
+    }
+
+    /// Construct from an already-`Arc`'d `AgentFsFs`. Required when the
+    /// inner type is unsized (`AgentFsFs<dyn IpcTrait>`), since the `Sized`
+    /// constructor above can't move an unsized value by value.
+    pub fn from_arc(fs: Arc<AgentFsFs<I>>) -> Self {
+        Self { inner: fs }
     }
 }
 
@@ -774,7 +784,7 @@ fn make_file_attr(
     }
 }
 
-impl<I: IpcTrait> fuser::Filesystem for FuserAdapter<I> {
+impl<I: IpcTrait + ?Sized> fuser::Filesystem for FuserAdapter<I> {
     fn init(
         &mut self,
         _req: &fuser::Request,

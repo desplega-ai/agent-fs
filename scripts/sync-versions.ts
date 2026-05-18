@@ -142,7 +142,11 @@ for (const sub of subpackages) {
   });
 }
 
-// optionalDependencies in cli must be pinned to the new version --------
+// optionalDependencies in cli must track the new version. Use a caret range
+// so npm's optional-resolution stays lenient on first global install
+// (exact pins are flakier — see npm/cli#4828 family). Sub-packages are
+// published in lockstep so the range will only ever match the matching
+// minor.
 rewriteJson("packages/cli/package.json", (pkg) => {
   const optDeps = pkg.optionalDependencies as
     | Record<string, string>
@@ -150,7 +154,7 @@ rewriteJson("packages/cli/package.json", (pkg) => {
   if (!optDeps) return;
   for (const name of Object.keys(optDeps)) {
     if (name.startsWith("@desplega.ai/agent-fs-fuse-")) {
-      optDeps[name] = newVersion;
+      optDeps[name] = `^${newVersion}`;
     }
   }
 });

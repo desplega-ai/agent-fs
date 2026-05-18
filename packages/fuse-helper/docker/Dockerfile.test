@@ -27,7 +27,7 @@ ENV RUSTUP_HOME=/usr/local/rustup \
     PATH=/usr/local/cargo/bin:$PATH
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-        sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.85.0 && \
+        sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.86.0 && \
     rustup component add rustfmt clippy
 
 # Allow non-root mounts (the helper drops privileges in v1.x; for now run as
