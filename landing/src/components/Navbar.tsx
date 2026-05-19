@@ -1,15 +1,30 @@
+import { Moon, Sun } from "lucide-react"
+
 import { buttonVariants } from "@/components/ui/button"
+import { useTheme } from "@/lib/theme"
 import { cn } from "@/lib/utils"
 
-export function Navbar() {
+export function Navbar({ wide = false }: { wide?: boolean }) {
+  const { theme, toggle } = useTheme()
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-md">
-      <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
+      <div
+        className={cn(
+          "mx-auto flex h-14 items-center justify-between px-6",
+          wide ? "max-w-screen-2xl lg:px-10" : "max-w-5xl",
+        )}
+      >
         <a href="/" className="font-mono text-sm text-foreground font-medium">
           agent-fs
         </a>
 
         <div className="flex items-center gap-4">
+          <a
+            href="/docs"
+            className="font-mono text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+          >
+            Docs
+          </a>
           <a
             href="https://www.npmjs.com/package/@desplega.ai/agent-fs"
             className="text-muted-foreground transition-colors hover:text-foreground"
@@ -17,6 +32,14 @@ export function Navbar() {
           >
             <span className="font-mono text-sm font-medium">npm</span>
           </a>
+          <button
+            type="button"
+            onClick={toggle}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+          >
+            {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          </button>
           <a
             href="https://github.com/desplega-ai/agent-fs"
             className={cn(

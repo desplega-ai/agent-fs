@@ -43,9 +43,15 @@ Plans and research documents MUST include these as explicit steps when they invo
 
 `scripts/e2e.ts` spins up an isolated MinIO container, starts a daemon on a random port, and runs 24 CLI + MCP tests end-to-end. Run it as a regression check when modifying core ops, CLI commands, or MCP. If a core change breaks something, extend the E2E suite to cover it. Not in CI or pre-push — run on demand locally.
 
-## Gotcha: `live/` is pnpm, not bun
+## Gotcha: `live/` and `landing/` are pnpm, not bun
 
-The root + `packages/*` use bun. **`live/` uses pnpm** (Vercel deploys it with `pnpm install`). Add deps there with `pnpm add <pkg>` so `live/pnpm-lock.yaml` stays the source of truth — running `bun add` in `live/` creates a stale `bun.lock` and the Vercel preview deploy fails because pnpm's lockfile no longer matches `package.json`. The "Bun-only" runtime decision below applies to the CLI/server, not to `live/`'s package manager.
+The root + `packages/*` use bun. **`live/` and `landing/` both use pnpm** (Vercel deploys them with `pnpm install`). Add deps there with `pnpm add <pkg>` so the local `pnpm-lock.yaml` stays the source of truth — running `bun add` creates a stale `bun.lock` and the Vercel preview deploy fails because pnpm's lockfile no longer matches `package.json`. The "Bun-only" runtime decision below applies to the CLI/server, not to these two web apps.
+
+`landing/` notes:
+- Vite SPA (`landing/src/`); doc pages render at `/docs/<slug>` via client-side routing in `App.tsx`.
+- Docs content is imported from the repo's top-level `docs/` via `?raw` (see `landing/src/content/docs.ts`) and additionally synced to `landing/public/docs/` by `landing/scripts/generate-markdown.ts` (runs in `pnpm build`).
+- `landing/content/markdown.ts` is the source of truth for `/llms.txt` and `/md/index.md` — update it when adding new doc pages so agents discover them.
+- Theme handling lives in `landing/src/lib/theme.tsx` (light/dark, persisted to `localStorage`); CSS vars are defined in `landing/src/index.css` with `:root.light { ... }` overrides. An inline pre-paint script in `landing/index.html` sets the class before React mounts to avoid FOUC.
 
 ## Gotcha: Stale `.js` files in `src/` dirs
 

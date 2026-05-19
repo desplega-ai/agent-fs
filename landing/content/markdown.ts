@@ -91,9 +91,33 @@ fully self-hostable.
 ## Docs
 
 - Homepage: https://agent-fs.dev
+- Docs index: https://agent-fs.dev/docs
 - Repository: https://github.com/desplega-ai/agent-fs
 - Product overview: https://github.com/desplega-ai/agent-fs/blob/main/PRODUCT.md
-- Deployment guide: https://github.com/desplega-ai/agent-fs/blob/main/DEPLOYMENT.md
+
+### Getting started
+
+- MCP setup: https://agent-fs.dev/docs/mcp-setup — connect agent-fs to Claude Code, Cursor, Codex, and other MCP clients
+- Deployment: https://agent-fs.dev/docs/deployment — run locally, use remote S3, deploy services, and publish releases
+
+### Reference
+
+- API reference: https://agent-fs.dev/docs/api-reference — HTTP endpoints, auth, MCP transport, and operation dispatch
+- OpenAPI spec: https://agent-fs.dev/docs/openapi.json
+
+### Mounting (FUSE)
+
+- Mounting overview: https://agent-fs.dev/docs/mounting — topologies, prerequisites, auth, and the remote mount flow
+- FUSE mount: https://agent-fs.dev/docs/fuse-mount — mount an agent-fs drive as a Linux filesystem with open-to-close consistency
+- FUSE compatibility: https://agent-fs.dev/docs/fuse-compat — sandbox and container runtime matrix for Linux FUSE support
+- FUSE troubleshooting: https://agent-fs.dev/docs/fuse-troubleshooting — common mount errors, diagnosis order, and recovery commands
+- Mounting on Sprite: https://agent-fs.dev/docs/mounting-sprite
+- Mounting on E2B: https://agent-fs.dev/docs/mounting-e2b
+- Mounting on Hetzner: https://agent-fs.dev/docs/mounting-hetzner
+
+Every doc page is also available as raw markdown at the same path with a \`.md\` suffix
+under \`/docs/\` (e.g. https://agent-fs.dev/docs/mcp-setup.md), suitable for agents that
+prefer fetching markdown directly.
 
 ## Core commands
 

@@ -24,6 +24,22 @@
     <link rel="manifest" href="/site.webmanifest" />
     <meta name="theme-color" content="#000000" />
 
+    <!-- Apply theme before paint to avoid FOUC. Mirrors readInitialTheme() in src/lib/theme.tsx. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('agent-fs:theme');
+          var theme = stored === 'light' || stored === 'dark'
+            ? stored
+            : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+          var root = document.documentElement;
+          if (theme === 'light') root.classList.add('light');
+          root.dataset.theme = theme;
+          root.style.colorScheme = theme;
+        } catch (e) {}
+      })();
+    </script>
+
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="agent-fs — A file system built for AI agents" />

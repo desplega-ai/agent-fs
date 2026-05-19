@@ -2,7 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant light (&:is(.light *));
 
 :root {
     --background: oklch(0.02 0 0);
@@ -40,6 +40,55 @@
 
     --neon: oklch(0.866 0.295 142.5);
     --electric: oklch(0.452 0.313 264.05);
+
+    /* Decorative gradients (referenced by .grid-bg / .hero-glow) */
+    --grid-line: oklch(0.866 0.295 142.5 / 0.08);
+    --hero-glow-color: oklch(0.866 0.295 142.5 / 0.06);
+    --scrollbar-thumb: oklch(0.25 0 0);
+    --scrollbar-thumb-hover: oklch(0.40 0 0);
+}
+
+/* Light theme overrides — applied when <html class="light"> is set. */
+:root.light {
+    --background: oklch(0.99 0 0);
+    --foreground: oklch(0.16 0 0);
+    --card: oklch(0.97 0.003 142);
+    --card-foreground: oklch(0.16 0 0);
+    --popover: oklch(0.99 0 0);
+    --popover-foreground: oklch(0.16 0 0);
+    --primary: oklch(0.50 0.22 142.5);
+    --primary-foreground: oklch(0.99 0 0);
+    --secondary: oklch(0.40 0.28 264.05);
+    --secondary-foreground: oklch(0.99 0 0);
+    --muted: oklch(0.94 0 0);
+    --muted-foreground: oklch(0.42 0 0);
+    --accent: oklch(0.40 0.28 264.05);
+    --accent-foreground: oklch(0.99 0 0);
+    --destructive: oklch(0.55 0.25 27.325);
+    --border: oklch(0.88 0 0);
+    --input: oklch(0.88 0 0);
+    --ring: oklch(0.50 0.22 142.5);
+    --chart-1: oklch(0.50 0.22 142.5);
+    --chart-2: oklch(0.40 0.28 264.05);
+    --chart-3: oklch(0.46 0.24 262.881);
+    --chart-4: oklch(0.42 0.22 264.376);
+    --chart-5: oklch(0.38 0.18 265.638);
+    --sidebar: oklch(0.97 0 0);
+    --sidebar-foreground: oklch(0.16 0 0);
+    --sidebar-primary: oklch(0.50 0.22 142.5);
+    --sidebar-primary-foreground: oklch(0.99 0 0);
+    --sidebar-accent: oklch(0.92 0 0);
+    --sidebar-accent-foreground: oklch(0.16 0 0);
+    --sidebar-border: oklch(0.88 0 0);
+    --sidebar-ring: oklch(0.50 0.22 142.5);
+
+    --neon: oklch(0.50 0.22 142.5);
+    --electric: oklch(0.40 0.28 264.05);
+
+    --grid-line: oklch(0.50 0.22 142.5 / 0.08);
+    --hero-glow-color: oklch(0.50 0.22 142.5 / 0.10);
+    --scrollbar-thumb: oklch(0.80 0 0);
+    --scrollbar-thumb-hover: oklch(0.65 0 0);
 }
 
 @theme inline {
@@ -118,7 +167,7 @@
 .hero-glow {
   background: radial-gradient(
     600px circle at 50% 40%,
-    oklch(0.866 0.295 142.5 / 0.06),
+    var(--hero-glow-color),
     transparent 70%
   );
 }
@@ -130,8 +179,8 @@
   z-index: -1;
   pointer-events: none;
   background-image:
-    linear-gradient(oklch(0.866 0.295 142.5 / 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, oklch(0.866 0.295 142.5 / 0.08) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 40px 40px;
   mask-image:
     radial-gradient(ellipse 600px 500px at 50% 30%, black 0%, transparent 70%),
@@ -143,4 +192,31 @@
     radial-gradient(ellipse 500px 400px at 20% 65%, rgba(0,0,0,0.5) 0%, transparent 70%),
     radial-gradient(ellipse 400px 300px at 30% 90%, rgba(0,0,0,0.3) 0%, transparent 70%);
   -webkit-mask-composite: source-over;
+}
+
+/* Thin scrollbar for docs sidebars */
+.docs-sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+.docs-sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.docs-sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.docs-sidebar-scroll::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+.docs-sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Multi-line ellipsis (used in search results) */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
