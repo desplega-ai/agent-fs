@@ -73,7 +73,7 @@ describe("PUT /raw — binary write path", () => {
     const expectedHash = createHash("sha256").update(bytes).digest("hex");
 
     const put = await authedFetch(
-      `/orgs/${orgId}/drives/${driveId}/files/binary.png/raw`,
+      `/orgs/${orgId}/drives/${driveId}/files/nested/binary.png/raw`,
       {
         method: "PUT",
         headers: { "Content-Type": "application/octet-stream" },
@@ -87,7 +87,7 @@ describe("PUT /raw — binary write path", () => {
     expect(put.headers.get("X-Agent-FS-Content-Hash")).toBe(expectedHash);
 
     const get = await authedFetch(
-      `/orgs/${orgId}/drives/${driveId}/files/binary.png/raw`
+      `/orgs/${orgId}/drives/${driveId}/files/nested/binary.png/raw`
     );
     expect(get.status).toBe(200);
     expect(get.headers.get("Content-Type")).toBe("image/png");

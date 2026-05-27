@@ -115,7 +115,7 @@ export class ApiClient {
     if (opts.message) {
       headers.set("X-Agent-FS-Message", opts.message);
     }
-    // The server's GET handler matches the wildcard between `/files/` and
+    // The server's raw route matches everything between `/files/` and
     // `/raw`. The path may already start with `/`; strip leading slashes
     // so URI encoding doesn't double them up.
     const encoded = encodeURI(path.replace(/^\/+/, ""));

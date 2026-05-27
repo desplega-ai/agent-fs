@@ -146,12 +146,48 @@ jobs:
         # `cd` into the package — npm 10+ parses a path like "packages/x" as a
         # `<gh-user>/<repo>` short-spec and tries to git-clone it. Run from
         # inside the dir so npm sees a local package.
-        run: cd packages/fuse-helper-linux-x64 && npm publish --provenance --access public
+        run: |
+          cd packages/fuse-helper-linux-x64
+          PACKAGE="$(jq -r .name package.json)"
+          VERSION="$(jq -r .version package.json)"
+          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+            echo "$PACKAGE@$VERSION is already published; skipping"
+            exit 0
+          fi
+          for ATTEMPT in 1 2 3; do
+            if npm publish --provenance --access public; then
+              exit 0
+            fi
+            if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+              echo "$PACKAGE@$VERSION was published despite publish command failure; continuing"
+              exit 0
+            fi
+            sleep $((ATTEMPT * 15))
+          done
+          exit 1
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish linux-arm64 sub-package
-        run: cd packages/fuse-helper-linux-arm64 && npm publish --provenance --access public
+        run: |
+          cd packages/fuse-helper-linux-arm64
+          PACKAGE="$(jq -r .name package.json)"
+          VERSION="$(jq -r .version package.json)"
+          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+            echo "$PACKAGE@$VERSION is already published; skipping"
+            exit 0
+          fi
+          for ATTEMPT in 1 2 3; do
+            if npm publish --provenance --access public; then
+              exit 0
+            fi
+            if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+              echo "$PACKAGE@$VERSION was published despite publish command failure; continuing"
+              exit 0
+            fi
+            sleep $((ATTEMPT * 15))
+          done
+          exit 1
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -242,13 +278,30 @@ jobs:
 
       - run: cd packages/cli && bun pm pack
 
-      - name: Publish main package to npm
-        run: npm publish packages/cli/*.tgz --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
       - name: Pin npm version
         run: npm install -g npm@10.9.0
+
+      - name: Publish main package to npm
+        run: |
+          PACKAGE="$(jq -r .name packages/cli/package.json)"
+          VERSION="$(jq -r .version packages/cli/package.json)"
+          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+            echo "$PACKAGE@$VERSION is already published; skipping"
+            exit 0
+          fi
+          for ATTEMPT in 1 2 3; do
+            if npm publish packages/cli/*.tgz --access public --provenance; then
+              exit 0
+            fi
+            if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+              echo "$PACKAGE@$VERSION was published despite publish command failure; continuing"
+              exit 0
+            fi
+            sleep $((ATTEMPT * 15))
+          done
+          exit 1
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         run: |

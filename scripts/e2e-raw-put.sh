@@ -50,7 +50,7 @@ assert_eq() {
 
 # (0) Binary PUT + GET — bytes must round-trip exactly.
 echo "→ PUT/GET preserves binary bytes"
-BIN_PATH="e2e-raw-binary-$(date +%s)-$$.png"
+BIN_PATH="e2e-raw-nested/e2e-raw-binary-$(date +%s)-$$.png"
 BIN_BASE="${DAEMON_URL}/orgs/${ORG_ID}/drives/${DRIVE_ID}/files/${BIN_PATH}/raw"
 printf '\211PNG\r\n\032\n\000\377\376' > "$tmp/in.bin"
 curl -sS -X PUT \
