@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
-import { getOpDefinition } from "@/core";
+import { getConfig, getOpDefinition } from "@/core";
 import { outputResult } from "../formatters.js";
 
 interface OpCommandDef {
@@ -10,7 +10,7 @@ interface OpCommandDef {
 }
 
 const OP_COMMANDS: OpCommandDef[] = [
-  { name: "write", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "File content (reads stdin if omitted)" }, { flag: "-m, --message <msg>", description: "Version message" }, { flag: "--expected-version <n>", description: "Fail if file is not at this version (optimistic concurrency)" }] },
+  { name: "write", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "File content (reads stdin if omitted)" }, { flag: "--file <path>", description: "Read bytes from a local file and upload without text decoding" }, { flag: "-m, --message <msg>", description: "Version message" }, { flag: "--expected-version <n>", description: "Fail if file is not at this version (optimistic concurrency)" }] },
   { name: "cat", args: [{ name: "path", required: true }], options: [{ flag: "--offset <n>", description: "Line offset" }, { flag: "--limit <n>", description: "Max lines" }] },
   { name: "edit", args: [{ name: "path", required: true }], options: [{ flag: "--old <string>", description: "Text to replace" }, { flag: "--new <string>", description: "Replacement text" }, { flag: "-m, --message <msg>", description: "Version message" }] },
   { name: "append", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "Content to append" }, { flag: "-m, --message <msg>", description: "Version message" }] },
@@ -37,7 +37,8 @@ const OP_COMMANDS: OpCommandDef[] = [
 export function registerOpCommands(
   program: Command,
   client: ApiClient,
-  getOrgId: () => string | Promise<string>
+  getOrgId: () => string | Promise<string>,
+  getDriveId?: (orgId?: string) => string | Promise<string>
 ) {
   for (const def of OP_COMMANDS) {
     const opDef = getOpDefinition(def.name);
@@ -58,6 +59,7 @@ export function registerOpCommands(
     cmd.action(async (...actionArgs: any[]) => {
       const opts = actionArgs[actionArgs.length - 2];
       const params: Record<string, any> = { ...opts };
+      let rawWriteBytes: Uint8Array | null = null;
 
       // Map positional args
       for (let i = 0; i < def.args.length; i++) {
@@ -66,14 +68,34 @@ export function registerOpCommands(
         }
       }
 
-      // Handle stdin for write/append
-      if ((def.name === "write" || def.name === "append") && !params.content) {
+      if (def.name === "write") {
+        if (params.file && params.content !== undefined) {
+          console.error("Error: use either --file or --content, not both");
+          process.exit(1);
+        }
+
+        if (params.file) {
+          rawWriteBytes = new Uint8Array(await Bun.file(params.file).arrayBuffer());
+          delete params.file;
+        } else if (params.content === undefined && !process.stdin.isTTY) {
+          rawWriteBytes = new Uint8Array(await Bun.stdin.arrayBuffer());
+        }
+      }
+
+      // Handle stdin for append. `write` uses the raw route for stdin so
+      // piped bytes are preserved for images, PDFs, archives, and text alike.
+      if (def.name === "append" && params.content === undefined) {
         if (!process.stdin.isTTY) {
           params.content = await Bun.stdin.text();
         } else {
           console.error("Error: --content required (or pipe content via stdin)");
           process.exit(1);
         }
+      }
+
+      if (def.name === "write" && params.content === undefined && rawWriteBytes === null) {
+        console.error("Error: --content or --file required (or pipe content via stdin)");
+        process.exit(1);
       }
 
       // Map CLI flag names to Zod schema field names
@@ -106,7 +128,25 @@ export function registerOpCommands(
       }
 
       try {
-        const result = await client.callOp(await getOrgId(), def.name, params);
+        const orgId = await getOrgId();
+        const driveId = program.opts().drive ?? getConfig().defaultDrive;
+        if (driveId) {
+          params.driveId = driveId;
+        }
+
+        if (def.name === "write" && rawWriteBytes !== null) {
+          if (!getDriveId) {
+            throw new Error("Cannot resolve drive context for raw upload");
+          }
+          const result = await client.putRaw(orgId, await getDriveId(orgId), params.path, rawWriteBytes, {
+            ifMatch: params.expectedVersion,
+            message: params.message,
+          });
+          outputResult(def.name, result, program.opts().json);
+          return;
+        }
+
+        const result = await client.callOp(orgId, def.name, params);
         outputResult(def.name, result, program.opts().json);
       } catch (err: any) {
         if (err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed")) {

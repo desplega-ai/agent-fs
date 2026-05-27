@@ -8,6 +8,8 @@ import {
 } from "./versioning.js";
 import { indexFile, removeFromIndex } from "../search/fts.js";
 import { schema } from "../db/index.js";
+import { decodeIndexableText, detectMimeType } from "./mime.js";
+import { clearSearchData } from "./search-index.js";
 
 export async function mv(
   ctx: OpContext,
@@ -28,11 +30,11 @@ export async function mv(
   // 2. Get size from head
   const head = await ctx.s3.headObject(toKey);
 
-  // Fetch the moved content once so we can both compute its hash and
-  // feed the FTS5 reindex below — saves an S3 round-trip.
+  // Fetch the moved content once so we can compute its hash and decide whether
+  // existing search metadata should move with it.
   const obj = await ctx.s3.getObject(toKey);
-  const content = new TextDecoder().decode(obj.body);
   const contentHash = createHash("sha256").update(obj.body).digest("hex");
+  const contentType = head.contentType ?? obj.contentType ?? detectMimeType(params.to);
 
   // 3. Create version on new path
   const version = await createVersion(ctx, {
@@ -42,6 +44,7 @@ export async function mv(
     message: params.message ?? `Moved from ${params.from}`,
     size: head.size,
     etag: copyResult.etag,
+    contentType,
     contentHash,
   });
 
@@ -56,23 +59,24 @@ export async function mv(
     message: `Moved to ${params.to}`,
   });
 
-  // Update search indexes: FTS5 and content_chunks
-  // No re-embedding needed since content didn't change
-
   removeFromIndex(ctx.db, { path: params.from, driveId: ctx.driveId });
-  indexFile(ctx.db, { path: params.to, driveId: ctx.driveId, content });
-
-  // Update chunk paths in-place (vectors stay the same)
-  ctx.db
-    .update(schema.contentChunks)
-    .set({ filePath: params.to })
-    .where(
-      and(
-        eq(schema.contentChunks.filePath, params.from),
-        eq(schema.contentChunks.driveId, ctx.driveId)
+  const content = decodeIndexableText(obj.body, contentType);
+  if (content === null) {
+    clearSearchData(ctx, params.to);
+  } else {
+    indexFile(ctx.db, { path: params.to, driveId: ctx.driveId, content });
+    // Update chunk paths in-place (vectors stay the same).
+    ctx.db
+      .update(schema.contentChunks)
+      .set({ filePath: params.to })
+      .where(
+        and(
+          eq(schema.contentChunks.filePath, params.from),
+          eq(schema.contentChunks.driveId, ctx.driveId)
+        )
       )
-    )
-    .run();
+      .run();
+  }
 
   return { from: params.from, to: params.to, version };
 }

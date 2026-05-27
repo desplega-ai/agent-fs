@@ -5,8 +5,8 @@ import {
   createVersion,
   assertExpectedVersion,
 } from "./versioning.js";
-import { indexFile } from "../search/fts.js";
-import { scheduleEmbedding } from "../search/pipeline.js";
+import { detectMimeType } from "./mime.js";
+import { indexBytesForSearch } from "./search-index.js";
 
 export async function cp(
   ctx: OpContext,
@@ -29,8 +29,8 @@ export async function cp(
 
   // Fetch destination bytes once for both content hash + FTS5 indexing.
   const obj = await ctx.s3.getObject(toKey);
-  const content = new TextDecoder().decode(obj.body);
   const contentHash = createHash("sha256").update(obj.body).digest("hex");
+  const contentType = head.contentType ?? obj.contentType ?? detectMimeType(params.to);
 
   // 3. Create version on new path
   const version = await createVersion(ctx, {
@@ -40,20 +40,11 @@ export async function cp(
     message: `Copied from ${params.from}`,
     size: head.size,
     etag: copyResult.etag,
+    contentType,
     contentHash,
   });
 
-  // Index the copied file for search
-
-  // FTS5 index (sync)
-  indexFile(ctx.db, { path: params.to, driveId: ctx.driveId, content });
-
-  // Embedding index (async, fire-and-forget)
-  scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
-    path: params.to,
-    driveId: ctx.driveId,
-    content,
-  });
+  indexBytesForSearch(ctx, params.to, obj.body, contentType);
 
   return { from: params.from, to: params.to, version };
 }

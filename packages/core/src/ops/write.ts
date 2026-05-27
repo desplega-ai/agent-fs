@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { OpContext, WriteParams, WriteResult } from "./types.js";
+import type { OpContext, WriteParams, WriteRawParams, WriteResult } from "./types.js";
 import {
   getS3Key,
   assertExpectedVersion,
@@ -7,9 +7,8 @@ import {
   createVersion,
 } from "./versioning.js";
 import { detectMimeType } from "./mime.js";
-import { indexFile } from "../search/fts.js";
-import { scheduleEmbedding } from "../search/pipeline.js";
 import { ValidationError } from "../errors.js";
+import { indexBytesForSearch, indexTextForSearch } from "./search-index.js";
 
 /** Max file size: 10 MB. Protects SQLite FTS indexing and embedding costs. */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -21,33 +20,35 @@ export async function write(
   ctx: OpContext,
   params: WriteParams
 ): Promise<WriteResult> {
-  return writeInternal(ctx, params, { maxSize: MAX_FILE_SIZE });
+  const bytes = new TextEncoder().encode(params.content);
+  return writeInternal(
+    ctx,
+    { ...params, bytes, indexableText: params.content },
+    { maxSize: MAX_FILE_SIZE }
+  );
 }
 
 /**
- * Internal binary write path used by `PUT /raw`. Accepts up to 50 MB
- * (Hono's body limit) instead of the JSON-path 10 MB cap. Otherwise
- * identical to `write` — same RBAC, same versioning, same FTS5/embedding
- * side effects, same dedup short-circuit.
- *
- * Content is a UTF-8 string in v1 (the binary route already decodes the
- * body before calling this); native binary storage stays out of scope.
+ * Internal binary write path used by `PUT /raw` and the FUSE mount. Accepts
+ * up to 50 MB (Hono's body limit) instead of the JSON-path 10 MB cap. Bytes
+ * are stored unchanged; search indexing runs only when the payload is valid,
+ * indexable UTF-8 text.
  */
 export async function writeRaw(
   ctx: OpContext,
-  params: WriteParams
+  params: WriteRawParams
 ): Promise<WriteResult> {
   return writeInternal(ctx, params, { maxSize: MAX_RAW_FILE_SIZE });
 }
 
 async function writeInternal(
   ctx: OpContext,
-  params: WriteParams,
+  params: WriteRawParams & { indexableText?: string },
   opts: { maxSize: number }
 ): Promise<WriteResult> {
   const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
-  const content = params.content;
-  const size = Buffer.byteLength(content);
+  const bytes = params.bytes;
+  const size = bytes.byteLength;
 
   // Content size limit — applies to all paths (HTTP, MCP, embedded)
   if (size > opts.maxSize) {
@@ -61,7 +62,7 @@ async function writeInternal(
   // Compute SHA-256 once. Used for both dedup short-circuit and the
   // persisted content_hash on the version row.
   const contentHash = createHash("sha256")
-    .update(content)
+    .update(bytes)
     .digest("hex");
 
   // Optimistic concurrency check — and dedup short-circuit.
@@ -92,7 +93,7 @@ async function writeInternal(
 
   // 1. Write to S3
   const contentType = detectMimeType(params.path);
-  const s3Result = await ctx.s3.putObject(s3Key, content, undefined, contentType);
+  const s3Result = await ctx.s3.putObject(s3Key, bytes, undefined, contentType);
 
   // 2. Create version record
   const version = await createVersion(ctx, {
@@ -106,15 +107,11 @@ async function writeInternal(
     contentHash,
   });
 
-  // FTS5 index (sync)
-  indexFile(ctx.db, { path: params.path, driveId: ctx.driveId, content });
-
-  // Embedding index (async, fire-and-forget)
-  scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
-    path: params.path,
-    driveId: ctx.driveId,
-    content,
-  });
+  if (params.indexableText !== undefined) {
+    indexTextForSearch(ctx, params.path, params.indexableText);
+  } else {
+    indexBytesForSearch(ctx, params.path, bytes, contentType);
+  }
 
   return { version, path: params.path, size, contentHash, deduped: false };
 }

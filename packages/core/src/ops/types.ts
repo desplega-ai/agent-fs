@@ -21,6 +21,13 @@ export interface WriteParams {
   expectedVersion?: number;
 }
 
+export interface WriteRawParams {
+  path: string;
+  bytes: Uint8Array;
+  message?: string;
+  expectedVersion?: number;
+}
+
 export interface CatParams {
   path: string;
   offset?: number;

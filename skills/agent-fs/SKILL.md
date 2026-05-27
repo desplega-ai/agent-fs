@@ -39,17 +39,20 @@ For custom S3 (AWS, R2, etc.), use flags: `agent-fs onboard --s3-endpoint <url> 
 
 ## Essential Patterns
 
-1. **All output is JSON** — always parse CLI output as JSON (except `daemon status` and `auth register` which print human-readable text).
+1. **Use JSON for machine output** — pass `--json` when parsing CLI output (except `download` without `-o`, which writes raw bytes to stdout; `daemon status` and `auth register` print human-readable text).
 
 2. **Auto-detection** — the CLI automatically detects whether the daemon is running. If it is, commands go via HTTP; otherwise, they use embedded mode directly. No user action needed.
 
-3. **Stdin piping for content** — `write` and `append` accept content via stdin or `--content`:
+3. **Stdin and file upload** — `write` accepts raw bytes from stdin or `--file`, and text from `--content`; `append` accepts text via stdin or `--content`:
    ```bash
-   # Preferred for multi-line content
+   # Preferred for multi-line text
    echo "content here" | agent-fs write path/to/file.txt
 
    # Inline for short content
    agent-fs write path/to/file.txt --content "short text"
+
+   # Binary-safe upload
+   agent-fs write assets/screenshot.png --file ./screenshot.png
    ```
 
 4. **Paths** — forward-slash separated, no leading slash required. Example: `docs/notes/meeting.md`
@@ -71,8 +74,8 @@ For custom S3 (AWS, R2, etc.), use flags: `agent-fs onboard --s3-endpoint <url> 
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `write` | `agent-fs write <path> [--content <text>] [-m <msg>] [--expected-version <n>]` | Write content (stdin or --content) |
-| `cat` | `agent-fs cat <path> [--offset <n>] [--limit <n>]` | Read file content |
+| `write` | `agent-fs write <path> [--content <text>] [--file <local-path>] [-m <msg>] [--expected-version <n>]` | Write text or binary bytes |
+| `cat` | `agent-fs cat <path> [--offset <n>] [--limit <n>]` | Read text file content |
 | `edit` | `agent-fs edit <path> --old <text> --new <text> [-m <msg>]` | Find-and-replace in file |
 | `append` | `agent-fs append <path> [--content <text>] [-m <msg>]` | Append to file (stdin or --content) |
 | `tail` | `agent-fs tail <path> [--lines <n>]` | Last N lines (default: 20) |
@@ -84,6 +87,7 @@ For custom S3 (AWS, R2, etc.), use flags: `agent-fs onboard --s3-endpoint <url> 
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
 | `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>]` | Generate a presigned URL for direct download (default: 24h, max: 7 days) |
+| `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
 
 ### Versioning
 
@@ -302,7 +306,7 @@ agent-fs signed-url docs/report.pdf --json
 
 The presigned URL requires no authentication — anyone with the link can download the file until it expires. Signed URLs serve the correct `Content-Type` header based on file extension (e.g., `application/pdf` for `.pdf`, `image/png` for `.png`), so browsers render them natively.
 
-**MIME types on upload:** `write`, `edit`, `append`, and `revert` automatically detect and set the correct `Content-Type` on S3 objects based on file extension. The content type is also stored in the database and visible in `stat` output via the `contentType` field.
+**MIME types on upload:** `write`, `edit`, `append`, and `revert` automatically detect and set the correct `Content-Type` on S3 objects based on file extension. The content type is also stored in the database and visible in `stat` output via the `contentType` field. Raw stdin and `--file` uploads preserve bytes exactly; text search/indexing is applied only when the payload is valid, indexable UTF-8 text.
 
 ### App URL in responses
 

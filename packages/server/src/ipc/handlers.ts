@@ -19,6 +19,7 @@ import {
   listUserOrgs,
   getHeadVersionRow,
   getUserByApiKey,
+  getS3Key,
 } from "@/core";
 import type { DB, AgentS3Client, EmbeddingProvider } from "@/core";
 
@@ -292,18 +293,16 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       const auth = resolveAuth(ctx);
       const { orgId, driveId } = resolveDrive(ctx, auth.userId, req.drive!);
       const path = req.path!;
-      const opCtx = buildOpCtx(ctx, auth, orgId, driveId);
-      const catRes = (await dispatchOp(opCtx, "cat", { path })) as any;
+      const key = getS3Key(orgId, driveId, path);
+      const object = await ctx.s3.getObject(key);
       // Pull head metadata for version + hash. Falls back to nulls if missing.
       const head = getHeadVersionRow({ db: ctx.db, driveId }, path);
-      const content: string = catRes?.content ?? "";
-      const bytes = new TextEncoder().encode(content);
       return {
         open_read: {
-          bytes,
+          bytes: object.body,
           version: head?.version ?? 0,
           content_hash: head?.contentHash ?? "",
-          size: bytes.length,
+          size: object.body.length,
           mtime_unix: head?.createdAt
             ? Math.floor(new Date(head.createdAt).getTime() / 1000)
             : 0,
@@ -317,10 +316,9 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       const path = req.path!;
       const opCtx = buildOpCtx(ctx, auth, orgId, driveId);
       const bytes = toBytes(req.bytes);
-      const content = new TextDecoder("utf-8").decode(bytes);
       const result = await writeRaw(opCtx, {
         path,
-        content,
+        bytes,
         expectedVersion: req.base_version ?? undefined,
       });
       return {
@@ -340,7 +338,7 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       // Create-only semantics: expectedVersion: 0 ⇒ file must not exist yet.
       const result = await writeRaw(opCtx, {
         path,
-        content: "",
+        bytes: new Uint8Array(0),
         expectedVersion: 0,
       });
       return {
@@ -359,11 +357,10 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
       const size = req.size ?? 0;
       const opCtx = buildOpCtx(ctx, auth, orgId, driveId);
       // Read current bytes, truncate, write back.
-      const catRes = (await dispatchOp(opCtx, "cat", { path })) as any;
-      const current = new TextEncoder().encode(catRes?.content ?? "");
+      const key = getS3Key(orgId, driveId, path);
+      const current = (await ctx.s3.getObject(key)).body;
       const trimmed = current.subarray(0, Math.min(size, current.length));
-      const content = new TextDecoder("utf-8").decode(trimmed);
-      const result = await writeRaw(opCtx, { path, content });
+      const result = await writeRaw(opCtx, { path, bytes: trimmed });
       return {
         open_write: {
           version: result.version,

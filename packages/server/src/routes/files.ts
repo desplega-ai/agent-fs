@@ -68,7 +68,7 @@ export function fileRoutes(
         }
       }
 
-      return new Response(result.body.buffer as ArrayBuffer, {
+      return new Response(result.body.slice(), {
         status: 200,
         headers,
       });
@@ -158,10 +158,6 @@ export function fileRoutes(
     // Read body. Hono's bodyLimit middleware already caps this at 50 MB.
     const arrayBuffer = await c.req.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
-    // v1: writeRaw expects a string (matches the existing `write` op).
-    // Native binary storage is out of scope; UTF-8-decoding handles the
-    // text-heavy agent workloads the FUSE mount targets.
-    const content = new TextDecoder("utf-8").decode(bytes);
 
     const ctx = {
       db,
@@ -175,7 +171,7 @@ export function fileRoutes(
 
     const result = await writeRaw(ctx, {
       path: filePath,
-      content,
+      bytes,
       message,
       expectedVersion,
     });

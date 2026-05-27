@@ -48,7 +48,17 @@ export function createTestDb(): DB {
  * In-memory mock of AgentS3Client for testing without MinIO.
  */
 export class MockS3Client {
-  private store = new Map<string, { body: Uint8Array; metadata?: Record<string, string>; versions: Array<{ versionId: string; body: Uint8Array; timestamp: Date }> }>();
+  private store = new Map<string, {
+    body: Uint8Array;
+    metadata?: Record<string, string>;
+    contentType?: string;
+    versions: Array<{
+      versionId: string;
+      body: Uint8Array;
+      contentType?: string;
+      timestamp: Date;
+    }>;
+  }>();
   versioningEnabled: boolean;
 
   constructor(opts?: { versioningEnabled?: boolean }) {
@@ -58,7 +68,8 @@ export class MockS3Client {
   async putObject(
     key: string,
     body: string | Uint8Array,
-    metadata?: Record<string, string>
+    metadata?: Record<string, string>,
+    contentType?: string
   ): Promise<PutObjectResult> {
     const bytes = typeof body === "string" ? new TextEncoder().encode(body) : body;
     const versionId = this.versioningEnabled ? crypto.randomUUID() : undefined;
@@ -66,10 +77,10 @@ export class MockS3Client {
     const existing = this.store.get(key);
     const versions = existing?.versions ?? [];
     if (versionId) {
-      versions.push({ versionId, body: bytes, timestamp: new Date() });
+      versions.push({ versionId, body: bytes, contentType, timestamp: new Date() });
     }
 
-    this.store.set(key, { body: bytes, metadata, versions });
+    this.store.set(key, { body: bytes, metadata, contentType, versions });
     return { etag: `"${crypto.randomUUID()}"`, versionId };
   }
 
@@ -82,19 +93,21 @@ export class MockS3Client {
     }
 
     let body = entry.body;
+    let contentType = entry.contentType;
     let resolvedVersionId = versionId;
 
     if (versionId && entry.versions.length > 0) {
       const version = entry.versions.find((v) => v.versionId === versionId);
       if (!version) throw new Error(`NoSuchVersion: ${versionId}`);
       body = version.body;
+      contentType = version.contentType;
     } else if (entry.versions.length > 0) {
       resolvedVersionId = entry.versions[entry.versions.length - 1].versionId;
     }
 
     return {
       body,
-      contentType: "application/octet-stream",
+      contentType: contentType ?? "application/octet-stream",
       size: body.length,
       versionId: resolvedVersionId,
       etag: `"mock-etag"`,
@@ -112,7 +125,7 @@ export class MockS3Client {
       err.name = "NoSuchKey";
       throw err;
     }
-    return this.putObject(toKey, entry.body, entry.metadata);
+    return this.putObject(toKey, entry.body, entry.metadata, entry.contentType);
   }
 
   async listObjects(
@@ -153,7 +166,7 @@ export class MockS3Client {
       throw err;
     }
     return {
-      contentType: "application/octet-stream",
+      contentType: entry.contentType ?? "application/octet-stream",
       size: entry.body.length,
       lastModified: new Date(),
       etag: `"mock-etag"`,

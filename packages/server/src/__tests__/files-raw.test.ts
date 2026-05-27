@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll } from "bun:test";
+import { createHash } from "node:crypto";
 import { createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
 import { createApp } from "../app.js";
 
@@ -65,6 +66,36 @@ describe("GET /raw — head metadata headers", () => {
 });
 
 describe("PUT /raw — binary write path", () => {
+  test("preserves arbitrary non-UTF-8 bytes", async () => {
+    const bytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe,
+    ]);
+    const expectedHash = createHash("sha256").update(bytes).digest("hex");
+
+    const put = await authedFetch(
+      `/orgs/${orgId}/drives/${driveId}/files/binary.png/raw`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: bytes,
+      }
+    );
+    expect(put.status).toBe(200);
+    const putBody = await put.json();
+    expect(putBody.size).toBe(bytes.byteLength);
+    expect(putBody.contentHash).toBe(expectedHash);
+    expect(put.headers.get("X-Agent-FS-Content-Hash")).toBe(expectedHash);
+
+    const get = await authedFetch(
+      `/orgs/${orgId}/drives/${driveId}/files/binary.png/raw`
+    );
+    expect(get.status).toBe(200);
+    expect(get.headers.get("Content-Type")).toBe("image/png");
+    expect(get.headers.get("Content-Length")).toBe(String(bytes.byteLength));
+    const out = new Uint8Array(await get.arrayBuffer());
+    expect(Array.from(out)).toEqual(Array.from(bytes));
+  });
+
   test("without If-Match creates v1, with matching If-Match: 1 creates v2", async () => {
     const v1 = await authedFetch(
       `/orgs/${orgId}/drives/${driveId}/files/raw-put.txt/raw`,

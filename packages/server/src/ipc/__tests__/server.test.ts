@@ -171,6 +171,30 @@ describe("IPC server — round-trip", () => {
     expect(rresp.open_read.version).toBeGreaterThanOrEqual(1);
   });
 
+  test("OpenWrite then OpenRead preserve binary bytes", async () => {
+    const bytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe,
+    ]);
+    const wresp: any = await roundTrip(harness.socketPath, {
+      op: "open_write",
+      drive: harness.driveSlug,
+      path: "/ipc-binary.png",
+      base_version: null,
+      content_hash: "",
+      bytes,
+    });
+    expect(wresp.open_write).toBeDefined();
+
+    const rresp: any = await roundTrip(harness.socketPath, {
+      op: "open_read",
+      drive: harness.driveSlug,
+      path: "/ipc-binary.png",
+    });
+    expect(rresp.open_read).toBeDefined();
+    expect(Array.from(new Uint8Array(rresp.open_read.bytes))).toEqual(Array.from(bytes));
+    expect(rresp.open_read.size).toBe(bytes.byteLength);
+  });
+
   test("GetAttr after a write returns size + version", async () => {
     const bytes = new TextEncoder().encode("attrs");
     await roundTrip(harness.socketPath, {
@@ -234,4 +258,3 @@ describe("IPC server — encoding helpers", () => {
     expect(dec!.rest.length).toBe(0);
   });
 });
-

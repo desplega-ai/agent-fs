@@ -87,6 +87,23 @@ See the [OpenAPI spec](./openapi.json) for the full schema of each operation, or
 
 Import either into [Swagger Editor](https://editor.swagger.io) or [Scalar](https://scalar.com) for interactive exploration.
 
+### Raw file bytes
+
+Use the raw file route for binary-safe uploads and downloads:
+
+```bash
+curl -X PUT http://localhost:7433/orgs/<orgId>/drives/<driveId>/files/assets/logo.png/raw \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary @logo.png
+
+curl http://localhost:7433/orgs/<orgId>/drives/<driveId>/files/assets/logo.png/raw \
+  -H "Authorization: Bearer <api-key>" \
+  -o logo.png
+```
+
+The raw route preserves bytes exactly. Text indexing runs only for valid, indexable UTF-8 payloads.
+
 ## Operations
 
 All 26 operations are dispatched through `POST /orgs/{orgId}/ops`. Each expects `{"op": "<name>", ...params}`.

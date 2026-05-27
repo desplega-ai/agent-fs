@@ -6,6 +6,7 @@ let server: ReturnType<typeof Bun.serve>;
 let port = 0;
 let apiKey: string;
 let orgId: string;
+let driveId: string;
 
 beforeAll(async () => {
   const db = createTestDb();
@@ -28,6 +29,12 @@ beforeAll(async () => {
   const body = await res.json();
   apiKey = body.apiKey;
   orgId = body.orgId;
+
+  const me = await fetch(`http://localhost:${port}/auth/me`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  const meBody = await me.json();
+  driveId = meBody.defaultDriveId;
 
   // Set env vars so ApiClient picks them up
   process.env.AGENT_FS_API_URL = `http://localhost:${port}`;
@@ -75,6 +82,22 @@ describe("ApiClient", () => {
       path: "/cli-test.txt",
     });
     expect(catResult.content).toBe("Hello from CLI");
+  });
+
+  test("putRaw() and getRaw() preserve binary bytes", async () => {
+    const client = await makeClient();
+    const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe]);
+
+    const put = await client.putRaw(orgId, driveId, "/cli-binary.png", bytes);
+    expect(put.path).toBe("/cli-binary.png");
+    expect(put.size).toBe(bytes.byteLength);
+    expect(put.contentHash).toMatch(/^[0-9a-f]{64}$/);
+
+    const get = await client.getRaw(orgId, driveId, "/cli-binary.png");
+    expect(Array.from(get.bytes)).toEqual(Array.from(bytes));
+    expect(get.contentType).toBe("image/png");
+    expect(get.version).toBe(1);
+    expect(get.contentHash).toBe(put.contentHash);
   });
 
   test("setApiKey() changes auth", async () => {

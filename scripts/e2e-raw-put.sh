@@ -9,6 +9,7 @@
 #   DRIVE_ID
 #
 # Asserts:
+#   (0) PUT/GET preserves arbitrary non-UTF-8 bytes
 #   (a) PUT without If-Match creates v1 and returns X-Agent-FS-Version: 1
 #   (b) PUT with matching If-Match: 1 returns X-Agent-FS-Version: 2
 #   (c) PUT with stale If-Match: 1 (after v2) returns HTTP 409
@@ -45,6 +46,30 @@ assert_eq() {
     echo "ASSERTION FAILED: expected '$2', got '$1' ($3)" >&2
     exit 1
   fi
+}
+
+# (0) Binary PUT + GET — bytes must round-trip exactly.
+echo "→ PUT/GET preserves binary bytes"
+BIN_PATH="e2e-raw-binary-$(date +%s)-$$.png"
+BIN_BASE="${DAEMON_URL}/orgs/${ORG_ID}/drives/${DRIVE_ID}/files/${BIN_PATH}/raw"
+printf '\211PNG\r\n\032\n\000\377\376' > "$tmp/in.bin"
+curl -sS -X PUT \
+  -H "$AUTH" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary @"$tmp/in.bin" \
+  -D "$tmp/h0" -o "$tmp/b0" \
+  "$BIN_BASE"
+status=$(head -1 "$tmp/h0" | awk '{print $2}')
+assert_eq "$status" "200" "binary PUT status"
+curl -sS \
+  -H "$AUTH" \
+  -D "$tmp/h0get" -o "$tmp/out.bin" \
+  "$BIN_BASE"
+status=$(head -1 "$tmp/h0get" | awk '{print $2}')
+assert_eq "$status" "200" "binary GET status"
+cmp -s "$tmp/in.bin" "$tmp/out.bin" || {
+  echo "ASSERTION FAILED: binary GET bytes differ from PUT bytes" >&2
+  exit 1
 }
 
 # (a) Initial PUT — no If-Match → v1

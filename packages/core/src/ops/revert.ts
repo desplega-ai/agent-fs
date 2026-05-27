@@ -9,6 +9,7 @@ import {
 } from "./versioning.js";
 import { NotFoundError, AgentFSError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
+import { indexBytesForSearch } from "./search-index.js";
 
 export async function revert(
   ctx: OpContext,
@@ -69,6 +70,8 @@ export async function revert(
     contentType,
     contentHash,
   });
+
+  indexBytesForSearch(ctx, params.path, oldContent.body, contentType);
 
   return { version, revertedTo: params.version };
 }

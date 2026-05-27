@@ -96,6 +96,7 @@ export class ApiClient {
     opts: { ifMatch?: number; contentHash?: string; message?: string } = {}
   ): Promise<{
     version: number;
+    path: string;
     deduped: boolean;
     contentHash: string | null;
     size: number;
@@ -147,9 +148,65 @@ export class ApiClient {
     }
     return {
       version: body.version,
+      path: body.path ?? path,
       deduped: Boolean(body.deduped),
       contentHash: res.headers.get("X-Agent-FS-Content-Hash") ?? body.contentHash ?? null,
       size: body.size ?? bytes.length,
     };
   }
+
+  async getRaw(
+    orgId: string,
+    driveId: string,
+    path: string
+  ): Promise<{
+    bytes: Uint8Array;
+    contentType: string | null;
+    version: number | null;
+    contentHash: string | null;
+  }> {
+    const headers = new Headers();
+    if (this.apiKey) {
+      headers.set("Authorization", `Bearer ${this.apiKey}`);
+    }
+    const encoded = encodeURI(path.replace(/^\/+/, ""));
+    const url = `${this.baseUrl}/orgs/${orgId}/drives/${driveId}/files/${encoded}/raw`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, { method: "GET", headers });
+    } catch (err) {
+      throw new Error(
+        `Cannot connect to agent-fs daemon at ${this.baseUrl}. Is it running? Start with: agent-fs daemon start`
+      );
+    }
+
+    if (!res.ok) {
+      let body: any;
+      const text = await res.text().catch(() => "");
+      try {
+        body = JSON.parse(text);
+      } catch {
+        throw new Error(
+          `Unexpected response from daemon (${res.status}): ${text || "empty"}`
+        );
+      }
+      const msg = body.message ?? body.error ?? "Request failed";
+      const suggestion = body.suggestion ? `\n  Suggestion: ${body.suggestion}` : "";
+      throw new Error(`${msg}${suggestion}`);
+    }
+
+    return {
+      bytes: new Uint8Array(await res.arrayBuffer()),
+      contentType: res.headers.get("Content-Type"),
+      version: parseOptionalInt(res.headers.get("X-Agent-FS-Version")),
+      contentHash: res.headers.get("X-Agent-FS-Content-Hash"),
+    };
+  }
+}
+
+function parseOptionalInt(value: string | null): number | null {
+  if (value === null) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
 }

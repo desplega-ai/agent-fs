@@ -14,6 +14,7 @@ import { commentCommands } from "./commands/comment.js";
 import { memberCommands } from "./commands/member.js";
 import { docsCommand } from "./commands/docs.js";
 import { mountCommand, umountCommand } from "./commands/mount.js";
+import { downloadCommand } from "./commands/download.js";
 
 const program = new Command();
 
@@ -50,9 +51,32 @@ async function getOrgId(): Promise<string> {
   process.exit(1);
 }
 
+async function getDriveId(orgId?: string): Promise<string> {
+  const driveId = program.opts().drive;
+  if (driveId) return driveId;
+
+  const config = getConfig();
+  if (config.defaultDrive) return config.defaultDrive;
+
+  const resolvedOrgId = orgId ?? (await getOrgId());
+  const me = await client.getMe();
+  if (me.defaultOrgId === resolvedOrgId && me.defaultDriveId) {
+    return me.defaultDriveId;
+  }
+
+  const { drives } = await client.get(`/orgs/${resolvedOrgId}/drives`);
+  const drive = drives.find((d: any) => d.isDefault) ?? drives[0];
+  if (!drive) {
+    console.error("Error: No drive context. Use --drive or run 'agent-fs drive create'.");
+    process.exit(1);
+  }
+  return drive.id;
+}
+
 // Register commands — docs first so it appears at top of --help
 program.addCommand(docsCommand());
-registerOpCommands(program, client, getOrgId);
+registerOpCommands(program, client, getOrgId, getDriveId);
+program.addCommand(downloadCommand(client, getOrgId, getDriveId));
 program.addCommand(authCommands(client));
 program.addCommand(daemonCommands());
 program.addCommand(configCommands());

@@ -2,8 +2,10 @@ import { eq, and, or, isNull } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext } from "./types.js";
 import { getS3Key } from "./versioning.js";
-import { indexFile } from "../search/fts.js";
 import { indexFileEmbeddings } from "../search/pipeline.js";
+import { indexFile } from "../search/fts.js";
+import { clearSearchData } from "./search-index.js";
+import { decodeIndexableText, detectMimeType } from "./mime.js";
 
 export interface ReindexParams {
   path?: string;
@@ -54,7 +56,12 @@ export async function reindex(
       batch.map(async (file) => {
         const s3Key = getS3Key(ctx.orgId, ctx.driveId, file.path);
         const result = await ctx.s3.getObject(s3Key);
-        const content = new TextDecoder().decode(result.body);
+        const contentType = result.contentType ?? detectMimeType(file.path);
+        const content = decodeIndexableText(result.body, contentType);
+        if (content === null) {
+          clearSearchData(ctx, file.path);
+          return "skipped" as const;
+        }
 
         // Re-index FTS5
         indexFile(ctx.db, { path: file.path, driveId: ctx.driveId, content });

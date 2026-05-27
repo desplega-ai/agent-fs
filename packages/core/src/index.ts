@@ -48,7 +48,7 @@ export {
 } from "./ops/versioning.js";
 export type { HeadVersionRow } from "./ops/versioning.js";
 export type { OpContext, OpDefinition } from "./ops/index.js";
-export type { WriteParams, WriteResult } from "./ops/types.js";
+export type { WriteParams, WriteRawParams, WriteResult } from "./ops/types.js";
 export type {
   CommentAddParams,
   CommentAddResult,

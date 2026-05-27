@@ -48,3 +48,53 @@ export function detectMimeType(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return MIME_MAP[ext] ?? "application/octet-stream";
 }
+
+export function isIndexableMimeType(contentType: string): boolean {
+  const normalized = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  return (
+    normalized.startsWith("text/") ||
+    normalized === "application/json" ||
+    normalized === "application/xml" ||
+    normalized === "application/x-yaml" ||
+    normalized === "application/toml" ||
+    normalized === "image/svg+xml"
+  );
+}
+
+export function decodeUtf8Strict(bytes: Uint8Array): string | null {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
+export function decodeIndexableText(
+  bytes: Uint8Array,
+  contentType: string
+): string | null {
+  const decoded = decodeUtf8Strict(bytes);
+  if (decoded === null) return null;
+
+  if (isIndexableMimeType(contentType)) return decoded;
+
+  // Unknown extension/content-type: index it only when it is plainly text.
+  if (contentType === "application/octet-stream" && looksLikeTextBytes(bytes)) {
+    return decoded;
+  }
+
+  return null;
+}
+
+function looksLikeTextBytes(bytes: Uint8Array): boolean {
+  if (bytes.length === 0) return true;
+
+  let suspicious = 0;
+  for (const byte of bytes) {
+    if (byte === 0) return false;
+    const allowedControl = byte === 9 || byte === 10 || byte === 12 || byte === 13;
+    if (byte < 32 && !allowedControl) suspicious++;
+  }
+
+  return suspicious / bytes.length < 0.01;
+}
