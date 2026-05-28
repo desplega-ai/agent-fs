@@ -3,6 +3,7 @@ import {
   File,
   FileCode,
   FileText,
+  FileVideo,
   Image,
   Lightbulb,
   ListChecks,
@@ -69,6 +70,14 @@ export function glyphFor(fullPath: string): Glyph {
     case "svg":
     case "webp":
       return { Icon: Image, className: "text-pink-500" }
+    case "mp4":
+    case "webm":
+    case "mov":
+    case "m4v":
+    case "ogv":
+    case "mkv":
+    case "avi":
+      return { Icon: FileVideo, className: "text-sky-500" }
     case "pdf":
       return { Icon: FileText, className: "text-rose-500" }
     default:

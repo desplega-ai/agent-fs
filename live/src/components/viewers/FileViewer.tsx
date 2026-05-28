@@ -10,6 +10,7 @@ import { useComments } from "@/hooks/use-comments"
 import { TextViewer } from "./TextViewer"
 import { MarkdownViewer } from "./MarkdownViewer"
 import { ImageViewer } from "./ImageViewer"
+import { VideoViewer } from "./VideoViewer"
 import { PdfViewer } from "./PdfViewer"
 import { FallbackViewer } from "./FallbackViewer"
 import { Button } from "@/components/ui/button"
@@ -23,12 +24,31 @@ import { cn } from "@/lib/utils"
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"])
 
+// Browser-playable video containers — routed to <video>. Others (mkv, avi…)
+// fall through to the fallback viewer rather than rendering garbled bytes.
+const VIDEO_EXTS = new Set(["mp4", "webm", "ogv", "mov", "m4v"])
+
+// Known-binary extensions that must never be treated as text, even when the
+// stored content-type is the generic `application/octet-stream`.
+const BINARY_EXTS = new Set([
+  ...VIDEO_EXTS,
+  "mkv", "avi", "wmv", "flv",
+  "mp3", "wav", "flac", "aac", "m4a", "ogg", "opus",
+  "zip", "gz", "tar", "tgz", "bz2", "xz", "7z", "rar",
+  "woff", "woff2", "ttf", "otf", "eot",
+  "wasm", "bin", "exe", "dll", "so", "dylib", "o", "a",
+])
+
 function getExt(path: string): string {
   return path.split(".").pop()?.toLowerCase() ?? ""
 }
 
 function isImage(path: string): boolean {
   return IMAGE_EXTS.has(getExt(path))
+}
+
+function isVideo(path: string): boolean {
+  return VIDEO_EXTS.has(getExt(path))
 }
 
 function isMarkdown(path: string): boolean {
@@ -48,7 +68,7 @@ const TEXT_EXTS = new Set([
 
 function isTextFile(path: string, contentType?: string): boolean {
   const ext = getExt(path)
-  if (["pdf", ...IMAGE_EXTS].includes(ext)) return false
+  if (ext === "pdf" || IMAGE_EXTS.has(ext) || BINARY_EXTS.has(ext)) return false
   if (TEXT_EXTS.has(ext)) return true
   if (!contentType || contentType === "application/octet-stream") return true
   return contentType.startsWith("text/") || contentType.includes("json") || contentType.includes("xml") || contentType.includes("javascript") || contentType.includes("typescript")
@@ -68,12 +88,13 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   const { data: stat } = useFileStat(path)
   const { data: commentsData } = useComments(path)
   const isImg = isImage(path)
+  const isVid = isVideo(path)
   const isMd = isMarkdown(path)
   const commentCount = commentsData?.comments.length ?? 0
   const [showRaw, setShowRaw] = useState(false)
 
   const { data: content, isLoading } = useFileContent(
-    isImg || isPdf(path) ? null : path
+    isImg || isVid || isPdf(path) ? null : path
   )
 
   if (isImg) {
@@ -81,6 +102,15 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       <div className={cn("flex flex-col h-full min-w-0", className)}>
         {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <ImageViewer path={path} className="flex-1" />
+      </div>
+    )
+  }
+
+  if (isVid) {
+    return (
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
+        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
+        <VideoViewer path={path} className="flex-1" />
       </div>
     )
   }
