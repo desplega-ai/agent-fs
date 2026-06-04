@@ -11,6 +11,7 @@
 //   - packages/core/package.json
 //   - packages/server/package.json
 //   - packages/mcp/package.json
+//   - packages/just-bash/package.json
 //   - packages/fuse-helper-linux-x64/package.json
 //   - packages/fuse-helper-linux-arm64/package.json
 //   - optionalDependencies entries in packages/cli/package.json that match
@@ -133,6 +134,7 @@ const subpackages = [
   "packages/core/package.json",
   "packages/server/package.json",
   "packages/mcp/package.json",
+  "packages/just-bash/package.json",
   "packages/fuse-helper-linux-x64/package.json",
   "packages/fuse-helper-linux-arm64/package.json",
 ];

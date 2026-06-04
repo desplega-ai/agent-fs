@@ -110,7 +110,7 @@ jobs:
   #    `optionalDependencies` resolve cleanly for end-users.
   # ----------------------------------------------------------------------
   publish-fuse-subpackages:
-    needs: build-fuse
+    needs: [validate, build-fuse]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
@@ -196,7 +196,7 @@ jobs:
   #    Bundles it into packages/cli/dist/ for the main publish step.
   # ----------------------------------------------------------------------
   build-manifest:
-    needs: build-fuse
+    needs: [validate, build-fuse]
     runs-on: ubuntu-latest
     outputs:
       manifest_artifact: fuse-bin-manifest
@@ -256,6 +256,7 @@ jobs:
 
       - run: bun install --frozen-lockfile
       - run: bun run build
+      - run: cd packages/just-bash && bun run build
       - run: cp README.md packages/cli/README.md
 
       - name: Download fuse-bin manifest
@@ -277,9 +278,32 @@ jobs:
           jq '.files' packages/cli/package.json
 
       - run: cd packages/cli && bun pm pack
+      - run: cd packages/just-bash && bun pm pack
 
       - name: Pin npm version
         run: npm install -g npm@10.9.0
+
+      - name: Publish just-bash adapter package to npm
+        run: |
+          PACKAGE="$(jq -r .name packages/just-bash/package.json)"
+          VERSION="$(jq -r .version packages/just-bash/package.json)"
+          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+            echo "$PACKAGE@$VERSION is already published; skipping"
+            exit 0
+          fi
+          for ATTEMPT in 1 2 3; do
+            if npm publish packages/just-bash/*.tgz --access public --provenance; then
+              exit 0
+            fi
+            if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
+              echo "$PACKAGE@$VERSION was published despite publish command failure; continuing"
+              exit 0
+            fi
+            sleep $((ATTEMPT * 15))
+          done
+          exit 1
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish main package to npm
         run: |
@@ -319,6 +343,9 @@ jobs:
 
           # pnpm
           pnpm add -g @desplega.ai/agent-fs@${VERSION#v}
+
+          # just-bash adapter
+          bun add @desplega.ai/agent-fs-just-bash@${VERSION#v}
           ```
 
           ## Update

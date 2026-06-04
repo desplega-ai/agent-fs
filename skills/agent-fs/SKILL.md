@@ -13,8 +13,9 @@ description: >-
   unmount agent-fs as a Linux FUSE filesystem ("mount agent-fs", "fuse mount",
   "fuse", "remote mount", "sandbox mount", "expose drives as files",
   "use cat/grep/mv on my agent-fs files", "umount the drive", "mount a remote
-  drive", "mount from sprite", "mount from e2b", "mount from hetzner"). If the
-  user mentions agent-fs in any context, always consult this skill.
+  drive", "mount from sprite", "mount from e2b", "mount from hetzner"). Also use
+  when the user wants to use agent-fs as a just-bash filesystem. If the user
+  mentions agent-fs in any context, always consult this skill.
 ---
 
 # agent-fs CLI
@@ -36,6 +37,29 @@ agent-fs cat docs/readme.txt
 ```
 
 For custom S3 (AWS, R2, etc.), use flags: `agent-fs onboard --s3-endpoint <url> --s3-bucket <name> --s3-access-key <key> --s3-secret-key <key>`.
+
+## just-bash Adapter
+
+Use `@desplega.ai/agent-fs-just-bash` when a `just-bash` environment needs to
+read and write through agent-fs as its `fs` implementation.
+
+```ts
+import { Bash } from "just-bash";
+import { AgentFsFileSystem } from "@desplega.ai/agent-fs-just-bash";
+
+const fs = new AgentFsFileSystem({
+  baseUrl: process.env.AGENT_FS_API_URL,
+  apiKey: process.env.AGENT_FS_API_KEY,
+  orgId: "org_...",
+  driveId: "drive_...",
+});
+
+const bash = new Bash({ fs, cwd: "/" });
+```
+
+The adapter uses `/raw` for byte-safe reads/writes and `/ops` for listing and
+metadata. Empty directories are represented by a hidden `.agent-fs-dir` marker;
+symlinks are unsupported and throw `EPERM`.
 
 ## Essential Patterns
 

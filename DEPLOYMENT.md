@@ -14,7 +14,7 @@
 This creates a git tag `v{version}` and pushes it, triggering the release workflow which:
 
 - **Runs typecheck and tests** to validate the release
-- **Publishes to npm** as `@desplega.ai/agent-fs` with provenance
+- **Publishes to npm** as `@desplega.ai/agent-fs`, `@desplega.ai/agent-fs-just-bash`, and the FUSE helper sub-packages with provenance
 - **Creates a GitHub Release** with install instructions
 
 ## npm Package
@@ -23,6 +23,12 @@ This creates a git tag `v{version}` and pushes it, triggering the release workfl
 - **Scope:** public
 - **Runtime:** Bun-only (`engines.bun >= 1.2.0`)
 - **Contents:** Bundled CLI (`dist/cli.js`) with external npm dependencies
+
+### just-bash Adapter Package
+
+- **Name:** `@desplega.ai/agent-fs-just-bash`
+- **Scope:** public
+- **Contents:** ESM TypeScript build exposing `AgentFsFileSystem`, a structurally compatible implementation of the `just-bash` async filesystem interface
 
 ### Install
 
@@ -41,6 +47,7 @@ agent-fs --help
 
 ```bash
 bun run build
+cd packages/just-bash && bun run build && bun publish --access public
 cd packages/cli && bun publish --access public
 ```
 

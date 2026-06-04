@@ -1,0 +1,41 @@
+{
+  "name": "@desplega.ai/agent-fs-just-bash",
+  "version": "0.7.3",
+  "type": "module",
+  "description": "just-bash-compatible filesystem adapter for agent-fs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/desplega-ai/agent-fs.git",
+    "directory": "packages/just-bash"
+  },
+  "keywords": [
+    "agent-fs",
+    "just-bash",
+    "filesystem",
+    "bash",
+    "remote-filesystem"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "rm -rf dist tsconfig.tsbuildinfo && tsc -p tsconfig.json",
+    "prepublishOnly": "bun run build"
+  },
+  "peerDependencies": {
+    "just-bash": ">=3.0.1"
+  },
+  "peerDependenciesMeta": {
+    "just-bash": {
+      "optional": true
+    }
+  }
+}

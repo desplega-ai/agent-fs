@@ -13,7 +13,7 @@
     },
     "packages/cli": {
       "name": "@desplega.ai/agent-fs",
-      "version": "0.6.1",
+      "version": "0.7.3",
       "bin": {
         "agent-fs": "dist/cli.js",
       },
@@ -44,7 +44,7 @@
     },
     "packages/core": {
       "name": "@desplega.ai/agent-fs-core",
-      "version": "0.6.1",
+      "version": "0.7.3",
       "dependencies": {
         "@aws-sdk/client-s3": "^3.750.0",
         "@aws-sdk/s3-request-presigner": "^3.750.0",
@@ -65,15 +65,25 @@
     },
     "packages/fuse-helper-linux-arm64": {
       "name": "@desplega.ai/agent-fs-fuse-linux-arm64",
-      "version": "0.6.1",
+      "version": "0.7.3",
     },
     "packages/fuse-helper-linux-x64": {
       "name": "@desplega.ai/agent-fs-fuse-linux-x64",
-      "version": "0.6.1",
+      "version": "0.7.3",
+    },
+    "packages/just-bash": {
+      "name": "@desplega.ai/agent-fs-just-bash",
+      "version": "0.7.3",
+      "peerDependencies": {
+        "just-bash": ">=3.0.1",
+      },
+      "optionalPeers": [
+        "just-bash",
+      ],
     },
     "packages/mcp": {
       "name": "@desplega.ai/agent-fs-mcp",
-      "version": "0.6.1",
+      "version": "0.7.3",
       "dependencies": {
         "@desplega.ai/agent-fs-core": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.27.1",
@@ -82,7 +92,7 @@
     },
     "packages/server": {
       "name": "@desplega.ai/agent-fs-server",
-      "version": "0.6.1",
+      "version": "0.7.3",
       "dependencies": {
         "@desplega.ai/agent-fs-core": "workspace:*",
         "@desplega.ai/agent-fs-mcp": "workspace:*",
@@ -194,6 +204,8 @@
     "@desplega.ai/agent-fs-fuse-linux-arm64": ["@desplega.ai/agent-fs-fuse-linux-arm64@workspace:packages/fuse-helper-linux-arm64"],
 
     "@desplega.ai/agent-fs-fuse-linux-x64": ["@desplega.ai/agent-fs-fuse-linux-x64@workspace:packages/fuse-helper-linux-x64"],
+
+    "@desplega.ai/agent-fs-just-bash": ["@desplega.ai/agent-fs-just-bash@workspace:packages/just-bash"],
 
     "@desplega.ai/agent-fs-mcp": ["@desplega.ai/agent-fs-mcp@workspace:packages/mcp"],
 

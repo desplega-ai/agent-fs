@@ -1,0 +1,19 @@
+{
+  "name": "agent-fs-example-just-bash",
+  "private": true,
+  "type": "module",
+  "description": "Example showing agent-fs as a just-bash filesystem",
+  "scripts": {
+    "build:adapter": "cd ../../packages/just-bash && bun run build",
+    "start": "bun run build:adapter && bun run src/index.ts",
+    "typecheck": "bun run build:adapter && tsc --noEmit"
+  },
+  "dependencies": {
+    "@desplega.ai/agent-fs-just-bash": "file:../../packages/just-bash",
+    "just-bash": "^3.0.1"
+  },
+  "devDependencies": {
+    "bun-types": "^1.2.0",
+    "typescript": "^5.7.0"
+  }
+}
