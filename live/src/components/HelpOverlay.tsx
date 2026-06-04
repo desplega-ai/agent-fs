@@ -62,7 +62,7 @@ export function HelpOverlay({ open, onOpenChange }: HelpOverlayProps) {
 function groupShortcuts(
   shortcuts: ShortcutDescriptor[],
 ): Array<[string, ShortcutDescriptor[]]> {
-  const order = ["Navigation", "Selection", "Sidebars", "Search", "Help"]
+  const order = ["Navigation", "Selection", "Sidebars", "Search", "File", "Comments", "Help"]
   const grouped = new Map<string, ShortcutDescriptor[]>()
   for (const s of shortcuts) {
     const list = grouped.get(s.group) ?? []

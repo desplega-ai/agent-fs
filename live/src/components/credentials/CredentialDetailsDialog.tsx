@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { saveCredential, type Credential } from "@/stores/credentials"
+import { toast } from "@/stores/toast"
 import { maskApiKey } from "@/lib/mask-key"
 import type { MeResponse } from "@/api/types"
 
@@ -102,6 +103,7 @@ function DetailsBody({
       setCopyState("copied")
       setCopyHint(null)
       setTimeout(() => setCopyState("idle"), 1500)
+      toast.success("API key copied")
     } catch {
       setCopyState("error")
       setCopyHint("Copy unavailable on insecure origin")
@@ -142,6 +144,7 @@ function DetailsBody({
                 size="icon-xs"
                 onClick={() => setShowKey((v) => !v)}
                 aria-label={showKey ? "Hide API key" : "Show API key"}
+                title={showKey ? "Hide API key" : "Show API key"}
                 className="text-muted-foreground"
               >
                 {showKey ? <EyeOff /> : <Eye />}
@@ -152,6 +155,7 @@ function DetailsBody({
                 size="icon-xs"
                 onClick={handleCopy}
                 aria-label="Copy API key"
+                title="Copy API key"
                 className="text-muted-foreground"
               >
                 {copyState === "copied" ? <Check /> : <Copy />}
@@ -301,6 +305,7 @@ function ReplaceKeyForm({
   const persist = (apiKey: string) => {
     saveCredential({ ...credential, apiKey })
     onReplaced()
+    toast.success("API key updated")
   }
 
   const handleSave = async (e: React.FormEvent) => {

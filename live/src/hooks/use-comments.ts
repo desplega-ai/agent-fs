@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth"
+import { toast } from "@/stores/toast"
 import type {
   CommentListResult,
   CommentAddResult,
@@ -61,6 +62,7 @@ export function useAddComment() {
     }) => client.callOp<CommentAddResult>(orgId!, "comment-add", params, driveId),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["comments", orgId, driveId, vars.path] })
+      toast.success(vars.parentId ? "Reply added" : "Comment added")
     },
   })
 }
@@ -77,6 +79,7 @@ export function useUpdateComment() {
       }, driveId),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["comments", orgId, driveId, vars.path] })
+      toast.success("Comment updated")
     },
   })
 }
@@ -93,6 +96,7 @@ export function useResolveComment() {
       }, driveId),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["comments", orgId, driveId, vars.path] })
+      toast.success(vars.resolved ? "Comment resolved" : "Comment reopened")
     },
   })
 }
@@ -106,6 +110,7 @@ export function useDeleteComment() {
       client.callOp<CommentDeleteResult>(orgId!, "comment-delete", { id: params.id }, driveId),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["comments", orgId, driveId, vars.path] })
+      toast.success("Comment deleted")
     },
   })
 }

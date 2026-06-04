@@ -1,6 +1,12 @@
 import { useCallback, useRef, useState, type HTMLAttributes } from "react"
 import { Copy, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { toast } from "@/stores/toast"
 
 export function CodeBlock(props: HTMLAttributes<HTMLPreElement>) {
   const ref = useRef<HTMLPreElement>(null)
@@ -13,10 +19,10 @@ export function CodeBlock(props: HTMLAttributes<HTMLPreElement>) {
       () => {
         setCopied(true)
         window.setTimeout(() => setCopied(false), 1500)
+        toast.success("Code copied")
       },
       () => {
-        // Clipboard write blocked (insecure context, denied perms) — silently
-        // ignore; the user can still select and copy manually.
+        toast.error("Couldn't copy code")
       },
     )
   }, [])
@@ -24,16 +30,23 @@ export function CodeBlock(props: HTMLAttributes<HTMLPreElement>) {
   return (
     <div className="group relative">
       <pre ref={ref} {...props} />
-      <Button
-        type="button"
-        variant="secondary"
-        size="icon-xs"
-        onClick={handleCopy}
-        aria-label={copied ? "Copied" : "Copy code"}
-        className="absolute right-2 top-2 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-      >
-        {copied ? <Check /> : <Copy />}
-      </Button>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon-xs"
+              onClick={handleCopy}
+              aria-label={copied ? "Copied" : "Copy code"}
+              className="absolute right-2 top-2 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+            >
+              {copied ? <Check /> : <Copy />}
+            </Button>
+          }
+        />
+        <TooltipContent>Copy code</TooltipContent>
+      </Tooltip>
     </div>
   )
 }

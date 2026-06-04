@@ -13,6 +13,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
+import { toast } from "@/stores/toast"
 
 export function OrgSwitcher() {
   const { orgs, orgId, orgName, setOrgId } = useAuth()
@@ -43,7 +45,7 @@ export function OrgSwitcher() {
           render={
             <DropdownMenuTrigger
               render={
-                <Button variant="ghost" size="xs" className="gap-1 text-foreground">
+                <Button data-org-switcher variant="ghost" size="xs" className="gap-1 text-foreground">
                   <Building2 className="size-3 shrink-0" />
                   <span className="hidden sm:inline font-medium">{displayName}</span>
                   <span className="hidden sm:inline text-[11px] text-muted-foreground">({orgs.length})</span>
@@ -54,6 +56,7 @@ export function OrgSwitcher() {
         />
         <TooltipContent side="bottom">
           {displayName} <span className="text-muted-foreground">({orgs.length} orgs)</span>
+          <Kbd className="ml-1">⇧G</Kbd>
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start">
@@ -61,8 +64,10 @@ export function OrgSwitcher() {
           <DropdownMenuItem
             key={org.id}
             onClick={() => {
+              if (org.id === orgId) return
               setOrgId(org.id)
               selectFile(null)
+              toast(`Switched to ${org.name}`)
             }}
           >
             <Building2 className="size-3 text-muted-foreground" />

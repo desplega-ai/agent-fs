@@ -1,4 +1,5 @@
 import type { AgentFsClient } from "@/api/client"
+import { toast } from "@/stores/toast"
 
 /**
  * Trigger a browser download for the given file path.
@@ -26,23 +27,29 @@ export async function downloadFile(
   const inferredName = filename ?? path.split("/").filter(Boolean).pop() ?? "download"
   const newWindow = options?.newWindow ?? false
 
-  // Try signed URL first — preferred path; lets the browser stream binaries.
   try {
-    const { url } = await client.getSignedUrl(orgId, driveId, path)
-    triggerAnchorDownload(url, inferredName, newWindow)
-    return
-  } catch {
-    // fall through to raw fetch
-  }
+    // Try signed URL first — preferred path; lets the browser stream binaries.
+    try {
+      const { url } = await client.getSignedUrl(orgId, driveId, path)
+      triggerAnchorDownload(url, inferredName, newWindow)
+      return
+    } catch {
+      // fall through to raw fetch
+    }
 
-  // Fallback: fetch raw bytes as a Blob and trigger via object URL.
-  const blob = await client.fetchRaw(orgId, driveId, path)
-  const url = URL.createObjectURL(blob)
-  try {
-    triggerAnchorDownload(url, inferredName, newWindow)
-  } finally {
-    // Defer revoke slightly to give the browser a chance to start the download.
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    // Fallback: fetch raw bytes as a Blob and trigger via object URL.
+    const blob = await client.fetchRaw(orgId, driveId, path)
+    const url = URL.createObjectURL(blob)
+    try {
+      triggerAnchorDownload(url, inferredName, newWindow)
+    } finally {
+      // Defer revoke slightly to give the browser a chance to start the download.
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    }
+  } catch {
+    // Both the signed-URL and raw-fetch paths failed — surface it rather than
+    // letting the `void downloadFile(...)` call sites swallow the rejection.
+    toast.error("Download failed", { description: inferredName })
   }
 }
 
@@ -97,4 +104,6 @@ function triggerAnchorDownload(href: string, filename: string, newWindow: boolea
   document.body.appendChild(a)
   a.click()
   a.remove()
+  // Single chokepoint for every download path → one "Download started" toast.
+  toast("Download started", { description: filename })
 }

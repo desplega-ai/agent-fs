@@ -20,6 +20,7 @@ class UIChromeStore {
   private leftSetOpen: SetOpen | null = null
   private rightToggle: Toggle | null = null
   private rightSetOpen: SetOpen | null = null
+  private commentsOpener: Toggle | null = null
   private helpOpen = false
   private listeners = new Set<Listener>()
 
@@ -63,6 +64,16 @@ class UIChromeStore {
     this.rightSetOpen?.(open)
   }
 
+  registerCommentsOpener(fn: Toggle | null) {
+    this.commentsOpener = fn
+    this.emit()
+  }
+
+  /** Open whichever comments surface is active (desktop rail or mobile sheet). */
+  openComments() {
+    this.commentsOpener?.()
+  }
+
   isHelpOpen() {
     return this.helpOpen
   }
@@ -88,10 +99,12 @@ export const uiChromeStore = {
   registerLeftSetOpen: (fn: SetOpen | null) => store.registerLeftSetOpen(fn),
   registerRightToggle: (fn: Toggle | null) => store.registerRightToggle(fn),
   registerRightSetOpen: (fn: SetOpen | null) => store.registerRightSetOpen(fn),
+  registerCommentsOpener: (fn: Toggle | null) => store.registerCommentsOpener(fn),
   toggleLeft: () => store.toggleLeft(),
   setLeft: (open: boolean) => store.setLeft(open),
   toggleRight: () => store.toggleRight(),
   setRight: (open: boolean) => store.setRight(open),
+  openComments: () => store.openComments(),
   setHelpOpen: (open: boolean) => store.setHelpOpen(open),
   isHelpOpen: () => store.isHelpOpen(),
 }

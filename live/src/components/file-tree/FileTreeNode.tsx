@@ -19,6 +19,7 @@ import {
   useSetFocusedPath,
 } from "@/stores/tree-expansion"
 import { useFileSearch, isPathVisible, hasMatchingDescendant } from "@/stores/file-search"
+import { toast } from "@/stores/toast"
 import { MiddleEllipsis } from "@/lib/middle-ellipsis"
 import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"
 import { glyphFor } from "@/lib/file-glyphs"
@@ -107,8 +108,9 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
     if (!deepLink) return
     try {
       await navigator.clipboard.writeText(deepLink)
+      toast.success("Link copied")
     } catch {
-      // ignore — older browsers may block this; nothing useful to surface here.
+      toast.error("Couldn't copy link")
     }
   }
 

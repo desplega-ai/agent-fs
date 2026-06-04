@@ -1,7 +1,9 @@
 import { useState } from "react"
 import { ChevronDown, ChevronRight, GitCommit, Loader2 } from "lucide-react"
 import { useVersionHistory } from "@/hooks/use-version-history"
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { UserName } from "@/components/UserName"
+import { Kbd } from "@/components/ui/kbd"
 import { useDiff } from "@/hooks/use-diff"
 import { DiffViewer } from "./viewers/DiffViewer"
 import { cn } from "@/lib/utils"
@@ -15,6 +17,9 @@ export function VersionHistory({ path }: VersionHistoryProps) {
   const [selectedDiff, setSelectedDiff] = useState<{ v1: number; v2: number } | null>(null)
 
   const { data, isLoading } = useVersionHistory(expanded ? path : null)
+
+  // `h` toggles version history (only mounted on the file detail page).
+  useKeyboardShortcuts({ h: (e) => { e.preventDefault(); setExpanded((v) => !v) } })
   const { data: diffData, isLoading: diffLoading, error: diffError } = useDiff(
     selectedDiff ? path : null,
     selectedDiff?.v1 ?? 0,
@@ -30,6 +35,7 @@ export function VersionHistory({ path }: VersionHistoryProps) {
         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         Version History
         {data && <span className="text-xs text-muted-foreground">({data.versions.length})</span>}
+        <Kbd className="ml-auto">H</Kbd>
       </button>
 
       {expanded && (

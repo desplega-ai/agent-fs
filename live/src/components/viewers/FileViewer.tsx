@@ -1,9 +1,14 @@
-import { useState, type MutableRefObject } from "react"
+import { useState, useEffect, type MutableRefObject } from "react"
 import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download } from "lucide-react"
 import { useNavigate } from "react-router"
 import { useAuth } from "@/contexts/auth"
-import { downloadFile } from "@/lib/download"
+import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
+import { useFileActions } from "@/hooks/use-file-actions"
+import { uiChromeStore } from "@/stores/ui-chrome"
+import { sidePanelStore } from "@/stores/side-panel"
+import { Kbd } from "@/components/ui/kbd"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
+import type { OutlineItem } from "@/lib/outline"
 import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { useComments } from "@/hooks/use-comments"
@@ -80,9 +85,11 @@ interface FileViewerProps {
   showExpandButton?: boolean
   showHeader?: boolean
   onScrollToCommentRef?: MutableRefObject<ScrollToCommentCallback | null>
+  /** Reports the document outline (headings) of a rendered markdown preview. */
+  onOutlineChange?: (items: OutlineItem[]) => void
 }
 
-export function FileViewer({ path, className, showExpandButton = true, showHeader = true, onScrollToCommentRef }: FileViewerProps) {
+export function FileViewer({ path, className, showExpandButton = true, showHeader = true, onScrollToCommentRef, onOutlineChange }: FileViewerProps) {
   const navigate = useNavigate()
   const { orgId, driveId } = useAuth()
   const { data: stat } = useFileStat(path)
@@ -97,10 +104,56 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     isImg || isVid || isPdf(path) ? null : path
   )
 
+  // Outline only exists for a rendered markdown preview. When the viewer shows
+  // anything else (source view, image, etc.) clear it so the rail's Outline
+  // tab disappears. `MarkdownViewer` reports the real outline when mounted.
+  const showingMarkdownPreview = isMd && !showRaw
+  useEffect(() => {
+    if (!showingMarkdownPreview) onOutlineChange?.([])
+  }, [showingMarkdownPreview, path, onOutlineChange])
+
+  // File-scoped shortcuts: only live while a file is open, so they're naturally
+  // context-scoped (can't collide with list/folder views). Same actions as the
+  // header buttons. The `e` source/preview toggle only exists for markdown
+  // (JSON's Format/Raw toggle is handled in TextViewer).
+  const fileActions = useFileActions(path)
+  const fileShortcuts: ShortcutMap = {
+    n: (e) => {
+      e.preventDefault()
+      uiChromeStore.openComments()
+      sidePanelStore.requestAddComment()
+    },
+    y: (e) => {
+      e.preventDefault()
+      void fileActions.copyPath()
+    },
+    "shift+y": (e) => {
+      e.preventDefault()
+      void fileActions.copyLink()
+    },
+    d: (e) => {
+      e.preventDefault()
+      fileActions.download()
+    },
+  }
+  if (isMd) {
+    fileShortcuts.e = (e) => {
+      e.preventDefault()
+      setShowRaw((v) => !v)
+    }
+  }
+  if (showExpandButton) {
+    fileShortcuts.f = (e) => {
+      e.preventDefault()
+      navigate(`/detail/~/${orgId}/${driveId}/${path}`)
+    }
+  }
+  useKeyboardShortcuts(fileShortcuts)
+
   if (isImg) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <ImageViewer path={path} className="flex-1" />
       </div>
     )
@@ -109,7 +162,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isVid) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <VideoViewer path={path} className="flex-1" />
       </div>
     )
@@ -118,7 +171,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isPdf(path)) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <PdfViewer path={path} className="flex-1" />
       </div>
     )
@@ -141,7 +194,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (!textable) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
         <FallbackViewer path={path} className="flex-1" />
       </div>
     )
@@ -155,6 +208,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       {showHeader && (
         <ViewerHeader
           path={path}
+          actions={fileActions}
           showExpand={showExpandButton}
           onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)}
           commentCount={commentCount}
@@ -179,14 +233,16 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           comments={commentsData?.comments}
           className="flex-1 min-h-0"
           onScrollToCommentRef={onScrollToCommentRef}
+          onOutlineChange={onOutlineChange}
         />
       )}
     </div>
   )
 }
 
-function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, showRaw, onToggleRaw }: {
+function ViewerHeader({ path, actions, showExpand, onExpand, commentCount = 0, isMd, showRaw, onToggleRaw }: {
   path: string
+  actions: ReturnType<typeof useFileActions>
   showExpand: boolean
   onExpand: () => void
   commentCount?: number
@@ -194,30 +250,8 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
   showRaw?: boolean
   onToggleRaw?: () => void
 }) {
-  const { client, orgId, driveId } = useAuth()
-  const [copiedPath, setCopiedPath] = useState(false)
-  const [copiedUrl, setCopiedUrl] = useState(false)
+  const { copyPath, copyLink, download, copiedPath, copiedLink, canShare } = actions
   const filename = path.split("/").pop() ?? path
-
-  const handleCopyPath = async () => {
-    await navigator.clipboard.writeText(path)
-    setCopiedPath(true)
-    setTimeout(() => setCopiedPath(false), 1500)
-  }
-
-  const handleCopyUrl = async () => {
-    const cleanPath = path.startsWith("/") ? path.slice(1) : path
-    const url = `${window.location.origin}/file/~/${orgId}/${driveId}/${cleanPath}`
-    await navigator.clipboard.writeText(url)
-    setCopiedUrl(true)
-    setTimeout(() => setCopiedUrl(false), 1500)
-  }
-
-  const canDownload = !!orgId && !!driveId
-  const handleDownload = () => {
-    if (!canDownload) return
-    void downloadFile(client, orgId!, driveId!, path, filename, { newWindow: true })
-  }
 
   return (
     <div className="flex h-10 items-center justify-between border-b border-border px-4 shrink-0">
@@ -237,7 +271,7 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
               <Button
                 variant="ghost"
                 size="icon-xs"
-                onClick={handleCopyPath}
+                onClick={copyPath}
                 className="text-muted-foreground"
                 aria-label="Copy path"
               >
@@ -245,24 +279,24 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
               </Button>
             }
           />
-          <TooltipContent>Copy path</TooltipContent>
+          <TooltipContent>Copy path <Kbd className="ml-1">Y</Kbd></TooltipContent>
         </Tooltip>
-        {orgId && driveId && (
+        {canShare && (
           <Tooltip>
             <TooltipTrigger
               render={
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  onClick={handleCopyUrl}
+                  onClick={copyLink}
                   className="text-muted-foreground"
                   aria-label="Copy link"
                 >
-                  {copiedUrl ? <Check /> : <Link />}
+                  {copiedLink ? <Check /> : <Link />}
                 </Button>
               }
             />
-            <TooltipContent>Copy link</TooltipContent>
+            <TooltipContent>Copy link <Kbd className="ml-1">⇧Y</Kbd></TooltipContent>
           </Tooltip>
         )}
         <Tooltip>
@@ -271,8 +305,8 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
               <Button
                 variant="ghost"
                 size="icon-xs"
-                onClick={handleDownload}
-                disabled={!canDownload}
+                onClick={download}
+                disabled={!canShare}
                 className="text-muted-foreground"
                 aria-label="Download"
               >
@@ -280,7 +314,7 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
               </Button>
             }
           />
-          <TooltipContent>Download</TooltipContent>
+          <TooltipContent>Download <Kbd className="ml-1">D</Kbd></TooltipContent>
         </Tooltip>
         {isMd && onToggleRaw && (
           <Tooltip>
@@ -297,7 +331,7 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
                 </Button>
               }
             />
-            <TooltipContent>{showRaw ? "Preview" : "Source"}</TooltipContent>
+            <TooltipContent>{showRaw ? "Preview" : "Source"} <Kbd className="ml-1">E</Kbd></TooltipContent>
           </Tooltip>
         )}
         {showExpand && (
@@ -315,7 +349,7 @@ function ViewerHeader({ path, showExpand, onExpand, commentCount = 0, isMd, show
                 </Button>
               }
             />
-            <TooltipContent>Open full page</TooltipContent>
+            <TooltipContent>Open full page <Kbd className="ml-1">F</Kbd></TooltipContent>
           </Tooltip>
         )}
       </div>

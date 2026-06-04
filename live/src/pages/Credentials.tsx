@@ -17,10 +17,13 @@ import {
   type Credential,
 } from "@/stores/credentials"
 import { CredentialDetailsDialog } from "@/components/credentials/CredentialDetailsDialog"
+import { toast } from "@/stores/toast"
+import { useDocumentTitle } from "@/hooks/use-document-title"
 
 type Mode = "connect" | "register"
 
 export function CredentialsPage() {
+  useDocumentTitle("Credentials")
   const navigate = useNavigate()
   const initialParams = useMemo(() => new URLSearchParams(window.location.search), [])
   const [mode, setMode] = useState<Mode>(() => {
@@ -122,6 +125,7 @@ export function CredentialsPage() {
   const handleRemove = (id: string) => {
     removeCredential(id)
     setCredentials(getCredentials())
+    toast.success("Credential removed")
   }
 
   const switchMode = (next: Mode) => {

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, useId, useCallback } from "react"
 import { Maximize2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { downloadBlob } from "@/lib/download"
 import { AssetLightbox } from "./AssetLightbox"
@@ -129,26 +134,40 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
           className="flex justify-center overflow-auto rounded-md border border-border bg-card p-4"
         />
         <div className="pointer-events-none absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-          <Button
-            variant="secondary"
-            size="icon-xs"
-            onClick={() => setOpen(true)}
-            aria-label="Expand diagram"
-            className="shadow-sm"
-            disabled={!svg}
-          >
-            <Maximize2 />
-          </Button>
-          <Button
-            variant="secondary"
-            size="icon-xs"
-            onClick={handleDownload}
-            aria-label="Download SVG"
-            className="shadow-sm"
-            disabled={!svg}
-          >
-            <Download />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="secondary"
+                  size="icon-xs"
+                  onClick={() => setOpen(true)}
+                  aria-label="Expand diagram"
+                  className="shadow-sm"
+                  disabled={!svg}
+                >
+                  <Maximize2 />
+                </Button>
+              }
+            />
+            <TooltipContent>Expand</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="secondary"
+                  size="icon-xs"
+                  onClick={handleDownload}
+                  aria-label="Download SVG"
+                  className="shadow-sm"
+                  disabled={!svg}
+                >
+                  <Download />
+                </Button>
+              }
+            />
+            <TooltipContent>Download SVG</TooltipContent>
+          </Tooltip>
         </div>
       </div>
       <AssetLightbox

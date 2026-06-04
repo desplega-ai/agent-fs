@@ -30,14 +30,28 @@ export interface ShortcutDescriptor {
 export const shortcutsRegistry: ShortcutDescriptor[] = [
   { key: "cmd+k", label: "Focus search", group: "Search", display: "⌘K" },
   { key: "/", label: "Focus search", group: "Search", display: "/" },
-  { key: "esc", label: "Close / deselect", group: "Selection", display: "Esc" },
+  { key: "esc", label: "Close comment box / dialog", group: "Selection", display: "Esc" },
   { key: "enter", label: "Open focused row", group: "Navigation", display: "↵" },
   { key: "arrowup", label: "Move focus up", group: "Navigation", display: "↑" },
   { key: "arrowdown", label: "Move focus down", group: "Navigation", display: "↓" },
   { key: "arrowleft", label: "Collapse / parent", group: "Navigation", display: "←" },
   { key: "arrowright", label: "Expand / first child", group: "Navigation", display: "→" },
+  { key: "g", label: "Focus file tree", group: "Navigation", display: "G" },
+  { key: "t", label: "Toggle theme", group: "Navigation", display: "T" },
+  { key: "shift+d", label: "Switch drive", group: "Navigation", display: "⇧D" },
+  { key: "shift+g", label: "Switch organization", group: "Navigation", display: "⇧G" },
   { key: "[", label: "Toggle file tree sidebar", group: "Sidebars", display: "[" },
   { key: "]", label: "Toggle comments sidebar", group: "Sidebars", display: "]" },
+  { key: "c", label: "Comments tab", group: "Sidebars", display: "C" },
+  { key: "o", label: "Outline tab", group: "Sidebars", display: "O" },
+  { key: "n", label: "New comment", group: "Comments", display: "N" },
+  { key: "f", label: "Open full page", group: "File", display: "F" },
+  { key: "y", label: "Copy path", group: "File", display: "Y" },
+  { key: "shift+y", label: "Copy link", group: "File", display: "⇧Y" },
+  { key: "d", label: "Download file", group: "File", display: "D" },
+  { key: "e", label: "Toggle source / preview", group: "File", display: "E" },
+  { key: "w", label: "Toggle reading width", group: "File", display: "W" },
+  { key: "h", label: "Version history", group: "File", display: "H" },
   { key: "?", label: "Show keyboard shortcuts", group: "Help", display: "?" },
 ]
 
@@ -47,6 +61,9 @@ function isEditableTarget(target: EventTarget | null): boolean {
   const tag = target.tagName
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true
   if (target.isContentEditable) return true
+  // Focus inside a Monaco editor (its focus sink is a hidden textarea, but
+  // guard the whole container so internal DOM changes can't leak shortcuts).
+  if (target.closest(".monaco-editor")) return true
   return false
 }
 
@@ -135,7 +152,26 @@ export function useKeyboardShortcuts(map: ShortcutMap | (() => ShortcutMap)) {
       for (const key of candidateKeys(e)) {
         const handlerForKey = resolved[key]
         if (handlerForKey) {
+          const before = document.activeElement
           handlerForKey(e)
+          // Stop any other mounted shortcut listener from also firing this key
+          // (the hook can be mounted several times — Shell + per-viewer).
+          e.stopImmediatePropagation()
+          // Focus reset: if the handler did NOT move focus, drop the element
+          // that merely triggered the action (a button, tree row, switcher)
+          // back to <body> so it can't linger and swallow / re-trigger the next
+          // key. Handlers that intentionally move focus — search (cmd+k), "focus
+          // tree" (g), or opening a menu — set a new target (synchronously now
+          // or async shortly) and are left alone, so we never strand focus.
+          const after = document.activeElement
+          if (
+            after === before &&
+            before instanceof HTMLElement &&
+            before !== document.body &&
+            !isEditableTarget(before)
+          ) {
+            before.blur()
+          }
           return
         }
       }

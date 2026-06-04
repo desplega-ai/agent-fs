@@ -49,6 +49,7 @@ export function AssetLightbox({ open, onOpenChange, filename, onDownload, childr
               </Button>
               <DialogPrimitive.Close
                 aria-label="Close"
+                title="Close (Esc)"
                 className="rounded-sm p-2 text-white/80 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:outline-none"
               >
                 <X className="size-4" />

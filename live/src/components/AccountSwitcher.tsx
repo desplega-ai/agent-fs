@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
+import { toast } from "@/stores/toast"
 
 export function AccountSwitcher() {
   const { credential, switchAccount, user } = useAuth()
@@ -36,7 +37,11 @@ export function AccountSwitcher() {
         {allCredentials.map((cred) => (
           <DropdownMenuItem
             key={cred.id}
-            onClick={() => switchAccount(cred.id)}
+            onClick={() => {
+              if (cred.id === credential.id) return
+              switchAccount(cred.id)
+              toast(`Switched to ${cred.name}`)
+            }}
           >
             <div className="flex-1 min-w-0">
               <p className="truncate text-sm">{cred.name}</p>

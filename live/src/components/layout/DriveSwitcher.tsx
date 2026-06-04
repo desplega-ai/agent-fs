@@ -13,6 +13,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
+import { toast } from "@/stores/toast"
 
 export function DriveSwitcher() {
   const { drives, driveId, driveName, setDriveId } = useAuth()
@@ -43,7 +45,7 @@ export function DriveSwitcher() {
           render={
             <DropdownMenuTrigger
               render={
-                <Button variant="ghost" size="xs" className="gap-1 text-foreground">
+                <Button data-drive-switcher variant="ghost" size="xs" className="gap-1 text-foreground">
                   <HardDrive className="size-3 shrink-0" />
                   <span className="hidden sm:inline font-medium">{displayName}</span>
                   <span className="hidden sm:inline text-[11px] text-muted-foreground">({drives.length})</span>
@@ -54,6 +56,7 @@ export function DriveSwitcher() {
         />
         <TooltipContent side="bottom">
           {displayName} <span className="text-muted-foreground">({drives.length} drives)</span>
+          <Kbd className="ml-1">⇧D</Kbd>
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start">
@@ -61,8 +64,10 @@ export function DriveSwitcher() {
           <DropdownMenuItem
             key={drive.id}
             onClick={() => {
+              if (drive.id === driveId) return
               setDriveId(drive.id)
               selectFile(null)
+              toast(`Switched to ${drive.name}`)
             }}
           >
             <HardDrive className="size-3 text-muted-foreground" />

@@ -1,6 +1,11 @@
 import { useCallback, useState } from "react"
 import { Maximize2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { downloadUrl } from "@/lib/download"
 import { AssetLightbox } from "./AssetLightbox"
 
@@ -40,30 +45,44 @@ export function ExpandableImage({ src, alt, title }: ExpandableImageProps) {
           onClick={() => setOpen(true)}
         />
         <span className="pointer-events-none absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-          <Button
-            variant="secondary"
-            size="icon-xs"
-            onClick={(e) => {
-              e.stopPropagation()
-              setOpen(true)
-            }}
-            aria-label="Expand image"
-            className="shadow-sm"
-          >
-            <Maximize2 />
-          </Button>
-          <Button
-            variant="secondary"
-            size="icon-xs"
-            onClick={(e) => {
-              e.stopPropagation()
-              handleDownload()
-            }}
-            aria-label="Download image"
-            className="shadow-sm"
-          >
-            <Download />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="secondary"
+                  size="icon-xs"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setOpen(true)
+                  }}
+                  aria-label="Expand image"
+                  className="shadow-sm"
+                >
+                  <Maximize2 />
+                </Button>
+              }
+            />
+            <TooltipContent>Expand</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="secondary"
+                  size="icon-xs"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDownload()
+                  }}
+                  aria-label="Download image"
+                  className="shadow-sm"
+                >
+                  <Download />
+                </Button>
+              }
+            />
+            <TooltipContent>Download</TooltipContent>
+          </Tooltip>
         </span>
       </span>
       <AssetLightbox

@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Toaster } from "@/components/ui/toaster"
 import { ThemeProvider } from "@/contexts/theme"
 import { AuthProvider, useAuth } from "@/contexts/auth"
 import { BrowserProvider, useBrowser } from "@/contexts/browser"
@@ -174,6 +175,7 @@ export default function App() {
                 </Route>
               </Routes>
             </BrowserRouter>
+            <Toaster />
           </ThemeProvider>
         </TooltipProvider>
       </QueryClientProvider>

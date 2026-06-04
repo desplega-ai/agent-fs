@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react"
+import { toast } from "@/stores/toast"
 
 export type Theme = "light" | "dark" | "system"
+
+const THEME_LABEL: Record<Theme, string> = { light: "Light", dark: "Dark", system: "System" }
 
 const STORAGE_KEY = "agent-fs-theme"
 
@@ -40,6 +43,7 @@ export function useTheme() {
     const order: Theme[] = ["light", "dark", "system"]
     const next = order[(order.indexOf(theme) + 1) % order.length]
     setTheme(next)
+    toast(`Theme: ${THEME_LABEL[next]}`)
   }, [theme, setTheme])
 
   const resolvedTheme = theme === "system" ? getSystemTheme() : theme

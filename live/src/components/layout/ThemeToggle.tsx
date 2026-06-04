@@ -1,6 +1,7 @@
 import { Sun, Moon, Monitor } from "lucide-react"
 import { useThemeContext } from "@/contexts/theme"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import {
   Tooltip,
   TooltipContent,
@@ -28,7 +29,7 @@ export function ThemeToggle() {
           </Button>
         }
       />
-      <TooltipContent>Theme: {label}</TooltipContent>
+      <TooltipContent>Theme: {label} <Kbd className="ml-1">T</Kbd></TooltipContent>
     </Tooltip>
   )
 }

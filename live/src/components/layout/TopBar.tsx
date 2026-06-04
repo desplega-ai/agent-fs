@@ -5,6 +5,7 @@ import { HealthIndicator } from "./HealthIndicator"
 import { ThemeToggle } from "./ThemeToggle"
 import { AccountSwitcher } from "@/components/AccountSwitcher"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import {
   Tooltip,
   TooltipContent,
@@ -17,12 +18,12 @@ export function TopBar({ leading }: { leading?: React.ReactNode }) {
     <header className="flex h-10 items-center gap-2 border-b border-border px-4">
       {leading}
       <div className="flex items-center gap-1 min-w-0">
+        <DevChip />
         <OrgSwitcher />
         <DriveSwitcher />
       </div>
       <div className="flex-1" />
       <div className="flex items-center gap-1 shrink-0">
-        <SearchHint />
         <HealthIndicator />
         <HelpButton />
         <ThemeToggle />
@@ -50,16 +51,32 @@ function HelpButton() {
         }
       />
       <TooltipContent side="bottom">
-        Keyboard shortcuts <kbd data-slot="kbd" className="ml-1 px-1 text-[10px]">?</kbd>
+        Keyboard shortcuts <Kbd className="ml-1">?</Kbd>
       </TooltipContent>
     </Tooltip>
   )
 }
 
-function SearchHint() {
+/** Marks the local/dev build so it's easy to tell apart from the deployed app.
+ *  Shows in the Vite dev server AND on localhost (covers a local preview build). */
+function isLocalBuild(): boolean {
+  if (import.meta.env.DEV) return true
+  const h = window.location.hostname
+  return h === "localhost" || h === "127.0.0.1" || h.endsWith(".local")
+}
+
+function DevChip() {
+  if (!isLocalBuild()) return null
   return (
-    <span className="hidden md:inline-flex h-6 items-center gap-1 px-1.5 text-[11px] text-muted-foreground">
-      <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px]">⌘K</kbd>
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex h-5 shrink-0 items-center rounded-md border border-amber-500/40 bg-amber-500/15 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+            Dev
+          </span>
+        }
+      />
+      <TooltipContent side="bottom">Local development build</TooltipContent>
+    </Tooltip>
   )
 }

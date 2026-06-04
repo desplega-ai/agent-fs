@@ -1,8 +1,10 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { MessageSquarePlus, MessageCircle, ChevronDown, ChevronRight, PanelRightClose } from "lucide-react"
 import { useAllComments } from "@/hooks/use-comments"
 import { useAuth } from "@/contexts/auth"
+import { sidePanelStore, useAddCommentPending } from "@/stores/side-panel"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
 import {
   Tooltip,
@@ -25,6 +27,16 @@ export function CommentSidebar({ path, showHeader = true, onCommentClick, onColl
   const { unresolvedComments, resolvedComments, isLoading } = useAllComments(path)
   const [showAddForm, setShowAddForm] = useState(false)
   const [showResolved, setShowResolved] = useState(false)
+
+  // The `n` shortcut requests the add-comment form via the side-panel store.
+  // Consume it here (the sidebar owns the form's open state).
+  const addCommentPending = useAddCommentPending()
+  useEffect(() => {
+    if (addCommentPending) {
+      setShowAddForm(true)
+      sidePanelStore.consumeAddComment()
+    }
+  }, [addCommentPending])
 
   return (
     <div className="flex h-full flex-col min-w-0">
@@ -52,7 +64,7 @@ export function CommentSidebar({ path, showHeader = true, onCommentClick, onColl
                   </Button>
                 }
               />
-              <TooltipContent>Add comment</TooltipContent>
+              <TooltipContent>Add comment <Kbd className="ml-1">N</Kbd></TooltipContent>
             </Tooltip>
             {onCollapse && (
               <Tooltip>
@@ -70,7 +82,7 @@ export function CommentSidebar({ path, showHeader = true, onCommentClick, onColl
                   }
                 />
                 <TooltipContent>
-                  Collapse <kbd data-slot="kbd" className="ml-1 px-1 text-[10px]">]</kbd>
+                  Collapse <Kbd className="ml-1">]</Kbd>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -110,7 +122,7 @@ export function CommentSidebar({ path, showHeader = true, onCommentClick, onColl
                   </Button>
                 }
               />
-              <TooltipContent>Collapse</TooltipContent>
+              <TooltipContent>Collapse <Kbd className="ml-1">]</Kbd></TooltipContent>
             </Tooltip>
           )}
         </div>

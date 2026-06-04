@@ -6,27 +6,42 @@ import { VersionHistory } from "@/components/VersionHistory"
 import { UserName } from "@/components/UserName"
 import { MainWithComments } from "@/components/layout/MainWithComments"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useFileStat } from "@/hooks/use-file-stat"
-import { useAuth } from "@/contexts/auth"
-import { downloadFile } from "@/lib/download"
+import { useFileActions } from "@/hooks/use-file-actions"
+import { useDocumentTitle } from "@/hooks/use-document-title"
 import { uiChromeStore } from "@/stores/ui-chrome"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
+import type { OutlineItem } from "@/lib/outline"
 
 export function FileDetailPage() {
   const params = useParams()
   const navigate = useNavigate()
   const scrollToCommentRef = useRef<ScrollToCommentCallback | null>(null)
-  const { client, orgId, driveId } = useAuth()
-  const [copiedName, setCopiedName] = useState(false)
-  const [copiedLink, setCopiedLink] = useState(false)
+  const [outline, setOutline] = useState<OutlineItem[]>([])
 
   const filePath = params["*"] ?? ""
   const { data: stat } = useFileStat(filePath || null)
+  const { copyPath, copyLink, download, copiedPath, copiedLink, canShare } = useFileActions(filePath)
+
+  // Tab title reflects the open file (single-sourced via the shared hook).
+  useDocumentTitle(filePath ? (filePath.split("/").pop() ?? filePath) : null)
+
+  // Reset the outline when the file changes; MarkdownViewer repopulates it.
+  useEffect(() => setOutline([]), [filePath])
+
+  // Detail view is reading-first: auto-collapse the file tree on mount so the
+  // user gets the full reading width. Collapse runs in a microtask so the Shell
+  // registers its setLeftOpen handler first. (Kept above the early return so
+  // hook order stays stable.)
+  useEffect(() => {
+    queueMicrotask(() => uiChromeStore.setLeft(false))
+  }, [])
 
   const handleCommentClick = useCallback((lineStart?: number, _lineEnd?: number, quotedContent?: string) => {
     scrollToCommentRef.current?.({ lineStart, quotedContent })
@@ -39,49 +54,8 @@ export function FileDetailPage() {
 
   const filename = filePath.split("/").pop() ?? filePath
 
-  useEffect(() => {
-    document.title = `${filename} — agent-fs`
-    return () => { document.title = "agent-fs" }
-  }, [filename])
-
-  // Detail view is reading-first: auto-collapse the file tree on mount so
-  // the user gets the full reading width. Collapse runs in a microtask so
-  // the Shell registers its setLeftOpen handler first.
-  useEffect(() => {
-    queueMicrotask(() => uiChromeStore.setLeft(false))
-  }, [])
-
-  const handleCopyName = async () => {
-    try {
-      await navigator.clipboard.writeText(filename)
-      setCopiedName(true)
-      setTimeout(() => setCopiedName(false), 1500)
-    } catch {
-      // ignore
-    }
-  }
-
-  const handleCopyLink = async () => {
-    if (!orgId || !driveId) return
-    const cleanPath = filePath.startsWith("/") ? filePath.slice(1) : filePath
-    const url = `${window.location.origin}/file/~/${orgId}/${driveId}/${cleanPath}`
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopiedLink(true)
-      setTimeout(() => setCopiedLink(false), 1500)
-    } catch {
-      // ignore
-    }
-  }
-
-  const canDownload = !!orgId && !!driveId
-  const handleDownload = () => {
-    if (!canDownload) return
-    void downloadFile(client, orgId!, driveId!, filePath, filename, { newWindow: true })
-  }
-
   return (
-    <MainWithComments filePath={filePath} onCommentClick={handleCommentClick} showCommentsHeader>
+    <MainWithComments filePath={filePath} onCommentClick={handleCommentClick} showCommentsHeader outline={outline}>
       <div className="flex h-full flex-col min-w-0">
         {/* Sub-header: filename + meta + toolbar (fixed h-10 to align its
             bottom border with the comments rail header). */}
@@ -103,24 +77,24 @@ export function FileDetailPage() {
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    onClick={handleCopyName}
+                    onClick={copyPath}
                     className="text-muted-foreground"
-                    aria-label="Copy filename"
+                    aria-label="Copy path"
                   >
-                    {copiedName ? <Check /> : <Copy />}
+                    {copiedPath ? <Check /> : <Copy />}
                   </Button>
                 }
               />
-              <TooltipContent>Copy filename</TooltipContent>
+              <TooltipContent>Copy path <Kbd className="ml-1">Y</Kbd></TooltipContent>
             </Tooltip>
-            {orgId && driveId && (
+            {canShare && (
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      onClick={handleCopyLink}
+                      onClick={copyLink}
                       className="text-muted-foreground"
                       aria-label="Copy link"
                     >
@@ -128,7 +102,7 @@ export function FileDetailPage() {
                     </Button>
                   }
                 />
-                <TooltipContent>Copy link</TooltipContent>
+                <TooltipContent>Copy link <Kbd className="ml-1">⇧Y</Kbd></TooltipContent>
               </Tooltip>
             )}
             <Tooltip>
@@ -137,8 +111,8 @@ export function FileDetailPage() {
                   <Button
                     variant="ghost"
                     size="icon-xs"
-                    onClick={handleDownload}
-                    disabled={!canDownload}
+                    onClick={download}
+                    disabled={!canShare}
                     className="text-muted-foreground"
                     aria-label="Download"
                   >
@@ -146,7 +120,7 @@ export function FileDetailPage() {
                   </Button>
                 }
               />
-              <TooltipContent>Download</TooltipContent>
+              <TooltipContent>Download <Kbd className="ml-1">D</Kbd></TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -159,6 +133,7 @@ export function FileDetailPage() {
             showHeader={false}
             className="flex-1 min-h-0"
             onScrollToCommentRef={scrollToCommentRef}
+            onOutlineChange={setOutline}
           />
           <VersionHistory path={filePath} />
         </div>

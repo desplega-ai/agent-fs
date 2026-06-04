@@ -12,11 +12,14 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { CommentSidebar } from "@/components/comments/CommentSidebar"
+import { SidePanel } from "@/components/layout/SidePanel"
 import { useComments } from "@/hooks/use-comments"
 import { useResizableSidebar } from "@/hooks/use-resizable-sidebar"
 import { uiChromeStore } from "@/stores/ui-chrome"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import { cn } from "@/lib/utils"
+import type { OutlineItem } from "@/lib/outline"
 
 interface MainWithCommentsProps {
   /** Path of the currently selected file. When null, the comments rail is hidden. */
@@ -25,6 +28,12 @@ interface MainWithCommentsProps {
   onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
   /** Whether the comment sidebar should render its own header. */
   showCommentsHeader?: boolean
+  /**
+   * Document outline for the current file. When non-empty, the desktop right
+   * rail gains a Comments | Outline tab switcher. Mobile shows the outline as
+   * a selector inside the viewer instead (see `MarkdownViewer`).
+   */
+  outline?: OutlineItem[]
   /** Main content (typically a file viewer or empty state). */
   children: ReactNode
 }
@@ -42,6 +51,7 @@ export function MainWithComments({
   filePath,
   onCommentClick,
   showCommentsHeader = true,
+  outline = [],
   children,
 }: MainWithCommentsProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -52,7 +62,22 @@ export function MainWithComments({
   useEffect(() => {
     if (!filePath) return
     uiChromeStore.registerRightToggle(() => comments.toggle())
-    return () => uiChromeStore.registerRightToggle(null)
+    uiChromeStore.registerRightSetOpen((open) => comments.setOpen(open))
+    // `n` (new comment) opens the comments surface for the CURRENT breakpoint:
+    // the desktop rail, or the mobile sheet. Breakpoint-gated so we don't pop
+    // the mobile sheet's full-screen backdrop on desktop.
+    uiChromeStore.registerCommentsOpener(() => {
+      if (window.matchMedia("(min-width: 1024px)").matches) {
+        comments.setOpen(true)
+      } else {
+        setMobileOpen(true)
+      }
+    })
+    return () => {
+      uiChromeStore.registerRightToggle(null)
+      uiChromeStore.registerRightSetOpen(null)
+      uiChromeStore.registerCommentsOpener(null)
+    }
   }, [filePath, comments])
 
   // No file selected — just render children full-width, no rail.
@@ -77,9 +102,10 @@ export function MainWithComments({
               className="shrink-0 h-full border-l border-border"
               style={{ width: `${comments.width}px` }}
             >
-              <CommentSidebar
+              <SidePanel
                 path={filePath}
-                showHeader={showCommentsHeader}
+                outline={outline}
+                showCommentsHeader={showCommentsHeader}
                 onCommentClick={onCommentClick}
                 onCollapse={() => comments.setOpen(false)}
               />
@@ -170,7 +196,7 @@ function CommentsCollapsedRail({ onOpen }: { onOpen: () => void }) {
           }
         />
         <TooltipContent>
-          Open comments <kbd data-slot="kbd" className="ml-1 px-1 text-[10px]">]</kbd>
+          Open comments <Kbd className="ml-1">]</Kbd>
         </TooltipContent>
       </Tooltip>
     </div>

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { Search, X, PanelLeftClose } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
 import {
   Tooltip,
   TooltipContent,
@@ -111,8 +112,9 @@ export function SearchBar() {
   const handleInputKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
       if (e.key === "Escape") {
-        // Blur the input. Stop propagation so the global esc handler (which
-        // clears the selected file) doesn't also fire.
+        // Esc blurs the search input. preventDefault stops the browser clearing
+        // the field; stopPropagation is kept defensively against any future
+        // document-level Esc consumer.
         e.preventDefault()
         e.stopPropagation()
         e.currentTarget.blur()
@@ -164,9 +166,12 @@ export function SearchBar() {
                 if (!query) setIsSearching(false)
               }}
               onKeyDown={handleInputKeyDown}
-              placeholder="Search... ⌘K"
-              className="pl-8 pr-8"
+              placeholder="Search..."
+              className="pl-8 pr-12"
             />
+            {!query && (
+              <Kbd className="absolute right-2 top-1/2 -translate-y-1/2">⌘K</Kbd>
+            )}
             {query && (
               <Tooltip>
                 <TooltipTrigger
@@ -201,8 +206,7 @@ export function SearchBar() {
               }
             />
             <TooltipContent side="bottom">
-              Collapse sidebar{" "}
-              <kbd className="ml-1 px-1 text-[10px]">[</kbd>
+              Collapse sidebar <Kbd className="ml-1">[</Kbd>
             </TooltipContent>
           </Tooltip>
         </div>

@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Kbd } from "@/components/ui/kbd"
 import { Sidebar } from "./Sidebar"
 import { TopBar } from "./TopBar"
 import { PathBreadcrumb } from "@/components/PathBreadcrumb"
@@ -14,7 +15,8 @@ import { useResizableSidebar } from "@/hooks/use-resizable-sidebar"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { SearchInputProvider, useSearchInput } from "@/contexts/search-input"
 import { uiChromeStore, useHelpOpen, useSetHelpOpen } from "@/stores/ui-chrome"
-import { useBrowser } from "@/contexts/browser"
+import { sidePanelStore } from "@/stores/side-panel"
+import { useThemeContext } from "@/contexts/theme"
 import { cn } from "@/lib/utils"
 
 interface ShellProps {
@@ -24,6 +26,31 @@ interface ShellProps {
 
 const TREE_KEY = "liveui:tree"
 const TREE_DEFAULTS = { open: true, width: 288, min: 220, max: 480 }
+
+/** Poll for the first file-tree row and focus it (the tree may remount + fetch
+ *  asynchronously when opened from a collapsed/cold state). */
+function focusFirstTreeRow() {
+  const start = performance.now()
+  const tryFocus = () => {
+    const row = document.querySelector<HTMLElement>("[data-tree-path]")
+    if (row) {
+      row.focus()
+      return
+    }
+    if (performance.now() - start < 1000) requestAnimationFrame(tryFocus)
+  }
+  requestAnimationFrame(tryFocus)
+}
+
+/** Click the VISIBLE element matching `selector`. The TopBar (and its
+ *  switchers) is rendered for both the desktop and mobile layouts; the hidden
+ *  one lives in a `display:none` subtree, so its node has a null offsetParent. */
+function clickVisible(selector: string) {
+  const el = Array.from(document.querySelectorAll<HTMLElement>(selector)).find(
+    (node) => node.offsetParent !== null,
+  )
+  el?.click()
+}
 
 export function Shell({ sidebar, children }: ShellProps) {
   return (
@@ -39,7 +66,7 @@ function ShellInner({ sidebar, children }: ShellProps) {
   const helpOpen = useHelpOpen()
   const setHelpOpen = useSetHelpOpen()
   const { focus: focusSearch } = useSearchInput()
-  const { selectFile } = useBrowser()
+  const { cycleTheme } = useThemeContext()
 
   // Register the left-sidebar toggle into the UI chrome store so the shortcut
   // hook (mounted here) and any other component can flip it. Also register
@@ -67,12 +94,6 @@ function ShellInner({ sidebar, children }: ShellProps) {
       e.preventDefault()
       focusSearch()
     },
-    esc: () => {
-      // If the help overlay is open, base-ui Dialog handles esc itself.
-      // Skip here to avoid also clearing the file selection.
-      if (helpOpen) return
-      selectFile(null)
-    },
     "[": (e) => {
       e.preventDefault()
       uiChromeStore.toggleLeft()
@@ -80,6 +101,36 @@ function ShellInner({ sidebar, children }: ShellProps) {
     "]": (e) => {
       e.preventDefault()
       uiChromeStore.toggleRight()
+    },
+    c: (e) => {
+      e.preventDefault()
+      uiChromeStore.setRight(true)
+      sidePanelStore.setTab("comments")
+    },
+    o: (e) => {
+      e.preventDefault()
+      uiChromeStore.setRight(true)
+      sidePanelStore.setTab("outline")
+    },
+    g: (e) => {
+      e.preventDefault()
+      // Open the file tree if collapsed, then move focus into the first row.
+      // The tree may remount + fetch async, so poll for the row (up to ~1s)
+      // instead of a single fixed delay.
+      uiChromeStore.setLeft(true)
+      focusFirstTreeRow()
+    },
+    t: (e) => {
+      e.preventDefault()
+      cycleTheme()
+    },
+    "shift+d": (e) => {
+      e.preventDefault()
+      clickVisible("[data-drive-switcher]")
+    },
+    "shift+g": (e) => {
+      e.preventDefault()
+      clickVisible("[data-org-switcher]")
     },
     "?": (e) => {
       e.preventDefault()
@@ -244,7 +295,7 @@ function SidebarCollapsedRail({ onOpen }: { onOpen: () => void }) {
           }
         />
         <TooltipContent side="right">
-          Open sidebar <kbd data-slot="kbd" className="ml-1 px-1 text-[10px]">[</kbd>
+          Open sidebar <Kbd className="ml-1">[</Kbd>
         </TooltipContent>
       </Tooltip>
     </div>

@@ -2,6 +2,8 @@ import { useRef, useState, useEffect, useCallback, useMemo, type MutableRefObjec
 import Editor, { useMonaco } from "@monaco-editor/react"
 import { MessageSquare, Braces } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Kbd } from "@/components/ui/kbd"
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { cn } from "@/lib/utils"
 import { useTheme } from "@/hooks/use-theme"
 import { AddComment } from "@/components/comments/AddComment"
@@ -56,6 +58,11 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
       return content
     }
   }, [content, isJson, jsonFormatted])
+
+  // `e` toggles JSON Format / Raw — the source-view counterpart of the
+  // markdown source/preview toggle (a file is either markdown or JSON, never
+  // both, so the contexts never overlap).
+  useKeyboardShortcuts(isJson ? { e: (e) => { e.preventDefault(); setJsonFormatted((v) => !v) } } : {})
 
   // Apply comment line decorations
   useEffect(() => {
@@ -154,6 +161,22 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
     })
   }, [])
 
+  // Esc closes an open comment UI. Capture phase + stopImmediatePropagation so
+  // Esc is consumed here and does not reach other document-level handlers.
+  useEffect(() => {
+    if (!showCommentForm && !selection && !lineComment) return
+    const onKeyDownCapture = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      setShowCommentForm(false)
+      setSelection(null)
+      setLineComment(null)
+    }
+    document.addEventListener("keydown", onKeyDownCapture, true)
+    return () => document.removeEventListener("keydown", onKeyDownCapture, true)
+  }, [showCommentForm, selection, lineComment])
+
   return (
     <div className={cn("relative flex flex-col", className)}>
       {isJson && (
@@ -166,6 +189,7 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
           >
             <Braces className="size-3" />
             {jsonFormatted ? "Raw" : "Format"}
+            <Kbd className="ml-1">E</Kbd>
           </Button>
         </div>
       )}
