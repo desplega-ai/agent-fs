@@ -5,6 +5,8 @@ export interface Chunk {
 }
 
 export async function chunkContent(content: string): Promise<Chunk[]> {
+  if (content.length === 0) return [];
+
   try {
     const { RecursiveChunker } = await import("chonkie");
     const chunker = await RecursiveChunker.create({
@@ -27,6 +29,8 @@ function fallbackChunk(content: string): Chunk[] {
   const TARGET_SIZE = 3600; // ~900 tokens * 4 chars/token
   const OVERLAP = 512;
   const chunks: Chunk[] = [];
+
+  if (content.length === 0) return [];
 
   if (content.length <= TARGET_SIZE) {
     return [
