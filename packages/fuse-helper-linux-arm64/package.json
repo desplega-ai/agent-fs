@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs-fuse-linux-arm64",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "description": "Linux aarch64 FUSE helper binary for @desplega.ai/agent-fs. Do not install directly.",
   "os": [
     "linux"
