@@ -13,10 +13,11 @@ fi
 # scripts/sync-versions.ts is the source of truth — it also rewrites the optionalDependencies
 # pins for the FUSE sub-packages so a one-liner jq loop is no longer enough.
 bun run scripts/sync-versions.ts "$VERSION"
+bun run scripts/sync-openapi.ts
 
 # Commit if anything was rewritten.
-if ! git diff --quiet packages/ .claude-plugin/ 2>/dev/null; then
-  git add packages/*/package.json packages/*/Cargo.toml .claude-plugin/plugin.json 2>/dev/null || true
+if ! git diff --quiet package.json bun.lock docs/openapi.json packages/ .claude-plugin/ 2>/dev/null; then
+  git add package.json bun.lock docs/openapi.json packages/*/package.json packages/*/Cargo.toml .claude-plugin/plugin.json 2>/dev/null || true
   git commit -m "chore: sync sub-package versions to ${VERSION}"
   git push origin main
 fi
