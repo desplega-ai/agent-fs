@@ -26,10 +26,10 @@ export function DriveSwitcher() {
       <Tooltip>
         <TooltipTrigger
           render={
-            <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-[10px] px-2 text-xs">
-              <HardDrive className="size-3 shrink-0" />
-              <span className="hidden sm:inline font-medium text-foreground">{displayName}</span>
-              <span className="hidden sm:inline text-[11px] text-muted-foreground">({drives.length})</span>
+            <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-[10px] px-2 text-sm">
+              <HardDrive className="size-3.5 shrink-0" />
+              <span className="hidden sm:inline-block max-w-48 truncate font-medium text-foreground">{displayName}</span>
+              <span className="hidden sm:inline text-xs text-muted-foreground">({drives.length})</span>
             </span>
           }
         />
@@ -45,10 +45,10 @@ export function DriveSwitcher() {
           render={
             <DropdownMenuTrigger
               render={
-                <Button data-drive-switcher variant="ghost" size="xs" className="gap-1 text-foreground">
-                  <HardDrive className="size-3 shrink-0" />
-                  <span className="hidden sm:inline font-medium">{displayName}</span>
-                  <span className="hidden sm:inline text-[11px] text-muted-foreground">({drives.length})</span>
+                <Button data-drive-switcher variant="ghost" size="sm" className="gap-1 text-foreground">
+                  <HardDrive className="size-3.5 shrink-0" />
+                  <span className="hidden sm:inline-block max-w-48 truncate font-medium text-sm">{displayName}</span>
+                  <span className="hidden sm:inline text-xs text-muted-foreground">({drives.length})</span>
                 </Button>
               }
             />
@@ -71,7 +71,7 @@ export function DriveSwitcher() {
             }}
           >
             <HardDrive className="size-3 text-muted-foreground" />
-            <span className="truncate flex-1">{drive.name}</span>
+            <span className="truncate flex-1" title={drive.name}>{drive.name}</span>
             {drive.id === driveId && <Check className="size-3 text-primary ml-auto" />}
           </DropdownMenuItem>
         ))}
