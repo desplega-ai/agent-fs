@@ -2,7 +2,7 @@
 id: step-5
 name: Comment ID scoping
 depends_on: [step-1]
-status: ready
+status: done
 ---
 
 <!-- During /v-implement, `desplega:step-running` adds `assignee` and `claimed_at` while
@@ -37,14 +37,14 @@ Make comment IDs tenant-safe by scoping every comment and parent-comment lookup 
 *(Push everything you can into the first two buckets — Automated Verification + Automated QA — so the agent provides proof of work. Manual Verification is the exception, not the default.)*
 
 #### Automated Verification:
-- [ ] Comment tests pass: `bun test packages/core/src/ops/__tests__/comment.test.ts`.
-- [ ] Registry tests pass: `bun test packages/core/src/ops/__tests__/registry.test.ts`.
-- [ ] Core op integration tests still pass: `bun test packages/core/src/ops/__tests__/ops-integration.test.ts`.
-- [ ] Typecheck passes: `bun run typecheck`.
+- [x] Comment tests pass: `bun test packages/core/src/ops/__tests__/comment.test.ts`.
+- [x] Registry tests pass: `bun test packages/core/src/ops/__tests__/registry.test.ts`.
+- [x] Core op integration tests still pass: `bun test packages/core/src/ops/__tests__/ops-integration.test.ts`.
+- [x] Typecheck passes: `bun run typecheck`.
 
 #### Automated QA:
-- [ ] Cross-tenant comment ID scenario passes: `bun test packages/core/src/ops/__tests__/comment.test.ts --test-name-pattern "cross-tenant comment IDs are not found"`.
-- [ ] Same-drive author guard scenario passes: `bun test packages/core/src/ops/__tests__/comment.test.ts --test-name-pattern "author-only comment mutations still apply"`.
+- [x] Cross-tenant comment ID scenario passes: `bun test packages/core/src/ops/__tests__/comment.test.ts --test-name-pattern "cross-tenant comment IDs are not found"`.
+- [x] Same-drive author guard scenario passes: `bun test packages/core/src/ops/__tests__/comment.test.ts --test-name-pattern "author-only comment mutations still apply"`.
 
 #### Manual Verification:
 - [ ] Taras confirms cross-tenant comment access should return not found rather than exposing that the comment exists but is forbidden.
