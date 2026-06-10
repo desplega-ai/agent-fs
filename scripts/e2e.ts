@@ -826,6 +826,14 @@ async function runStandardTests(daemonUrl: string) {
     assert(result.entries.length > 0, true, "Expected recent entries");
   });
 
+  await test("recent --since <duration>", () => {
+    // Regression: the CLI must translate the advertised duration shorthand
+    // (1h/24h/7d) into an absolute date before sending, since the server
+    // coerces `since` to a Date and `new Date("1h")` is invalid.
+    const result = runJson("recent --since 24h");
+    assert(result.entries.length > 0, true, "Expected recent entries within 24h");
+  });
+
   // -- diff --
 
   await test("diff (between versions)", () => {

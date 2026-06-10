@@ -9,6 +9,30 @@ interface OpCommandDef {
   options: Array<{ flag: string; description: string }>;
 }
 
+const SINCE_UNIT_MS: Record<string, number> = {
+  s: 1_000,
+  m: 60_000,
+  h: 3_600_000,
+  d: 86_400_000,
+  w: 604_800_000,
+};
+
+/**
+ * Resolve a relative duration shorthand (e.g. "1h", "24h", "7d", "30m", "1w")
+ * to an absolute ISO-8601 timestamp (now minus the duration). The `recent` op's
+ * `since` field is a coerced Date server-side (`z.coerce.date()`), so durations
+ * must be resolved client-side — `new Date("1h")` is an Invalid Date. Any value
+ * that is not a bare <number><unit> token is returned unchanged, so real ISO
+ * strings / epoch values still reach the server's coercion untouched.
+ */
+export function resolveSinceDuration(value: string): string {
+  const match = /^(\d+)\s*([smhdw])$/i.exec(value.trim());
+  if (!match) return value;
+  const amount = parseInt(match[1], 10);
+  const unitMs = SINCE_UNIT_MS[match[2].toLowerCase()];
+  return new Date(Date.now() - amount * unitMs).toISOString();
+}
+
 const OP_COMMANDS: OpCommandDef[] = [
   { name: "write", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "File content (reads stdin if omitted)" }, { flag: "--file <path>", description: "Read bytes from a local file and upload without text decoding" }, { flag: "-m, --message <msg>", description: "Version message" }, { flag: "--expected-version <n>", description: "Fail if file is not at this version (optimistic concurrency)" }] },
   { name: "cat", args: [{ name: "path", required: true }], options: [{ flag: "--offset <n>", description: "Line offset" }, { flag: "--limit <n>", description: "Max lines" }] },
@@ -125,6 +149,13 @@ export function registerOpCommands(
         if (params[key] !== undefined) {
           params[key] = parseInt(params[key]);
         }
+      }
+
+      // `recent --since` advertises a duration shorthand (1h, 24h, 7d); the
+      // server coerces `since` to a Date, so resolve durations to an absolute
+      // ISO timestamp here. ISO/epoch values pass through unchanged.
+      if (def.name === "recent" && typeof params.since === "string") {
+        params.since = resolveSinceDuration(params.since);
       }
 
       try {

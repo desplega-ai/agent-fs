@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "type": "module",
   "description": "Agent-first filesystem backed by S3",
   "license": "MIT",
@@ -35,8 +35,8 @@
     "sqlite-vec-linux-arm64": "^0.1.9",
     "sqlite-vec-linux-x64": "^0.1.9",
     "sqlite-vec-windows-x64": "^0.1.9",
-    "@desplega.ai/agent-fs-fuse-linux-x64": "^0.8.0",
-    "@desplega.ai/agent-fs-fuse-linux-arm64": "^0.8.0"
+    "@desplega.ai/agent-fs-fuse-linux-x64": "^0.8.1",
+    "@desplega.ai/agent-fs-fuse-linux-arm64": "^0.8.1"
   },
   "dependencies": {
     "commander": "^14.0.3",
