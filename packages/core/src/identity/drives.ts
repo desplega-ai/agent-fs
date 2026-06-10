@@ -4,7 +4,17 @@ import type { DB } from "../db/index.js";
 
 export function createDrive(
   db: DB,
-  params: { orgId: string; name: string; isDefault?: boolean }
+  params: {
+    orgId: string;
+    name: string;
+    isDefault?: boolean;
+    /**
+     * When provided, the creator gets an explicit 'admin' drive membership
+     * row. Under strict membership (drives are only visible to explicit
+     * members) every user-facing creation path should pass this.
+     */
+    creatorUserId?: string;
+  }
 ): { id: string; name: string } {
   const id = crypto.randomUUID();
   const now = new Date();
@@ -18,6 +28,12 @@ export function createDrive(
       createdAt: now,
     })
     .run();
+
+  if (params.creatorUserId) {
+    db.insert(schema.driveMembers)
+      .values({ driveId: id, userId: params.creatorUserId, role: "admin" })
+      .run();
+  }
 
   return { id, name: params.name };
 }
@@ -37,12 +53,11 @@ export function listDrives(
 /**
  * List drives in an org that the user can see.
  *
- * A drive is visible to the user iff one of:
- *   1. The drive has at least one row in `drive_members` and one of those
- *      rows references this user, OR
- *   2. The drive has NO rows in `drive_members` (treated as "public" to
- *      anyone in the org — preserves the existing default-drive bootstrap
- *      where the org is created without an explicit member row).
+ * Strict explicit membership: a drive is visible to the user iff the user
+ * has a row in `drive_members` for that drive. Drives with zero member
+ * rows are visible to NO ONE (the old "public drive" fallback is gone —
+ * creation paths add an explicit creator membership, and `runMigrations()`
+ * backfills org admins onto pre-existing zero-member drives).
  *
  * The FUSE mount uses this to populate its root readdir without seeing
  * drives it can't access.
@@ -52,28 +67,24 @@ export function listDrivesForUser(
   orgId: string,
   userId: string
 ): Array<{ id: string; name: string; isDefault: boolean }> {
-  // Pull all drives in the org first; partition them client-side. Tiny
-  // tables, no need to fold this into one query.
-  const drives = db
-    .select()
-    .from(schema.drives)
-    .where(eq(schema.drives.orgId, orgId))
-    .all();
-
-  // For each drive, decide visibility.
-  return drives
-    .filter((d) => {
-      const memberRows = db
-        .select({ userId: schema.driveMembers.userId })
-        .from(schema.driveMembers)
-        .where(eq(schema.driveMembers.driveId, d.id))
-        .all();
-
-      if (memberRows.length === 0) {
-        return true; // public drive
-      }
-      return memberRows.some((m) => m.userId === userId);
+  return db
+    .select({
+      id: schema.drives.id,
+      name: schema.drives.name,
+      isDefault: schema.drives.isDefault,
     })
+    .from(schema.drives)
+    .innerJoin(
+      schema.driveMembers,
+      eq(schema.driveMembers.driveId, schema.drives.id)
+    )
+    .where(
+      and(
+        eq(schema.drives.orgId, orgId),
+        eq(schema.driveMembers.userId, userId)
+      )
+    )
+    .all()
     .map((d) => ({ id: d.id, name: d.name, isDefault: d.isDefault }));
 }
 

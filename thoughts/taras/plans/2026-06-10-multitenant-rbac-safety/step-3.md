@@ -2,7 +2,7 @@
 id: step-3
 name: Raw HTTP and IPC/FUSE write RBAC
 depends_on: [step-1]
-status: ready
+status: done
 ---
 
 <!-- During /v-implement, `desplega:step-running` adds `assignee` and `claimed_at` while
@@ -40,17 +40,17 @@ Close the viewer-write bypass in binary/raw write paths. This step enforces edit
 *(Push everything you can into the first two buckets — Automated Verification + Automated QA — so the agent provides proof of work. Manual Verification is the exception, not the default.)*
 
 #### Automated Verification:
-- [ ] Raw HTTP tests pass: `bun test packages/server/src/__tests__/files-raw.test.ts`.
-- [ ] IPC tests pass: `bun test packages/server/src/ipc/__tests__/server.test.ts`.
-- [ ] Core raw write tests still pass: `bun test packages/core/src/ops/__tests__/binary.test.ts packages/core/src/ops/__tests__/dedup.test.ts packages/core/src/ops/__tests__/concurrency.test.ts`.
-- [ ] FUSE helper tests pass where Rust is available: `cargo test -p agent-fs-fuse`.
-- [ ] Typecheck passes: `bun run typecheck`.
+- [x] Raw HTTP tests pass: `bun test packages/server/src/__tests__/files-raw.test.ts`.
+- [x] IPC tests pass: `bun test packages/server/src/ipc/__tests__/server.test.ts`.
+- [x] Core raw write tests still pass: `bun test packages/core/src/ops/__tests__/binary.test.ts packages/core/src/ops/__tests__/dedup.test.ts packages/core/src/ops/__tests__/concurrency.test.ts`.
+- [x] FUSE helper tests pass where Rust is available: `cargo test -p agent-fs-fuse`.
+- [x] Typecheck passes: `bun run typecheck`.
 
 #### Automated QA:
-- [ ] Raw HTTP viewer/editor scenario passes: `bun test packages/server/src/__tests__/files-raw.test.ts --test-name-pattern "viewer raw read but not raw write"`.
-- [ ] IPC viewer/editor scenario passes: `bun test packages/server/src/ipc/__tests__/server.test.ts --test-name-pattern "viewer cannot open_write but editor can"`.
+- [x] Raw HTTP viewer/editor scenario passes: `bun test packages/server/src/__tests__/files-raw.test.ts --test-name-pattern "viewer raw read but not raw write"`.
+- [x] IPC viewer/editor scenario passes: `bun test packages/server/src/ipc/__tests__/server.test.ts --test-name-pattern "viewer cannot open_write but editor can"`.
 
 #### Manual Verification:
-- [ ] Taras confirms the raw/FUSE write error shape is acceptable for agents and FUSE clients, especially the HTTP status/error code surfaced for viewer write attempts.
+- [x] Taras confirms the raw/FUSE write error shape is acceptable for agents and FUSE clients, especially the HTTP status/error code surfaced for viewer write attempts.
 
 **Implementation Note**: This step is a vertical slice — QA-able on its own. After completing this step, pause for manual confirmation. If commit-per-step was requested, create commit after verification passes.

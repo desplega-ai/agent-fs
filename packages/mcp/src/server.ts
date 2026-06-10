@@ -6,7 +6,7 @@ import {
   resolveContext,
   dispatchOp,
   listUserOrgs,
-  listDrives,
+  listDrivesForUser,
   getUserDriveRole,
   getUserByEmail,
   listOrgMembers,
@@ -16,6 +16,9 @@ import {
   removeOrgMember,
   updateDriveMemberRole,
   removeDriveMember,
+  requireOrgRole,
+  requireDriveAdmin,
+  assertDriveInOrg,
   VERSION,
 } from "@/core";
 import type { OpContext, DB, EmbeddingProvider, AgentS3Client } from "@/core";
@@ -81,6 +84,44 @@ export function createMcpServer(options: McpServerOptions) {
     };
   });
 
+  registerIdentityTools(server, { db, getContext });
+
+  return server;
+}
+
+/**
+ * Register identity-related tools (whoami + member management).
+ *
+ * Exported separately from `createMcpServer` so tests can register the tools
+ * on a mock server and invoke the captured handlers with synthetic auth
+ * contexts (same pattern as `registerTools`).
+ *
+ * RBAC policy (mirrors HTTP member management):
+ * - Org member list/invite/update/remove require org 'admin'.
+ * - Drive member list/update/remove require drive 'admin' or org 'admin',
+ *   and the drive must belong to the caller's active org.
+ */
+export function registerIdentityTools(
+  server: McpServer,
+  deps: { db: DB; getContext: (extra: Extra) => OpContext }
+) {
+  const { db, getContext } = deps;
+
+  /**
+   * Authorize a member-management call. Drive-scoped requests are bound to
+   * the active org first (NotFound for unknown AND cross-org drives, so
+   * other tenants' drive IDs are unprobeable), then require drive admin or
+   * org admin. Org-scoped requests require org admin.
+   */
+  const requireMemberAdmin = (ctx: OpContext, driveId?: string) => {
+    if (driveId) {
+      assertDriveInOrg(db, { driveId, orgId: ctx.orgId });
+      requireDriveAdmin(db, { userId: ctx.userId, driveId });
+    } else {
+      requireOrgRole(db, { userId: ctx.userId, orgId: ctx.orgId, requiredRole: "admin" });
+    }
+  };
+
   // whoami tool — lets agents check their identity and permissions
   server.tool("whoami", "Get current user identity, org memberships, and drive roles.", {}, async (_params, extra) => {
     const ctx = getContext(extra);
@@ -88,7 +129,8 @@ export function createMcpServer(options: McpServerOptions) {
 
     const orgs = listUserOrgs(db, userId);
     const orgDetails = orgs.map((org) => {
-      const drives = listDrives(db, org.id);
+      // Strict membership: only drives the user is an explicit member of.
+      const drives = listDrivesForUser(db, org.id, userId);
       return {
         orgId: org.id,
         orgName: org.name,
@@ -119,22 +161,30 @@ export function createMcpServer(options: McpServerOptions) {
 
   server.tool(
     "member-list",
-    "List members of the current org, or a specific drive if driveId is provided.",
+    "List members of the current org (requires org admin), or a specific drive in the current org (requires drive admin or org admin) if driveId is provided.",
     { driveId: z.string().optional().describe("Drive ID to list members for. Omit for org members.") },
     async (params: { driveId?: string }, extra) => {
       const ctx = getContext(extra);
-      const members = params.driveId
-        ? listDriveMembers(db, params.driveId)
-        : listOrgMembers(db, ctx.orgId);
-      return {
-        content: [{ type: "text" as const, text: JSON.stringify({ members }, null, 2) }],
-      };
+      try {
+        requireMemberAdmin(ctx, params.driveId);
+        const members = params.driveId
+          ? listDriveMembers(db, params.driveId)
+          : listOrgMembers(db, ctx.orgId);
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ members }, null, 2) }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: err.message }, null, 2) }],
+          isError: true,
+        };
+      }
     }
   );
 
   server.tool(
     "member-invite",
-    "Invite a user to the current org by email. The user must already have an agent-fs account.",
+    "Invite a user to the current org by email (requires org admin). The user must already have an agent-fs account.",
     {
       email: z.string().describe("Email of the user to invite"),
       role: z.enum(["viewer", "editor", "admin"]).describe("Role to assign"),
@@ -142,6 +192,7 @@ export function createMcpServer(options: McpServerOptions) {
     async (params: { email: string; role: "viewer" | "editor" | "admin" }, extra) => {
       const ctx = getContext(extra);
       try {
+        requireMemberAdmin(ctx);
         inviteToOrg(db, { orgId: ctx.orgId, email: params.email, role: params.role });
         return {
           content: [{ type: "text" as const, text: JSON.stringify({ ok: true, invited: params.email, role: params.role }, null, 2) }],
@@ -157,7 +208,7 @@ export function createMcpServer(options: McpServerOptions) {
 
   server.tool(
     "member-update-role",
-    "Update a member's role in the current org or a specific drive.",
+    "Update a member's role in the current org (requires org admin) or a specific drive in the current org (requires drive admin or org admin).",
     {
       email: z.string().describe("Email of the member"),
       role: z.enum(["viewer", "editor", "admin"]).describe("New role"),
@@ -166,6 +217,9 @@ export function createMcpServer(options: McpServerOptions) {
     async (params: { email: string; role: "viewer" | "editor" | "admin"; driveId?: string }, extra) => {
       const ctx = getContext(extra);
       try {
+        // Authorize before the email lookup so non-admins can't probe
+        // whether an account exists.
+        requireMemberAdmin(ctx, params.driveId);
         const user = getUserByEmail(db, params.email);
         if (!user) throw new Error(`User with email ${params.email} not found`);
         if (params.driveId) {
@@ -187,7 +241,7 @@ export function createMcpServer(options: McpServerOptions) {
 
   server.tool(
     "member-remove",
-    "Remove a member from the current org (cascades to all drives) or from a specific drive only.",
+    "Remove a member from the current org (cascades to all drives; requires org admin) or from a specific drive in the current org only (requires drive admin or org admin).",
     {
       email: z.string().describe("Email of the member to remove"),
       driveId: z.string().optional().describe("Drive ID to remove from. Omit to remove from org."),
@@ -195,6 +249,9 @@ export function createMcpServer(options: McpServerOptions) {
     async (params: { email: string; driveId?: string }, extra) => {
       const ctx = getContext(extra);
       try {
+        // Authorize before the email lookup so non-admins can't probe
+        // whether an account exists.
+        requireMemberAdmin(ctx, params.driveId);
         const user = getUserByEmail(db, params.email);
         if (!user) throw new Error(`User with email ${params.email} not found`);
         if (params.driveId) {
@@ -213,6 +270,4 @@ export function createMcpServer(options: McpServerOptions) {
       }
     }
   );
-
-  return server;
 }

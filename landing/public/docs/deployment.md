@@ -129,6 +129,13 @@ Users have roles per-organization and per-drive:
 | `editor` | Read + write, edit, delete files |
 | `admin` | Full access + manage users, drives, orgs |
 
+Key rules:
+
+- **Drive membership is explicit.** A drive is only visible and usable for users with a drive membership row. New drives grant the creator admin membership automatically; invite other users per drive (or rely on org-invite's default-drive grant).
+- **Member management is admin-only.** Inviting, listing, updating, and removing org members requires org `admin`. Managing drive members requires drive `admin` or admin of the owning org. Creating drives in an org requires org `admin`.
+- **Write paths all enforce editor-or-better** — the JSON ops route, the binary `PUT /raw` route, and FUSE mounts share the same check. Viewers can read everywhere they're a member but cannot write through any surface.
+- **Org/drive IDs are bound.** A request that addresses a drive under the wrong org — or any org/drive the caller has no membership in — returns `404`, indistinguishable from a nonexistent ID.
+
 ## 4. Multi-Agent, Hosted
 
 Deploy agent-fs as shared infrastructure for autonomous agents.
@@ -155,6 +162,16 @@ curl -X POST http://agent-fs:7433/auth/register -d '{"email": "agent-b@agents.lo
 ```
 
 Each agent gets its own identity, so file operations are attributed to the agent that performed them. Use `log` to see who wrote what.
+
+### Multi-tenant isolation model
+
+When mutually distrustful users or agents share one server, understand what the boundary is — and is not:
+
+- **Isolation is enforced at the application layer** by RBAC: every HTTP, MCP, raw, and FUSE operation proves the caller has an explicit role on the target org/drive before touching data. Cross-tenant org/drive/comment IDs resolve to `404`, so tenants can't probe each other's resources.
+- **Storage is a single shared S3 bucket**, namespaced by `<orgId>/drives/<driveId>/...` key prefixes. There is no per-tenant bucket, credential, or encryption key — anyone holding the *server's* S3 credentials (or the server's SQLite DB) can read all tenants' data. Tenant isolation holds only as long as the server host and its credentials are trusted.
+- **Signed URLs are an intentional escape hatch.** Generation is RBAC-checked (viewer-or-better on the drive), but the resulting presigned S3 URL is an unauthenticated bearer secret until it expires. A tenant who shares a signed URL is sharing read access to that file with anyone who has the URL.
+
+If you need isolation that survives a server-credential leak, run separate agent-fs instances (or buckets) per tenant.
 
 ## Embedding Providers
 

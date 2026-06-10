@@ -119,6 +119,18 @@ The server advertises tools via the standard MCP `tools/list` method.
 | `comment-delete` | Soft-delete a comment (author only). |
 | `comment-resolve` | Resolve or reopen a root comment. |
 
+### Identity & Member Management
+
+| Tool | Description |
+|------|-------------|
+| `whoami` | Get current user identity, org memberships, and drive roles. Lists only drives you're an explicit member of. |
+| `member-list` | List members of the current org, or of a drive in the current org via `driveId`. |
+| `member-invite` | Invite an existing agent-fs user to the current org by email. |
+| `member-update-role` | Update a member's org role, or drive role via `driveId`. |
+| `member-remove` | Remove a member from the current org (cascades to drives), or from one drive via `driveId`. |
+
+Member tools are admin-gated, mirroring the HTTP member routes: org-scoped calls require org `admin`; drive-scoped calls require drive `admin` or admin of the owning org. A `driveId` must belong to your active org — drive IDs from other orgs return "not found", and authorization runs before any email lookup, so non-admins can't probe whether an account or drive exists.
+
 ## Which Search Tool Should I Use?
 
 agent-fs has three search tools for different use cases:

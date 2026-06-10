@@ -5,11 +5,27 @@ import { tmpdir } from "node:os";
 import { createDatabase, schema } from "../../db/index.js";
 import type { DB } from "../../db/index.js";
 import { createUser, getUserByApiKey, getUserByEmail } from "../users.js";
-import { listUserOrgs, getOrg, inviteToOrg } from "../orgs.js";
-import { listDrives, getDrive, setDriveMember } from "../drives.js";
-import { checkPermission, getRequiredRole, getUserDriveRole } from "../rbac.js";
+import { createOrg, listUserOrgs, getOrg, inviteToOrg } from "../orgs.js";
+import {
+  createDrive,
+  listDrives,
+  listDrivesForUser,
+  getDrive,
+  setDriveMember,
+} from "../drives.js";
+import {
+  checkPermission,
+  getRequiredRole,
+  getUserDriveRole,
+  getUserOrgRole,
+  roleAtLeast,
+  requireDriveRole,
+  requireOrgRole,
+  requireDriveAdmin,
+  assertDriveInOrg,
+} from "../rbac.js";
 import { resolveContext } from "../context.js";
-import { PermissionDeniedError } from "../../errors.js";
+import { NotFoundError, PermissionDeniedError } from "../../errors.js";
 
 const TEST_DB = join(tmpdir(), `agent-fs-identity-test-${Date.now()}.db`);
 let db: DB;
@@ -100,6 +116,41 @@ describe("Org & invite flow", () => {
     const bobOrgs = listUserOrgs(db, bobId);
     expect(bobOrgs.some((o) => o.id === orgId && o.role === "viewer")).toBe(true);
   });
+
+  test("inviteToOrg grants membership on the isDefault drive even when a non-default drive sorts first", () => {
+    // Self-sufficient: fresh org whose FIRST drives row (by insertion order)
+    // is non-default. Demote the auto-created default drive, then create a
+    // new default one — the old unfiltered "first row" query picks the wrong
+    // drive here.
+    const ownerId = createUser(db, { email: "invite-default-owner@example.com" })
+      .user.id;
+    const org = createOrg(db, { name: "invite-default-org", userId: ownerId });
+    const firstDriveId = listDrives(db, org.id)[0].id;
+
+    db.update(schema.drives)
+      .set({ isDefault: false })
+      .where(require("drizzle-orm").eq(schema.drives.id, firstDriveId))
+      .run();
+    const realDefault = createDrive(db, {
+      orgId: org.id,
+      name: "real-default",
+      isDefault: true,
+      creatorUserId: ownerId,
+    });
+
+    const inviteeId = createUser(db, {
+      email: "invite-default-peer@example.com",
+    }).user.id;
+    inviteToOrg(db, {
+      orgId: org.id,
+      email: "invite-default-peer@example.com",
+      role: "editor",
+    });
+
+    // Granted on the isDefault drive — not whichever row happens to come first.
+    expect(getUserDriveRole(db, inviteeId, realDefault.id)).toBe("editor");
+    expect(getUserDriveRole(db, inviteeId, firstDriveId)).toBeNull();
+  });
 });
 
 describe("RBAC enforcement", () => {
@@ -185,5 +236,336 @@ describe("Drive context resolution", () => {
 
     const ctx = resolveContext(db, { userId, driveId: drives[0].id });
     expect(ctx.driveId).toBe(drives[0].id);
+  });
+});
+
+describe("Context org/drive binding", () => {
+  let ownerId: string;
+  let personalOrgId: string;
+  let secondOrgId: string;
+  let secondOrgDriveId: string;
+
+  beforeAll(() => {
+    // Self-sufficient: works standalone under --test-name-pattern.
+    ownerId = createUser(db, { email: "ctx-owner@example.com" }).user.id;
+    personalOrgId = listUserOrgs(db, ownerId).find((o) => o.isPersonal)!.id;
+
+    const secondOrg = createOrg(db, { name: "ctx-second", userId: ownerId });
+    secondOrgId = secondOrg.id;
+    secondOrgDriveId = listDrives(db, secondOrgId)[0].id;
+  });
+
+  test("resolveContext accepts driveId belonging to the given orgId", () => {
+    const ctx = resolveContext(db, {
+      userId: ownerId,
+      orgId: secondOrgId,
+      driveId: secondOrgDriveId,
+    });
+
+    expect(ctx.orgId).toBe(secondOrgId);
+    expect(ctx.driveId).toBe(secondOrgDriveId);
+  });
+
+  test("resolveContext rejects driveId from another org", () => {
+    expect(() =>
+      resolveContext(db, {
+        userId: ownerId,
+        orgId: personalOrgId,
+        driveId: secondOrgDriveId,
+      })
+    ).toThrow(NotFoundError);
+  });
+
+  test("resolveContext rejects unknown driveId", () => {
+    expect(() =>
+      resolveContext(db, { userId: ownerId, driveId: "no-such-drive" })
+    ).toThrow(NotFoundError);
+  });
+});
+
+describe("Strict drive membership", () => {
+  let aliceId: string;
+  let bobId: string;
+  let orgId: string;
+
+  beforeAll(() => {
+    // Self-sufficient: works standalone under --test-name-pattern.
+    aliceId = createUser(db, { email: "strict-owner@example.com" }).user.id;
+    bobId = createUser(db, { email: "strict-peer@example.com" }).user.id;
+    orgId = listUserOrgs(db, aliceId).find((o) => o.isPersonal)!.id;
+    // Peer joins the org (and its default drive) as viewer.
+    inviteToOrg(db, { orgId, email: "strict-peer@example.com", role: "viewer" });
+  });
+
+  test("newly-created drive has explicit creator membership", () => {
+    const drive = createDrive(db, {
+      orgId,
+      name: "with-creator",
+      creatorUserId: aliceId,
+    });
+
+    expect(getUserDriveRole(db, aliceId, drive.id)).toBe("admin");
+
+    const visible = listDrivesForUser(db, orgId, aliceId);
+    expect(visible.some((d) => d.id === drive.id)).toBe(true);
+  });
+
+  test("drive without any membership rows is visible to no one", () => {
+    const drive = createDrive(db, { orgId, name: "zero-members" });
+
+    // Not even the org admin can see it via listDrivesForUser — the old
+    // "zero members means public" fallback is gone.
+    const aliceVisible = listDrivesForUser(db, orgId, aliceId);
+    expect(aliceVisible.some((d) => d.id === drive.id)).toBe(false);
+
+    const bobVisible = listDrivesForUser(db, orgId, bobId);
+    expect(bobVisible.some((d) => d.id === drive.id)).toBe(false);
+
+    // It still exists in the unfiltered org listing.
+    const all = listDrives(db, orgId);
+    expect(all.some((d) => d.id === drive.id)).toBe(true);
+  });
+
+  test("listDrivesForUser excludes drives where user is not a member", () => {
+    const drive = createDrive(db, {
+      orgId,
+      name: "alice-only",
+      creatorUserId: aliceId,
+    });
+
+    const bobVisible = listDrivesForUser(db, orgId, bobId);
+    expect(bobVisible.some((d) => d.id === drive.id)).toBe(false);
+
+    // Explicit membership makes it visible.
+    setDriveMember(db, { driveId: drive.id, userId: bobId, role: "viewer" });
+    const bobVisibleAfter = listDrivesForUser(db, orgId, bobId);
+    expect(bobVisibleAfter.some((d) => d.id === drive.id)).toBe(true);
+  });
+
+  test("resolveContext for an inaccessible drive is indistinguishable from a missing drive", () => {
+    // Alice-only drive: bob (org viewer) has no membership row on it.
+    const hidden = createDrive(db, {
+      orgId,
+      name: "bob-cannot-see",
+      creatorUserId: aliceId,
+    });
+
+    const capture = (fn: () => unknown): NotFoundError => {
+      try {
+        fn();
+      } catch (err) {
+        expect(err).toBeInstanceOf(NotFoundError);
+        return err as NotFoundError;
+      }
+      throw new Error("expected resolveContext to throw");
+    };
+
+    const missingId = "00000000-0000-4000-8000-000000000000";
+    const missingErr = capture(() =>
+      resolveContext(db, { userId: bobId, driveId: missingId })
+    );
+    const hiddenErr = capture(() =>
+      resolveContext(db, { userId: bobId, driveId: hidden.id })
+    );
+
+    // Byte-identical modulo the caller-supplied driveId (no existence oracle).
+    expect(hiddenErr.message).toBe(
+      missingErr.message.replaceAll(missingId, hidden.id)
+    );
+    expect(JSON.stringify(hiddenErr.toJSON())).toBe(
+      JSON.stringify(missingErr.toJSON()).replaceAll(missingId, hidden.id)
+    );
+
+    // Same holds when the org is pinned (the /orgs/:orgId/ops shape).
+    const missingOrgErr = capture(() =>
+      resolveContext(db, { userId: bobId, orgId, driveId: missingId })
+    );
+    const hiddenOrgErr = capture(() =>
+      resolveContext(db, { userId: bobId, orgId, driveId: hidden.id })
+    );
+    expect(JSON.stringify(hiddenOrgErr.toJSON())).toBe(
+      JSON.stringify(missingOrgErr.toJSON()).replaceAll(missingId, hidden.id)
+    );
+  });
+
+  test("resolveContext via orgId hides an inaccessible default drive", () => {
+    // Org member with no membership row on the org's default drive: joins via
+    // a raw org_members insert (inviteToOrg would grant the drive role).
+    const orgOnlyId = createUser(db, {
+      email: "strict-org-only@example.com",
+    }).user.id;
+    db.insert(schema.orgMembers)
+      .values({ orgId, userId: orgOnlyId, role: "viewer" })
+      .run();
+
+    try {
+      resolveContext(db, { userId: orgOnlyId, orgId });
+      expect(true).toBe(false); // Should not reach here
+    } catch (err) {
+      // NotFound (404), with the same message as an org without a default
+      // drive — neither the drive's existence nor its id leaks.
+      expect(err).toBeInstanceOf(NotFoundError);
+      expect((err as NotFoundError).message).toBe(
+        `No default drive for org: ${orgId}`
+      );
+    }
+  });
+});
+
+describe("Org and drive authorization helpers", () => {
+  let aliceId: string;
+  let bobId: string;
+  let strangerId: string;
+  let orgId: string;
+  let driveId: string;
+
+  beforeAll(() => {
+    // Self-sufficient: works standalone under --test-name-pattern.
+    aliceId = createUser(db, { email: "authz-admin@example.com" }).user.id;
+    bobId = createUser(db, { email: "authz-viewer@example.com" }).user.id;
+    strangerId = createUser(db, { email: "authz-stranger@example.com" }).user.id;
+    orgId = listUserOrgs(db, aliceId).find((o) => o.isPersonal)!.id;
+    driveId = listDrives(db, orgId).find((d) => d.isDefault)!.id;
+    // Bob joins the org (and its default drive) as viewer.
+    inviteToOrg(db, { orgId, email: "authz-viewer@example.com", role: "viewer" });
+  });
+
+  test("roleAtLeast compares role levels", () => {
+    expect(roleAtLeast("admin", "viewer")).toBe(true);
+    expect(roleAtLeast("editor", "editor")).toBe(true);
+    expect(roleAtLeast("viewer", "editor")).toBe(false);
+    expect(roleAtLeast(null, "viewer")).toBe(false);
+    expect(roleAtLeast(undefined, "viewer")).toBe(false);
+  });
+
+  test("getUserOrgRole returns explicit org role or null", () => {
+    expect(getUserOrgRole(db, aliceId, orgId)).toBe("admin");
+    expect(getUserOrgRole(db, bobId, orgId)).toBe("viewer");
+    expect(getUserOrgRole(db, strangerId, orgId)).toBeNull();
+  });
+
+  test("requireOrgRole passes for sufficient role and returns it", () => {
+    expect(requireOrgRole(db, { userId: aliceId, orgId, requiredRole: "admin" })).toBe("admin");
+    expect(requireOrgRole(db, { userId: bobId, orgId, requiredRole: "viewer" })).toBe("viewer");
+  });
+
+  test("requireOrgRole throws for insufficient role or non-member", () => {
+    expect(() =>
+      requireOrgRole(db, { userId: bobId, orgId, requiredRole: "admin" })
+    ).toThrow(PermissionDeniedError);
+
+    expect(() =>
+      requireOrgRole(db, { userId: strangerId, orgId, requiredRole: "viewer" })
+    ).toThrow(PermissionDeniedError);
+  });
+
+  test("requireDriveRole returns the actual role on success", () => {
+    expect(
+      requireDriveRole(db, { userId: aliceId, driveId, requiredRole: "editor" })
+    ).toBe("admin");
+    expect(() =>
+      requireDriveRole(db, { userId: bobId, driveId, requiredRole: "admin" })
+    ).toThrow(PermissionDeniedError);
+  });
+
+  test("requireDriveAdmin passes for explicit drive admin", () => {
+    expect(requireDriveAdmin(db, { userId: aliceId, driveId })).toBe("admin");
+  });
+
+  test("requireDriveAdmin falls back to org admin without drive row", () => {
+    // Alice is org admin; create a drive she has no membership row on.
+    const drive = createDrive(db, { orgId, name: "org-admin-fallback" });
+    expect(getUserDriveRole(db, aliceId, drive.id)).toBeNull();
+
+    expect(requireDriveAdmin(db, { userId: aliceId, driveId: drive.id })).toBe("admin");
+  });
+
+  test("requireDriveAdmin rejects non-admins and unknown drives", () => {
+    // Bob is org viewer and drive viewer — neither satisfies admin.
+    expect(() => requireDriveAdmin(db, { userId: bobId, driveId })).toThrow(
+      PermissionDeniedError
+    );
+    expect(() =>
+      requireDriveAdmin(db, { userId: aliceId, driveId: "no-such-drive" })
+    ).toThrow(NotFoundError);
+  });
+
+  test("assertDriveInOrg binds drive to org", () => {
+    const drive = assertDriveInOrg(db, { driveId, orgId });
+    expect(drive.id).toBe(driveId);
+    expect(drive.orgId).toBe(orgId);
+
+    const otherOrg = createOrg(db, { name: "other-org", userId: aliceId });
+    expect(() =>
+      assertDriveInOrg(db, { driveId, orgId: otherOrg.id })
+    ).toThrow(NotFoundError);
+    expect(() =>
+      assertDriveInOrg(db, { driveId: "no-such-drive", orgId })
+    ).toThrow(NotFoundError);
+  });
+});
+
+describe("Drive membership backfill migration", () => {
+  let carolId: string;
+  let daveId: string;
+  let teamOrgId: string;
+  let teamDefaultDriveId: string;
+  let legacyDriveId: string;
+
+  beforeAll(() => {
+    carolId = createUser(db, { email: "carol@example.com" }).user.id;
+    daveId = createUser(db, { email: "dave@example.com" }).user.id;
+
+    const teamOrg = createOrg(db, { name: "carol-team", userId: carolId });
+    teamOrgId = teamOrg.id;
+    teamDefaultDriveId = listDrives(db, teamOrgId).find((d) => d.isDefault)!.id;
+
+    // Dave joins as org editor (also gets editor on the default drive).
+    inviteToOrg(db, { orgId: teamOrgId, email: "dave@example.com", role: "editor" });
+
+    // Simulate a pre-strict-membership drive: zero member rows.
+    legacyDriveId = createDrive(db, { orgId: teamOrgId, name: "legacy" }).id;
+  });
+
+  test("backfills empty drive members for org admins", () => {
+    // Before backfill: invisible to everyone under strict membership.
+    expect(
+      listDrivesForUser(db, teamOrgId, carolId).some((d) => d.id === legacyDriveId)
+    ).toBe(false);
+    expect(getUserDriveRole(db, carolId, legacyDriveId)).toBeNull();
+
+    // Re-running createDatabase on the same file re-runs migrations.
+    createDatabase(TEST_DB);
+
+    // Org admin carol got an explicit admin row; org editor dave did not.
+    expect(getUserDriveRole(db, carolId, legacyDriveId)).toBe("admin");
+    expect(getUserDriveRole(db, daveId, legacyDriveId)).toBeNull();
+
+    expect(
+      listDrivesForUser(db, teamOrgId, carolId).some((d) => d.id === legacyDriveId)
+    ).toBe(true);
+    expect(
+      listDrivesForUser(db, teamOrgId, daveId).some((d) => d.id === legacyDriveId)
+    ).toBe(false);
+  });
+
+  test("backfill does not touch drives that already have members", () => {
+    // Default drive memberships are unchanged: carol admin, dave editor.
+    expect(getUserDriveRole(db, carolId, teamDefaultDriveId)).toBe("admin");
+    expect(getUserDriveRole(db, daveId, teamDefaultDriveId)).toBe("editor");
+  });
+
+  test("backfill is idempotent", () => {
+    createDatabase(TEST_DB);
+
+    const rows = db
+      .select()
+      .from(schema.driveMembers)
+      .where(require("drizzle-orm").eq(schema.driveMembers.driveId, legacyDriveId))
+      .all();
+
+    expect(rows.length).toBe(1);
+    expect(rows[0].userId).toBe(carolId);
+    expect(rows[0].role).toBe("admin");
   });
 });

@@ -8,6 +8,7 @@ import {
 } from "./versioning.js";
 import { detectMimeType } from "./mime.js";
 import { ValidationError } from "../errors.js";
+import { requireDriveRole } from "../identity/rbac.js";
 import { indexBytesForSearch, indexTextForSearch } from "./search-index.js";
 
 /** Max file size: 10 MB. Protects SQLite FTS indexing and embedding costs. */
@@ -33,11 +34,21 @@ export async function write(
  * up to 50 MB (Hono's body limit) instead of the JSON-path 10 MB cap. Bytes
  * are stored unchanged; search indexing runs only when the payload is valid,
  * indexable UTF-8 text.
+ *
+ * RBAC: callers reach this directly (not via `dispatchOp`), so the
+ * editor-or-better requirement that `dispatchOp` enforces for the JSON
+ * `write` op is enforced here instead. The JSON path calls `write()` /
+ * `writeInternal()` and is checked once by the dispatcher — no double check.
  */
 export async function writeRaw(
   ctx: OpContext,
   params: WriteRawParams
 ): Promise<WriteResult> {
+  requireDriveRole(ctx.db, {
+    userId: ctx.userId,
+    driveId: ctx.driveId,
+    requiredRole: "editor",
+  });
   return writeInternal(ctx, params, { maxSize: MAX_RAW_FILE_SIZE });
 }
 

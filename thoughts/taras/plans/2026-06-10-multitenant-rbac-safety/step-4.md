@@ -2,7 +2,7 @@
 id: step-4
 name: MCP member tool RBAC
 depends_on: [step-1]
-status: ready
+status: done
 ---
 
 <!-- During /v-implement, `desplega:step-running` adds `assignee` and `claimed_at` while
@@ -36,15 +36,15 @@ Harden MCP-only member management tools so they follow the same tenant and admin
 *(Push everything you can into the first two buckets — Automated Verification + Automated QA — so the agent provides proof of work. Manual Verification is the exception, not the default.)*
 
 #### Automated Verification:
-- [ ] MCP tests pass: `bun test packages/mcp/src/__tests__/tools.test.ts packages/mcp/src/__tests__/mcp.test.ts`.
-- [ ] Server tests still pass for `/mcp` auth behavior: `bun test packages/server/src/__tests__/server.test.ts`.
-- [ ] Typecheck passes: `bun run typecheck`.
+- [x] MCP tests pass: `bun test packages/mcp/src/__tests__/tools.test.ts packages/mcp/src/__tests__/mcp.test.ts`.
+- [x] Server tests still pass for `/mcp` auth behavior: `bun test packages/server/src/__tests__/server.test.ts`.
+- [x] Typecheck passes: `bun run typecheck`.
 
 #### Automated QA:
-- [ ] MCP member RBAC scenario passes: `bun test packages/mcp/src/__tests__/tools.test.ts --test-name-pattern "member tool RBAC"`.
-- [ ] MCP visibility scenario passes: `bun test packages/mcp/src/__tests__/tools.test.ts --test-name-pattern "whoami hides inaccessible drives"`.
+- [x] MCP member RBAC scenario passes: `bun test packages/mcp/src/__tests__/tools.test.ts --test-name-pattern "member tool RBAC"`.
+- [x] MCP visibility scenario passes: `bun test packages/mcp/src/__tests__/tools.test.ts --test-name-pattern "whoami hides inaccessible drives"`.
 
 #### Manual Verification:
-- [ ] Taras confirms MCP member management should follow the same admin policy as HTTP member management.
+- [x] Taras confirms MCP member management should follow the same admin policy as HTTP member management.
 
 **Implementation Note**: This step is a vertical slice — QA-able on its own. After completing this step, pause for manual confirmation. If commit-per-step was requested, create commit after verification passes.

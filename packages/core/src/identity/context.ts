@@ -1,6 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
+import { NotFoundError } from "../errors.js";
 import type { Role } from "./rbac.js";
 import { getUserDriveRole } from "./rbac.js";
 
@@ -22,10 +23,28 @@ export function resolveContext(
       .where(eq(schema.drives.id, params.driveId))
       .get();
 
-    if (!drive) throw new Error(`Drive not found: ${params.driveId}`);
+    // When the caller also pinned an org (e.g. route /orgs/:orgId/ops),
+    // the drive MUST belong to that org. Reject mismatches with the same
+    // error as "missing" so cross-tenant callers cannot probe existence.
+    if (!drive || (params.orgId && drive.orgId !== params.orgId)) {
+      throw new NotFoundError(`Drive not found: ${params.driveId}`, {
+        suggestion: params.orgId
+          ? "Check the driveId belongs to the org you are addressing"
+          : undefined,
+      });
+    }
 
+    // No role on an existing drive must be indistinguishable from a drive
+    // that does not exist — same error type and byte-identical message as
+    // the missing/cross-org branch above (no intra-org existence oracle).
     const role = getUserDriveRole(db, params.userId, params.driveId);
-    if (!role) throw new Error("You do not have access to this drive");
+    if (!role) {
+      throw new NotFoundError(`Drive not found: ${params.driveId}`, {
+        suggestion: params.orgId
+          ? "Check the driveId belongs to the org you are addressing"
+          : undefined,
+      });
+    }
 
     return { orgId: drive.orgId, driveId: params.driveId, role };
   }
@@ -43,10 +62,15 @@ export function resolveContext(
       )
       .get();
 
-    if (!drive) throw new Error(`No default drive for org: ${params.orgId}`);
+    if (!drive)
+      throw new NotFoundError(`No default drive for org: ${params.orgId}`);
 
+    // A default drive the user has no role on must be indistinguishable from
+    // the org having no default drive at all — same error, and no leak of the
+    // drive's id to non-members.
     const role = getUserDriveRole(db, params.userId, drive.id);
-    if (!role) throw new Error("You do not have access to this drive");
+    if (!role)
+      throw new NotFoundError(`No default drive for org: ${params.orgId}`);
 
     return { orgId: params.orgId, driveId: drive.id, role };
   }

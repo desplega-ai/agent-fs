@@ -50,6 +50,27 @@ function emitEvent(
 
 // --- Helpers ---
 
+/**
+ * Fetch a live (non-deleted) comment by ID, scoped to the active org and
+ * drive. Out-of-scope comment IDs behave exactly like missing IDs (callers
+ * throw NotFoundError), so comment IDs never act as a cross-tenant
+ * existence oracle.
+ */
+function getScopedComment(ctx: OpContext, id: string) {
+  return ctx.db
+    .select()
+    .from(schema.comments)
+    .where(
+      and(
+        eq(schema.comments.id, id),
+        eq(schema.comments.orgId, ctx.orgId),
+        eq(schema.comments.driveId, ctx.driveId),
+        eq(schema.comments.isDeleted, false)
+      )
+    )
+    .get();
+}
+
 function toCommentEntry(row: any): CommentEntry {
   return {
     id: row.id,
@@ -81,17 +102,8 @@ export async function commentAdd(
   let path = params.path;
 
   if (params.parentId) {
-    // Resolve parent
-    const parent = ctx.db
-      .select()
-      .from(schema.comments)
-      .where(
-        and(
-          eq(schema.comments.id, params.parentId),
-          eq(schema.comments.isDeleted, false)
-        )
-      )
-      .get();
+    // Resolve parent (scoped to the active org/drive)
+    const parent = getScopedComment(ctx, params.parentId);
 
     if (!parent) {
       throw new NotFoundError("Parent comment not found", {
@@ -177,6 +189,7 @@ export async function commentList(
   params: CommentListParams
 ): Promise<CommentListResult> {
   const conditions = [
+    eq(schema.comments.orgId, ctx.orgId),
     eq(schema.comments.driveId, ctx.driveId),
     eq(schema.comments.isDeleted, false),
   ];
@@ -212,7 +225,7 @@ export async function commentList(
     .offset(offset)
     .all();
 
-  // Fetch replies inline for each root comment
+  // Fetch replies inline for each root comment (scoped to the active org/drive)
   const comments: CommentListEntry[] = rows.map((row) => {
     const replyRows = ctx.db
       .select()
@@ -220,6 +233,8 @@ export async function commentList(
       .where(
         and(
           eq(schema.comments.parentId, row.id),
+          eq(schema.comments.orgId, ctx.orgId),
+          eq(schema.comments.driveId, ctx.driveId),
           eq(schema.comments.isDeleted, false)
         )
       )
@@ -241,16 +256,7 @@ export async function commentGet(
   ctx: OpContext,
   params: CommentGetParams
 ): Promise<CommentGetResult> {
-  const row = ctx.db
-    .select()
-    .from(schema.comments)
-    .where(
-      and(
-        eq(schema.comments.id, params.id),
-        eq(schema.comments.isDeleted, false)
-      )
-    )
-    .get();
+  const row = getScopedComment(ctx, params.id);
 
   if (!row) {
     throw new NotFoundError("Comment not found", {
@@ -258,13 +264,15 @@ export async function commentGet(
     });
   }
 
-  // Count replies for the main comment
+  // Count replies for the main comment (scoped to the active org/drive)
   const replyCount = ctx.db
     .select({ count: sql<number>`count(*)` })
     .from(schema.comments)
     .where(
       and(
         eq(schema.comments.parentId, row.id),
+        eq(schema.comments.orgId, ctx.orgId),
+        eq(schema.comments.driveId, ctx.driveId),
         eq(schema.comments.isDeleted, false)
       )
     )
@@ -275,13 +283,15 @@ export async function commentGet(
     replyCount: replyCount?.count ?? 0,
   });
 
-  // Fetch replies
+  // Fetch replies (scoped to the active org/drive)
   const replyRows = ctx.db
     .select()
     .from(schema.comments)
     .where(
       and(
         eq(schema.comments.parentId, params.id),
+        eq(schema.comments.orgId, ctx.orgId),
+        eq(schema.comments.driveId, ctx.driveId),
         eq(schema.comments.isDeleted, false)
       )
     )
@@ -297,16 +307,7 @@ export async function commentUpdate(
   ctx: OpContext,
   params: CommentUpdateParams
 ): Promise<CommentUpdateResult> {
-  const row = ctx.db
-    .select()
-    .from(schema.comments)
-    .where(
-      and(
-        eq(schema.comments.id, params.id),
-        eq(schema.comments.isDeleted, false)
-      )
-    )
-    .get();
+  const row = getScopedComment(ctx, params.id);
 
   if (!row) {
     throw new NotFoundError("Comment not found", {
@@ -324,7 +325,13 @@ export async function commentUpdate(
   ctx.db
     .update(schema.comments)
     .set({ body: params.body, updatedAt: now })
-    .where(eq(schema.comments.id, params.id))
+    .where(
+      and(
+        eq(schema.comments.id, params.id),
+        eq(schema.comments.orgId, ctx.orgId),
+        eq(schema.comments.driveId, ctx.driveId)
+      )
+    )
     .run();
 
   return { id: params.id, body: params.body, updatedAt: now };
@@ -334,16 +341,7 @@ export async function commentDelete(
   ctx: OpContext,
   params: CommentDeleteParams
 ): Promise<CommentDeleteResult> {
-  const row = ctx.db
-    .select()
-    .from(schema.comments)
-    .where(
-      and(
-        eq(schema.comments.id, params.id),
-        eq(schema.comments.isDeleted, false)
-      )
-    )
-    .get();
+  const row = getScopedComment(ctx, params.id);
 
   if (!row) {
     throw new NotFoundError("Comment not found", {
@@ -359,19 +357,31 @@ export async function commentDelete(
 
   const now = new Date();
 
-  // Soft-delete the comment
+  // Soft-delete the comment (scoped to the active org/drive)
   ctx.db
     .update(schema.comments)
     .set({ isDeleted: true, updatedAt: now })
-    .where(eq(schema.comments.id, params.id))
+    .where(
+      and(
+        eq(schema.comments.id, params.id),
+        eq(schema.comments.orgId, ctx.orgId),
+        eq(schema.comments.driveId, ctx.driveId)
+      )
+    )
     .run();
 
-  // If root comment, also soft-delete all replies
+  // If root comment, also soft-delete all replies (scoped to the active org/drive)
   if (!row.parentId) {
     ctx.db
       .update(schema.comments)
       .set({ isDeleted: true, updatedAt: now })
-      .where(eq(schema.comments.parentId, params.id))
+      .where(
+        and(
+          eq(schema.comments.parentId, params.id),
+          eq(schema.comments.orgId, ctx.orgId),
+          eq(schema.comments.driveId, ctx.driveId)
+        )
+      )
       .run();
   }
 
@@ -388,16 +398,7 @@ export async function commentResolve(
   ctx: OpContext,
   params: CommentResolveParams
 ): Promise<CommentResolveResult> {
-  const row = ctx.db
-    .select()
-    .from(schema.comments)
-    .where(
-      and(
-        eq(schema.comments.id, params.id),
-        eq(schema.comments.isDeleted, false)
-      )
-    )
-    .get();
+  const row = getScopedComment(ctx, params.id);
 
   if (!row) {
     throw new NotFoundError("Comment not found", {
@@ -423,7 +424,13 @@ export async function commentResolve(
       resolvedAt,
       updatedAt: now,
     })
-    .where(eq(schema.comments.id, params.id))
+    .where(
+      and(
+        eq(schema.comments.id, params.id),
+        eq(schema.comments.orgId, ctx.orgId),
+        eq(schema.comments.driveId, ctx.driveId)
+      )
+    )
     .run();
 
   emitEvent(ctx, {

@@ -24,12 +24,13 @@ export function createOrg(
     .values({ orgId: id, userId: params.userId, role: "admin" })
     .run();
 
-  // Create default drive and add creator as admin
-  const drive = createDrive(db, { orgId: id, name: "default", isDefault: true });
-
-  db.insert(schema.driveMembers)
-    .values({ driveId: drive.id, userId: params.userId, role: "admin" })
-    .run();
+  // Create default drive with explicit creator admin membership
+  createDrive(db, {
+    orgId: id,
+    name: "default",
+    isDefault: true,
+    creatorUserId: params.userId,
+  });
 
   return { id, name: params.name };
 }
@@ -240,7 +241,12 @@ export function inviteToOrg(
   const defaultDrive = db
     .select()
     .from(schema.drives)
-    .where(eq(schema.drives.orgId, params.orgId))
+    .where(
+      and(
+        eq(schema.drives.orgId, params.orgId),
+        eq(schema.drives.isDefault, true)
+      )
+    )
     .get();
 
   if (defaultDrive) {
