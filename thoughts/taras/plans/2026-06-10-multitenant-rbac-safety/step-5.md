@@ -47,6 +47,6 @@ Make comment IDs tenant-safe by scoping every comment and parent-comment lookup 
 - [x] Same-drive author guard scenario passes: `bun test packages/core/src/ops/__tests__/comment.test.ts --test-name-pattern "author-only comment mutations still apply"`.
 
 #### Manual Verification:
-- [ ] Taras confirms cross-tenant comment access should return not found rather than exposing that the comment exists but is forbidden.
+- [x] Taras confirms cross-tenant comment access should return not found rather than exposing that the comment exists but is forbidden.
 
 **Implementation Note**: This step is a vertical slice — QA-able on its own. After completing this step, pause for manual confirmation. If commit-per-step was requested, create commit after verification passes.

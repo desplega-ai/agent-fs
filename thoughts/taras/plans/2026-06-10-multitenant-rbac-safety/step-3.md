@@ -51,6 +51,6 @@ Close the viewer-write bypass in binary/raw write paths. This step enforces edit
 - [x] IPC viewer/editor scenario passes: `bun test packages/server/src/ipc/__tests__/server.test.ts --test-name-pattern "viewer cannot open_write but editor can"`.
 
 #### Manual Verification:
-- [ ] Taras confirms the raw/FUSE write error shape is acceptable for agents and FUSE clients, especially the HTTP status/error code surfaced for viewer write attempts.
+- [x] Taras confirms the raw/FUSE write error shape is acceptable for agents and FUSE clients, especially the HTTP status/error code surfaced for viewer write attempts.
 
 **Implementation Note**: This step is a vertical slice — QA-able on its own. After completing this step, pause for manual confirmation. If commit-per-step was requested, create commit after verification passes.

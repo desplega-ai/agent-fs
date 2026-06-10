@@ -26,11 +26,11 @@ Apply the shared core authorization helpers to HTTP org, drive, and member route
 
 #### 3. Ops Route Binding
 **File**: `packages/server/src/routes/ops.ts`
-**Changes**: Use the step-1 context/binding behavior so `/orgs/:orgId/ops` rejects a body `driveId` from another org before dispatching any op.
+**Changes**: Use the step-1 context/binding behavior so `/orgs/:orgId/ops` rejects a body `driveId` from another org before dispatching any op. *(Resolved with no edits: the route already flows through `resolveContext`, which enforces this since step-1.)*
 
 #### 4. Raw Route Binding
 **File**: `packages/server/src/routes/files.ts`
-**Changes**: Use the same route org/drive binding for `GET /raw` and `PUT /raw`; write-role enforcement happens in step-3, but org/drive mismatch rejection belongs here.
+**Changes**: Use the same route org/drive binding for `GET /raw` and `PUT /raw`; write-role enforcement happens in step-3, but org/drive mismatch rejection belongs here. *(Resolved with no edits: both raw routes already resolve via `resolveContext`, which enforces this since step-1.)*
 
 #### 5. HTTP Tests
 **File**: `packages/server/src/__tests__/server.test.ts`
@@ -54,6 +54,6 @@ Apply the shared core authorization helpers to HTTP org, drive, and member route
 - [x] Admin drive-management scenario passes: `bun test packages/server/src/__tests__/server.test.ts --test-name-pattern "org admin can create list and manage drive members"`. (1 pass)
 
 #### Manual Verification:
-- [ ] Taras confirms the chosen admin policy is correct: org member list requires org admin, drive member list requires drive admin or org admin, and drive creation requires org admin.
+- [x] Taras confirms the chosen admin policy is correct: org member list requires org admin, drive member list requires drive admin or org admin, and drive creation requires org admin.
 
 **Implementation Note**: This step is a vertical slice — QA-able on its own. After completing this step, pause for manual confirmation. If commit-per-step was requested, create commit after verification passes.

@@ -61,15 +61,15 @@ Stitch the parallel hardening slices together and make the public contract/relea
 - [x] Full E2E suite passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`. (81/81 passed, 10 FUSE cases skipped on Darwin)
 - [x] FUSE helper tests pass where Rust is available: `cargo test -p agent-fs-fuse`. (64 pass / 0 fail)
 - [x] Landing docs build passes if docs changed: `pnpm --dir landing build`.
-- [x] OpenAPI is fresh if generated output changes: `bun run scripts/sync-openapi.ts`. (only `info.version` changed: 0.7.5 → 0.7.6)
+- [x] OpenAPI is fresh if generated output changes: `bun run scripts/sync-openapi.ts`. (only `info.version` changed: 0.7.5 → 0.7.6; later resynced to 0.8.0 at the final gate)
 - [x] OpenAPI generated diff is reviewed: `git diff -- docs/openapi.json packages/core/src/openapi.ts`. (openapi.ts untouched; openapi.json diff is the version bump only)
 
 #### Automated QA:
 - [x] Hosted hardening E2E scenario passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`. (13 new `rbac:` tests cover strict membership, admin gates, org/drive binding 404s, raw viewer write denial, MCP whoami/member-tool gating, comment ID scoping — all pass)
 - [x] Signed-url tests still pass after docs-only escape-hatch handling: `bun test packages/core/src/ops/__tests__/signed-url.test.ts packages/core/src/ops/__tests__/urls.test.ts`. (15 pass)
-- [x] Version dry-run shows all expected package/plugin files for `0.7.6`: `bun run scripts/sync-versions.ts 0.7.6 --dry-run`. (11 files listed; then applied for real)
+- [x] Version dry-run shows all expected package/plugin files for `0.7.6`: `bun run scripts/sync-versions.ts 0.7.6 --dry-run`. (11 files listed; then applied for real — superseded by 0.8.0 at the final gate per AGENTS.md breaking-change rule, see root.md)
 
 #### Manual Verification:
-- [ ] Taras confirms the final E2E output and docs describe the intended hosted multi-tenant safety boundary without overclaiming storage-layer isolation.
+- [x] Taras confirms the final E2E output and docs describe the intended hosted multi-tenant safety boundary without overclaiming storage-layer isolation.
 
 **Implementation Note**: This step is a vertical slice — QA-able on its own. After completing this step, pause for manual confirmation. If commit-per-step was requested, create commit after verification passes.

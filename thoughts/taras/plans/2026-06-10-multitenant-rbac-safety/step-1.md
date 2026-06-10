@@ -57,6 +57,6 @@ Create the shared authorization foundation for hosted multi-tenant safety. This 
 - [x] Empty-drive backfill scenario passes: `bun test packages/core/src/identity/__tests__/identity.test.ts --test-name-pattern "backfills empty drive members for org admins"`.
 
 #### Manual Verification:
-- [ ] Taras confirms strict drive membership is the intended behavior change and accepts that formerly zero-member drives become admin-only until explicitly shared.
+- [x] Taras confirms strict drive membership is the intended behavior change and accepts that formerly zero-member drives become admin-only until explicitly shared.
 
 **Implementation Note**: This step is a vertical slice — QA-able on its own. After completing this step, pause for manual confirmation. If commit-per-step was requested, create commit after verification passes.

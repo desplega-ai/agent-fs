@@ -45,6 +45,6 @@ Harden MCP-only member management tools so they follow the same tenant and admin
 - [x] MCP visibility scenario passes: `bun test packages/mcp/src/__tests__/tools.test.ts --test-name-pattern "whoami hides inaccessible drives"`.
 
 #### Manual Verification:
-- [ ] Taras confirms MCP member management should follow the same admin policy as HTTP member management.
+- [x] Taras confirms MCP member management should follow the same admin policy as HTTP member management.
 
 **Implementation Note**: This step is a vertical slice — QA-able on its own. After completing this step, pause for manual confirmation. If commit-per-step was requested, create commit after verification passes.
