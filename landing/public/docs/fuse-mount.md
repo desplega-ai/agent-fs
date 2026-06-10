@@ -135,10 +135,15 @@ agent-fs exposes operational signal at well-known paths so agents can self-diagn
 | `cp` (within mount) | Yes | Two ops: read + write |
 | `mkdir`, `rmdir` (inside a drive) | Yes | Versions still tracked per file |
 | `mkdir` at mount root | No (`EROFS`) | Use `agent-fs drive create` |
+| Writes on a drive where you're a `viewer` | No (`EACCES`) | All FUSE writes require the `editor` role or better — see below |
 | `chmod`, `chown` | No (`ENOSYS` / no-op) | agent-fs has no POSIX permissions model |
 | `flock`, `fcntl` locks | No (`ENOSYS`) | Use `--expected-version` for optimistic concurrency |
 | Streaming large files (>50 MB) | Partial | The 50 MB Hono body limit caps a single PUT; streaming-into-S3 is v1.x |
 | Extended attributes (`xattr`) | No | Read-only xattr window is v1.1 (`user.agent-fs.{version, content-hash, ...}`) |
+
+### Write permissions
+
+FUSE writes enforce the same RBAC as the JSON `write` op and `PUT /raw`: opening a file for write, creating a file, or truncating requires the **editor** role (or better) on the drive. On a drive where you're a `viewer`, the mount is effectively **read-only for file writes** — write attempts fail with `EACCES`, and the denial is recorded in `<mount>/.agent-fs/errors.ndjson` with `http_status: 403` and `error: "PERMISSION_DENIED"`. Reads (`cat`, `grep`, `find`, ...) work with any role.
 
 ## See also
 

@@ -80,6 +80,8 @@ curl -X POST http://localhost:7433/orgs/<orgId>/ops \
   -d '{"op": "write", "path": "/hello.md", "content": "# Hello"}'
 ```
 
+An optional `driveId` field targets a specific drive. The drive **must belong to `{orgId}`** — a `driveId` from another org returns `404 NOT_FOUND`, the same response as a nonexistent drive, so drive IDs cannot be probed across tenants. Each op requires a minimum drive role (see [Access control](#access-control)).
+
 See the [OpenAPI spec](./openapi.json) for the full schema of each operation, or browse it interactively:
 
 - **Live endpoint**: `GET /docs/openapi.json` (when server is running)
@@ -103,6 +105,22 @@ curl http://localhost:7433/orgs/<orgId>/drives/<driveId>/files/assets/logo.png/r
 ```
 
 The raw route preserves bytes exactly. Text indexing runs only for valid, indexable UTF-8 payloads.
+
+`PUT /raw` requires the **editor** role (or better) on the target drive — viewers get `403 PERMISSION_DENIED`, matching the JSON `write` op. `GET /raw` is viewer-accessible. As with the ops route, the `driveId` in the path must belong to the `orgId` in the path; mismatches return `404`.
+
+## Access control
+
+All routes authenticate via API key and authorize against explicit memberships:
+
+- **Strict drive membership** — a drive is only visible and accessible to users with an explicit drive membership row. Creating a drive grants the creator an admin membership automatically.
+- **Per-op role gates** — read ops (`ls`, `cat`, `search`, `signed-url`, ...) require `viewer`; write ops (`write`, `edit`, `append`, `rm`, `mv`, `cp`, `revert`, `comment-add`, ...) require `editor`; `reindex` requires `admin`.
+- **Member management is admin-only** — inviting, listing, updating, and removing org members requires org `admin`. Drive member routes require drive `admin` or admin of the owning org.
+- **No existence oracle** — requests that reference an org or drive you have no access to return `404`, identical to the response for IDs that don't exist.
+- **Scoped comment IDs** — comment IDs only resolve within the org/drive context they were created in; cross-tenant IDs return `404`.
+
+### Signed URLs are bearer secrets
+
+The `signed-url` op is viewer-accessible and RBAC is checked **only at generation time**. The returned URL is a presigned S3 URL: it requires no authentication and grants download access to **anyone who has it** until it expires (default 24h, max 7 days). Treat signed URLs like bearer tokens — don't log them, don't post them anywhere you wouldn't post a credential, and use the shortest expiry that works (`expiresIn`).
 
 ## Operations
 

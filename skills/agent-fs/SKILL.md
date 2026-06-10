@@ -170,14 +170,18 @@ symlinks are unsupported and throw `EPERM`.
 
 The `--drive` flag is a global option — place it before the subcommand: `agent-fs --drive <id> member list`.
 
+Member commands are admin-gated: org-scoped commands require org `admin`; drive-scoped commands (`--drive <id>`) require drive `admin` or admin of the owning org, and the drive must belong to the current org. Non-admins get a permission error; org/drive IDs outside your memberships return "not found".
+
 ### Drive Management
 
 | Command | Usage | Description |
 |---------|-------|-------------|
 | `drive list` | `agent-fs drive list` | List drives in current org |
-| `drive create` | `agent-fs drive create <name>` | Create a new drive |
+| `drive create` | `agent-fs drive create <name>` | Create a new drive (requires org admin) |
 | `drive current` | `agent-fs drive current` | Show current drive context |
 | `drive invite` | `agent-fs drive invite <email> --role <role>` | Invite user (viewer/editor/admin) |
+
+Drive membership is explicit: `drive list` shows only drives you're a member of. Creating a drive automatically grants you admin membership on it; other users must be invited per drive (or via org invite, which grants access to the default drive).
 
 ### Config & Daemon
 
@@ -198,6 +202,8 @@ Expose all org drives as a Linux FUSE filesystem so agents can use plain shell v
 Two topologies are supported:
 - **Local mode** (default): helper talks to a local daemon over a Unix socket. Daemon must be running and have an S3 backend configured.
 - **Remote mode** (`--remote`): helper talks directly to a remote agent-fs HTTP API. No local daemon required — ideal for sandboxes (sprite, E2B, Hetzner VMs, GitHub Actions runners) that can reach a hosted agent-fs but can't run the full daemon stack.
+
+FUSE writes require the `editor` role or better on the drive — on drives where you're a `viewer`, the mount is read-only for file writes (writes fail with `EACCES`; check `<mount>/.agent-fs/errors.ndjson` for the `PERMISSION_DENIED` record).
 
 | Command | Usage | Description |
 |---------|-------|-------------|
@@ -328,7 +334,7 @@ agent-fs signed-url docs/report.pdf --json
 # → { "url": "https://...", "path": "/docs/report.pdf", "expiresIn": 86400, "expiresAt": "2026-03-20T..." }
 ```
 
-The presigned URL requires no authentication — anyone with the link can download the file until it expires. Signed URLs serve the correct `Content-Type` header based on file extension (e.g., `application/pdf` for `.pdf`, `image/png` for `.png`), so browsers render them natively.
+The presigned URL requires no authentication — anyone with the link can download the file until it expires. Access is RBAC-checked only at generation time (viewer-or-better on the drive); after that the URL is a bearer secret. Don't log it or paste it anywhere you wouldn't paste a credential, and prefer the shortest workable `--expires-in`. Signed URLs serve the correct `Content-Type` header based on file extension (e.g., `application/pdf` for `.pdf`, `image/png` for `.png`), so browsers render them natively.
 
 **MIME types on upload:** `write`, `edit`, `append`, and `revert` automatically detect and set the correct `Content-Type` on S3 objects based on file extension. The content type is also stored in the database and visible in `stat` output via the `contentType` field. Raw stdin and `--file` uploads preserve bytes exactly; text search/indexing is applied only when the payload is valid, indexable UTF-8 text.
 

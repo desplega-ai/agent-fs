@@ -1358,6 +1358,268 @@ async function runStandardTests(daemonUrl: string) {
     });
     assert(res.status, 401, `Expected 401, got ${res.status}`);
   });
+
+  // -- Multi-tenant RBAC hardening --
+  //
+  // Cross-surface checks for the hosted multi-tenant safety model:
+  // strict explicit drive membership, admin-gated management routes,
+  // org/drive binding (no cross-tenant existence oracle), editor-or-better
+  // raw writes, MCP member-tool gating, and org/drive-scoped comment IDs.
+
+  const authed = (key: string): Record<string, string> => ({
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${key}`,
+  });
+
+  let user3ApiKey = "";
+  await test("rbac: register third user", async () => {
+    const res = await fetch(`${daemonUrl}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "user3@e2e.local" }),
+    });
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const data = await res.json() as any;
+    user3ApiKey = data.apiKey;
+    assert(!!user3ApiKey, true, "Expected API key for user3");
+  });
+
+  await test("rbac: invite user3 to second org as viewer", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${secondOrgId}/members/invite`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({ email: "user3@e2e.local", role: "viewer" }),
+    });
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+  });
+
+  let rbacDriveId = "";
+  await test("rbac: strict membership — new drive visible to creator only", async () => {
+    // Created AFTER user3's invite, so user3 has no membership row on it.
+    const createRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/drives`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({ name: "rbac-extra" }),
+    });
+    assert(createRes.status, 201, `Expected 201, got ${createRes.status}`);
+    rbacDriveId = ((await createRes.json()) as any).id;
+    assert(!!rbacDriveId, true, "Expected drive id");
+
+    // Creator got an explicit admin membership row → drive is visible.
+    const mineRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/drives`, {
+      headers: authed(apiKey),
+    });
+    const mine = ((await mineRes.json()) as any).drives.map((d: any) => d.id);
+    assert(mine.includes(rbacDriveId), true, "Expected creator to see new drive");
+
+    // user3 is an org member but not a drive member → drive is invisible.
+    const theirsRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/drives`, {
+      headers: authed(user3ApiKey),
+    });
+    assert(theirsRes.status, 200, `Expected 200, got ${theirsRes.status}`);
+    const theirs = ((await theirsRes.json()) as any).drives.map((d: any) => d.id);
+    assert(theirs.includes(rbacDriveId), false, "Expected non-member to NOT see new drive");
+  });
+
+  await test("rbac: viewer cannot create drives (403)", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${secondOrgId}/drives`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({ name: "should-fail" }),
+    });
+    assert(res.status, 403, `Expected 403, got ${res.status}`);
+    assert(((await res.json()) as any).error, "PERMISSION_DENIED");
+  });
+
+  await test("rbac: viewer cannot invite or list org members (403)", async () => {
+    const inviteRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/members/invite`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({ email: "test@e2e.local", role: "admin" }),
+    });
+    assert(inviteRes.status, 403, `Expected 403, got ${inviteRes.status}`);
+    assert(((await inviteRes.json()) as any).error, "PERMISSION_DENIED");
+
+    const listRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/members`, {
+      headers: authed(user3ApiKey),
+    });
+    assert(listRes.status, 403, `Expected 403, got ${listRes.status}`);
+  });
+
+  await test("rbac: non-member org access returns 404 (no existence oracle)", async () => {
+    // user3 is not a member of user1's personal org — drive and member
+    // lookups 404 instead of 403, so org IDs can't be probed.
+    const drivesRes = await fetch(`${daemonUrl}/orgs/${personalOrgId}/drives`, {
+      headers: authed(user3ApiKey),
+    });
+    assert(drivesRes.status, 404, `Expected 404, got ${drivesRes.status}`);
+    const membersRes = await fetch(`${daemonUrl}/orgs/${personalOrgId}/members`, {
+      headers: authed(user3ApiKey),
+    });
+    assert(membersRes.status, 404, `Expected 404, got ${membersRes.status}`);
+  });
+
+  await test("rbac: drive member list requires drive admin (403)", async () => {
+    // user3 is a viewer on the second org's default drive — listing its
+    // members requires drive admin (or org admin).
+    const res = await fetch(
+      `${daemonUrl}/orgs/${secondOrgId}/drives/${secondDriveId}/members`,
+      { headers: authed(user3ApiKey) },
+    );
+    assert(res.status, 403, `Expected 403, got ${res.status}`);
+    assert(((await res.json()) as any).error, "PERMISSION_DENIED");
+  });
+
+  await test("rbac: org/drive mismatch rejected with 404", async () => {
+    // Drive member route under the wrong org → same 404 as "missing".
+    const memberRes = await fetch(
+      `${daemonUrl}/orgs/${personalOrgId}/drives/${secondDriveId}/members`,
+      { headers: authed(apiKey) },
+    );
+    assert(memberRes.status, 404, `Expected 404, got ${memberRes.status}`);
+
+    // Ops route with an explicit driveId from another org → 404 too.
+    const opsRes = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({ op: "ls", driveId: secondDriveId }),
+    });
+    assert(opsRes.status, 404, `Expected 404, got ${opsRes.status}`);
+    assert(((await opsRes.json()) as any).error, "NOT_FOUND");
+  });
+
+  await test("rbac: raw write requires editor — viewer PUT 403, GET 200", async () => {
+    // Seed a file in the second org's default drive as user1 (admin).
+    const writeRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({ op: "write", path: "/rbac-probe.txt", content: "rbac probe" }),
+    });
+    assert(writeRes.ok, true, `Seed write failed: ${writeRes.status}`);
+
+    const rawUrl = `${daemonUrl}/orgs/${secondOrgId}/drives/${secondDriveId}/files/rbac-probe.txt/raw`;
+
+    // GET /raw stays viewer-accessible.
+    const getRes = await fetch(rawUrl, { headers: { "Authorization": `Bearer ${user3ApiKey}` } });
+    assert(getRes.status, 200, `Expected 200, got ${getRes.status}`);
+    assert(await getRes.text(), "rbac probe");
+
+    // PUT /raw is editor-or-better — viewers get 403 PERMISSION_DENIED.
+    const putRes = await fetch(rawUrl, {
+      method: "PUT",
+      headers: { "Authorization": `Bearer ${user3ApiKey}`, "Content-Type": "text/plain" },
+      body: "overwrite attempt",
+    });
+    assert(putRes.status, 403, `Expected 403, got ${putRes.status}`);
+    assert(((await putRes.json()) as any).error, "PERMISSION_DENIED");
+
+    // Content unchanged after the denied write.
+    const afterRes = await fetch(rawUrl, { headers: { "Authorization": `Bearer ${user3ApiKey}` } });
+    assert(await afterRes.text(), "rbac probe");
+  });
+
+  await test("rbac: viewer JSON write op denied (403)", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({ op: "write", path: "/rbac-probe.txt", content: "nope" }),
+    });
+    assert(res.status, 403, `Expected 403, got ${res.status}`);
+    assert(((await res.json()) as any).error, "PERMISSION_DENIED");
+  });
+
+  await test("rbac: comment IDs are org/drive scoped (cross-tenant 404)", async () => {
+    // Create a comment in user1's personal drive...
+    const writeRes = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({ op: "write", path: "/rbac-comment.txt", content: "comment target" }),
+    });
+    assert(writeRes.ok, true, `Seed write failed: ${writeRes.status}`);
+    const addRes = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({ op: "comment-add", path: "/rbac-comment.txt", body: "scoped?" }),
+    });
+    assert(addRes.ok, true, `comment-add failed: ${addRes.status}`);
+    const commentId = ((await addRes.json()) as any).id;
+    assert(!!commentId, true, "Expected comment id");
+
+    // ...then try to read/resolve it from the second org's context (same
+    // user, different tenant scope) — IDs must not resolve across drives.
+    const getRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({ op: "comment-get", id: commentId }),
+    });
+    assert(getRes.status, 404, `Expected 404, got ${getRes.status}`);
+    assert(((await getRes.json()) as any).error, "NOT_FOUND");
+
+    const resolveRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({ op: "comment-resolve", id: commentId, resolved: true }),
+    });
+    assert(resolveRes.status, 404, `Expected 404, got ${resolveRes.status}`);
+  });
+
+  await test("rbac: mcp whoami lists only member drives", async () => {
+    // Same stateless per-request pattern as "signed-url via MCP".
+    const initRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(user3ApiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "e2e-rbac", version: "1.0.0" },
+        },
+      }),
+    });
+    assert(initRes.ok, true, `MCP init failed: ${initRes.status}`);
+
+    const res = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(user3ApiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "whoami", arguments: {} },
+      }),
+    });
+    assert(res.ok, true, `MCP whoami failed: ${res.status}`);
+    const body = await res.json() as any;
+    const text = body.result?.content?.[0]?.text ?? "";
+    const who = JSON.parse(text);
+    const driveIds = who.memberships.flatMap((m: any) => m.drives.map((d: any) => d.driveId));
+    assert(driveIds.includes(secondDriveId), true, "Expected user3 to see drive they're a member of");
+    assert(driveIds.includes(rbacDriveId), false, "Expected user3 to NOT see non-member drive");
+  });
+
+  await test("rbac: mcp member tool — cross-org driveId unprobeable", async () => {
+    // user3's active org is their personal org; rbacDriveId belongs to the
+    // second org. Drive-scoped member tools bind driveId to the active org
+    // first, so the response is "not found", not a membership listing.
+    const res = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(user3ApiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "member-list", arguments: { driveId: rbacDriveId } },
+      }),
+    });
+    assert(res.ok, true, `MCP member-list failed: ${res.status}`);
+    const body = await res.json() as any;
+    assert(body.result?.isError, true, "Expected isError for cross-org driveId");
+    const text = body.result?.content?.[0]?.text ?? "";
+    assertIncludes(text, "Drive not found");
+  });
 }
 
 // ---------------------------------------------------------------------------

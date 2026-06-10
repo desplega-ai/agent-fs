@@ -2,7 +2,7 @@
 date: 2026-06-10T00:00:00-07:00
 author: Taras and Claude
 plan_type: dag
-status: in-progress
+status: completed
 last_updated: 2026-06-10
 last_updated_by: Claude
 ---
@@ -95,12 +95,12 @@ graph TD
 
 | ID | Name | Depends on | Status | File |
 |----|------|------------|--------|------|
-| step-1 | Core authz helpers and strict drive membership | — | ready | [step-1.md](./step-1.md) |
-| step-2 | HTTP admin routes and org-drive binding | step-1 | ready | [step-2.md](./step-2.md) |
-| step-3 | Raw HTTP and IPC/FUSE write RBAC | step-1 | ready | [step-3.md](./step-3.md) |
-| step-4 | MCP member tool RBAC | step-1 | ready | [step-4.md](./step-4.md) |
-| step-5 | Comment ID scoping | step-1 | ready | [step-5.md](./step-5.md) |
-| step-6 | Integration docs and release updates | step-2, step-3, step-4, step-5 | ready | [step-6.md](./step-6.md) |
+| step-1 | Core authz helpers and strict drive membership | — | done | [step-1.md](./step-1.md) |
+| step-2 | HTTP admin routes and org-drive binding | step-1 | done | [step-2.md](./step-2.md) |
+| step-3 | Raw HTTP and IPC/FUSE write RBAC | step-1 | done | [step-3.md](./step-3.md) |
+| step-4 | MCP member tool RBAC | step-1 | done | [step-4.md](./step-4.md) |
+| step-5 | Comment ID scoping | step-1 | done | [step-5.md](./step-5.md) |
+| step-6 | Integration docs and release updates | step-2, step-3, step-4, step-5 | done | [step-6.md](./step-6.md) |
 
 > **Canonical dependencies and execution status live in each `step-<n>.md`'s frontmatter.** This table is a derived snapshot at plan creation. During `/v-implement`, frontmatter `status` (`ready` → `claimed` → `done`) is the source of truth — re-render this table when you want a current view.
 
@@ -108,24 +108,24 @@ graph TD
 
 Run before kicking off any step (orchestrator's responsibility — `/v-implement` performs these once at the start of the run):
 
-- [ ] Working tree is clean or only contains intentional in-flight work.
-- [ ] Baseline typecheck passes: `bun run typecheck`.
-- [ ] Baseline tests pass: `bun run test`.
-- [ ] Docker is available if running the full E2E suite with MinIO/FUSE scenarios.
-- [ ] Rust/Cargo toolchain is available if running FUSE helper tests.
+- [x] Working tree is clean or only contains intentional in-flight work.
+- [x] Baseline typecheck passes: `bun run typecheck`.
+- [x] Baseline tests pass: `bun run test` (334 pass / 0 fail).
+- [x] Docker is available if running the full E2E suite with MinIO/FUSE scenarios.
+- [x] Rust/Cargo toolchain is available if running FUSE helper tests.
 
 ## Global Verification
 
 Run after all steps complete (final wave gate):
 
-- [ ] Whole-repo typecheck: `bun run typecheck`.
-- [ ] Full test suite: `bun run test`.
-- [ ] CLI bundle builds: `bun run build`.
-- [ ] Full E2E suite passes against isolated MinIO: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`.
-- [ ] FUSE helper tests pass where Rust is available: `cargo test -p agent-fs-fuse`.
-- [ ] Landing docs still build if docs changed: `pnpm --dir landing build`.
-- [ ] Version sync dry-run reports the intended patch bump before writing: `bun run scripts/sync-versions.ts 0.7.6 --dry-run`.
-- [ ] OpenAPI generation is up to date if output changes: `bun run scripts/sync-openapi.ts`.
+- [x] Whole-repo typecheck: `bun run typecheck`.
+- [x] Full test suite: `bun run test` (376 pass / 57 skip / 0 fail).
+- [x] CLI bundle builds: `bun run build`.
+- [x] Full E2E suite passes against isolated MinIO: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` (81/81; 10 FUSE cases auto-skip on Darwin).
+- [x] FUSE helper tests pass where Rust is available: `cargo test -p agent-fs-fuse` (64 pass).
+- [x] Landing docs still build if docs changed: `pnpm --dir landing build`.
+- [x] Version sync applied: `bun run scripts/sync-versions.ts 0.8.0` (plan assumed 0.7.6; bumped to minor per AGENTS.md breaking-change rule for strict drive membership — confirmed by Taras).
+- [x] OpenAPI generation is up to date if output changes: `bun run scripts/sync-openapi.ts`.
 
 ## Appendix
 
