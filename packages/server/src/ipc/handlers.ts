@@ -3,7 +3,11 @@
 // One handler per FUSE op, dispatched by the request's `op` field. Each runs
 // in-process via `dispatchOp` / `writeRaw` so the daemon never round-trips
 // through HTTP loopback. RBAC + versioning + indexing flow through the same
-// path as the JSON op route.
+// path as the JSON op route:
+//   - write paths (`open_write`, `create_file`, `truncate`) require
+//     editor-or-better — enforced inside `writeRaw` itself;
+//   - `unlink` / `rename` go through `dispatchOp` ("rm" / "mv", editor ops);
+//   - read/list/getattr paths stay viewer-accessible.
 //
 // Wire encoding mirrors the Rust helper's `serde` enums (see
 // `packages/fuse-helper/src/ipc.rs` — `#[serde(rename_all = "snake_case")]`):

@@ -1,19 +1,23 @@
 import { describe, test, expect, beforeAll } from "bun:test";
 import { createHash } from "node:crypto";
 import { createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
+import { createUser, setDriveMember } from "../../../core/src/index.js";
 import { createApp } from "../app.js";
 
 let app: ReturnType<typeof createApp>;
 let apiKey: string;
 let orgId: string;
 let driveId: string;
+let viewerKey: string;
+let editorKey: string;
 
 beforeAll(async () => {
   const db = createTestDb();
   const s3 = new MockS3Client();
   app = createApp(db, s3 as any);
 
-  // Register a user (auth is shared across these tests).
+  // Register a user (auth is shared across these tests). Registration makes
+  // this user the drive's admin (creator gets an explicit admin member row).
   const reg = await app.request("/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -30,11 +34,26 @@ beforeAll(async () => {
   });
   const meBody = await me.json();
   driveId = meBody.defaultDriveId;
+
+  // Secondary users with explicit drive roles for the RBAC tests below.
+  const viewer = createUser(db, { email: "raw-viewer@example.com" });
+  viewerKey = viewer.apiKey;
+  setDriveMember(db, { driveId, userId: viewer.user.id, role: "viewer" });
+
+  const editor = createUser(db, { email: "raw-editor@example.com" });
+  editorKey = editor.apiKey;
+  setDriveMember(db, { driveId, userId: editor.user.id, role: "editor" });
 });
 
 function authedFetch(path: string, opts?: RequestInit) {
   const headers = new Headers(opts?.headers);
   headers.set("Authorization", `Bearer ${apiKey}`);
+  return app.request(path, { ...opts, headers });
+}
+
+function fetchAs(key: string, path: string, opts?: RequestInit) {
+  const headers = new Headers(opts?.headers);
+  headers.set("Authorization", `Bearer ${key}`);
   return app.request(path, { ...opts, headers });
 }
 
@@ -278,5 +297,92 @@ describe("PUT /raw — binary write path", () => {
       }
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe("raw RBAC — viewer vs editor vs admin", () => {
+  test("viewer raw read but not raw write", async () => {
+    // Seed the file as the drive admin (registered owner).
+    const seed = await authedFetch(
+      `/orgs/${orgId}/drives/${driveId}/files/raw-rbac.txt/raw`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: "rbac body",
+      }
+    );
+    expect(seed.status).toBe(200);
+
+    // Viewer can read the raw bytes.
+    const read = await fetchAs(
+      viewerKey,
+      `/orgs/${orgId}/drives/${driveId}/files/raw-rbac.txt/raw`
+    );
+    expect(read.status).toBe(200);
+    expect(await read.text()).toBe("rbac body");
+
+    // Viewer cannot overwrite an existing file.
+    const overwrite = await fetchAs(
+      viewerKey,
+      `/orgs/${orgId}/drives/${driveId}/files/raw-rbac.txt/raw`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: "viewer overwrite",
+      }
+    );
+    expect(overwrite.status).toBe(403);
+    const overwriteBody = await overwrite.json();
+    expect(overwriteBody.error).toBe("PERMISSION_DENIED");
+
+    // Viewer cannot create a new file either.
+    const create = await fetchAs(
+      viewerKey,
+      `/orgs/${orgId}/drives/${driveId}/files/raw-rbac-new.txt/raw`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: "viewer create",
+      }
+    );
+    expect(create.status).toBe(403);
+
+    // The denied writes must not have changed the file.
+    const after = await authedFetch(
+      `/orgs/${orgId}/drives/${driveId}/files/raw-rbac.txt/raw`
+    );
+    expect(after.headers.get("X-Agent-FS-Version")).toBe("1");
+    expect(await after.text()).toBe("rbac body");
+  });
+
+  test("editor and admin PUT /raw succeed", async () => {
+    const v1 = await fetchAs(
+      editorKey,
+      `/orgs/${orgId}/drives/${driveId}/files/raw-rbac-editor.txt/raw`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: "editor v1",
+      }
+    );
+    expect(v1.status).toBe(200);
+    const v1Body = await v1.json();
+    expect(v1Body.version).toBe(1);
+
+    // Admin (registered owner) bumps it with optimistic concurrency intact.
+    const v2 = await authedFetch(
+      `/orgs/${orgId}/drives/${driveId}/files/raw-rbac-editor.txt/raw`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "If-Match": "1",
+        },
+        body: "admin v2",
+      }
+    );
+    expect(v2.status).toBe(200);
+    const v2Body = await v2.json();
+    expect(v2Body.version).toBe(2);
   });
 });

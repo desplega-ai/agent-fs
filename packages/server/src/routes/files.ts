@@ -91,10 +91,11 @@ export function fileRoutes(
   //   - If-None-Match: *               → expectedVersion: 0 (create only)
   //   - X-Agent-FS-Message: <message>  → version message
   //
-  // Reuses the in-process `writeRaw` helper (which fronts the `write` op)
-  // so RBAC, versioning, FTS5 indexing and embedding scheduling all flow
-  // through the existing pipeline. The body is buffered up to Hono's
-  // 50 MB body limit — no true streaming in v1.
+  // Reuses the in-process `writeRaw` helper, which enforces editor-or-better
+  // drive RBAC (viewers get 403 PERMISSION_DENIED, matching the JSON `write`
+  // op) and drives versioning, FTS5 indexing and embedding scheduling through
+  // the existing pipeline. GET /raw above stays viewer-accessible. The body
+  // is buffered up to Hono's 50 MB body limit — no true streaming in v1.
   router.put("/:orgId/drives/:driveId/files/:filePath{.+}/raw", async (c) => {
     const user = c.get("user");
     const orgId = c.req.param("orgId");

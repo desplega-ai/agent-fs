@@ -11,7 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Packr, Unpackr } from "msgpackr";
 import { createTestDb, MockS3Client } from "../../../../core/src/test-utils.js";
-import { createUser, listUserOrgs, listDrives } from "../../../../core/src/index.js";
+import {
+  createUser,
+  listUserOrgs,
+  listDrives,
+  setDriveMember,
+} from "../../../../core/src/index.js";
 import { startIpcServer } from "../server.js";
 
 const packr = new Packr({ useRecords: false });
@@ -23,6 +28,9 @@ interface TestHarness {
   userId: string;
   driveId: string;
   driveSlug: string;
+  db: ReturnType<typeof createTestDb>;
+  /** Swap the API key the daemon resolves — lets tests act as other users. */
+  setApiKey: (key: string) => void;
   stop: () => void;
 }
 
@@ -36,11 +44,12 @@ function setup(): TestHarness {
   const orgs = listUserOrgs(db, user.id);
   const drives = listDrives(db, orgs[0].id);
 
+  let currentApiKey = apiKey;
   const server = startIpcServer(socketPath, {
     db,
     s3: s3 as any,
     embeddingProvider: null,
-    resolveApiKey: () => apiKey,
+    resolveApiKey: () => currentApiKey,
   });
 
   return {
@@ -49,6 +58,10 @@ function setup(): TestHarness {
     userId: user.id,
     driveId: drives[0].id,
     driveSlug: drives[0].name,
+    db,
+    setApiKey: (key: string) => {
+      currentApiKey = key;
+    },
     stop: () => {
       server.stop();
       try {
@@ -243,6 +256,91 @@ describe("IPC server — round-trip", () => {
     const resp: any = await roundTrip(harness.socketPath, { op: "nope" });
     expect(resp.error).toBeDefined();
     expect(resp.error.http_status).toBe(400);
+  });
+
+  test("viewer cannot open_write but editor can", async () => {
+    // Add a viewer and an editor as explicit members of the owner's drive.
+    // The drive is referenced by id (not slug) so the lookup can't collide
+    // with the secondary users' own personal default drives.
+    const viewer = createUser(harness.db, { email: "ipc-viewer@example.com" });
+    setDriveMember(harness.db, {
+      driveId: harness.driveId,
+      userId: viewer.user.id,
+      role: "viewer",
+    });
+    const editor = createUser(harness.db, { email: "ipc-editor@example.com" });
+    setDriveMember(harness.db, {
+      driveId: harness.driveId,
+      userId: editor.user.id,
+      role: "editor",
+    });
+
+    // Seed a file as the owner (drive admin).
+    const seed: any = await roundTrip(harness.socketPath, {
+      op: "open_write",
+      drive: harness.driveId,
+      path: "/rbac.md",
+      base_version: null,
+      content_hash: "",
+      bytes: new TextEncoder().encode("seeded by admin"),
+    });
+    expect(seed.open_write).toBeDefined();
+    expect(seed.open_write.version).toBe(1);
+
+    // Viewer: reads succeed, every write-shaped op is denied with 403.
+    harness.setApiKey(viewer.apiKey);
+
+    const read: any = await roundTrip(harness.socketPath, {
+      op: "open_read",
+      drive: harness.driveId,
+      path: "/rbac.md",
+    });
+    expect(read.open_read).toBeDefined();
+    expect(new TextDecoder().decode(new Uint8Array(read.open_read.bytes))).toBe(
+      "seeded by admin"
+    );
+
+    const write: any = await roundTrip(harness.socketPath, {
+      op: "open_write",
+      drive: harness.driveId,
+      path: "/rbac.md",
+      base_version: null,
+      content_hash: "",
+      bytes: new TextEncoder().encode("viewer write"),
+    });
+    expect(write.error).toBeDefined();
+    expect(write.error.http_status).toBe(403);
+    expect(write.error.code).toBe("PERMISSION_DENIED");
+
+    const create: any = await roundTrip(harness.socketPath, {
+      op: "create_file",
+      drive: harness.driveId,
+      path: "/rbac-new.md",
+    });
+    expect(create.error).toBeDefined();
+    expect(create.error.http_status).toBe(403);
+
+    const truncate: any = await roundTrip(harness.socketPath, {
+      op: "truncate",
+      drive: harness.driveId,
+      path: "/rbac.md",
+      size: 0,
+    });
+    expect(truncate.error).toBeDefined();
+    expect(truncate.error.http_status).toBe(403);
+
+    // Editor: open_write succeeds and bumps the version.
+    harness.setApiKey(editor.apiKey);
+    const editorWrite: any = await roundTrip(harness.socketPath, {
+      op: "open_write",
+      drive: harness.driveId,
+      path: "/rbac.md",
+      base_version: 1,
+      content_hash: "",
+      bytes: new TextEncoder().encode("editor write"),
+    });
+    expect(editorWrite.open_write).toBeDefined();
+    expect(editorWrite.open_write.version).toBe(2);
   });
 });
 
