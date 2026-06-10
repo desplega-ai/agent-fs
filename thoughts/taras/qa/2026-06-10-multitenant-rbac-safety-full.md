@@ -8,7 +8,7 @@ source_plan: thoughts/taras/plans/2026-06-10-multitenant-rbac-safety/root.md
 related_pr: n/a (branch multitenant-rbac-safety, committed through 800e1f1)
 environment: local (real daemon + isolated MinIO container)
 last_updated: 2026-06-10
-last_updated_by: Claude
+last_updated_by: Claude (issue ledger updated after 72e8955 re-validation)
 ---
 
 # Multi-Tenant RBAC Safety — Full-Feature QA Report
@@ -181,7 +181,7 @@ PASS G-XORG-generate cross-org signed-url generation → 404 :: status=404 error
 
 ## Issues Found
 
-- [ ] **Minor — generic `Error`→500 on drive-access failure (intra-org existence oracle).**
+- [x] **FIXED in `72e8955`** (re-validated black-box: `thoughts/taras/qa/2026-06-10-multitenant-rbac-safety-oracle-fix.md`, OFX-1..7,9,10) — **Minor — generic `Error`→500 on drive-access failure (intra-org existence oracle).**
   `resolveContext()` throws a plain `Error("You do not have access to this drive")` instead of a typed
   `PermissionDeniedError`/`NotFoundError` at `packages/core/src/identity/context.ts:38` and
   `:59` (also the no-default-drive cases at `:56`,`:90` and personal fallback at `:93`). The error
@@ -201,7 +201,7 @@ PASS G-XORG-generate cross-org signed-url generation → 404 :: status=404 error
 - [ ] **Minor (informational) — MCP member management is scoped to the caller's personal org.** See
   Edge Cases. Fail-closed; flagged as a capability/documentation gap, not a vulnerability.
 
-- [ ] **Minor (latent, pre-existing) — `inviteToOrg` default-drive grant is unscoped/order-dependent**
+- [x] **FIXED in `72e8955`** (re-validated black-box: same report, OFX-8) — **Minor (latent, pre-existing) — `inviteToOrg` default-drive grant is unscoped/order-dependent**
   (`packages/core/src/identity/orgs.ts`, the `select(drives).where(orgId).get()` for the default-drive
   membership). Works today; add an `isDefault` predicate to be safe. Matches the step-1 QA observation.
 
