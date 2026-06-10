@@ -31,4 +31,22 @@ export function runMigrations(sqlite: Database): void {
     "CREATE UNIQUE INDEX IF NOT EXISTS file_versions_path_drive_version_uq " +
       "ON file_versions(path, drive_id, version)"
   );
+
+  // Migration 3: backfill explicit drive memberships (multi-tenant RBAC).
+  //
+  // Drive visibility is strict explicit membership: drives with zero
+  // `drive_members` rows are visible to no one. Older DBs may contain
+  // zero-member drives that used to be treated as "public" within the org.
+  // Grant every org admin an explicit 'admin' membership on those drives so
+  // they stay reachable; org admins can then share them explicitly.
+  //
+  // Idempotent: only matches drives that still have zero member rows, and
+  // INSERT OR IGNORE tolerates the (drive_id, user_id) primary key.
+  sqlite.exec(
+    "INSERT OR IGNORE INTO drive_members (drive_id, user_id, role) " +
+      "SELECT d.id, om.user_id, 'admin' " +
+      "FROM drives d " +
+      "JOIN org_members om ON om.org_id = d.org_id AND om.role = 'admin' " +
+      "WHERE NOT EXISTS (SELECT 1 FROM drive_members dm WHERE dm.drive_id = d.id)"
+  );
 }

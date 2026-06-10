@@ -2,7 +2,7 @@
 id: step-1
 name: Core authz helpers and strict drive membership
 depends_on: []
-status: ready
+status: done
 ---
 
 <!-- During /v-implement, `desplega:step-running` adds `assignee` and `claimed_at` while
@@ -47,14 +47,14 @@ Create the shared authorization foundation for hosted multi-tenant safety. This 
 *(Push everything you can into the first two buckets — Automated Verification + Automated QA — so the agent provides proof of work. Manual Verification is the exception, not the default.)*
 
 #### Automated Verification:
-- [ ] Targeted identity tests pass: `bun test packages/core/src/identity/__tests__/identity.test.ts`.
-- [ ] RBAC mapping tests still pass: `bun test packages/core/src/__tests__/rbac-mapping.test.ts`.
-- [ ] Core op integration RBAC tests still pass: `bun test packages/core/src/ops/__tests__/ops-integration.test.ts`.
-- [ ] Typecheck passes: `bun run typecheck`.
+- [x] Targeted identity tests pass: `bun test packages/core/src/identity/__tests__/identity.test.ts`.
+- [x] RBAC mapping tests still pass: `bun test packages/core/src/__tests__/rbac-mapping.test.ts`.
+- [x] Core op integration RBAC tests still pass: `bun test packages/core/src/ops/__tests__/ops-integration.test.ts`.
+- [x] Typecheck passes: `bun run typecheck`.
 
 #### Automated QA:
-- [ ] Creator visibility scenario passes: `bun test packages/core/src/identity/__tests__/identity.test.ts --test-name-pattern "newly-created drive has explicit creator membership"`.
-- [ ] Empty-drive backfill scenario passes: `bun test packages/core/src/identity/__tests__/identity.test.ts --test-name-pattern "backfills empty drive members for org admins"`.
+- [x] Creator visibility scenario passes: `bun test packages/core/src/identity/__tests__/identity.test.ts --test-name-pattern "newly-created drive has explicit creator membership"`.
+- [x] Empty-drive backfill scenario passes: `bun test packages/core/src/identity/__tests__/identity.test.ts --test-name-pattern "backfills empty drive members for org admins"`.
 
 #### Manual Verification:
 - [ ] Taras confirms strict drive membership is the intended behavior change and accepts that formerly zero-member drives become admin-only until explicitly shared.

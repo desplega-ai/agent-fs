@@ -1,6 +1,7 @@
 import { eq, and } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
+import { NotFoundError } from "../errors.js";
 import type { Role } from "./rbac.js";
 import { getUserDriveRole } from "./rbac.js";
 
@@ -22,7 +23,16 @@ export function resolveContext(
       .where(eq(schema.drives.id, params.driveId))
       .get();
 
-    if (!drive) throw new Error(`Drive not found: ${params.driveId}`);
+    // When the caller also pinned an org (e.g. route /orgs/:orgId/ops),
+    // the drive MUST belong to that org. Reject mismatches with the same
+    // error as "missing" so cross-tenant callers cannot probe existence.
+    if (!drive || (params.orgId && drive.orgId !== params.orgId)) {
+      throw new NotFoundError(`Drive not found: ${params.driveId}`, {
+        suggestion: params.orgId
+          ? "Check the driveId belongs to the org you are addressing"
+          : undefined,
+      });
+    }
 
     const role = getUserDriveRole(db, params.userId, params.driveId);
     if (!role) throw new Error("You do not have access to this drive");

@@ -86,6 +86,12 @@ export {
   checkPermission,
   getRequiredRole,
   getUserDriveRole,
+  getUserOrgRole,
+  roleAtLeast,
+  requireDriveRole,
+  requireOrgRole,
+  requireDriveAdmin,
+  assertDriveInOrg,
   resolveContext,
   ensureLocalUser,
 } from "./identity/index.js";
