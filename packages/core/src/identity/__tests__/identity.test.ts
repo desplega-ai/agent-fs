@@ -116,6 +116,41 @@ describe("Org & invite flow", () => {
     const bobOrgs = listUserOrgs(db, bobId);
     expect(bobOrgs.some((o) => o.id === orgId && o.role === "viewer")).toBe(true);
   });
+
+  test("inviteToOrg grants membership on the isDefault drive even when a non-default drive sorts first", () => {
+    // Self-sufficient: fresh org whose FIRST drives row (by insertion order)
+    // is non-default. Demote the auto-created default drive, then create a
+    // new default one — the old unfiltered "first row" query picks the wrong
+    // drive here.
+    const ownerId = createUser(db, { email: "invite-default-owner@example.com" })
+      .user.id;
+    const org = createOrg(db, { name: "invite-default-org", userId: ownerId });
+    const firstDriveId = listDrives(db, org.id)[0].id;
+
+    db.update(schema.drives)
+      .set({ isDefault: false })
+      .where(require("drizzle-orm").eq(schema.drives.id, firstDriveId))
+      .run();
+    const realDefault = createDrive(db, {
+      orgId: org.id,
+      name: "real-default",
+      isDefault: true,
+      creatorUserId: ownerId,
+    });
+
+    const inviteeId = createUser(db, {
+      email: "invite-default-peer@example.com",
+    }).user.id;
+    inviteToOrg(db, {
+      orgId: org.id,
+      email: "invite-default-peer@example.com",
+      role: "editor",
+    });
+
+    // Granted on the isDefault drive — not whichever row happens to come first.
+    expect(getUserDriveRole(db, inviteeId, realDefault.id)).toBe("editor");
+    expect(getUserDriveRole(db, inviteeId, firstDriveId)).toBeNull();
+  });
 });
 
 describe("RBAC enforcement", () => {
@@ -305,6 +340,75 @@ describe("Strict drive membership", () => {
     setDriveMember(db, { driveId: drive.id, userId: bobId, role: "viewer" });
     const bobVisibleAfter = listDrivesForUser(db, orgId, bobId);
     expect(bobVisibleAfter.some((d) => d.id === drive.id)).toBe(true);
+  });
+
+  test("resolveContext for an inaccessible drive is indistinguishable from a missing drive", () => {
+    // Alice-only drive: bob (org viewer) has no membership row on it.
+    const hidden = createDrive(db, {
+      orgId,
+      name: "bob-cannot-see",
+      creatorUserId: aliceId,
+    });
+
+    const capture = (fn: () => unknown): NotFoundError => {
+      try {
+        fn();
+      } catch (err) {
+        expect(err).toBeInstanceOf(NotFoundError);
+        return err as NotFoundError;
+      }
+      throw new Error("expected resolveContext to throw");
+    };
+
+    const missingId = "00000000-0000-4000-8000-000000000000";
+    const missingErr = capture(() =>
+      resolveContext(db, { userId: bobId, driveId: missingId })
+    );
+    const hiddenErr = capture(() =>
+      resolveContext(db, { userId: bobId, driveId: hidden.id })
+    );
+
+    // Byte-identical modulo the caller-supplied driveId (no existence oracle).
+    expect(hiddenErr.message).toBe(
+      missingErr.message.replaceAll(missingId, hidden.id)
+    );
+    expect(JSON.stringify(hiddenErr.toJSON())).toBe(
+      JSON.stringify(missingErr.toJSON()).replaceAll(missingId, hidden.id)
+    );
+
+    // Same holds when the org is pinned (the /orgs/:orgId/ops shape).
+    const missingOrgErr = capture(() =>
+      resolveContext(db, { userId: bobId, orgId, driveId: missingId })
+    );
+    const hiddenOrgErr = capture(() =>
+      resolveContext(db, { userId: bobId, orgId, driveId: hidden.id })
+    );
+    expect(JSON.stringify(hiddenOrgErr.toJSON())).toBe(
+      JSON.stringify(missingOrgErr.toJSON()).replaceAll(missingId, hidden.id)
+    );
+  });
+
+  test("resolveContext via orgId hides an inaccessible default drive", () => {
+    // Org member with no membership row on the org's default drive: joins via
+    // a raw org_members insert (inviteToOrg would grant the drive role).
+    const orgOnlyId = createUser(db, {
+      email: "strict-org-only@example.com",
+    }).user.id;
+    db.insert(schema.orgMembers)
+      .values({ orgId, userId: orgOnlyId, role: "viewer" })
+      .run();
+
+    try {
+      resolveContext(db, { userId: orgOnlyId, orgId });
+      expect(true).toBe(false); // Should not reach here
+    } catch (err) {
+      // NotFound (404), with the same message as an org without a default
+      // drive — neither the drive's existence nor its id leaks.
+      expect(err).toBeInstanceOf(NotFoundError);
+      expect((err as NotFoundError).message).toBe(
+        `No default drive for org: ${orgId}`
+      );
+    }
   });
 });
 

@@ -241,7 +241,12 @@ export function inviteToOrg(
   const defaultDrive = db
     .select()
     .from(schema.drives)
-    .where(eq(schema.drives.orgId, params.orgId))
+    .where(
+      and(
+        eq(schema.drives.orgId, params.orgId),
+        eq(schema.drives.isDefault, true)
+      )
+    )
     .get();
 
   if (defaultDrive) {

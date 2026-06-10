@@ -34,8 +34,17 @@ export function resolveContext(
       });
     }
 
+    // No role on an existing drive must be indistinguishable from a drive
+    // that does not exist — same error type and byte-identical message as
+    // the missing/cross-org branch above (no intra-org existence oracle).
     const role = getUserDriveRole(db, params.userId, params.driveId);
-    if (!role) throw new Error("You do not have access to this drive");
+    if (!role) {
+      throw new NotFoundError(`Drive not found: ${params.driveId}`, {
+        suggestion: params.orgId
+          ? "Check the driveId belongs to the org you are addressing"
+          : undefined,
+      });
+    }
 
     return { orgId: drive.orgId, driveId: params.driveId, role };
   }
@@ -53,10 +62,15 @@ export function resolveContext(
       )
       .get();
 
-    if (!drive) throw new Error(`No default drive for org: ${params.orgId}`);
+    if (!drive)
+      throw new NotFoundError(`No default drive for org: ${params.orgId}`);
 
+    // A default drive the user has no role on must be indistinguishable from
+    // the org having no default drive at all — same error, and no leak of the
+    // drive's id to non-members.
     const role = getUserDriveRole(db, params.userId, drive.id);
-    if (!role) throw new Error("You do not have access to this drive");
+    if (!role)
+      throw new NotFoundError(`No default drive for org: ${params.orgId}`);
 
     return { orgId: params.orgId, driveId: drive.id, role };
   }

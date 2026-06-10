@@ -532,4 +532,32 @@ describe("Multi-tenant RBAC", () => {
     const after = await (await keyReq(ownerKey, `/orgs/${tenantOrgId}/members`)).json();
     expect(after.members.some((m: any) => m.userId === removableUserId)).toBe(false);
   });
+
+  test("inaccessible drive is indistinguishable from a missing drive on ops (404)", async () => {
+    // Owner creates a drive the viewer has no membership row on
+    const createRes = await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives`, {
+      method: "POST",
+      body: JSON.stringify({ name: "viewer-blind" }),
+    });
+    expect(createRes.status).toBe(201);
+    const hiddenDriveId = (await createRes.json()).id;
+
+    const probe = (driveId: string) =>
+      keyReq(viewerKey, `/orgs/${tenantOrgId}/ops`, {
+        method: "POST",
+        body: JSON.stringify({ op: "ls", path: "/", driveId }),
+      });
+
+    const missingId = "00000000-0000-4000-8000-000000000000";
+    const missingRes = await probe(missingId);
+    const hiddenRes = await probe(hiddenDriveId);
+
+    expect(missingRes.status).toBe(404);
+    expect(hiddenRes.status).toBe(404); // was a 500 INTERNAL_ERROR oracle
+
+    // Bodies are byte-identical modulo the caller-supplied driveId
+    const missingBody = (await missingRes.text()).replaceAll(missingId, "DRIVE_ID");
+    const hiddenBody = (await hiddenRes.text()).replaceAll(hiddenDriveId, "DRIVE_ID");
+    expect(hiddenBody).toBe(missingBody);
+  });
 });
