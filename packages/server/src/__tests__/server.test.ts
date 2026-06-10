@@ -248,3 +248,288 @@ describe("Error handling", () => {
     expect(body.error).toBe("PERMISSION_DENIED");
   });
 });
+
+// --- Multi-tenant RBAC on org/member/drive routes ---
+
+describe("Multi-tenant RBAC", () => {
+  let ownerKey: string;
+  let viewerKey: string;
+  let editorKey: string;
+  let outsiderKey: string;
+  let ownerUserId: string;
+  let viewerUserId: string;
+  let editorUserId: string;
+  let removableUserId: string;
+  let tenantOrgId: string;
+  let tenantDriveId: string; // tenant org default drive
+  let outsiderOrgId: string;
+  let outsiderDriveId: string; // outsider's personal default drive
+
+  function keyReq(key: string, path: string, opts?: RequestInit) {
+    const headers = new Headers(opts?.headers);
+    headers.set("Authorization", `Bearer ${key}`);
+    if (opts?.body) headers.set("Content-Type", "application/json");
+    return app.request(path, { ...opts, headers });
+  }
+
+  async function register(email: string) {
+    const res = await jsonPost("/auth/register", { email });
+    expect(res.status).toBe(200);
+    return res.json() as Promise<{ apiKey: string; userId: string; orgId: string }>;
+  }
+
+  beforeAll(async () => {
+    const owner = await register("rbac-owner@example.com");
+    ownerKey = owner.apiKey;
+    ownerUserId = owner.userId;
+
+    const viewer = await register("rbac-viewer@example.com");
+    viewerKey = viewer.apiKey;
+    viewerUserId = viewer.userId;
+
+    const editor = await register("rbac-editor@example.com");
+    editorKey = editor.apiKey;
+    editorUserId = editor.userId;
+
+    const outsider = await register("rbac-outsider@example.com");
+    outsiderKey = outsider.apiKey;
+    outsiderOrgId = outsider.orgId;
+
+    const removable = await register("rbac-removable@example.com");
+    removableUserId = removable.userId;
+
+    // Owner creates a shared (non-personal) tenant org
+    const orgRes = await keyReq(ownerKey, "/orgs", {
+      method: "POST",
+      body: JSON.stringify({ name: "rbac-tenant" }),
+    });
+    expect(orgRes.status).toBe(201);
+    tenantOrgId = (await orgRes.json()).id;
+
+    // Owner (org admin) invites members
+    for (const [email, role] of [
+      ["rbac-viewer@example.com", "viewer"],
+      ["rbac-editor@example.com", "editor"],
+      ["rbac-removable@example.com", "viewer"],
+    ] as const) {
+      const res = await keyReq(ownerKey, `/orgs/${tenantOrgId}/members/invite`, {
+        method: "POST",
+        body: JSON.stringify({ email, role }),
+      });
+      expect(res.status).toBe(200);
+    }
+
+    // Resolve drive ids
+    const tenantDrives = await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives`);
+    tenantDriveId = (await tenantDrives.json()).drives.find((d: any) => d.isDefault).id;
+
+    const outsiderDrives = await keyReq(outsiderKey, `/orgs/${outsiderOrgId}/drives`);
+    outsiderDriveId = (await outsiderDrives.json()).drives[0].id;
+  });
+
+  test("cross-tenant org and drive routes are invisible to non-members", async () => {
+    // Org details / drive listing: same 404 as a missing org (no existence oracle)
+    expect((await keyReq(outsiderKey, `/orgs/${tenantOrgId}`)).status).toBe(404);
+    expect((await keyReq(outsiderKey, `/orgs/${tenantOrgId}/drives`)).status).toBe(404);
+
+    // Drive creation in a foreign org is rejected (previously returned 201)
+    const createRes = await keyReq(outsiderKey, `/orgs/${tenantOrgId}/drives`, {
+      method: "POST",
+      body: JSON.stringify({ name: "intruder-drive" }),
+    });
+    expect(createRes.status).toBe(404);
+
+    // Org member surfaces
+    expect((await keyReq(outsiderKey, `/orgs/${tenantOrgId}/members`)).status).toBe(404);
+    expect(
+      (
+        await keyReq(outsiderKey, `/orgs/${tenantOrgId}/members/invite`, {
+          method: "POST",
+          body: JSON.stringify({ email: "rbac-outsider@example.com", role: "admin" }),
+        })
+      ).status
+    ).toBe(404);
+    expect(
+      (
+        await keyReq(outsiderKey, `/orgs/${tenantOrgId}/members/${ownerUserId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ role: "viewer" }),
+        })
+      ).status
+    ).toBe(404);
+    expect(
+      (
+        await keyReq(outsiderKey, `/orgs/${tenantOrgId}/members/${ownerUserId}`, {
+          method: "DELETE",
+        })
+      ).status
+    ).toBe(404);
+
+    // Drive member surface: driveId is bound to the route orgId, so a
+    // foreign drive under the outsider's own org is a 404...
+    expect(
+      (await keyReq(outsiderKey, `/orgs/${outsiderOrgId}/drives/${tenantDriveId}/members`)).status
+    ).toBe(404);
+    // ...and with the real org+drive pair, the outsider has no drive/org
+    // admin role, so the request is denied.
+    expect(
+      (await keyReq(outsiderKey, `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members`)).status
+    ).toBe(403);
+
+    // Ops route binding: a body driveId from another org is rejected before dispatch
+    const opsRes = await keyReq(outsiderKey, `/orgs/${outsiderOrgId}/ops`, {
+      method: "POST",
+      body: JSON.stringify({ op: "ls", path: "/", driveId: tenantDriveId }),
+    });
+    expect(opsRes.status).toBe(404);
+
+    // Raw route binding: foreign driveId under the caller's org is rejected
+    const rawRes = await keyReq(
+      outsiderKey,
+      `/orgs/${outsiderOrgId}/drives/${tenantDriveId}/files/secret.txt/raw`
+    );
+    expect(rawRes.status).toBe(404);
+
+    // Verify the intruder drive was never created
+    const drives = await (await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives`)).json();
+    expect(drives.drives.some((d: any) => d.name === "intruder-drive")).toBe(false);
+  });
+
+  test("viewer and editor org members cannot administer org or drives", async () => {
+    // Members can see org details and their drives
+    expect((await keyReq(viewerKey, `/orgs/${tenantOrgId}`)).status).toBe(200);
+    expect((await keyReq(viewerKey, `/orgs/${tenantOrgId}/drives`)).status).toBe(200);
+
+    // Drive creation requires org admin
+    for (const key of [viewerKey, editorKey]) {
+      const res = await keyReq(key, `/orgs/${tenantOrgId}/drives`, {
+        method: "POST",
+        body: JSON.stringify({ name: "nope" }),
+      });
+      expect(res.status).toBe(403);
+    }
+
+    // Org member list/invite/update/remove require org admin
+    expect((await keyReq(viewerKey, `/orgs/${tenantOrgId}/members`)).status).toBe(403);
+    expect((await keyReq(editorKey, `/orgs/${tenantOrgId}/members`)).status).toBe(403);
+    expect(
+      (
+        await keyReq(editorKey, `/orgs/${tenantOrgId}/members/invite`, {
+          method: "POST",
+          body: JSON.stringify({ email: "rbac-outsider@example.com", role: "viewer" }),
+        })
+      ).status
+    ).toBe(403);
+    expect(
+      (
+        await keyReq(viewerKey, `/orgs/${tenantOrgId}/members/${editorUserId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ role: "admin" }),
+        })
+      ).status
+    ).toBe(403);
+    expect(
+      (
+        await keyReq(editorKey, `/orgs/${tenantOrgId}/members/${viewerUserId}`, {
+          method: "DELETE",
+        })
+      ).status
+    ).toBe(403);
+
+    // Drive member management requires drive admin or org admin — viewer and
+    // editor hold non-admin roles on the default drive (granted by invite)
+    expect(
+      (await keyReq(viewerKey, `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members`)).status
+    ).toBe(403);
+    expect(
+      (
+        await keyReq(editorKey, `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members/${viewerUserId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ role: "admin" }),
+        })
+      ).status
+    ).toBe(403);
+    expect(
+      (
+        await keyReq(viewerKey, `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members/${editorUserId}`, {
+          method: "DELETE",
+        })
+      ).status
+    ).toBe(403);
+  });
+
+  test("org admin can create list and manage drive members", async () => {
+    // Create a drive — creator gets an explicit admin membership row
+    const createRes = await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives`, {
+      method: "POST",
+      body: JSON.stringify({ name: "team-docs" }),
+    });
+    expect(createRes.status).toBe(201);
+    const newDriveId = (await createRes.json()).id;
+
+    // The freshly created drive is visible to its creator (strict membership)
+    const drives = await (await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives`)).json();
+    expect(drives.drives.some((d: any) => d.id === newDriveId)).toBe(true);
+
+    // Creator shows up as the drive admin
+    const newMembers = await (
+      await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives/${newDriveId}/members`)
+    ).json();
+    expect(newMembers.members).toEqual([
+      expect.objectContaining({ userId: ownerUserId, role: "admin" }),
+    ]);
+
+    // Org admin manages default-drive members (granted by invite)
+    const patchRes = await keyReq(
+      ownerKey,
+      `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members/${viewerUserId}`,
+      { method: "PATCH", body: JSON.stringify({ role: "editor" }) }
+    );
+    expect(patchRes.status).toBe(200);
+
+    const afterPatch = await (
+      await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members`)
+    ).json();
+    expect(
+      afterPatch.members.find((m: any) => m.userId === viewerUserId).role
+    ).toBe("editor");
+
+    const deleteRes = await keyReq(
+      ownerKey,
+      `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members/${editorUserId}`,
+      { method: "DELETE" }
+    );
+    expect(deleteRes.status).toBe(200);
+
+    const afterDelete = await (
+      await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members`)
+    ).json();
+    expect(afterDelete.members.some((m: any) => m.userId === editorUserId)).toBe(false);
+
+    // Org/drive mismatch is still a 404 even for an org admin
+    expect(
+      (await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives/${outsiderDriveId}/members`)).status
+    ).toBe(404);
+  });
+
+  test("org admin can manage org members", async () => {
+    const listRes = await keyReq(ownerKey, `/orgs/${tenantOrgId}/members`);
+    expect(listRes.status).toBe(200);
+    const members = (await listRes.json()).members;
+    expect(members.some((m: any) => m.userId === removableUserId)).toBe(true);
+
+    const patchRes = await keyReq(ownerKey, `/orgs/${tenantOrgId}/members/${removableUserId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "editor" }),
+    });
+    expect(patchRes.status).toBe(200);
+
+    const deleteRes = await keyReq(ownerKey, `/orgs/${tenantOrgId}/members/${removableUserId}`, {
+      method: "DELETE",
+    });
+    expect(deleteRes.status).toBe(200);
+
+    const after = await (await keyReq(ownerKey, `/orgs/${tenantOrgId}/members`)).json();
+    expect(after.members.some((m: any) => m.userId === removableUserId)).toBe(false);
+  });
+});
