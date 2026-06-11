@@ -41,6 +41,7 @@ export function AccountSwitcher() {
               if (cred.id === credential.id) return
               switchAccount(cred.id)
               toast(`Switched to ${cred.name}`)
+              navigate("/")
             }}
           >
             <div className="flex-1 min-w-0">

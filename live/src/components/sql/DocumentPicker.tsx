@@ -40,7 +40,7 @@ function useQueryableDocs() {
 
 interface DocumentPickerProps {
   docs: BoundDoc[]
-  onAdd: (path: string) => void
+  onAdd: (path: string, size?: number) => void
   onRemove: (path: string) => void
   onRename: (path: string, table: string) => void
 }
@@ -106,7 +106,7 @@ export function DocumentPicker({ docs, onAdd, onRemove, onRename }: DocumentPick
                   key={match.path}
                   type="button"
                   onClick={() => {
-                    onAdd(match.path)
+                    onAdd(match.path, match.size)
                     setOpen(false)
                     setFilter("")
                   }}
@@ -198,6 +198,11 @@ function DocChip({
       )}
       {filename !== `${doc.table}.${doc.path.split(".").pop()}` && (
         <span className="max-w-40 truncate text-muted-foreground/70">{filename}</span>
+      )}
+      {doc.size != null && (
+        <span className="text-[10px] text-muted-foreground/60 tabular-nums">
+          {formatBytes(doc.size)}
+        </span>
       )}
       <button
         type="button"

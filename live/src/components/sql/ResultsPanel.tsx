@@ -16,6 +16,7 @@ import {
 import { downloadBlob } from "@/lib/download"
 import { cn } from "@/lib/utils"
 import { toast } from "@/stores/toast"
+import { DataGrid } from "@/components/data-grid/DataGrid"
 import { ResultsChart, getNumericColumns } from "./ResultsChart"
 import type { SqlRunResult } from "@/lib/sql-engine/types"
 
@@ -189,7 +190,7 @@ export function ResultsPanel({ result, error, running, className }: ResultsPanel
           <p className="text-sm text-muted-foreground">Query returned no rows.</p>
         </div>
       ) : viewMode === "table" ? (
-        <ResultsTable result={result} />
+        <DataGrid columns={result.columns} rows={result.rows} />
       ) : effectiveY ? (
         <ResultsChart
           columns={result.columns}
@@ -217,66 +218,6 @@ export function ResultsPanel({ result, error, running, className }: ResultsPanel
         </div>
       )}
     </div>
-  )
-}
-
-function ResultsTable({ result }: { result: SqlRunResult }) {
-  return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <table className="w-full border-collapse text-xs">
-        <thead className="sticky top-0 z-10 bg-background">
-          <tr>
-            <th className="w-10 border-b border-border px-2 py-1.5 text-right font-normal text-muted-foreground/60">
-              #
-            </th>
-            {result.columns.map((col) => (
-              <th
-                key={col.name}
-                className="border-b border-border px-2 py-1.5 text-left font-medium whitespace-nowrap"
-              >
-                <Tooltip>
-                  <TooltipTrigger
-                    render={<span className="cursor-default">{col.name}</span>}
-                  />
-                  <TooltipContent className="font-mono">{col.type}</TooltipContent>
-                </Tooltip>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="font-mono">
-          {result.rows.map((row, i) => (
-            <tr key={i} className="hover:bg-muted/50">
-              <td className="border-b border-border/50 px-2 py-1 text-right text-muted-foreground/50 tabular-nums">
-                {i + 1}
-              </td>
-              {result.columns.map((col) => (
-                <ResultCell key={col.name} value={row[col.name]} />
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function ResultCell({ value }: { value: unknown }) {
-  if (value === null || value === undefined) {
-    return (
-      <td className="border-b border-border/50 px-2 py-1 whitespace-nowrap italic text-muted-foreground/50">
-        NULL
-      </td>
-    )
-  }
-  const text = typeof value === "object" ? JSON.stringify(value) : String(value)
-  return (
-    <td
-      className="max-w-md truncate border-b border-border/50 px-2 py-1 whitespace-nowrap tabular-nums"
-      title={text.length > 60 ? text : undefined}
-    >
-      {text}
-    </td>
   )
 }
 

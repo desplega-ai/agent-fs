@@ -1,6 +1,7 @@
 import { useState, useEffect, type MutableRefObject } from "react"
-import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download } from "lucide-react"
+import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database } from "lucide-react"
 import { useNavigate } from "react-router"
+import { isQueryablePath } from "@/lib/sql-engine/types"
 import { useAuth } from "@/contexts/auth"
 import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
 import { useFileActions } from "@/hooks/use-file-actions"
@@ -18,6 +19,8 @@ import { ImageViewer } from "./ImageViewer"
 import { VideoViewer } from "./VideoViewer"
 import { PdfViewer } from "./PdfViewer"
 import { FallbackViewer } from "./FallbackViewer"
+import { TablePreviewViewer } from "./TablePreviewViewer"
+import { DatabasePreviewViewer } from "./DatabasePreviewViewer"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import {
@@ -42,10 +45,34 @@ const BINARY_EXTS = new Set([
   "zip", "gz", "tar", "tgz", "bz2", "xz", "7z", "rar",
   "woff", "woff2", "ttf", "otf", "eot",
   "wasm", "bin", "exe", "dll", "so", "dylib", "o", "a",
+  // Office / binary documents — must never render as text (they're octet-stream
+  // and would otherwise dump raw zip/OLE bytes into the text viewer).
+  "doc", "docx", "ppt", "pptx", "xls", "odt", "ods", "odp",
 ])
+
+// Tabular formats previewed as a data grid by default. Binary ones (parquet,
+// xlsx) had no preview before; text ones (csv, tsv) get a Table/Source toggle.
+// Multi-table formats (sqlite, duckdb) are intentionally excluded — there's no
+// single obvious table to show — so they keep the Query-with-SQL entry point.
+const TABULAR_BINARY_EXTS = new Set(["parquet", "xlsx"])
+const TABULAR_TEXT_EXTS = new Set(["csv", "tsv", "ndjson", "jsonl"])
+// Multi-table database files — previewed via the table-switching DB viewer.
+const DATABASE_EXTS = new Set(["db", "sqlite", "sqlite3", "duckdb"])
 
 function getExt(path: string): string {
   return path.split(".").pop()?.toLowerCase() ?? ""
+}
+
+function isTabularBinary(path: string): boolean {
+  return TABULAR_BINARY_EXTS.has(getExt(path))
+}
+
+function isTabularText(path: string): boolean {
+  return TABULAR_TEXT_EXTS.has(getExt(path))
+}
+
+function isDatabaseFile(path: string): boolean {
+  return DATABASE_EXTS.has(getExt(path))
 }
 
 function isImage(path: string): boolean {
@@ -65,7 +92,7 @@ function isPdf(path: string): boolean {
 }
 
 const TEXT_EXTS = new Set([
-  "txt", "ts", "tsx", "js", "jsx", "json", "md", "mdx", "css", "scss",
+  "txt", "ts", "tsx", "js", "jsx", "json", "jsonl", "ndjson", "md", "mdx", "css", "scss",
   "html", "xml", "yaml", "yml", "toml", "sh", "bash", "py", "rb", "rs",
   "go", "java", "c", "cpp", "h", "hpp", "sql", "graphql", "env", "cfg",
   "ini", "conf", "log", "csv", "tsv", "dockerfile", "makefile", "lock",
@@ -100,8 +127,18 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   const commentCount = commentsData?.comments.length ?? 0
   const [showRaw, setShowRaw] = useState(false)
 
+  const isTabBin = isTabularBinary(path)
+  const isTabTxt = isTabularText(path)
+  const isDb = isDatabaseFile(path)
+
+  // Files rendered by querying their data (parquet, xlsx, sqlite/duckdb, and
+  // csv/tsv/ndjson in grid mode) need no raw-bytes fetch — the grid data comes
+  // from the SQL engine. The raw fetch (presigned URL) is only used for text
+  // and the optional "Source" toggle of tabular-text files.
   const { data: content, isLoading } = useFileContent(
-    isImg || isVid || isPdf(path) ? null : path
+    isImg || isVid || isPdf(path) || isTabBin || isDb || (isTabTxt && !showRaw)
+      ? null
+      : path
   )
 
   // Outline only exists for a rendered markdown preview. When the viewer shows
@@ -136,7 +173,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       fileActions.download()
     },
   }
-  if (isMd) {
+  if (isMd || isTabTxt) {
     fileShortcuts.e = (e) => {
       e.preventDefault()
       setShowRaw((v) => !v)
@@ -148,13 +185,89 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       navigate(`/detail/~/${orgId}/${driveId}/${path}`)
     }
   }
+
+  // Tabular/data files (csv, tsv, parquet, xlsx, json, ndjson, sqlite, duckdb)
+  // get a direct entry point into the SQL workbench, pre-bound to this file.
+  const onQuery =
+    isQueryablePath(path) && orgId && driveId
+      ? () => navigate(`/sql/~/${orgId}/${driveId}?path=${encodeURIComponent(path)}`)
+      : undefined
+  if (onQuery) {
+    fileShortcuts.q = (e) => {
+      e.preventDefault()
+      onQuery()
+    }
+  }
   useKeyboardShortcuts(fileShortcuts)
 
   if (isImg) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
         <ImageViewer path={path} className="flex-1" />
+      </div>
+    )
+  }
+
+  // Binary tabular files (parquet, xlsx): render a data-grid preview by
+  // querying the file through the SQL engine. No text content to fetch.
+  if (isTabBin) {
+    return (
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        <TablePreviewViewer path={path} size={stat?.size} className="flex-1 min-h-0" />
+      </div>
+    )
+  }
+
+  // Database files (sqlite, duckdb): list tables and preview the selected one.
+  if (isDb) {
+    return (
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        <DatabasePreviewViewer path={path} size={stat?.size} className="flex-1 min-h-0" />
+      </div>
+    )
+  }
+
+  // Tabular text files (csv, tsv, ndjson): data-grid preview by default (data
+  // from the SQL engine, so it works even when the raw-bytes fetch can't), with
+  // a Source toggle to the raw text.
+  if (isTabTxt) {
+    return (
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
+        {showHeader && (
+          <ViewerHeader
+            path={path}
+            actions={fileActions}
+            showExpand={showExpandButton}
+            onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)}
+            onQuery={onQuery}
+            showViewToggle
+            showRaw={showRaw}
+            onToggleRaw={() => setShowRaw(!showRaw)}
+          />
+        )}
+        {showRaw ? (
+          isLoading ? (
+            <div className="flex flex-1 items-center justify-center">
+              <Spinner />
+            </div>
+          ) : content ? (
+            <TextViewer
+              content={content.content}
+              path={path}
+              truncated={content.truncated}
+              comments={commentsData?.comments}
+              className="flex-1 min-h-0"
+              onScrollToCommentRef={onScrollToCommentRef}
+            />
+          ) : (
+            <FallbackViewer path={path} className="flex-1" />
+          )
+        ) : (
+          <TablePreviewViewer path={path} size={stat?.size} className="flex-1 min-h-0" />
+        )}
       </div>
     )
   }
@@ -162,7 +275,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isVid) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
         <VideoViewer path={path} className="flex-1" />
       </div>
     )
@@ -171,7 +284,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isPdf(path)) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
         <PdfViewer path={path} className="flex-1" />
       </div>
     )
@@ -186,7 +299,14 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   }
 
   if (!content) {
-    return <FallbackViewer path={path} className={className} />
+    // Binary/unpreviewable files (parquet, xlsx, sqlite, …) still get a header
+    // so their actions — including Query with SQL for tabular data — are reachable.
+    return (
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        <FallbackViewer path={path} className="flex-1" />
+      </div>
+    )
   }
 
   const textable = isTextFile(path, stat?.contentType)
@@ -194,13 +314,13 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (!textable) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
         <FallbackViewer path={path} className="flex-1" />
       </div>
     )
   }
 
-  // For markdown-like files: show raw/preview toggle in header
+  // For markdown-like files: show raw/preview toggle in header.
   const viewingRaw = isMd ? showRaw : true
 
   return (
@@ -211,8 +331,9 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           actions={fileActions}
           showExpand={showExpandButton}
           onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)}
+          onQuery={onQuery}
           commentCount={commentCount}
-          isMd={isMd}
+          showViewToggle={isMd}
           showRaw={showRaw}
           onToggleRaw={() => setShowRaw(!showRaw)}
         />
@@ -240,13 +361,14 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   )
 }
 
-function ViewerHeader({ path, actions, showExpand, onExpand, commentCount = 0, isMd, showRaw, onToggleRaw }: {
+function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCount = 0, showViewToggle, showRaw, onToggleRaw }: {
   path: string
   actions: ReturnType<typeof useFileActions>
   showExpand: boolean
   onExpand: () => void
+  onQuery?: () => void
   commentCount?: number
-  isMd?: boolean
+  showViewToggle?: boolean
   showRaw?: boolean
   onToggleRaw?: () => void
 }) {
@@ -316,7 +438,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, commentCount = 0, i
           />
           <TooltipContent>Download <Kbd className="ml-1">D</Kbd></TooltipContent>
         </Tooltip>
-        {isMd && onToggleRaw && (
+        {showViewToggle && onToggleRaw && (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -332,6 +454,24 @@ function ViewerHeader({ path, actions, showExpand, onExpand, commentCount = 0, i
               }
             />
             <TooltipContent>{showRaw ? "Preview" : "Source"} <Kbd className="ml-1">E</Kbd></TooltipContent>
+          </Tooltip>
+        )}
+        {onQuery && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onQuery}
+                  className="text-muted-foreground"
+                  aria-label="Query with SQL"
+                >
+                  <Database />
+                </Button>
+              }
+            />
+            <TooltipContent>Query with SQL <Kbd className="ml-1">Q</Kbd></TooltipContent>
           </Tooltip>
         )}
         {showExpand && (

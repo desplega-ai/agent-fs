@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "react-router"
-import { ChevronDown, Database, Play, Server } from "lucide-react"
+import { ChevronDown, Cpu, Database, Play, Server } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   DropdownMenu,
@@ -14,19 +15,20 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { DocumentPicker } from "@/components/sql/DocumentPicker"
-import { SqlEditor } from "@/components/sql/SqlEditor"
+import { SqlEditor, type SqlCompletion } from "@/components/sql/SqlEditor"
 import { ResultsPanel, type SqlRunError } from "@/components/sql/ResultsPanel"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import {
   canRunInBrowser,
+  DATABASE_FORMATS,
   deriveTableName,
   formatForPath,
   runSql,
   sanitizeTableName,
   type BoundDoc,
+  type SqlEngineContext,
   type SqlRunResult,
 } from "@/lib/sql-engine"
-import { cn } from "@/lib/utils"
 import { toast } from "@/stores/toast"
 import type { ApiError } from "@/api/client"
 
@@ -46,31 +48,52 @@ export function SqlPage() {
 
   useDocumentTitle("SQL")
 
-  // Pre-bind ?path=... and pre-fill a starter query (once per mount).
+  // Pre-bind ?path=... and pre-fill a starter query (once, after auth resolves).
   const seeded = useRef(false)
   useEffect(() => {
     if (seeded.current) return
-    seeded.current = true
     const raw = searchParams.get("path")
     if (!raw) return
+    if (!orgId || !driveId) return // wait for auth before introspecting
+    seeded.current = true
+
     const path = raw.replace(/^\/+/, "")
     const format = formatForPath(path)
     if (!format) return
-    setDocs((prev) =>
-      prev.some((d) => d.path === path)
-        ? prev
-        : [...prev, { path, table: deriveTableName(path, prev.map((d) => d.table)), format }],
-    )
-    setQuery((q) => q || `SELECT * FROM '/${path}' LIMIT 100`)
-  }, [searchParams])
+    const table = deriveTableName(path, [])
+    const doc: BoundDoc = { path, table, format }
+    setDocs((prev) => (prev.some((d) => d.path === path) ? prev : [...prev, doc]))
 
-  const addDoc = useCallback((rawPath: string) => {
+    if (DATABASE_FORMATS.has(format)) {
+      // SQLite/DuckDB files expose their tables as `<table>.<name>` and can't be
+      // read by path literal — discover the first table and seed a real query.
+      runSql(
+        {
+          query: `SELECT table_name FROM duckdb_tables() WHERE schema_name = '${table}' ORDER BY table_name`,
+          docs: [doc],
+          maxRows: 100,
+        },
+        { client, orgId, driveId },
+      )
+        .then((res) => {
+          const tables = res.rows.map((r) => String(r.table_name))
+          setQuery((q) => q || starterForDatabase(table, tables))
+        })
+        .catch(() => {
+          setQuery((q) => q || `-- ${table} is a database; query its tables as ${table}.<table_name>`)
+        })
+    } else {
+      setQuery((q) => q || `SELECT * FROM '/${path}' LIMIT 100`)
+    }
+  }, [searchParams, client, orgId, driveId])
+
+  const addDoc = useCallback((rawPath: string, size?: number) => {
     const path = rawPath.replace(/^\/+/, "")
     const format = formatForPath(path)
     if (!format) return
     setDocs((prev) => {
       if (prev.some((d) => d.path === path)) return prev
-      return [...prev, { path, table: deriveTableName(path, prev.map((d) => d.table)), format }]
+      return [...prev, { path, table: deriveTableName(path, prev.map((d) => d.table)), format, size }]
     })
   }, [])
 
@@ -90,6 +113,48 @@ export function SqlPage() {
       return prev.map((d) => (d.path === path ? { ...d, table: sanitized } : d))
     })
   }, [])
+
+  // Discovered tables for each bound database doc (keyed by doc path), used for
+  // editor autocompletion of `<schema>.<table>` names.
+  const [dbTables, setDbTables] = useState<Record<string, string[]>>({})
+  useEffect(() => {
+    if (!orgId || !driveId) return
+    const ctx: SqlEngineContext = { client, orgId, driveId }
+    for (const doc of docs) {
+      if (!DATABASE_FORMATS.has(doc.format)) continue
+      if (dbTables[doc.path]) continue
+      runSql(
+        {
+          query: `SELECT table_name FROM duckdb_tables() WHERE schema_name = '${doc.table}' ORDER BY table_name`,
+          docs: [doc],
+          maxRows: 1000,
+        },
+        ctx,
+      )
+        .then((res) => {
+          const tables = res.rows.map((r) => String(r.table_name))
+          setDbTables((prev) => (prev[doc.path] ? prev : { ...prev, [doc.path]: tables }))
+        })
+        .catch(() => {
+          /* introspection is best-effort — autocomplete just omits this db's tables */
+        })
+    }
+  }, [docs, client, orgId, driveId, dbTables])
+
+  const completions = useMemo<SqlCompletion[]>(() => {
+    const out: SqlCompletion[] = []
+    for (const doc of docs) {
+      if (DATABASE_FORMATS.has(doc.format)) {
+        out.push({ label: doc.table, detail: `${doc.format} database`, kind: "schema" })
+        for (const t of dbTables[doc.path] ?? []) {
+          out.push({ label: `${doc.table}.${t}`, detail: `table in ${doc.table}`, kind: "table" })
+        }
+      } else {
+        out.push({ label: doc.table, detail: `${doc.format} · /${doc.path}`, kind: "table" })
+      }
+    }
+    return out
+  }, [docs, dbTables])
 
   const run = useCallback(async () => {
     if (!orgId || !driveId) return
@@ -121,13 +186,22 @@ export function SqlPage() {
   }, [client, orgId, driveId, query, docs, maxRows, forceServer])
 
   const wasmEligible = canRunInBrowser(docs)
+  const runsInBrowser = !forceServer && wasmEligible
+  const effectiveEngine: "browser" | "server" = runsInBrowser ? "browser" : "server"
   const engineHint = forceServer
-    ? "server engine (forced)"
+    ? "Runs on the server (forced)"
     : wasmEligible
-      ? "browser engine (wasm)"
+      ? "Runs in your browser · DuckDB-WASM"
       : docs.length === 0
-        ? "server engine — path literals resolve on the server"
-        : "server engine — xlsx/sqlite/duckdb need the server"
+        ? "Runs on the server · path literals resolve there"
+        : "Runs on the server · xlsx/sqlite/duckdb aren't supported in-browser"
+
+  // Bytes the browser engine will download + parse (known doc sizes only).
+  const browserLoadBytes = runsInBrowser
+    ? docs.reduce((sum, d) => sum + (d.size ?? 0), 0)
+    : 0
+  const browserLoadHint =
+    runsInBrowser && browserLoadBytes > 0 ? ` · loads ~${formatBytes(browserLoadBytes)}` : ""
 
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -138,28 +212,53 @@ export function SqlPage() {
         <span className="hidden truncate text-xs text-muted-foreground sm:inline">
           Query drive documents with DuckDB
         </span>
-        <div className="ml-auto shrink-0">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <Tooltip>
             <TooltipTrigger
-              render={
-                <Button
-                  variant={forceServer ? "secondary" : "ghost"}
-                  size="xs"
-                  onClick={() => setForceServer((v) => !v)}
-                  aria-pressed={forceServer}
-                  className={cn("gap-1", !forceServer && "text-muted-foreground")}
-                >
-                  <Server />
-                  Run on server
-                </Button>
-              }
+              render={<span className="cursor-help text-[11px] text-muted-foreground">Engine</span>}
             />
-            <TooltipContent>
-              {forceServer
-                ? "Queries are forced to the server engine"
-                : "Auto: browser (wasm) when every bound document supports it"}
+            <TooltipContent className="max-w-64">
+              Where the query runs. Browser (DuckDB-WASM, no upload) handles
+              csv/tsv/parquet/json; Server handles xlsx/sqlite/duckdb and bare path
+              literals. Pick Server to force it.
             </TooltipContent>
           </Tooltip>
+          <ToggleGroup
+            value={[effectiveEngine]}
+            onValueChange={(v) => {
+              const next = v[0]
+              if (next === "browser") setForceServer(false)
+              else if (next === "server") setForceServer(true)
+            }}
+          >
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <ToggleGroupItem value="browser" disabled={!wasmEligible} aria-label="Run in browser">
+                    <Cpu />
+                  </ToggleGroupItem>
+                }
+              />
+              <TooltipContent className="max-w-56">
+                {wasmEligible
+                  ? "Browser — runs locally with DuckDB-WASM, no upload. Best for csv/tsv/parquet/json."
+                  : "Browser unavailable — xlsx/sqlite/duckdb and path-literal queries must run on the server."}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <ToggleGroupItem value="server" aria-label="Run on server">
+                    <Server />
+                  </ToggleGroupItem>
+                }
+              />
+              <TooltipContent className="max-w-56">
+                Server — runs on the daemon's DuckDB. Required for xlsx/sqlite/duckdb;
+                streams only result rows back.
+              </TooltipContent>
+            </Tooltip>
+          </ToggleGroup>
         </div>
       </div>
 
@@ -171,7 +270,7 @@ export function SqlPage() {
       {/* Editor */}
       <div className="flex h-[38%] min-h-44 shrink-0 flex-col border-b border-border">
         <div className="min-h-0 flex-1">
-          <SqlEditor value={query} onChange={setQuery} onRun={run} />
+          <SqlEditor value={query} onChange={setQuery} onRun={run} completions={completions} />
         </div>
         <div className="flex h-9 shrink-0 items-center gap-2 border-t border-border px-2">
           <Button size="xs" onClick={run} disabled={running} className="gap-1.5">
@@ -209,8 +308,8 @@ export function SqlPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <span className="ml-auto hidden text-[11px] text-muted-foreground md:inline">
-            {engineHint}
+          <span className="ml-auto truncate text-[11px] text-muted-foreground">
+            {engineHint}{browserLoadHint}
           </span>
         </div>
       </div>
@@ -219,4 +318,19 @@ export function SqlPage() {
       <ResultsPanel className="min-h-0 flex-1" result={result} error={error} running={running} />
     </div>
   )
+}
+
+/** Build a starter query for a bound database, selecting from its first table. */
+function starterForDatabase(table: string, tables: string[]): string {
+  if (tables.length === 0) return `-- ${table} has no tables`
+  const list = tables.map((t) => `${table}.${t}`).join(", ")
+  return `-- tables: ${list}\nSELECT * FROM ${table}.${tables[0]} LIMIT 100`
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 }

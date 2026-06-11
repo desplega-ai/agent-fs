@@ -50,7 +50,21 @@ export interface BoundDoc {
   /** Table name the document is exposed as (user-editable). */
   table: string
   format: SqlFormat
+  /** File size in bytes, when known (drives the "browser will load" hint). */
+  size?: number
 }
+
+/** Formats the browser (DuckDB-WASM) engine can read directly. */
+export const WASM_READABLE_FORMATS = new Set<SqlFormat>([
+  "csv",
+  "tsv",
+  "parquet",
+  "json",
+  "ndjson",
+])
+
+/** Multi-table database formats — referenced as `<table>.<name>`, not by path. */
+export const DATABASE_FORMATS = new Set<SqlFormat>(["sqlite", "duckdb"])
 
 export type SqlEngineKind = "wasm" | "server"
 
