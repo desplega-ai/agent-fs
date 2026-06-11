@@ -156,12 +156,16 @@ export function SqlPage() {
     return out
   }, [docs, dbTables])
 
+  // Monotonic run token: only the most recent run may update results, so a slow
+  // earlier run can't clobber a newer one (rapid re-runs / edited query).
+  const runReqRef = useRef(0)
   const run = useCallback(async () => {
     if (!orgId || !driveId) return
     if (!query.trim()) {
       toast.error("Nothing to run", { description: "Write a query first." })
       return
     }
+    const reqId = ++runReqRef.current
     setRunning(true)
     setError(null)
     try {
@@ -170,8 +174,10 @@ export function SqlPage() {
         { client, orgId, driveId },
         { forceServer },
       )
+      if (runReqRef.current !== reqId) return
       setResult(res)
     } catch (err) {
+      if (runReqRef.current !== reqId) return
       const apiErr = err as Partial<ApiError> & Error
       const next: SqlRunError = {
         message: apiErr.message || "Query failed",
@@ -181,7 +187,7 @@ export function SqlPage() {
       setResult(null)
       toast.error("Query failed", { description: next.message })
     } finally {
-      setRunning(false)
+      if (runReqRef.current === reqId) setRunning(false)
     }
   }, [client, orgId, driveId, query, docs, maxRows, forceServer])
 

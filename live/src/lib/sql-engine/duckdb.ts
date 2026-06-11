@@ -86,6 +86,16 @@ async function ensureRegistered(
   docs: BoundDoc[],
   ctx: SqlEngineContext,
 ): Promise<void> {
+  // Drop files registered by earlier runs that aren't bound now (removed docs,
+  // org/drive switch), so a stale buffer can't be read out of scope.
+  const wanted = new Set(docs.map((d) => virtualName(d.path)))
+  for (const name of [...registeredFiles.keys()]) {
+    if (!wanted.has(name)) {
+      await db.dropFile(name).catch(() => {})
+      registeredFiles.delete(name)
+    }
+  }
+
   for (const doc of docs) {
     const name = virtualName(doc.path)
     // Resolve a revision token. If stat fails, fall back to a unique value so we
