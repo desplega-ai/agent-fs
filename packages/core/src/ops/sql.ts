@@ -324,6 +324,28 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
   let conn: Awaited<ReturnType<Awaited<ReturnType<typeof DuckDBInstance.create>>["connect"]>> | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
+  // Arm the deadline before any work so it covers the whole operation —
+  // downloads, extension loads, the sqlite bridge, and materialization — not
+  // just the final query. Interrupting the connection stops in-flight DuckDB
+  // work; the boundary checks below stop between phases (e.g. during S3 I/O,
+  // where there is no connection to interrupt).
+  let timedOut = false;
+  timer = setTimeout(() => {
+    timedOut = true;
+    try {
+      conn?.interrupt();
+    } catch {
+      // ignore — not connected yet, or already closed
+    }
+  }, timeoutMs);
+  const checkTimeout = () => {
+    if (timedOut) {
+      throw new ValidationError(`Query timed out after ${timeoutMs}ms`, {
+        suggestion: "Reduce the amount of data the query loads or scans",
+      });
+    }
+  };
+
   try {
     // --- Download phase ---
     if (bindings.length > 0) {
@@ -343,6 +365,7 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
           throw err;
         }
         b.localFile = localFile;
+        checkTimeout();
       }
     }
 
@@ -359,8 +382,14 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
     const sqliteBindings = bindings.filter((b) => b.format === "sqlite");
     let sqliteTables = new Map<string, Array<{ table: string; parquetFile: string }>>();
     if (sqliteBindings.length > 0 && tempDir) {
-      sqliteTables = await bridgeSqliteToParquet(DuckDBInstance, sqliteBindings, tempDir);
+      sqliteTables = await bridgeSqliteToParquet(
+        DuckDBInstance,
+        sqliteBindings,
+        tempDir,
+        checkTimeout
+      );
     }
+    checkTimeout();
 
     for (const b of bindings) {
       try {
@@ -397,10 +426,13 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
         }
       } catch (err: unknown) {
         if (err instanceof ValidationError) throw err;
+        // A timeout fired mid-materialization surfaces as a clean timeout error.
+        checkTimeout();
         const message = err instanceof Error ? err.message : String(err);
         throw new ValidationError(`Failed to load ${b.path} as ${b.format}: ${message}`);
       }
     }
+    checkTimeout();
 
     // --- Lockdown phase: no file or network access for user SQL ---
     await conn.run("SET enable_external_access=false");
@@ -427,16 +459,6 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
         return table ? `${kw} ${qid(table)}` : full;
       }
     );
-
-    let timedOut = false;
-    timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        conn?.interrupt();
-      } catch {
-        // ignore — connection may already be closed
-      }
-    }, timeoutMs);
 
     try {
       const extracted = await conn.extractStatements(query);
@@ -519,7 +541,8 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
 async function bridgeSqliteToParquet(
   DuckDBInstance: typeof import("@duckdb/node-api").DuckDBInstance,
   bindings: Binding[],
-  tempDir: string
+  tempDir: string,
+  checkTimeout: () => void
 ): Promise<Map<string, Array<{ table: string; parquetFile: string }>>> {
   const result = new Map<string, Array<{ table: string; parquetFile: string }>>();
   const bridge = await DuckDBInstance.create(":memory:");
@@ -530,6 +553,7 @@ async function bridgeSqliteToParquet(
     for (let i = 0; i < bindings.length; i++) {
       const b = bindings[i];
       try {
+        checkTimeout();
         await conn.run(`ATTACH ${lit(b.localFile!)} AS src (TYPE sqlite, READ_ONLY)`);
         const reader = await conn.runAndReadAll(
           "SELECT table_name FROM duckdb_tables() WHERE database_name = 'src'"
@@ -540,6 +564,7 @@ async function bridgeSqliteToParquet(
         }
         const entries: Array<{ table: string; parquetFile: string }> = [];
         for (let j = 0; j < tables.length; j++) {
+          checkTimeout();
           const parquetFile = join(tempDir, `sq_${i}_${j}.parquet`);
           await conn.run(
             `COPY (SELECT * FROM src.${qid(tables[j])}) TO ${lit(parquetFile)} (FORMAT parquet)`
