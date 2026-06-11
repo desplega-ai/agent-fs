@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router"
 import { HardDrive, Check } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
@@ -19,6 +20,7 @@ import { toast } from "@/stores/toast"
 export function DriveSwitcher() {
   const { drives, driveId, driveName, setDriveId } = useAuth()
   const { selectFile } = useBrowser()
+  const navigate = useNavigate()
   const displayName = driveName || driveId.slice(0, 8)
 
   if (drives.length <= 1) {
@@ -68,6 +70,7 @@ export function DriveSwitcher() {
               setDriveId(drive.id)
               selectFile(null)
               toast(`Switched to ${drive.name}`)
+              navigate("/")
             }}
           >
             <HardDrive className="size-3 text-muted-foreground" />

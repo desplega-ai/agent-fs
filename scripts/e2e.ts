@@ -1008,6 +1008,201 @@ async function runStandardTests(daemonUrl: string) {
     assert(ct, "image/png", `Expected image/png, got ${ct}`);
   });
 
+  // -- sql (DuckDB) --
+
+  await test("sql fixtures: upload csv/tsv/ndjson/parquet/xlsx/sqlite", async () => {
+    // All fixtures are written to local files and uploaded via --file so
+    // newlines/tabs survive without shell-escaping games.
+    const { mkdtempSync } = await import("node:fs");
+    const fixDir = mkdtempSync(join(tmpdir(), "agent-fs-e2e-sql-"));
+
+    writeFileSync(join(fixDir, "sales.csv"), "id,name,amount\n1,alpha,10.5\n2,beta,20.25\n3,gamma,30\n");
+    writeFileSync(join(fixDir, "pets.tsv"), "id\tpet\n1\tcat\n2\tdog\n");
+    writeFileSync(join(fixDir, "events.ndjson"), '{"id":1,"kind":"login"}\n{"id":2,"kind":"logout"}\n');
+    writeFileSync(join(fixDir, "raw.txt"), "a,b\n1,2\n3,4\n");
+    runJson(`write /sql/sales.csv --file ${join(fixDir, "sales.csv")}`);
+    runJson(`write /sql/pets.tsv --file ${join(fixDir, "pets.tsv")}`);
+    runJson(`write /sql/events.ndjson --file ${join(fixDir, "events.ndjson")}`);
+    runJson(`write /sql/raw.txt --file ${join(fixDir, "raw.txt")}`);
+
+    const { DuckDBInstance } = await import("@duckdb/node-api");
+    const instance = await DuckDBInstance.create(":memory:");
+    const conn = await instance.connect();
+    await conn.run(`COPY (SELECT * FROM (VALUES (1, 'aa'), (2, 'bb'), (3, 'cc')) t(id, tag)) TO '${fixDir}/tags.parquet' (FORMAT parquet)`);
+    await conn.run("INSTALL excel");
+    await conn.run("LOAD excel");
+    await conn.run(`COPY (SELECT * FROM (VALUES (1, 'x'), (2, 'y')) t(num, label)) TO '${fixDir}/report.xlsx' WITH (FORMAT xlsx, HEADER true)`);
+    conn.closeSync();
+    instance.closeSync();
+
+    const { Database } = await import("bun:sqlite");
+    const sqlite = new Database(join(fixDir, "app.db"));
+    sqlite.run("CREATE TABLE users (id INTEGER, email TEXT)");
+    sqlite.run("INSERT INTO users VALUES (1,'a@x.com'),(2,'b@x.com')");
+    sqlite.close();
+
+    runJson(`write /sql/tags.parquet --file ${fixDir}/tags.parquet`);
+    runJson(`write /sql/report.xlsx --file ${fixDir}/report.xlsx`);
+    runJson(`write /sql/app.db --file ${fixDir}/app.db`);
+    rmSync(fixDir, { recursive: true, force: true });
+
+    const stat = runJson("stat /sql/tags.parquet");
+    assert(stat.contentType, "application/vnd.apache.parquet");
+  });
+
+  await test("sql: csv via path literal", () => {
+    const result = runJson(`sql "SELECT count(*) AS n, sum(amount) AS total FROM '/sql/sales.csv'"`);
+    assert(result.rows.length, 1);
+    assert(result.rows[0].n, 3);
+    assert(result.rows[0].total, 60.75);
+    assert(result.truncated, false);
+    assert(result.files.length, 1);
+    assert(result.files[0].path, "/sql/sales.csv");
+    assert(result.files[0].format, "csv");
+  });
+
+  await test("sql: tsv and ndjson via path literal", () => {
+    const tsv = runJson(`sql "SELECT pet FROM '/sql/pets.tsv' ORDER BY id"`);
+    assert(tsv.rows.map((r: any) => r.pet).join(","), "cat,dog");
+    const nd = runJson(`sql "SELECT count(*) AS n FROM '/sql/events.ndjson'"`);
+    assert(nd.rows[0].n, 2);
+  });
+
+  await test("sql: cross-format join with --table bindings", () => {
+    const result = runJson(
+      `sql "SELECT s.name, t.tag FROM sales s JOIN tags t ON s.id = t.id ORDER BY s.id" -t sales=/sql/sales.csv -t tags=/sql/tags.parquet`
+    );
+    assert(result.rows.length, 3);
+    assert(result.rows[0].name, "alpha");
+    assert(result.rows[0].tag, "aa");
+    assert(result.files.length, 2);
+  });
+
+  await test("sql: xlsx via path literal", () => {
+    const result = runJson(`sql "SELECT * FROM '/sql/report.xlsx' ORDER BY num"`);
+    assert(result.rows.length, 2);
+    assert(result.rows[0].label, "x");
+  });
+
+  await test("sql: sqlite db tables under binding name", () => {
+    const result = runJson(`sql "SELECT email FROM app.users ORDER BY id" -t app=/sql/app.db`);
+    assert(result.rows.length, 2);
+    assert(result.rows[0].email, "a@x.com");
+  });
+
+  await test("sql: format override makes .txt queryable", () => {
+    const result = runJson(`sql "SELECT sum(a) AS s FROM logs" -t logs=/sql/raw.txt:csv`);
+    assert(result.rows[0].s, 4);
+  });
+
+  await test("sql: --max-rows truncates", () => {
+    const result = runJson(`sql "SELECT * FROM '/sql/sales.csv'" --max-rows 2`);
+    assert(result.rowCount, 2);
+    assert(result.truncated, true);
+  });
+
+  await test("sql: human-readable table output", () => {
+    const out = run(`sql "SELECT name FROM '/sql/sales.csv' ORDER BY id LIMIT 1"`);
+    assertIncludes(out, "name");
+    assertIncludes(out, "alpha");
+    assertIncludes(out, "1 row");
+  });
+
+  await test("sql: stdin query", () => {
+    const out = execSync(`echo "SELECT count(*) AS n FROM '/sql/sales.csv'" | ${cmd} --json sql`, {
+      encoding: "utf-8",
+      env: { ...testEnv(), AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`, AGENT_FS_API_KEY: apiKey },
+      timeout: 30_000,
+    }).trim();
+    assert(JSON.parse(out).rows[0].n, 3);
+  });
+
+  await test("sql via API", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        op: "sql",
+        query: "SELECT s.name, t.tag FROM sales s JOIN tags t ON s.id = t.id ORDER BY s.id DESC LIMIT 1",
+        tables: { sales: "/sql/sales.csv", tags: { path: "/sql/tags.parquet", format: "parquet" } },
+      }),
+    });
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const body = await res.json() as any;
+    assert(body.rows.length, 1);
+    assert(body.rows[0].name, "gamma");
+    assert(body.rows[0].tag, "cc");
+    assert(Array.isArray(body.columns), true);
+    assert(body.columns[0].name, "name");
+  });
+
+  await test("sql via API — sandbox blocks host filesystem", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "sql", query: "SELECT * FROM read_csv('/etc/passwd')" }),
+    });
+    assert(res.status, 400, `Expected 400, got ${res.status}`);
+    const body = await res.json() as any;
+    assert(body.error, "VALIDATION_ERROR");
+  });
+
+  await test("sql via API — syntax error is a 400", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "sql", query: "SELEKT broken" }),
+    });
+    assert(res.status, 400, `Expected 400, got ${res.status}`);
+  });
+
+  await test("sql via MCP", async () => {
+    const initRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "e2e-sql", version: "1.0.0" },
+        },
+      }),
+    });
+    assert(initRes.ok, true, `MCP init failed: ${initRes.status}`);
+
+    const callRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "sql",
+          arguments: { query: "SELECT count(*) AS n FROM '/sql/sales.csv'" },
+        },
+      }),
+    });
+    assert(callRes.ok, true, `MCP tools/call failed: ${callRes.status}`);
+    const body = await callRes.json() as any;
+    const content = body.result?.content;
+    assert(Array.isArray(content), true, `Expected content array, got ${JSON.stringify(body)}`);
+    const parsed = JSON.parse(content[0]?.text);
+    assert(parsed.rows[0].n, 3);
+  });
+
   // -- Org commands --
 
   await test("org list", () => {

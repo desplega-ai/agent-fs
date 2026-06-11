@@ -16,8 +16,11 @@ const MIME_MAP: Record<string, string> = {
   html: "text/html",
   css: "text/css",
   csv: "text/csv",
+  tsv: "text/tab-separated-values",
   xml: "application/xml",
   json: "application/json",
+  jsonl: "application/x-ndjson",
+  ndjson: "application/x-ndjson",
   yaml: "application/x-yaml",
   yml: "application/x-yaml",
   toml: "application/toml",
@@ -38,6 +41,12 @@ const MIME_MAP: Record<string, string> = {
   sh: "text/x-shellscript",
   sql: "text/x-sql",
   graphql: "text/x-graphql",
+  // Data files
+  parquet: "application/vnd.apache.parquet",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  db: "application/vnd.sqlite3",
+  sqlite: "application/vnd.sqlite3",
+  sqlite3: "application/vnd.sqlite3",
   // Archives
   zip: "application/zip",
   tar: "application/x-tar",
@@ -54,6 +63,7 @@ export function isIndexableMimeType(contentType: string): boolean {
   return (
     normalized.startsWith("text/") ||
     normalized === "application/json" ||
+    normalized === "application/x-ndjson" ||
     normalized === "application/xml" ||
     normalized === "application/x-yaml" ||
     normalized === "application/toml" ||

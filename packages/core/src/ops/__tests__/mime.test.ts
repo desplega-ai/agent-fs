@@ -48,9 +48,15 @@ describe("detectMimeType", () => {
 
   // Unknown extensions
   it("returns octet-stream for unknown extensions", () => {
-    expect(detectMimeType("data.parquet")).toBe("application/octet-stream");
     expect(detectMimeType("model.onnx")).toBe("application/octet-stream");
     expect(detectMimeType("file.xyz")).toBe("application/octet-stream");
+  });
+
+  it("detects data file types", () => {
+    expect(detectMimeType("data.parquet")).toBe("application/vnd.apache.parquet");
+    expect(detectMimeType("data.tsv")).toBe("text/tab-separated-values");
+    expect(detectMimeType("app.db")).toBe("application/vnd.sqlite3");
+    expect(detectMimeType("rows.ndjson")).toBe("application/x-ndjson");
   });
 
   // Empty/edge cases

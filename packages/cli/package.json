@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "type": "module",
   "description": "Agent-first filesystem backed by S3",
   "license": "MIT",
@@ -26,7 +26,7 @@
     "README.md"
   ],
   "scripts": {
-    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external chonkie --external zod --external @modelcontextprotocol/sdk --external hono --external msgpackr",
+    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external chonkie --external zod --external @modelcontextprotocol/sdk --external hono --external msgpackr --external @duckdb/node-api",
     "prepublishOnly": "bun run build:npm"
   },
   "optionalDependencies": {
@@ -35,22 +35,23 @@
     "sqlite-vec-linux-arm64": "^0.1.9",
     "sqlite-vec-linux-x64": "^0.1.9",
     "sqlite-vec-windows-x64": "^0.1.9",
-    "@desplega.ai/agent-fs-fuse-linux-x64": "^0.8.1",
-    "@desplega.ai/agent-fs-fuse-linux-arm64": "^0.8.1"
+    "@desplega.ai/agent-fs-fuse-linux-x64": "^0.9.0",
+    "@desplega.ai/agent-fs-fuse-linux-arm64": "^0.9.0"
   },
   "dependencies": {
-    "commander": "^14.0.3",
     "@aws-sdk/client-s3": "^3.750.0",
+    "@duckdb/node-api": "1.5.3-r.3",
     "@google/genai": "^1.45.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "chonkie": "^0.3.0",
+    "commander": "^14.0.3",
     "diff": "^8.0.3",
     "drizzle-orm": "^0.44.0",
+    "hono": "^4.12.8",
+    "msgpackr": "^1",
     "node-llama-cpp": "^3.17.1",
     "openai": "^6.29.0",
     "sqlite-vec": "^0.1.9",
-    "zod": "^3.24.0",
-    "@modelcontextprotocol/sdk": "^1.27.1",
-    "hono": "^4.12.8",
-    "msgpackr": "^1"
+    "zod": "^3.24.0"
   }
 }

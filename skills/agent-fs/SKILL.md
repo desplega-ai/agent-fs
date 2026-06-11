@@ -9,7 +9,10 @@ description: >-
   "update role", file persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
   manage org/drive members, generate presigned URLs, check recent activity, or use
-  semantic search across stored files. Also use when the user wants to mount or
+  semantic search across stored files. Also use when the user wants to run SQL
+  over stored data files ("query this csv", "sql over my files", "duckdb",
+  "aggregate the parquet file", "query the sqlite db", "join these spreadsheets").
+  Also use when the user wants to mount or
   unmount agent-fs as a Linux FUSE filesystem ("mount agent-fs", "fuse mount",
   "fuse", "remote mount", "sandbox mount", "expose drives as files",
   "use cat/grep/mv on my agent-fs files", "umount the drive", "mount a remote
@@ -138,6 +141,14 @@ symlinks are unsupported and throw `EPERM`.
 - `search` — general-purpose search combining keywords and meaning (recommended default)
 - `vec-search` — pure semantic search when you want conceptual matches only
 
+### SQL Queries (DuckDB)
+
+| Command | Usage | Description |
+|---------|-------|-------------|
+| `sql` | `agent-fs sql <query> [-t name=path[:format]]... [--max-rows <n>]` | Run DuckDB SQL over stored documents |
+
+Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` except parquet/xlsx), sqlite (`.db`/`.sqlite`/`.sqlite3`), and `.duckdb`. Reference file-format documents directly by quoted drive path inside the query, or bind any document to a table name with `-t`. SQLite/DuckDB databases require a `-t` binding and expose their tables as `<name>.<table>`. Append `:format` to a binding to query documents with non-standard extensions (e.g. `-t logs=/raw/data.txt:csv`). Queries are sandboxed — no host filesystem or network access. Results cap at `--max-rows` (default 1000, max 10000); `truncated: true` in JSON output signals more rows exist.
+
 ### Comments
 
 | Command | Usage | Description |
@@ -244,6 +255,23 @@ agent-fs search "financial performance metrics" --limit 5
 
 # Vector-only semantic search (conceptual matches only)
 agent-fs vec-search "financial performance metrics" --limit 5
+```
+
+### Query data files with SQL
+
+```bash
+# Query a CSV directly by path
+agent-fs sql "SELECT category, sum(amount) AS total FROM '/finance/2026.csv' GROUP BY category" --json
+
+# Join documents of different formats
+agent-fs sql "SELECT s.name, t.tag FROM sales s JOIN tags t ON s.id = t.id" \
+  -t sales=/data/sales.csv -t tags=/data/tags.parquet
+
+# Query a stored SQLite database (tables exposed as app.<table>)
+agent-fs sql "SELECT count(*) FROM app.users" -t app=/backups/app.db
+
+# Pipe a query via stdin
+echo "SELECT count(*) FROM '/data/events.ndjson'" | agent-fs sql
 ```
 
 ### Review and revert changes

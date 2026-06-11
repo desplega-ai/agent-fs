@@ -187,6 +187,41 @@ export interface GrepResult {
   matches: GrepMatch[]
 }
 
+// SQL types (from core/ops/types.ts)
+
+export type SqlFormat =
+  | "csv"
+  | "tsv"
+  | "parquet"
+  | "xlsx"
+  | "json"
+  | "ndjson"
+  | "sqlite"
+  | "duckdb"
+
+/** Named table binding: document path, or { path, format } to override format detection. */
+export type SqlTableBinding = string | { path: string; format?: SqlFormat }
+
+export interface SqlColumn {
+  name: string
+  type: string
+}
+
+export interface SqlBoundFile {
+  table: string
+  path: string
+  format: SqlFormat
+}
+
+export interface SqlResult {
+  columns: SqlColumn[]
+  rows: Record<string, unknown>[]
+  rowCount: number
+  truncated: boolean
+  files: SqlBoundFile[]
+  elapsedMs: number
+}
+
 // Auth types
 
 export interface OrgMember {

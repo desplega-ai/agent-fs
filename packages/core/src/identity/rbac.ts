@@ -26,6 +26,7 @@ const OP_ROLES: Record<string, Role> = {
   recent: "viewer",
   tree: "viewer",
   glob: "viewer",
+  sql: "viewer",
   "signed-url": "viewer",
   write: "editor",
   edit: "editor",

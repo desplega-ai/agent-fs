@@ -10,4 +10,9 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  optimizeDeps: {
+    // DuckDB-WASM selects its own worker/wasm bundles via ?url imports —
+    // pre-bundling breaks the worker URL resolution.
+    exclude: ["@duckdb/duckdb-wasm"],
+  },
 })

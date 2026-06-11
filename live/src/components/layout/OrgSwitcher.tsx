@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router"
 import { Building2, Check } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
@@ -19,6 +20,7 @@ import { toast } from "@/stores/toast"
 export function OrgSwitcher() {
   const { orgs, orgId, orgName, setOrgId } = useAuth()
   const { selectFile } = useBrowser()
+  const navigate = useNavigate()
   const displayName = orgName || orgId?.slice(0, 8) || "..."
 
   if (orgs.length <= 1) {
@@ -68,6 +70,7 @@ export function OrgSwitcher() {
               setOrgId(org.id)
               selectFile(null)
               toast(`Switched to ${org.name}`)
+              navigate("/")
             }}
           >
             <Building2 className="size-3 text-muted-foreground" />

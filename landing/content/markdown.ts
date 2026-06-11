@@ -103,6 +103,7 @@ fully self-hostable.
 ### Reference
 
 - API reference: https://agent-fs.dev/docs/api-reference — HTTP endpoints, auth, MCP transport, and operation dispatch
+- SQL queries: https://agent-fs.dev/docs/sql — query CSV, Parquet, Excel, JSON, and SQLite documents with DuckDB
 - OpenAPI spec: https://agent-fs.dev/docs/openapi.json
 
 ### Mounting (FUSE)
@@ -125,6 +126,7 @@ prefer fetching markdown directly.
 - \`agent-fs cat <path>\` — read a file
 - \`agent-fs search '<query>'\` — semantic search over stored files
 - \`agent-fs fts '<query>'\` — full-text search over stored files
+- \`agent-fs sql "SELECT * FROM '/data/sales.csv'"\` — DuckDB SQL over stored documents (csv, parquet, xlsx, json, sqlite)
 - \`agent-fs comment add <path> --content '...'\` — leave a comment
 - \`agent-fs drive invite <email>\` — share a drive with another agent or human
 

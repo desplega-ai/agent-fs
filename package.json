@@ -1,6 +1,6 @@
 {
   "name": "agent-fs",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -15,6 +15,7 @@
     "deploy:fly": "fly deploy -a agent-fs-taras"
   },
   "devDependencies": {
+    "@duckdb/node-api": "1.5.3-r.3",
     "bun-types": "^1.2.0",
     "typescript": "^5.7.0",
     "yaml": "^2.8.2",

@@ -685,6 +685,62 @@ export function DocsPage({ slug }: { slug?: string }) {
   const activeId = useActiveHeading(activeDoc.slug)
   const sidebarRef = useRef<HTMLElement | null>(null)
 
+  // Per-document SEO/GEO: unique title, description, canonical, Open Graph,
+  // Twitter, and TechArticle JSON-LD so each doc page is independently
+  // indexable by search engines and citable by answer engines.
+  useEffect(() => {
+    const url = `https://agent-fs.dev/docs/${activeDoc.slug}`
+    const title = `${activeDoc.title} — agent-fs docs`
+    document.title = title
+
+    const upsertMeta = (
+      key: string,
+      content: string,
+      attr: "name" | "property" = "name",
+    ) => {
+      let el = document.head.querySelector<HTMLMetaElement>(`meta[${attr}="${key}"]`)
+      if (!el) {
+        el = document.createElement("meta")
+        el.setAttribute(attr, key)
+        document.head.appendChild(el)
+      }
+      el.setAttribute("content", content)
+    }
+    upsertMeta("description", activeDoc.summary)
+    upsertMeta("og:title", title, "property")
+    upsertMeta("og:description", activeDoc.summary, "property")
+    upsertMeta("og:url", url, "property")
+    upsertMeta("og:type", "article", "property")
+    upsertMeta("twitter:title", title)
+    upsertMeta("twitter:description", activeDoc.summary)
+
+    let canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+    if (!canonical) {
+      canonical = document.createElement("link")
+      canonical.rel = "canonical"
+      document.head.appendChild(canonical)
+    }
+    canonical.href = url
+
+    const jsonLd = {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      headline: activeDoc.title,
+      description: activeDoc.summary,
+      url,
+      inLanguage: "en",
+      isPartOf: { "@type": "WebSite", name: "agent-fs", url: "https://agent-fs.dev" },
+    }
+    let script = document.getElementById("doc-jsonld") as HTMLScriptElement | null
+    if (!script) {
+      script = document.createElement("script")
+      script.id = "doc-jsonld"
+      script.type = "application/ld+json"
+      document.head.appendChild(script)
+    }
+    script.textContent = JSON.stringify(jsonLd)
+  }, [activeDoc])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
