@@ -14,6 +14,8 @@ machine-readable representation (where available) linked alongside.
 - [/docs](https://agent-fs.dev/docs) — Documentation index.
 - [/docs/api-reference](https://agent-fs.dev/docs/api-reference) — HTTP API,
   auth, MCP transport, and operation dispatch.
+- [/docs/sql](https://agent-fs.dev/docs/sql) — Query CSV, Parquet, Excel, JSON,
+  and SQLite documents with DuckDB (CLI, API, MCP).
 - [/docs/mcp-setup](https://agent-fs.dev/docs/mcp-setup) — MCP client setup.
 - [/docs/deployment](https://agent-fs.dev/docs/deployment) — Local and hosted
   deployment guide.
