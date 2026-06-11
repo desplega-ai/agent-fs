@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.8.1",
+    "version": "0.8.2",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -765,6 +765,69 @@
                       },
                       "path": {
                         "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "sql",
+                    "description": "Run a DuckDB SQL query over documents stored in the drive. Reference documents directly by path string literal (e.g. SELECT * FROM '/data/sales.csv') or bind them as named tables via `tables` ({ name: path } or { name: { path, format } } to override format detection). Supports csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also .gz except parquet/xlsx), sqlite (.db/.sqlite/.sqlite3, tables exposed as name.tablename), and .duckdb files. Queries run sandboxed: no filesystem or network access beyond the bound documents. Returns { columns, rows, rowCount, truncated, files, elapsedMs }.",
+                    "required": [
+                      "op",
+                      "query"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "sql"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "query": {
+                        "type": "string"
+                      },
+                      "tables": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "path": {
+                                  "type": "string"
+                                },
+                                "format": {
+                                  "type": "string",
+                                  "enum": [
+                                    "csv",
+                                    "tsv",
+                                    "parquet",
+                                    "xlsx",
+                                    "json",
+                                    "ndjson",
+                                    "sqlite",
+                                    "duckdb"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "path"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "maxRows": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10000
                       }
                     },
                     "additionalProperties": false

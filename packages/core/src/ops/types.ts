@@ -330,6 +330,47 @@ export interface TreeResult {
   tree: TreeEntry[];
 }
 
+// --- SQL types ---
+
+export type SqlFormat =
+  | "csv"
+  | "tsv"
+  | "parquet"
+  | "xlsx"
+  | "json"
+  | "ndjson"
+  | "sqlite"
+  | "duckdb";
+
+export type SqlTableBinding = string | { path: string; format?: SqlFormat };
+
+export interface SqlParams {
+  query: string;
+  /** Named table bindings: table name -> document path (or { path, format } to override format detection). */
+  tables?: Record<string, SqlTableBinding>;
+  maxRows?: number;
+}
+
+export interface SqlColumn {
+  name: string;
+  type: string;
+}
+
+export interface SqlBoundFile {
+  table: string;
+  path: string;
+  format: SqlFormat;
+}
+
+export interface SqlResult {
+  columns: SqlColumn[];
+  rows: Record<string, unknown>[];
+  rowCount: number;
+  truncated: boolean;
+  files: SqlBoundFile[];
+  elapsedMs: number;
+}
+
 // --- Glob types ---
 
 export interface GlobParams {

@@ -15,6 +15,7 @@ import { memberCommands } from "./commands/member.js";
 import { docsCommand } from "./commands/docs.js";
 import { mountCommand, umountCommand } from "./commands/mount.js";
 import { downloadCommand } from "./commands/download.js";
+import { sqlCommand } from "./commands/sql.js";
 
 const program = new Command();
 
@@ -77,6 +78,7 @@ async function getDriveId(orgId?: string): Promise<string> {
 program.addCommand(docsCommand());
 registerOpCommands(program, client, getOrgId, getDriveId);
 program.addCommand(downloadCommand(client, getOrgId, getDriveId));
+program.addCommand(sqlCommand(program, client, getOrgId));
 program.addCommand(authCommands(client));
 program.addCommand(daemonCommands());
 program.addCommand(configCommands());

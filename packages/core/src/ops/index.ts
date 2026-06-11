@@ -22,6 +22,7 @@ import { search } from "./search.js";
 import { reindex } from "./reindex.js";
 import { tree } from "./tree.js";
 import { glob } from "./glob.js";
+import { sql } from "./sql.js";
 import { signedUrl } from "./signed-url.js";
 import { buildAppUrl } from "./urls.js";
 import {
@@ -215,6 +216,27 @@ const opRegistry: Record<string, OpDefinition> = {
       path: z.string().optional(),
     }),
   },
+  sql: {
+    description: "Run a DuckDB SQL query over documents stored in the drive. Reference documents directly by path string literal (e.g. SELECT * FROM '/data/sales.csv') or bind them as named tables via `tables` ({ name: path } or { name: { path, format } } to override format detection). Supports csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also .gz except parquet/xlsx), sqlite (.db/.sqlite/.sqlite3, tables exposed as name.tablename), and .duckdb files. Queries run sandboxed: no filesystem or network access beyond the bound documents. Returns { columns, rows, rowCount, truncated, files, elapsedMs }.",
+    handler: sql,
+    schema: z.object({
+      query: z.string(),
+      tables: z
+        .record(
+          z.union([
+            z.string(),
+            z.object({
+              path: z.string(),
+              format: z
+                .enum(["csv", "tsv", "parquet", "xlsx", "json", "ndjson", "sqlite", "duckdb"])
+                .optional(),
+            }),
+          ])
+        )
+        .optional(),
+      maxRows: z.number().int().min(1).max(10000).optional(),
+    }),
+  },
   "signed-url": {
     description: "Generate a temporary presigned URL for direct file download. Default expiry is 24 hours (86400 seconds). The URL requires no authentication. Returns { url, path, expiresIn, expiresAt }.",
     handler: signedUrl,
@@ -324,5 +346,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
+export { write, writeRaw, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
 export type * from "./types.js";

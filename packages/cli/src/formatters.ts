@@ -248,6 +248,43 @@ function formatReindex(result: any): string {
   return parts.join(", ");
 }
 
+const SQL_CELL_MAX = 80;
+
+function formatSqlCell(v: unknown): string {
+  let s: string;
+  if (v === null || v === undefined) s = "NULL";
+  else if (typeof v === "object") s = JSON.stringify(v);
+  else s = String(v);
+  s = s.replace(/\s+/g, " ");
+  return s.length > SQL_CELL_MAX ? s.slice(0, SQL_CELL_MAX - 1) + "…" : s;
+}
+
+function formatSql(result: any): string {
+  const columns: any[] = result.columns ?? [];
+  const rows: any[] = result.rows ?? [];
+
+  const lines: string[] = [];
+  if (columns.length > 0) {
+    const names = columns.map((c: any) => String(c.name));
+    const cells = rows.map((row: any) => names.map((n) => formatSqlCell(row[n])));
+    const widths = names.map((n, i) =>
+      Math.max(n.length, ...cells.map((r) => r[i].length))
+    );
+    lines.push(names.map((n, i) => padRight(n, widths[i])).join("  "));
+    lines.push(widths.map((w) => "-".repeat(w)).join("  "));
+    for (const row of cells) {
+      lines.push(row.map((c, i) => padRight(c, widths[i])).join("  "));
+    }
+  }
+
+  let footer = `${result.rowCount ?? rows.length} row${rows.length !== 1 ? "s" : ""}`;
+  if (result.elapsedMs != null) footer += ` in ${result.elapsedMs}ms`;
+  if (result.truncated) footer += " (truncated — raise --max-rows to fetch more)";
+  if (lines.length > 0) lines.push("");
+  lines.push(footer);
+  return lines.join("\n");
+}
+
 function formatSignedUrl(result: any): string {
   let out = `${result.url}\n\nExpires: ${formatDate(result.expiresAt)} (${result.expiresIn}s)`;
   if (result.appUrl) out += `\nApp:     ${result.appUrl}`;
@@ -278,6 +315,7 @@ const formatters: Record<string, (result: any) => string> = {
   revert: formatRevert,
   recent: formatRecent,
   reindex: formatReindex,
+  sql: formatSql,
   "signed-url": formatSignedUrl,
 };
 

@@ -1,4 +1,4 @@
-import type { MeResponse, Drive, OrgMembersResult, RegisterResponse } from "./types"
+import type { MeResponse, Drive, OrgMembersResult, RegisterResponse, SqlResult, SqlTableBinding } from "./types"
 
 export interface ApiError {
   error: string
@@ -108,6 +108,14 @@ export class AgentFsClient {
       { path },
       driveId,
     )
+  }
+
+  async sqlQuery(
+    orgId: string,
+    driveId: string,
+    params: { query: string; tables?: Record<string, SqlTableBinding>; maxRows?: number },
+  ): Promise<SqlResult> {
+    return this.callOp<SqlResult>(orgId, "sql", { ...params }, driveId)
   }
 
   getRawUrl(orgId: string, driveId: string, path: string): string {

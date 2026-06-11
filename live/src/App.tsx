@@ -11,6 +11,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { CredentialsPage } from "@/pages/Credentials"
 import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
+import { SqlPage } from "@/pages/SqlPage"
 import { Spinner } from "@/components/ui/spinner"
 
 const queryClient = new QueryClient({
@@ -122,6 +123,17 @@ function DetailRoute() {
   )
 }
 
+function SqlRoute() {
+  return (
+    <>
+      <RouteParamsSync />
+      <Shell>
+        <SqlPage />
+      </Shell>
+    </>
+  )
+}
+
 function FilesRoute() {
   return (
     <Shell>
@@ -170,6 +182,7 @@ export default function App() {
                   <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
                   <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
                   <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
+                  <Route path="/sql/~/:orgId/:driveId" element={<SqlRoute />} />
                   <Route path="/files" element={<FilesRoute />} />
                   <Route path="*" element={<Navigate to="/files" replace />} />
                 </Route>

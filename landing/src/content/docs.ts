@@ -8,6 +8,7 @@ import mountingOverview from "../../../docs/mounting/README.md?raw"
 import mountingE2b from "../../../docs/mounting/e2b.md?raw"
 import mountingHetzner from "../../../docs/mounting/hetzner.md?raw"
 import mountingSprite from "../../../docs/mounting/sprite.md?raw"
+import sqlQueries from "../../../docs/sql.md?raw"
 
 export type DocEntry = {
   slug: string
@@ -42,6 +43,14 @@ export const DOCS: DocEntry[] = [
     section: "Start",
     sourcePath: "docs/deployment.md",
     markdown: deployment,
+  },
+  {
+    slug: "sql",
+    title: "SQL Queries",
+    summary: "Query CSV, Parquet, Excel, JSON, and SQLite documents with DuckDB.",
+    section: "Reference",
+    sourcePath: "docs/sql.md",
+    markdown: sqlQueries,
   },
   {
     slug: "fuse-mount",
