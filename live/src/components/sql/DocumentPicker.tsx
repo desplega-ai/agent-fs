@@ -12,8 +12,13 @@ import { QUERYABLE_EXTENSIONS, sanitizeTableName, type BoundDoc } from "@/lib/sq
 import type { GlobMatch, GlobResult } from "@/api/types"
 
 /** The glob op treats `{}` as literal characters (no brace expansion), so run
- *  one glob per queryable extension in parallel and merge the matches. */
-const QUERYABLE_GLOBS = Object.keys(QUERYABLE_EXTENSIONS).map((ext) => `**/*.${ext}`)
+ *  one glob per queryable extension in parallel and merge the matches. Gzipped
+ *  text formats (`.csv.gz`, …) get their own globs since the op handles them. */
+const GZIP_EXTENSIONS = ["csv", "tsv", "json", "jsonl", "ndjson"]
+const QUERYABLE_GLOBS = [
+  ...Object.keys(QUERYABLE_EXTENSIONS).map((ext) => `**/*.${ext}`),
+  ...GZIP_EXTENSIONS.map((ext) => `**/*.${ext}.gz`),
+]
 
 function useQueryableDocs() {
   const { client, orgId, driveId } = useAuth()

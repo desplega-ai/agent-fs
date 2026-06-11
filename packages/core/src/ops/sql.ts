@@ -114,15 +114,23 @@ interface Binding {
   path: string;
   format: SqlFormat;
   gzip: boolean;
-  /** Exact quoted literal in the query to substitute with the table identifier. */
-  literal?: string;
+  /** True when bound from a FROM/JOIN path literal (rewritten to the table id). */
+  autoBound?: boolean;
   localFile?: string;
   size: number;
 }
 
 const TABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-// Quoted literal whose content has a queryable file extension, e.g. '/data/sales.csv'
-const PATH_LITERAL_RE = /'([^']+\.[A-Za-z0-9]+(?:\.gz)?)'/g;
+// A quoted path literal in table position (after FROM or JOIN), e.g.
+// `FROM '/data/sales.csv'`. Restricting to table position means an ordinary
+// string value like `WHERE source = '/data/sales.csv'` is never rewritten.
+const FROM_JOIN_PATH_RE =
+  /\b(from|join)\s+(['"])([^'"]+\.[A-Za-z0-9]+(?:\.gz)?)\2/gi;
+
+/** True when `path` is a gzipped file and `format` can read gzip. */
+function isGzip(path: string, format: SqlFormat): boolean {
+  return /\.gz$/i.test(path) && GZIPPABLE.has(format);
+}
 
 function findFile(
   ctx: OpContext,
@@ -181,25 +189,28 @@ function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
       table: name,
       path,
       format,
-      gzip: explicitFormat ? false : detected?.gzip ?? false,
+      // Honor a real .gz suffix even when the format is overridden, so the temp
+      // file keeps its .gz extension and DuckDB decompresses it.
+      gzip: isGzip(path, format),
       size: file.size,
     });
   }
 
-  // Auto-bind quoted drive-path literals like SELECT * FROM '/data/sales.csv'.
-  // Only literals that resolve to an existing document are bound; anything else
-  // is left untouched so plain string values are never misinterpreted.
-  const seenLiterals = new Set<string>();
+  // Auto-bind drive-path literals that sit in table position, like
+  // `SELECT * FROM '/data/sales.csv'`. Only literals that resolve to an existing
+  // document are bound; a path that merely appears as a string value elsewhere
+  // (e.g. `WHERE source = '/data/sales.csv'`) is never matched here.
+  const seenPaths = new Set<string>();
   let docIdx = 1;
-  for (const match of params.query.matchAll(PATH_LITERAL_RE)) {
-    const raw = match[1];
-    if (seenLiterals.has(raw)) continue;
-    seenLiterals.add(raw);
-
+  for (const match of params.query.matchAll(FROM_JOIN_PATH_RE)) {
+    const raw = match[3];
     const detected = detectSqlFormat(raw);
     if (!detected || !FILE_FORMATS.has(detected.format)) continue;
 
     const path = normalizePath(raw);
+    if (seenPaths.has(path)) continue;
+    seenPaths.add(path);
+
     const file = findFile(ctx, path);
     if (!file) continue;
 
@@ -212,7 +223,7 @@ function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
       path,
       format: detected.format,
       gzip: detected.gzip,
-      literal: match[0],
+      autoBound: true,
       size: file.size,
     });
   }
@@ -404,12 +415,18 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
     }
 
     // --- Query phase ---
-    let query = params.query;
-    for (const b of bindings) {
-      if (b.literal) {
-        query = query.split(b.literal).join(qid(b.table));
+    // Rewrite only FROM/JOIN path literals (never value-position strings) to the
+    // in-memory table they were bound to.
+    const autoBound = new Map(
+      bindings.filter((b) => b.autoBound).map((b) => [b.path, b.table])
+    );
+    const query = params.query.replace(
+      FROM_JOIN_PATH_RE,
+      (full, kw: string, _q: string, raw: string) => {
+        const table = autoBound.get(normalizePath(raw));
+        return table ? `${kw} ${qid(table)}` : full;
       }
-    }
+    );
 
     let timedOut = false;
     timer = setTimeout(() => {
@@ -433,7 +450,14 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
       const prepared = await extracted.prepare(extracted.count - 1);
       const reader = await prepared.runAndReadUntil(maxRows + 1);
 
-      const columnNames = reader.columnNames();
+      // Uniquify duplicate column names (e.g. a join projecting two `id`s) so
+      // building row objects never drops data by key collision.
+      const seenCols = new Map<string, number>();
+      const columnNames = reader.columnNames().map((name) => {
+        const n = seenCols.get(name) ?? 0;
+        seenCols.set(name, n + 1);
+        return n === 0 ? name : `${name}_${n + 1}`;
+      });
       const columnTypes = reader.columnTypes();
       const columns: SqlColumn[] = columnNames.map((name, i) => ({
         name,

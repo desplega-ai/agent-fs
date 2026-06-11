@@ -324,4 +324,34 @@ describe("sql op", () => {
     });
     expect(result.rows).toEqual([{ n: 3 }]);
   });
+
+  test("a bound path used as a value (not a table) is not rewritten", async () => {
+    const { ctx } = createTestContext();
+    await seedCsv(ctx);
+    // '/data/sales.csv' appears in both FROM (table) and WHERE (value) position.
+    // Only the FROM occurrence must become the table; the predicate stays a string.
+    const result = await sql(ctx, {
+      query:
+        "SELECT count(*) AS n FROM '/data/sales.csv' WHERE name <> '/data/sales.csv'",
+    });
+    expect(result.rows).toEqual([{ n: 3 }]);
+  });
+
+  test("gzip suffix is honored even when the format is overridden", async () => {
+    const { ctx } = createTestContext();
+    const gz = Bun.gzipSync(new TextEncoder().encode("a,b\n1,2\n3,4\n"));
+    await writeRaw(ctx, { path: "/d/log.txt.gz", bytes: new Uint8Array(gz) });
+    const result = await sql(ctx, {
+      query: "SELECT sum(a) AS s FROM t",
+      tables: { t: { path: "/d/log.txt.gz", format: "csv" } },
+    });
+    expect(result.rows).toEqual([{ s: 4 }]);
+  });
+
+  test("duplicate result columns are preserved (uniquified)", async () => {
+    const { ctx } = createTestContext();
+    const result = await sql(ctx, { query: "SELECT 1 AS id, 2 AS id" });
+    expect(result.columns.map((c) => c.name)).toEqual(["id", "id_2"]);
+    expect(result.rows).toEqual([{ id: 1, id_2: 2 }]);
+  });
 });

@@ -185,7 +185,7 @@ export function SqlPage() {
     }
   }, [client, orgId, driveId, query, docs, maxRows, forceServer])
 
-  const wasmEligible = canRunInBrowser(docs)
+  const wasmEligible = canRunInBrowser(docs, query)
   const runsInBrowser = !forceServer && wasmEligible
   const effectiveEngine: "browser" | "server" = runsInBrowser ? "browser" : "server"
   const engineHint = forceServer

@@ -16,9 +16,22 @@ export const QUERYABLE_EXTENSIONS: Record<string, SqlFormat> = {
   duckdb: "duckdb",
 }
 
+/** Formats that can be read from a gzipped file (`.csv.gz`, `.json.gz`, …). */
+const GZIP_FORMATS = new Set<SqlFormat>(["csv", "tsv", "json", "ndjson"])
+
 export function formatForPath(path: string): SqlFormat | null {
-  const ext = path.split(".").pop()?.toLowerCase() ?? ""
-  return QUERYABLE_EXTENSIONS[ext] ?? null
+  let name = path.toLowerCase()
+  let gzipped = false
+  if (name.endsWith(".gz")) {
+    gzipped = true
+    name = name.slice(0, -3)
+  }
+  const ext = name.split(".").pop() ?? ""
+  const format = QUERYABLE_EXTENSIONS[ext] ?? null
+  if (!format) return null
+  // A .gz suffix only makes sense for the text formats DuckDB decompresses.
+  if (gzipped && !GZIP_FORMATS.has(format)) return null
+  return format
 }
 
 export function isQueryablePath(path: string): boolean {
@@ -34,7 +47,9 @@ export function sanitizeTableName(name: string): string {
 
 /** Derive a SQL-safe table name from a file path stem, unique against `taken`. */
 export function deriveTableName(path: string, taken: Iterable<string>): string {
-  const stem = (path.split("/").pop() ?? path).replace(/\.[^.]+$/, "")
+  const stem = (path.split("/").pop() ?? path)
+    .replace(/\.gz$/i, "")
+    .replace(/\.[^.]+$/, "")
   const base = sanitizeTableName(stem) || "doc"
   const set = new Set(taken)
   if (!set.has(base)) return base

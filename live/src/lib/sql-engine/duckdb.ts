@@ -74,7 +74,9 @@ function readerFor(doc: BoundDoc, file: string): string {
 }
 
 /** Fetch + register each doc's bytes, skipping files already registered from
- *  the same org/drive/path. */
+ *  the same org/drive/path *and revision*. Keying on the current version means
+ *  an edited/re-uploaded file at the same path re-registers instead of serving
+ *  a stale buffer. */
 async function ensureRegistered(
   db: duckdb.AsyncDuckDB,
   docs: BoundDoc[],
@@ -82,7 +84,21 @@ async function ensureRegistered(
 ): Promise<void> {
   for (const doc of docs) {
     const name = virtualName(doc.path)
-    const key = `${ctx.orgId}/${ctx.driveId}:${name}`
+    // Resolve a revision token. If stat fails, fall back to a unique value so we
+    // never reuse a possibly-stale buffer.
+    let revision: string
+    try {
+      const stat = await ctx.client.callOp<{ currentVersion?: number; modifiedAt?: string }>(
+        ctx.orgId,
+        "stat",
+        { path: doc.path },
+        ctx.driveId,
+      )
+      revision = String(stat.currentVersion ?? stat.modifiedAt ?? performance.now())
+    } catch {
+      revision = String(performance.now())
+    }
+    const key = `${ctx.orgId}/${ctx.driveId}:${name}@${revision}`
     if (registeredFiles.get(name) === key) continue
 
     const blob = await ctx.client.fetchRaw(ctx.orgId, ctx.driveId, doc.path)
