@@ -333,8 +333,11 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
   // DuckDB work; the boundary checks below stop between phases (e.g. during S3
   // I/O, where there is no connection to interrupt).
   let timedOut = false;
+  const downloadAbort = new AbortController();
   timer = setTimeout(() => {
     timedOut = true;
+    // Abort in-flight S3 downloads and interrupt active DuckDB connections.
+    downloadAbort.abort();
     for (const c of [conn, bridgeConn]) {
       try {
         c?.interrupt();
@@ -360,9 +363,15 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
         const ext = LOCAL_EXT[b.format] + (b.gzip ? ".gz" : "");
         const localFile = join(tempDir, `t${i}${ext}`);
         try {
-          const obj = await ctx.s3.getObject(getS3Key(ctx.orgId, ctx.driveId, b.path));
+          const obj = await ctx.s3.getObject(
+            getS3Key(ctx.orgId, ctx.driveId, b.path),
+            undefined,
+            { abortSignal: downloadAbort.signal }
+          );
           await writeFile(localFile, obj.body);
         } catch (err: unknown) {
+          // A timeout aborts the download — surface it as a clean timeout.
+          checkTimeout();
           const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
           if (e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404) {
             throw new NotFoundError(`File not found: ${b.path}`, { path: b.path });

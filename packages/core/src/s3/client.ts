@@ -96,13 +96,18 @@ export class AgentS3Client {
     };
   }
 
-  async getObject(key: string, versionId?: string): Promise<GetObjectResult> {
+  async getObject(
+    key: string,
+    versionId?: string,
+    opts?: { abortSignal?: AbortSignal }
+  ): Promise<GetObjectResult> {
     const result = await this.client.send(
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,
         ...(versionId && { VersionId: versionId }),
-      })
+      }),
+      { abortSignal: opts?.abortSignal }
     );
     const body = await result.Body!.transformToByteArray();
     return {
