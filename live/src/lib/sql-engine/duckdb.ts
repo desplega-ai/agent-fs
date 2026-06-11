@@ -15,8 +15,12 @@ import type { BoundDoc, SqlEngineContext, SqlRunInput, SqlRunResult } from "./ty
  *  across runs so repeat queries skip the wasm boot and file re-downloads. */
 let dbPromise: Promise<duckdb.AsyncDuckDB> | null = null
 
-/** Registered virtual file name -> source key (org/drive/path) it was loaded from. */
+/** Registered virtual file name -> source key (org/drive/path@rev) it was loaded from. */
 const registeredFiles = new Map<string, string>()
+
+/** View names created in the persistent db, so stale ones (from removed docs or
+ *  an org/drive switch) can be dropped before each run. */
+const createdViews = new Set<string>()
 
 async function initDb(): Promise<duckdb.AsyncDuckDB> {
   const bundle = await duckdb.selectBundle({
@@ -112,19 +116,19 @@ async function ensureRegistered(
   }
 }
 
-/** Replace exact quoted drive-path literals (with or without leading slash)
- *  with the registered virtual file name so `SELECT * FROM '/data/sales.csv'`
- *  works in the browser too. */
+/** Drive-path literal in table position, e.g. `FROM '/data/sales.csv'`. */
+const FROM_JOIN_PATH_RE = /\b(from|join)\s+(['"])([^'"]+\.[A-Za-z0-9]+(?:\.gz)?)\2/gi
+
+/** Rewrite FROM/JOIN drive-path literals (with or without leading slash) to the
+ *  registered virtual file so `SELECT * FROM '/data/sales.csv'` works in the
+ *  browser. Only table-position literals are touched — a value-position string
+ *  like `WHERE source = '/data/sales.csv'` is left intact. */
 function rewritePathLiterals(query: string, docs: BoundDoc[]): string {
-  let out = query
-  for (const doc of docs) {
-    const name = virtualName(doc.path)
-    const target = quoteString(name)
-    for (const literal of [`'/${name}'`, `"/${name}"`, `"${name}"`, `'${name}'`]) {
-      out = out.split(literal).join(target)
-    }
-  }
-  return out
+  const byName = new Map(docs.map((d) => [virtualName(d.path), d]))
+  return query.replace(FROM_JOIN_PATH_RE, (full, kw: string, _q: string, raw: string) => {
+    const name = raw.replace(/^\/+/, "")
+    return byName.has(name) ? `${kw} ${quoteString(name)}` : full
+  })
 }
 
 /** Wrap plain SELECT-ish statements so the engine never materializes more than
@@ -174,12 +178,24 @@ export async function runInBrowser(
 
   const conn = await db.connect()
   try {
+    // The db instance persists across runs, so drop views from earlier runs
+    // that aren't bound now (removed docs, an org/drive switch, …) — otherwise a
+    // query could read a stale table that's no longer in scope.
+    const current = new Set(input.docs.map((d) => d.table))
+    for (const view of createdViews) {
+      if (!current.has(view)) {
+        await conn.query(`DROP VIEW IF EXISTS ${quoteIdent(view)}`).catch(() => {})
+        createdViews.delete(view)
+      }
+    }
+
     // (Re)create one view per bound doc so `SELECT * FROM <table>` works.
     for (const doc of input.docs) {
       const reader = readerFor(doc, virtualName(doc.path))
       await conn.query(
         `CREATE OR REPLACE VIEW ${quoteIdent(doc.table)} AS SELECT * FROM ${reader}`,
       )
+      createdViews.add(doc.table)
     }
 
     const sql = withLimit(rewritePathLiterals(input.query, input.docs), input.maxRows)
