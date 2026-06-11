@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { TriangleAlert, Database } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { Badge } from "@/components/ui/badge"
@@ -47,9 +47,15 @@ export function DatabasePreviewViewer({ path, size, className }: DatabasePreview
     client && orgId && driveId ? { client, orgId, driveId } : null
   const docPath = path.replace(/^\/+/, "")
 
+  // Monotonic request token: every load captures the current value and only
+  // applies its result if it's still the latest, so a slow response for an old
+  // file/table can't overwrite a newer one.
+  const reqRef = useRef(0)
+
   const loadTable = useCallback(
     async (tables: string[], table: string) => {
       if (!ctx || !format) return
+      const reqId = ++reqRef.current
       setState({ status: "loading" })
       try {
         const result = await runSql(
@@ -60,8 +66,10 @@ export function DatabasePreviewViewer({ path, size, className }: DatabasePreview
           },
           ctx,
         )
+        if (reqRef.current !== reqId) return
         setState({ status: "ready", tables, selected: table, result })
       } catch (err) {
+        if (reqRef.current !== reqId) return
         const e = err as { message?: string; suggestion?: string }
         setState({ status: "error", message: e?.message ?? "Preview failed", suggestion: e?.suggestion })
       }
@@ -71,6 +79,7 @@ export function DatabasePreviewViewer({ path, size, className }: DatabasePreview
 
   const start = useCallback(async () => {
     if (!ctx || !format) return
+    const reqId = ++reqRef.current
     setState({ status: "loading" })
     try {
       const introspect = await runSql(
@@ -81,6 +90,7 @@ export function DatabasePreviewViewer({ path, size, className }: DatabasePreview
         },
         ctx,
       )
+      if (reqRef.current !== reqId) return
       const tables = introspect.rows.map((r) => String(r.table_name))
       if (tables.length === 0) {
         setState({ status: "empty" })
@@ -88,6 +98,7 @@ export function DatabasePreviewViewer({ path, size, className }: DatabasePreview
       }
       await loadTable(tables, tables[0])
     } catch (err) {
+      if (reqRef.current !== reqId) return
       const e = err as { message?: string; suggestion?: string }
       setState({ status: "error", message: e?.message ?? "Preview failed", suggestion: e?.suggestion })
     }
@@ -97,6 +108,10 @@ export function DatabasePreviewViewer({ path, size, className }: DatabasePreview
     if (!format || !ctx) return
     if (autoPreview) void start()
     else setState({ status: "idle" })
+    // Invalidate any in-flight request when the file/scope changes.
+    return () => {
+      reqRef.current++
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, format, autoPreview, orgId, driveId])
 

@@ -203,15 +203,33 @@ export async function runInBrowser(
     const table = await conn.query(sql)
     const elapsedMs = Math.max(1, Math.round(performance.now() - started))
 
-    const columns = table.schema.fields.map((f) => ({
-      name: String(f.name),
-      type: String(f.type),
+    // Uniquify duplicate column names and read cells by column index, so a query
+    // projecting two `id`s keeps both instead of colliding on the object key.
+    const fields = table.schema.fields
+    const seenCols = new Map<string, number>()
+    const columnNames = fields.map((f) => {
+      const name = String(f.name)
+      const n = seenCols.get(name) ?? 0
+      seenCols.set(name, n + 1)
+      return n === 0 ? name : `${name}_${n + 1}`
+    })
+    const columns = columnNames.map((name, i) => ({
+      name,
+      type: String(fields[i].type),
     }))
-    const raw = table.toArray()
-    const truncated = raw.length > input.maxRows
-    const rows = (truncated ? raw.slice(0, input.maxRows) : raw).map(
-      (row) => sanitizeValue(row) as Record<string, unknown>,
-    )
+
+    const total = table.numRows
+    const truncated = total > input.maxRows
+    const rowCount = truncated ? input.maxRows : total
+    const vectors = fields.map((_, i) => table.getChildAt(i))
+    const rows: Record<string, unknown>[] = []
+    for (let r = 0; r < rowCount; r++) {
+      const row: Record<string, unknown> = {}
+      for (let c = 0; c < columnNames.length; c++) {
+        row[columnNames[c]] = sanitizeValue(vectors[c]?.get(r))
+      }
+      rows.push(row)
+    }
 
     return { columns, rows, rowCount: rows.length, truncated, elapsedMs, engine: "wasm" }
   } finally {

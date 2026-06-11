@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { TriangleAlert, Table2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { Badge } from "@/components/ui/badge"
@@ -40,16 +40,15 @@ export function TablePreviewViewer({ path, size, className }: TablePreviewViewer
   const autoPreview = size == null || size <= AUTO_PREVIEW_MAX_BYTES
   const [state, setState] = useState<State>({ status: "idle" })
 
-  useEffect(() => {
+  // Monotonic request token so a slow response for a previous file can't
+  // overwrite the current one (covers both the auto effect and the manual button).
+  const reqRef = useRef(0)
+
+  const load = (reqId: number) => {
     if (!format || !client || !orgId || !driveId) return
-    if (!autoPreview) {
-      setState({ status: "idle" })
-      return
-    }
-    let cancelled = false
-    setState({ status: "loading" })
     const docPath = path.replace(/^\/+/, "")
     const table = deriveTableName(path, [])
+    setState({ status: "loading" })
     runSql(
       {
         query: `SELECT * FROM "${table}" LIMIT ${PREVIEW_ROWS}`,
@@ -60,43 +59,30 @@ export function TablePreviewViewer({ path, size, className }: TablePreviewViewer
       { forceServer: true },
     )
       .then((result) => {
-        if (!cancelled) setState({ status: "done", result })
+        if (reqRef.current === reqId) setState({ status: "done", result })
       })
       .catch((err: unknown) => {
-        if (cancelled) return
-        const e = err as { message?: string; suggestion?: string }
-        setState({
-          status: "error",
-          message: e?.message ?? "Preview failed",
-          suggestion: e?.suggestion,
-        })
-      })
-    return () => {
-      cancelled = true
-    }
-    // Re-run when the file or auto-preview gate changes.
-  }, [path, format, autoPreview, client, orgId, driveId])
-
-  const runNow = () => {
-    if (!format || !client || !orgId || !driveId) return
-    const docPath = path.replace(/^\/+/, "")
-    const table = deriveTableName(path, [])
-    setState({ status: "loading" })
-    runSql(
-      {
-        query: `SELECT * FROM "${table}" LIMIT ${PREVIEW_ROWS}`,
-        docs: [{ path: docPath, table, format }],
-        maxRows: PREVIEW_ROWS,
-      },
-      { client, orgId, driveId },
-      { forceServer: true },
-    )
-      .then((result) => setState({ status: "done", result }))
-      .catch((err: unknown) => {
+        if (reqRef.current !== reqId) return
         const e = err as { message?: string; suggestion?: string }
         setState({ status: "error", message: e?.message ?? "Preview failed", suggestion: e?.suggestion })
       })
   }
+
+  useEffect(() => {
+    if (!format || !client || !orgId || !driveId) return
+    if (!autoPreview) {
+      setState({ status: "idle" })
+      return
+    }
+    load(++reqRef.current)
+    // Invalidate the in-flight request when the file/scope changes.
+    return () => {
+      reqRef.current++
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, format, autoPreview, client, orgId, driveId])
+
+  const runNow = () => load(++reqRef.current)
 
   if (!format) return null
 
