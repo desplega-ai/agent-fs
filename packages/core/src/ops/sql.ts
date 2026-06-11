@@ -322,20 +322,25 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
   let tempDir: string | null = null;
   let instance: Awaited<ReturnType<typeof DuckDBInstance.create>> | null = null;
   let conn: Awaited<ReturnType<Awaited<ReturnType<typeof DuckDBInstance.create>>["connect"]>> | null = null;
+  // The bridge runs on its own connection; track it so the deadline can
+  // interrupt an in-flight sqlite -> parquet COPY too.
+  let bridgeConn: { interrupt: () => void } | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   // Arm the deadline before any work so it covers the whole operation —
   // downloads, extension loads, the sqlite bridge, and materialization — not
-  // just the final query. Interrupting the connection stops in-flight DuckDB
-  // work; the boundary checks below stop between phases (e.g. during S3 I/O,
-  // where there is no connection to interrupt).
+  // just the final query. Interrupting the active connection stops in-flight
+  // DuckDB work; the boundary checks below stop between phases (e.g. during S3
+  // I/O, where there is no connection to interrupt).
   let timedOut = false;
   timer = setTimeout(() => {
     timedOut = true;
-    try {
-      conn?.interrupt();
-    } catch {
-      // ignore — not connected yet, or already closed
+    for (const c of [conn, bridgeConn]) {
+      try {
+        c?.interrupt();
+      } catch {
+        // ignore — not connected yet, or already closed
+      }
     }
   }, timeoutMs);
   const checkTimeout = () => {
@@ -386,7 +391,10 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
         DuckDBInstance,
         sqliteBindings,
         tempDir,
-        checkTimeout
+        checkTimeout,
+        (c) => {
+          bridgeConn = c;
+        }
       );
     }
     checkTimeout();
@@ -542,11 +550,13 @@ async function bridgeSqliteToParquet(
   DuckDBInstance: typeof import("@duckdb/node-api").DuckDBInstance,
   bindings: Binding[],
   tempDir: string,
-  checkTimeout: () => void
+  checkTimeout: () => void,
+  registerConn: (conn: { interrupt: () => void } | null) => void
 ): Promise<Map<string, Array<{ table: string; parquetFile: string }>>> {
   const result = new Map<string, Array<{ table: string; parquetFile: string }>>();
   const bridge = await DuckDBInstance.create(":memory:");
   const conn = await bridge.connect();
+  registerConn(conn);
   try {
     await conn.run("INSTALL sqlite");
     await conn.run("LOAD sqlite");
@@ -575,11 +585,15 @@ async function bridgeSqliteToParquet(
         await conn.run("DETACH src");
       } catch (err: unknown) {
         if (err instanceof ValidationError) throw err;
+        // A timeout interrupt surfaces as a clean timeout error.
+        checkTimeout();
         const message = err instanceof Error ? err.message : String(err);
         throw new ValidationError(`Failed to load ${b.path} as sqlite: ${message}`);
       }
     }
   } finally {
+    // Stop the deadline from touching a connection we're about to close.
+    registerConn(null);
     try {
       conn.closeSync();
     } catch {
