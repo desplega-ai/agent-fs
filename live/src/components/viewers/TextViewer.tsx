@@ -42,9 +42,11 @@ interface TextViewerProps {
   saveError?: string | null
   onSave?: (content: string) => void
   onCancel?: () => void
+  /** Reports the current edited content live (for split-view preview). */
+  onContentChange?: (content: string) => void
 }
 
-export function TextViewer({ content, path, truncated, comments, className, onScrollToCommentRef, editable = false, isSaving = false, saveError = null, onSave, onCancel }: TextViewerProps) {
+export function TextViewer({ content, path, truncated, comments, className, onScrollToCommentRef, editable = false, isSaving = false, saveError = null, onSave, onCancel, onContentChange }: TextViewerProps) {
   const { resolvedTheme } = useTheme()
   const monaco = useMonaco()
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
@@ -88,6 +90,11 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
     window.addEventListener("beforeunload", handler)
     return () => window.removeEventListener("beforeunload", handler)
   }, [editable, isDirty])
+
+  // Report live edited content to parent (for split-view preview)
+  useEffect(() => {
+    if (editable && onContentChange) onContentChange(editedContent)
+  }, [editedContent, editable, onContentChange])
 
   // `e` toggles JSON Format / Raw — the source-view counterpart of the
   // markdown source/preview toggle (a file is either markdown or JSON, never

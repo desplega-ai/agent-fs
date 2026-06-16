@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, type MutableRefObject } from "react"
-import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil } from "lucide-react"
+import { useState, useEffect, useRef, useCallback, type MutableRefObject } from "react"
+import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid } from "lucide-react"
 import { useNavigate } from "react-router"
 import { isQueryablePath } from "@/lib/sql-engine/types"
 import { useAuth } from "@/contexts/auth"
@@ -130,6 +130,12 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   const [isEditing, setIsEditing] = useState(false)
   const { save, isSaving, error: saveError } = useFileSave({ path })
   const [saveErrorDismissed, setSaveErrorDismissed] = useState(false)
+  const [splitMode, setSplitMode] = useState<"source" | "split" | "preview">("source")
+  const [splitOrientation, setSplitOrientation] = useState<"horizontal" | "vertical">("horizontal")
+  const [splitPos, setSplitPos] = useState(50)
+  const [isDragging, setIsDragging] = useState(false)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
+  const [editedContent, setEditedContent] = useState("")
 
   const isTabBin = isTabularBinary(path)
   const isTabTxt = isTabularText(path)
@@ -148,7 +154,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   // Outline only exists for a rendered markdown preview. When the viewer shows
   // anything else (source view, image, etc.) clear it so the rail's Outline
   // tab disappears. `MarkdownViewer` reports the real outline when mounted.
-  const showingMarkdownPreview = isMd && !showRaw
+  const showingMarkdownPreview = (isMd && !showRaw) || (isEditing && isMd && splitMode !== "source")
   useEffect(() => {
     if (!showingMarkdownPreview) onOutlineChange?.([])
   }, [showingMarkdownPreview, path, onOutlineChange])
@@ -326,20 +332,25 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   // For markdown-like files: show raw/preview toggle in header.
   // In edit mode, always show the TextViewer (source) since you're editing.
-  const viewingRaw = (isMd && !isEditing) ? showRaw : true
+  // For markdown in edit mode, use the split mode to determine what to show.
+  const viewingRaw = isEditing && isMd
+    ? splitMode !== "preview"
+    : (isMd ? showRaw : true)
+  const showSplit = isEditing && isMd && splitMode === "split"
   const displayError = saveError && !saveErrorDismissed ? saveError.message : null
 
   const handleEdit = useCallback(() => {
     setIsEditing(true)
     setSaveErrorDismissed(false)
-  }, [])
+    setEditedContent(content?.content ?? "")
+    setSplitMode("source")
+  }, [content])
 
   const handleCancel = useCallback(() => {
-    // If the user has made changes, they'll be in the TextViewer's internal
-    // state — the confirm is handled by the dirty check there via beforeunload
-    // and the cancel button behavior.
     setIsEditing(false)
     setSaveErrorDismissed(false)
+    setSplitMode("source")
+    setEditedContent("")
   }, [])
 
   const handleSave = useCallback(async (content: string) => {
@@ -347,11 +358,43 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       await save(content)
       setIsEditing(false)
       setSaveErrorDismissed(false)
-      // Content will be refreshed by the parent when it re-mounts or re-fetches
+      setSplitMode("source")
+      setEditedContent("")
     } catch {
       // error is captured by useFileSave
     }
   }, [save])
+
+  // Split-view drag resize
+  const handleDragStart = useCallback(() => setIsDragging(true), [])
+  useEffect(() => {
+    if (!isDragging) return
+    const container = splitContainerRef.current
+    if (!container) return
+
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      const rect = container.getBoundingClientRect()
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX
+      const clientY = "touches" in e ? e.touches[0].clientY : e.clientY
+      const pos = splitOrientation === "horizontal"
+        ? ((clientX - rect.left) / rect.width) * 100
+        : ((clientY - rect.top) / rect.height) * 100
+      setSplitPos(Math.max(20, Math.min(80, pos)))
+    }
+
+    const handleUp = () => setIsDragging(false)
+
+    window.addEventListener("mousemove", handleMove)
+    window.addEventListener("mouseup", handleUp)
+    window.addEventListener("touchmove", handleMove, { passive: true })
+    window.addEventListener("touchend", handleUp)
+    return () => {
+      window.removeEventListener("mousemove", handleMove)
+      window.removeEventListener("mouseup", handleUp)
+      window.removeEventListener("touchmove", handleMove)
+      window.removeEventListener("touchend", handleUp)
+    }
+  }, [isDragging, splitOrientation])
 
   return (
     <div className={cn("flex flex-col h-full min-w-0", className)}>
@@ -368,9 +411,66 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           onToggleRaw={() => setShowRaw(!showRaw)}
           isEditing={isEditing}
           onEdit={handleEdit}
+          isMarkdown={isMd}
+          splitMode={isEditing && isMd ? splitMode : undefined}
+          splitOrientation={splitOrientation}
+          onSplitModeChange={isEditing && isMd ? setSplitMode : undefined}
+          onToggleOrientation={isEditing && isMd ? () => setSplitOrientation((o) => o === "horizontal" ? "vertical" : "horizontal") : undefined}
         />
       )}
-      {viewingRaw ? (
+      {showSplit ? (
+        <div
+          ref={splitContainerRef}
+          className={cn(
+            "flex-1 min-h-0 flex",
+            splitOrientation === "vertical" && "flex-col",
+            isDragging && "select-none",
+          )}
+        >
+          <div style={{ [splitOrientation === "horizontal" ? "width" : "height"]: `${splitPos}%` }} className="min-h-0 min-w-0 overflow-hidden">
+            <TextViewer
+              content={content.content}
+              path={path}
+              truncated={content.truncated}
+              comments={commentsData?.comments}
+              editable
+              isSaving={isSaving}
+              saveError={displayError}
+              onSave={handleSave}
+              onCancel={handleCancel}
+              onContentChange={setEditedContent}
+            />
+          </div>
+          <div
+            className={cn(
+              "shrink-0 bg-border hover:bg-accent-foreground/20 transition-colors relative",
+              splitOrientation === "horizontal" ? "w-1 cursor-col-resize" : "h-1 cursor-row-resize",
+              isDragging && "bg-accent-foreground/30",
+            )}
+            onMouseDown={handleDragStart}
+            onTouchStart={handleDragStart}
+          >
+            <div className={cn(
+              "absolute inset-0 flex items-center justify-center",
+              splitOrientation === "horizontal" ? "flex-col" : "flex-row",
+            )}>
+              <div className={cn(
+                "rounded-full bg-muted-foreground/30",
+                splitOrientation === "horizontal" ? "w-0.5 h-4" : "h-0.5 w-4",
+              )} />
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
+            <MarkdownViewer
+              content={editedContent || content.content}
+              path={path}
+              comments={commentsData?.comments}
+              onScrollToCommentRef={onScrollToCommentRef}
+              onOutlineChange={onOutlineChange}
+            />
+          </div>
+        </div>
+      ) : viewingRaw ? (
         <TextViewer
           content={content.content}
           path={path}
@@ -383,10 +483,11 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           saveError={displayError}
           onSave={handleSave}
           onCancel={handleCancel}
+          onContentChange={isEditing && isMd ? setEditedContent : undefined}
         />
       ) : (
         <MarkdownViewer
-          content={content.content}
+          content={isEditing && isMd && editedContent ? editedContent : content.content}
           path={path}
           comments={commentsData?.comments}
           className="flex-1 min-h-0"
@@ -398,7 +499,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   )
 }
 
-function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCount = 0, showViewToggle, showRaw, onToggleRaw, isEditing, onEdit }: {
+function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCount = 0, showViewToggle, showRaw, onToggleRaw, isEditing, onEdit, isMarkdown, splitMode, splitOrientation, onSplitModeChange, onToggleOrientation }: {
   path: string
   actions: ReturnType<typeof useFileActions>
   showExpand: boolean
@@ -410,6 +511,11 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
   onToggleRaw?: () => void
   isEditing?: boolean
   onEdit?: () => void
+  isMarkdown?: boolean
+  splitMode?: "source" | "split" | "preview"
+  splitOrientation?: "horizontal" | "vertical"
+  onSplitModeChange?: (mode: "source" | "split" | "preview") => void
+  onToggleOrientation?: () => void
 }) {
   const { copyPath, copyLink, download, copiedPath, copiedLink, canShare } = actions
   const filename = path.split("/").pop() ?? path
@@ -494,6 +600,78 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
             />
             <TooltipContent>Edit file</TooltipContent>
           </Tooltip>
+        )}
+        {isEditing && isMarkdown && onSplitModeChange && (
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={splitMode === "source" ? "secondary" : "ghost"}
+                    size="icon-xs"
+                    onClick={() => onSplitModeChange("source")}
+                    className={splitMode !== "source" ? "text-muted-foreground" : ""}
+                    aria-label="Source view"
+                  >
+                    <Code />
+                  </Button>
+                }
+              />
+              <TooltipContent>Source only</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={splitMode === "split" ? "secondary" : "ghost"}
+                    size="icon-xs"
+                    onClick={() => onSplitModeChange("split")}
+                    className={splitMode !== "split" ? "text-muted-foreground" : ""}
+                    aria-label="Split view"
+                  >
+                    <Columns2 />
+                  </Button>
+                }
+              />
+              <TooltipContent>Split view</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={splitMode === "preview" ? "secondary" : "ghost"}
+                    size="icon-xs"
+                    onClick={() => onSplitModeChange("preview")}
+                    className={splitMode !== "preview" ? "text-muted-foreground" : ""}
+                    aria-label="Preview view"
+                  >
+                    <Eye />
+                  </Button>
+                }
+              />
+              <TooltipContent>Preview only</TooltipContent>
+            </Tooltip>
+            {splitMode === "split" && onToggleOrientation && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={onToggleOrientation}
+                      className="text-muted-foreground"
+                      aria-label="Toggle orientation"
+                    >
+                      <LayoutGrid />
+                    </Button>
+                  }
+                />
+                <TooltipContent>
+                  {splitOrientation === "horizontal" ? "Stack vertically" : "Stack horizontally"}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </>
         )}
         {showViewToggle && onToggleRaw && (
           <Tooltip>
