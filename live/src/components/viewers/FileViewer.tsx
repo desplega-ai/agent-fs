@@ -1,5 +1,5 @@
-import { useState, useEffect, type MutableRefObject } from "react"
-import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database } from "lucide-react"
+import { useState, useEffect, useCallback, type MutableRefObject } from "react"
+import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil } from "lucide-react"
 import { useNavigate } from "react-router"
 import { isQueryablePath } from "@/lib/sql-engine/types"
 import { useAuth } from "@/contexts/auth"
@@ -13,6 +13,7 @@ import type { OutlineItem } from "@/lib/outline"
 import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { useComments } from "@/hooks/use-comments"
+import { useFileSave } from "@/hooks/use-file-save"
 import { TextViewer } from "./TextViewer"
 import { MarkdownViewer } from "./MarkdownViewer"
 import { ImageViewer } from "./ImageViewer"
@@ -126,6 +127,9 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   const isMd = isMarkdown(path)
   const commentCount = commentsData?.comments.length ?? 0
   const [showRaw, setShowRaw] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const { save, isSaving, error: saveError } = useFileSave({ path })
+  const [saveErrorDismissed, setSaveErrorDismissed] = useState(false)
 
   const isTabBin = isTabularBinary(path)
   const isTabTxt = isTabularText(path)
@@ -321,7 +325,33 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   }
 
   // For markdown-like files: show raw/preview toggle in header.
-  const viewingRaw = isMd ? showRaw : true
+  // In edit mode, always show the TextViewer (source) since you're editing.
+  const viewingRaw = (isMd && !isEditing) ? showRaw : true
+  const displayError = saveError && !saveErrorDismissed ? saveError.message : null
+
+  const handleEdit = useCallback(() => {
+    setIsEditing(true)
+    setSaveErrorDismissed(false)
+  }, [])
+
+  const handleCancel = useCallback(() => {
+    // If the user has made changes, they'll be in the TextViewer's internal
+    // state — the confirm is handled by the dirty check there via beforeunload
+    // and the cancel button behavior.
+    setIsEditing(false)
+    setSaveErrorDismissed(false)
+  }, [])
+
+  const handleSave = useCallback(async (content: string) => {
+    try {
+      await save(content)
+      setIsEditing(false)
+      setSaveErrorDismissed(false)
+      // Content will be refreshed by the parent when it re-mounts or re-fetches
+    } catch {
+      // error is captured by useFileSave
+    }
+  }, [save])
 
   return (
     <div className={cn("flex flex-col h-full min-w-0", className)}>
@@ -333,9 +363,11 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)}
           onQuery={onQuery}
           commentCount={commentCount}
-          showViewToggle={isMd}
+          showViewToggle={isMd && !isEditing}
           showRaw={showRaw}
           onToggleRaw={() => setShowRaw(!showRaw)}
+          isEditing={isEditing}
+          onEdit={handleEdit}
         />
       )}
       {viewingRaw ? (
@@ -346,6 +378,11 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           comments={commentsData?.comments}
           className="flex-1 min-h-0"
           onScrollToCommentRef={onScrollToCommentRef}
+          editable={isEditing}
+          isSaving={isSaving}
+          saveError={displayError}
+          onSave={handleSave}
+          onCancel={handleCancel}
         />
       ) : (
         <MarkdownViewer
@@ -361,7 +398,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   )
 }
 
-function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCount = 0, showViewToggle, showRaw, onToggleRaw }: {
+function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCount = 0, showViewToggle, showRaw, onToggleRaw, isEditing, onEdit }: {
   path: string
   actions: ReturnType<typeof useFileActions>
   showExpand: boolean
@@ -371,6 +408,8 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
   showViewToggle?: boolean
   showRaw?: boolean
   onToggleRaw?: () => void
+  isEditing?: boolean
+  onEdit?: () => void
 }) {
   const { copyPath, copyLink, download, copiedPath, copiedLink, canShare } = actions
   const filename = path.split("/").pop() ?? path
@@ -438,6 +477,24 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
           />
           <TooltipContent>Download <Kbd className="ml-1">D</Kbd></TooltipContent>
         </Tooltip>
+        {onEdit && !isEditing && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onEdit}
+                  className="text-muted-foreground"
+                  aria-label="Edit file"
+                >
+                  <Pencil />
+                </Button>
+              }
+            />
+            <TooltipContent>Edit file</TooltipContent>
+          </Tooltip>
+        )}
         {showViewToggle && onToggleRaw && (
           <Tooltip>
             <TooltipTrigger
