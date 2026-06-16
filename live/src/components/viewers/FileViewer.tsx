@@ -210,6 +210,63 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   }
   useKeyboardShortcuts(fileShortcuts)
 
+  const handleEdit = useCallback(() => {
+    setIsEditing(true)
+    setSaveErrorDismissed(false)
+    setEditedContent(content?.content ?? "")
+    setSplitMode("source")
+  }, [content])
+
+  const handleCancel = useCallback(() => {
+    setIsEditing(false)
+    setSaveErrorDismissed(false)
+    setSplitMode("source")
+    setEditedContent("")
+  }, [])
+
+  const handleSave = useCallback(async (saveContent: string) => {
+    try {
+      await save(saveContent)
+      setIsEditing(false)
+      setSaveErrorDismissed(false)
+      setSplitMode("source")
+      setEditedContent("")
+    } catch {
+      // error is captured by useFileSave
+    }
+  }, [save])
+
+  // Split-view drag resize
+  const handleDragStart = useCallback(() => setIsDragging(true), [])
+  useEffect(() => {
+    if (!isDragging) return
+    const container = splitContainerRef.current
+    if (!container) return
+
+    const handleMove = (e: MouseEvent | TouchEvent) => {
+      const rect = container.getBoundingClientRect()
+      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX
+      const clientY = "touches" in e ? e.touches[0].clientY : e.clientY
+      const pos = splitOrientation === "horizontal"
+        ? ((clientX - rect.left) / rect.width) * 100
+        : ((clientY - rect.top) / rect.height) * 100
+      setSplitPos(Math.max(20, Math.min(80, pos)))
+    }
+
+    const handleUp = () => setIsDragging(false)
+
+    window.addEventListener("mousemove", handleMove)
+    window.addEventListener("mouseup", handleUp)
+    window.addEventListener("touchmove", handleMove, { passive: true })
+    window.addEventListener("touchend", handleUp)
+    return () => {
+      window.removeEventListener("mousemove", handleMove)
+      window.removeEventListener("mouseup", handleUp)
+      window.removeEventListener("touchmove", handleMove)
+      window.removeEventListener("touchend", handleUp)
+    }
+  }, [isDragging, splitOrientation])
+
   if (isImg) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
@@ -338,63 +395,6 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     : (isMd ? showRaw : true)
   const showSplit = isEditing && isMd && splitMode === "split"
   const displayError = saveError && !saveErrorDismissed ? saveError.message : null
-
-  const handleEdit = useCallback(() => {
-    setIsEditing(true)
-    setSaveErrorDismissed(false)
-    setEditedContent(content?.content ?? "")
-    setSplitMode("source")
-  }, [content])
-
-  const handleCancel = useCallback(() => {
-    setIsEditing(false)
-    setSaveErrorDismissed(false)
-    setSplitMode("source")
-    setEditedContent("")
-  }, [])
-
-  const handleSave = useCallback(async (content: string) => {
-    try {
-      await save(content)
-      setIsEditing(false)
-      setSaveErrorDismissed(false)
-      setSplitMode("source")
-      setEditedContent("")
-    } catch {
-      // error is captured by useFileSave
-    }
-  }, [save])
-
-  // Split-view drag resize
-  const handleDragStart = useCallback(() => setIsDragging(true), [])
-  useEffect(() => {
-    if (!isDragging) return
-    const container = splitContainerRef.current
-    if (!container) return
-
-    const handleMove = (e: MouseEvent | TouchEvent) => {
-      const rect = container.getBoundingClientRect()
-      const clientX = "touches" in e ? e.touches[0].clientX : e.clientX
-      const clientY = "touches" in e ? e.touches[0].clientY : e.clientY
-      const pos = splitOrientation === "horizontal"
-        ? ((clientX - rect.left) / rect.width) * 100
-        : ((clientY - rect.top) / rect.height) * 100
-      setSplitPos(Math.max(20, Math.min(80, pos)))
-    }
-
-    const handleUp = () => setIsDragging(false)
-
-    window.addEventListener("mousemove", handleMove)
-    window.addEventListener("mouseup", handleUp)
-    window.addEventListener("touchmove", handleMove, { passive: true })
-    window.addEventListener("touchend", handleUp)
-    return () => {
-      window.removeEventListener("mousemove", handleMove)
-      window.removeEventListener("mouseup", handleUp)
-      window.removeEventListener("touchmove", handleMove)
-      window.removeEventListener("touchend", handleUp)
-    }
-  }, [isDragging, splitOrientation])
 
   return (
     <div className={cn("flex flex-col h-full min-w-0", className)}>

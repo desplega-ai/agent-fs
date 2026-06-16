@@ -119,7 +119,7 @@ export class AgentFsClient {
   }
 
   async write(orgId: string, driveId: string, params: WriteParams): Promise<WriteResult> {
-    return this.callOp<WriteResult>(orgId, "write", params as Record<string, unknown>, driveId)
+    return this.callOp<WriteResult>(orgId, "write", params as unknown as Record<string, unknown>, driveId)
   }
 
   getRawUrl(orgId: string, driveId: string, path: string): string {

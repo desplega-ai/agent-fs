@@ -304,7 +304,7 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
           onChange={editable ? (v) => setEditedContent(v ?? "") : undefined}
           theme={monacoTheme}
           onMount={handleEditorMount}
-          loading={<div className="flex items-center justify-center h-full"><Spinner />}</div>}
+          loading={<div className="flex items-center justify-center h-full"><Spinner /></div>}
           options={{
             readOnly: !editable,
             minimap: { enabled: false },
