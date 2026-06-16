@@ -86,6 +86,23 @@ export interface GlobResult {
   matches: GlobMatch[]
 }
 
+// Write types (from core/ops/types.ts)
+
+export interface WriteParams {
+  path: string
+  content: string
+  message?: string
+  expectedVersion?: number
+}
+
+export interface WriteResult {
+  version: number
+  path: string
+  size: number
+  contentHash?: string
+  deduped?: boolean
+}
+
 // Comment types
 
 export interface CommentEntry {
