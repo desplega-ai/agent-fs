@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo, type MutableRefObject } from "react"
 import Editor, { useMonaco } from "@monaco-editor/react"
-import { MessageSquare, Braces, X, Check, AlertCircle, Circle } from "lucide-react"
+import { MessageSquare, Braces } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
@@ -38,15 +38,12 @@ interface TextViewerProps {
   onScrollToCommentRef?: MutableRefObject<ScrollToCommentCallback | null>
   // Edit mode
   editable?: boolean
-  isSaving?: boolean
-  saveError?: string | null
   onSave?: (content: string) => void
-  onCancel?: () => void
   /** Reports the current edited content live (for split-view preview). */
   onContentChange?: (content: string) => void
 }
 
-export function TextViewer({ content, path, truncated, comments, className, onScrollToCommentRef, editable = false, isSaving = false, saveError = null, onSave, onCancel, onContentChange }: TextViewerProps) {
+export function TextViewer({ content, path, truncated, comments, className, onScrollToCommentRef, editable = false, onSave, onContentChange }: TextViewerProps) {
   const { resolvedTheme } = useTheme()
   const monaco = useMonaco()
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
@@ -233,56 +230,6 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
 
   return (
     <div className={cn("relative flex flex-col", className)}>
-      {/* Edit mode toolbar */}
-      {editable && (
-        <div className="flex items-center justify-between border-b border-border bg-accent/30 px-3 py-1.5 shrink-0">
-          <div className="flex items-center gap-2">
-            {isDirty && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Circle className="size-2 fill-amber-500 text-amber-500" />
-                Unsaved
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1.5">
-            {saveError && (
-              <span className="flex items-center gap-1 text-xs text-destructive max-w-[200px] truncate">
-                <AlertCircle className="size-3 shrink-0" />
-                {saveError}
-              </span>
-            )}
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => {
-                if (isDirty && !window.confirm("Discard unsaved changes?")) return
-                onCancel?.()
-              }}
-              disabled={isSaving}
-              className="text-muted-foreground gap-1"
-            >
-              <X className="size-3" />
-              Cancel
-            </Button>
-            <Button
-              variant="default"
-              size="xs"
-              onClick={() => onSave?.(editedContent)}
-              disabled={!isDirty || isSaving}
-              className="gap-1"
-            >
-              {isSaving ? (
-                <Spinner className="size-3" />
-              ) : (
-                <Check className="size-3" />
-              )}
-              Save
-              <Kbd className="ml-0.5">⌘S</Kbd>
-            </Button>
-          </div>
-        </div>
-      )}
-
       {isJson && !editable && (
         <div className="flex items-center justify-end border-b border-border px-2 py-1 shrink-0">
           <Button

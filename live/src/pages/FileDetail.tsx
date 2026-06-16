@@ -154,6 +154,7 @@ export function FileDetailPage() {
             path={filePath}
             showExpandButton={false}
             showHeader={false}
+            showEditButton
             className="flex-1 min-h-0"
             onScrollToCommentRef={scrollToCommentRef}
             onOutlineChange={setOutline}

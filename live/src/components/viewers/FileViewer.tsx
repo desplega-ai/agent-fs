@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type MutableRefObject } from "react"
-import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid } from "lucide-react"
+import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid, Circle, X, AlertCircle } from "lucide-react"
 import { useNavigate } from "react-router"
 import { isQueryablePath } from "@/lib/sql-engine/types"
 import { useAuth } from "@/contexts/auth"
@@ -112,12 +112,14 @@ interface FileViewerProps {
   className?: string
   showExpandButton?: boolean
   showHeader?: boolean
+  /** Show an Edit button even when showHeader is false (for detail page). */
+  showEditButton?: boolean
   onScrollToCommentRef?: MutableRefObject<ScrollToCommentCallback | null>
   /** Reports the document outline (headings) of a rendered markdown preview. */
   onOutlineChange?: (items: OutlineItem[]) => void
 }
 
-export function FileViewer({ path, className, showExpandButton = true, showHeader = true, onScrollToCommentRef, onOutlineChange }: FileViewerProps) {
+export function FileViewer({ path, className, showExpandButton = true, showHeader = true, showEditButton = false, onScrollToCommentRef, onOutlineChange }: FileViewerProps) {
   const navigate = useNavigate()
   const { orgId, driveId } = useAuth()
   const { data: stat } = useFileStat(path)
@@ -209,6 +211,14 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     }
   }
   useKeyboardShortcuts(fileShortcuts)
+  // Escape exits edit mode
+  useKeyboardShortcuts({
+    esc: (e) => {
+      if (!isEditing) return
+      e.preventDefault()
+      handleCancel()
+    },
+  })
 
   const handleEdit = useCallback(() => {
     setIsEditing(true)
@@ -395,6 +405,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     : (isMd ? showRaw : true)
   const showSplit = isEditing && isMd && splitMode === "split"
   const displayError = saveError && !saveErrorDismissed ? saveError.message : null
+  const isDirty = isEditing && !!content && editedContent !== content.content
 
   return (
     <div className={cn("flex flex-col h-full min-w-0", className)}>
@@ -418,6 +429,74 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           onToggleOrientation={isEditing && isMd ? () => setSplitOrientation((o) => o === "horizontal" ? "vertical" : "horizontal") : undefined}
         />
       )}
+      {!showHeader && showEditButton && !isEditing && (
+        <div className="flex h-10 items-center justify-end border-b border-border px-4 shrink-0">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleEdit}
+                  className="text-muted-foreground"
+                  aria-label="Edit file"
+                >
+                  <Pencil />
+                </Button>
+              }
+            />
+            <TooltipContent>Edit file</TooltipContent>
+          </Tooltip>
+        </div>
+      )}
+      {isEditing && (
+        <div className="flex items-center justify-between border-b border-border bg-accent/30 px-3 py-1.5 shrink-0">
+          <div className="flex items-center gap-2">
+            {isDirty && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Circle className="size-2 fill-amber-500 text-amber-500" />
+                Unsaved changes
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            {displayError && (
+              <span className="flex items-center gap-1 text-xs text-destructive max-w-[200px] truncate">
+                <AlertCircle className="size-3 shrink-0" />
+                {displayError}
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => {
+                if (isDirty && !window.confirm("Discard unsaved changes?")) return
+                handleCancel()
+              }}
+              disabled={isSaving}
+              className="text-muted-foreground gap-1"
+            >
+              <X className="size-3" />
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              size="xs"
+              onClick={() => handleSave(editedContent || content.content)}
+              disabled={!isDirty || isSaving}
+              className="gap-1"
+            >
+              {isSaving ? (
+                <Spinner className="size-3" />
+              ) : (
+                <Check className="size-3" />
+              )}
+              Save
+              <Kbd className="ml-0.5">⌘S</Kbd>
+            </Button>
+          </div>
+        </div>
+      )}
       {showSplit ? (
         <div
           ref={splitContainerRef}
@@ -434,10 +513,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
               truncated={content.truncated}
               comments={commentsData?.comments}
               editable
-              isSaving={isSaving}
-              saveError={displayError}
               onSave={handleSave}
-              onCancel={handleCancel}
               onContentChange={setEditedContent}
             />
           </div>
@@ -479,10 +555,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           className="flex-1 min-h-0"
           onScrollToCommentRef={onScrollToCommentRef}
           editable={isEditing}
-          isSaving={isSaving}
-          saveError={displayError}
           onSave={handleSave}
-          onCancel={handleCancel}
           onContentChange={isEditing && isMd ? setEditedContent : undefined}
         />
       ) : (
