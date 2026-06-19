@@ -222,6 +222,23 @@ export interface SqlResult {
   elapsedMs: number
 }
 
+// Write types (from core/ops/types.ts)
+
+export interface WriteParams {
+  path: string
+  content: string
+  message?: string
+  expectedVersion?: number
+}
+
+export interface WriteResult {
+  version: number
+  path: string
+  size: number
+  contentHash?: string
+  deduped?: boolean
+}
+
 // Auth types
 
 export interface OrgMember {

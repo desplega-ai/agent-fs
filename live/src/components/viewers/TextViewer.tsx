@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useCallback, useMemo, type MutableRefObject } from "react"
-import Editor, { useMonaco } from "@monaco-editor/react"
-import { MessageSquare, Braces } from "lucide-react"
+import Editor, { useMonaco, type OnMount } from "@monaco-editor/react"
+import { MessageSquare, Braces, Save, X, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
@@ -36,9 +36,22 @@ interface TextViewerProps {
   comments?: CommentListEntry[]
   className?: string
   onScrollToCommentRef?: MutableRefObject<ScrollToCommentCallback | null>
+  editable?: boolean
+  onSave?: (content: string) => Promise<void>
+  isSaving?: boolean
+  saveError?: Error | null
+  onClearError?: () => void
+  onCancel?: () => void
+  onDirtyChange?: (dirty: boolean) => void
+  /** Live content callback for split-view markdown preview */
+  onContentChange?: (content: string) => void
 }
 
-export function TextViewer({ content, path, truncated, comments, className, onScrollToCommentRef }: TextViewerProps) {
+export function TextViewer({
+  content, path, truncated, comments, className, onScrollToCommentRef,
+  editable = false, onSave, isSaving = false, saveError, onClearError, onCancel,
+  onDirtyChange, onContentChange,
+}: TextViewerProps) {
   const { resolvedTheme } = useTheme()
   const monaco = useMonaco()
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
@@ -50,19 +63,42 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
   const [jsonFormatted, setJsonFormatted] = useState(false)
   const monacoTheme = resolvedTheme === "dark" ? "vs-dark" : "vs"
 
+  // Editing state
+  const [editContent, setEditContent] = useState(content)
+  const isDirty = editable && editContent !== content
+
+  // Reset edit content when original content changes (e.g. after save)
+  useEffect(() => {
+    setEditContent(content)
+  }, [content])
+
+  // Report dirty state changes
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+  }, [isDirty, onDirtyChange])
+
+  // beforeunload guard while dirty
+  useEffect(() => {
+    if (!isDirty) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+    }
+    window.addEventListener("beforeunload", handler)
+    return () => window.removeEventListener("beforeunload", handler)
+  }, [isDirty])
+
   const displayContent = useMemo(() => {
+    if (editable) return editContent
     if (!isJson || !jsonFormatted) return content
     try {
       return JSON.stringify(JSON.parse(content), null, 2)
     } catch {
       return content
     }
-  }, [content, isJson, jsonFormatted])
+  }, [content, isJson, jsonFormatted, editable, editContent])
 
-  // `e` toggles JSON Format / Raw — the source-view counterpart of the
-  // markdown source/preview toggle (a file is either markdown or JSON, never
-  // both, so the contexts never overlap).
-  useKeyboardShortcuts(isJson ? { e: (e) => { e.preventDefault(); setJsonFormatted((v) => !v) } } : {})
+  // `e` toggles JSON Format / Raw — disabled in edit mode
+  useKeyboardShortcuts(isJson && !editable ? { e: (e) => { e.preventDefault(); setJsonFormatted((v) => !v) } } : {})
 
   // Apply comment line decorations
   useEffect(() => {
@@ -91,8 +127,26 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
   // Line comment via gutter click
   const [lineComment, setLineComment] = useState<{ line: number; rect: DOMRect } | null>(null)
 
-  const handleEditorMount = useCallback((editor: editor.IStandaloneCodeEditor) => {
+  // Stable ref so Cmd+S always calls the latest save function
+  const onSaveRef = useRef(onSave)
+  useEffect(() => { onSaveRef.current = onSave }, [onSave])
+  const editContentRef = useRef(editContent)
+  useEffect(() => { editContentRef.current = editContent }, [editContent])
+
+  const handleEditorMount: OnMount = useCallback((editor, monaco) => {
     editorRef.current = editor
+
+    // Cmd/Ctrl+S to save in edit mode
+    editor.addAction({
+      id: "agent-fs.save-file",
+      label: "Save file",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+      run: () => {
+        if (onSaveRef.current) {
+          onSaveRef.current(editContentRef.current)
+        }
+      },
+    })
 
     // Expose scroll-to-comment for comment click navigation
     if (onScrollToCommentRef) {
@@ -107,8 +161,9 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
       }
     }
 
-    // Gutter click → line comment
+    // Gutter click → line comment (disabled in edit mode)
     editor.onMouseDown((e) => {
+      if (editable) return
       if (e.target.type === 2 /* GLYPH_MARGIN */ || e.target.type === 3 /* LINE_NUMBERS */) {
         const line = e.target.position?.lineNumber
         if (!line) return
@@ -124,8 +179,9 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
       }
     })
 
-    // Listen for selection changes to enable commenting
+    // Listen for selection changes to enable commenting (disabled in edit mode)
     editor.onDidChangeCursorSelection(() => {
+      if (editable) return
       const sel = editor.getSelection()
       if (!sel || sel.isEmpty()) {
         setSelection(null)
@@ -159,7 +215,7 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
         rect,
       })
     })
-  }, [])
+  }, [editable])
 
   // Esc closes an open comment UI. Capture phase + stopImmediatePropagation so
   // Esc is consumed here and does not reach other document-level handlers.
@@ -177,9 +233,66 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
     return () => document.removeEventListener("keydown", onKeyDownCapture, true)
   }, [showCommentForm, selection, lineComment])
 
+  const handleEditorChange = useCallback((value: string | undefined) => {
+    const v = value ?? ""
+    setEditContent(v)
+    onContentChange?.(v)
+  }, [onContentChange])
+
+  const handleSave = useCallback(() => {
+    onSave?.(editContent)
+  }, [onSave, editContent])
+
+  const handleCancel = useCallback(() => {
+    if (isDirty) {
+      if (!window.confirm("Discard unsaved changes?")) return
+    }
+    setEditContent(content)
+    onCancel?.()
+  }, [isDirty, content, onCancel])
+
   return (
     <div className={cn("relative flex flex-col", className)}>
-      {isJson && (
+      {/* Edit toolbar: Save/Cancel bar */}
+      {editable && (
+        <div className="flex items-center justify-between border-b border-border px-3 py-1.5 shrink-0 bg-muted/30">
+          <div className="flex items-center gap-2">
+            {isDirty && (
+              <span className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <span className="size-1.5 rounded-full bg-amber-500" />
+                Unsaved
+              </span>
+            )}
+            {saveError && (
+              <span className="flex items-center gap-1.5 text-xs text-destructive">
+                <AlertCircle className="size-3" />
+                {saveError.message}
+                <button onClick={onClearError} className="hover:text-foreground">
+                  <X className="size-3" />
+                </button>
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button variant="ghost" size="xs" onClick={handleCancel} disabled={isSaving} className="gap-1">
+              <X className="size-3" />
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              size="xs"
+              onClick={handleSave}
+              disabled={isSaving || !isDirty}
+              className="gap-1"
+            >
+              {isSaving ? <Spinner className="size-3" /> : <Save className="size-3" />}
+              Save
+              <Kbd className="ml-1">⌘S</Kbd>
+            </Button>
+          </div>
+        </div>
+      )}
+      {isJson && !editable && (
         <div className="flex items-center justify-end border-b border-border px-2 py-1 shrink-0">
           <Button
             variant="ghost"
@@ -197,29 +310,32 @@ export function TextViewer({ content, path, truncated, comments, className, onSc
         <Editor
           language={lang}
           value={displayContent}
+          onChange={editable ? handleEditorChange : undefined}
           theme={monacoTheme}
           onMount={handleEditorMount}
           loading={<div className="flex items-center justify-center h-full"><Spinner /></div>}
           options={{
-            readOnly: true,
+            readOnly: !editable || isSaving,
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             fontSize: 13,
             lineHeight: 20,
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontLigatures: true,
-            glyphMargin: true,
+            glyphMargin: !editable,
             folding: true,
             lineNumbers: "on",
-            renderLineHighlight: "none",
+            renderLineHighlight: editable ? "line" : "none",
             overviewRulerBorder: false,
-            hideCursorInOverviewRuler: true,
+            hideCursorInOverviewRuler: !editable,
             scrollbar: {
               verticalScrollbarSize: 8,
               horizontalScrollbarSize: 8,
             },
             padding: { top: 8 },
-            domReadOnly: true,
+            domReadOnly: !editable || isSaving,
+            wordWrap: editable ? "on" : "off",
+            automaticLayout: true,
           }}
         />
       </div>
