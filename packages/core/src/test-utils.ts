@@ -14,12 +14,14 @@ import { listDrives } from "./identity/drives.js";
 import type { DB } from "./db/index.js";
 import type { OpContext } from "./ops/types.js";
 import type {
+  StorageAdapter,
+  StorageCapabilities,
   PutObjectResult,
   GetObjectResult,
   HeadObjectResult,
   S3Object,
   S3ObjectVersion,
-} from "./s3/client.js";
+} from "./storage/adapter.js";
 
 // Check if MinIO is available at localhost:9000
 export async function isMinioAvailable(): Promise<boolean> {
@@ -47,7 +49,7 @@ export function createTestDb(): DB {
 /**
  * In-memory mock of AgentS3Client for testing without MinIO.
  */
-export class MockS3Client {
+export class MockS3Client implements StorageAdapter {
   private store = new Map<string, {
     body: Uint8Array;
     metadata?: Record<string, string>;
@@ -63,6 +65,11 @@ export class MockS3Client {
 
   constructor(opts?: { versioningEnabled?: boolean }) {
     this.versioningEnabled = opts?.versioningEnabled ?? false;
+  }
+
+  /** Mirrors AgentS3Client: versioning tracks the flag, presigned URLs are faked. */
+  get capabilities(): StorageCapabilities {
+    return { versioning: this.versioningEnabled, presignedUrls: true };
   }
 
   async putObject(
@@ -193,6 +200,17 @@ export class MockS3Client {
     return true;
   }
 
+  async getPresignedUrl(
+    key: string,
+    expiresIn: number = 86400,
+    responseContentType?: string
+  ): Promise<string> {
+    const ct = responseContentType
+      ? `&ct=${encodeURIComponent(responseContentType)}`
+      : "";
+    return `https://mock.local/${key}?e=${expiresIn}${ct}`;
+  }
+
   /** Reset all stored objects */
   clear(): void {
     this.store.clear();
@@ -222,7 +240,7 @@ export function createTestContext(opts?: {
 
   const ctx: OpContext = {
     db,
-    s3: s3 as any, // MockS3Client implements the same interface
+    s3,
     orgId: orgs[0].id,
     driveId: drives[0].id,
     userId: user.id,

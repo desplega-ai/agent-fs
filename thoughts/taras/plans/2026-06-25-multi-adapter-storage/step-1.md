@@ -2,7 +2,7 @@
 id: step-1
 name: StorageAdapter interface + capabilities + UnsupportedOperation
 depends_on: []
-status: ready
+status: done
 ---
 
 <!-- During /v-implement, `desplega:step-running` adds `assignee` and `claimed_at` while
@@ -46,15 +46,15 @@ Extract the storage contract that every other step builds on. Define a `StorageA
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Whole-repo typecheck passes — this is the core proof; removing `as any` must compile cleanly: `bun run typecheck`
-- [ ] Full test suite still green (zero behavior change): `bun test`
-- [ ] The cast is gone: `! grep -n "s3 as any" packages/core/src/test-utils.ts`
-- [ ] No op imports `AgentS3Client` as a value (interface-only seam): `! grep -rn "new AgentS3Client" packages/core/src/ops`
+- [x] Whole-repo typecheck passes — this is the core proof; removing `as any` must compile cleanly: `bun run typecheck`
+- [x] Full test suite still green (zero behavior change): `bun test` — 840 pass, 114 skip, 0 fail
+- [x] The cast is gone: `! grep -n "s3 as any" packages/core/src/test-utils.ts`
+- [x] No op imports `AgentS3Client` as a value (interface-only seam): `! grep -rn "new AgentS3Client" packages/core/src/ops` — op *source* is clean (verified with `--glob '!**/__tests__/**'`). The literal grep still matches two **pre-existing, untouched** MinIO integration test files under `ops/__tests__/`; the interface-only-seam intent (no op implementation constructs the concrete client) is satisfied.
 
 #### Automated QA:
-- [ ] A unit test (`packages/core/src/storage/__tests__/adapter.test.ts`) instantiates `MockS3Client`, asserts `.capabilities` returns `{ versioning, presignedUrls: true }` and `.getPresignedUrl("k")` returns a string — proving the mock fully implements the surface (no longer needs the cast).
-- [ ] A type-level assignability check (e.g. `const _a: StorageAdapter = new MockS3Client()` and `= new AgentS3Client(cfg)`) compiles.
-- [ ] A unit test constructs `new UnsupportedOperation("revert", "local")` and asserts `.code === "UNSUPPORTED_OPERATION"` and `.toJSON()` carries `operation`/`backend`/`message`.
+- [x] A unit test (`packages/core/src/storage/__tests__/adapter.test.ts`) instantiates `MockS3Client`, asserts `.capabilities` returns `{ versioning, presignedUrls: true }` and `.getPresignedUrl("k")` returns a string — proving the mock fully implements the surface (no longer needs the cast).
+- [x] A type-level assignability check (e.g. `const _a: StorageAdapter = new MockS3Client()` and `= new AgentS3Client(cfg)`) compiles.
+- [x] A unit test constructs `new UnsupportedOperation("revert", "local")` and asserts `.code === "UNSUPPORTED_OPERATION"` and `.toJSON()` carries `operation`/`backend`/`message`.
 
 #### Manual Verification:
 - [ ] Skim the diff to confirm `AgentS3Client` method bodies are byte-for-byte unchanged (only the `implements` clause + `capabilities` getter + import path added).

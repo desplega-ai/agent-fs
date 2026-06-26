@@ -17,6 +17,10 @@ export type {
   GetObjectResult,
   HeadObjectResult,
 } from "./s3/index.js";
+export type {
+  StorageAdapter,
+  StorageCapabilities,
+} from "./storage/adapter.js";
 export {
   AgentFSError,
   NotFoundError,
@@ -24,6 +28,7 @@ export {
   EditConflictError,
   IndexingInProgressError,
   ValidationError,
+  UnsupportedOperation,
 } from "./errors.js";
 export {
   dispatchOp,
