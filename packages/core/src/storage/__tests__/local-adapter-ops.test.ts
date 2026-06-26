@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { LocalStorageAdapter } from "../local-adapter.js";
 import { createTestContext } from "../../test-utils.js";
 import { getS3Key } from "../../ops/versioning.js";
-import { write, edit, append, log, diff, revert, signedUrl } from "../../ops/index.js";
-import { UnsupportedOperation } from "../../errors.js";
+import { write, edit, append, log, diff, revert, signedUrl, stat } from "../../ops/index.js";
+import { UnsupportedOperation, NotFoundError } from "../../errors.js";
 import type { OpContext } from "../../ops/types.js";
 
 const PATH = "/doc.txt";
@@ -87,6 +87,15 @@ describe("LocalStorageAdapter — op-level versioning (full tier)", () => {
 
     await expect(signedUrl(noAppUrlCtx, { path: PATH })).rejects.toBeInstanceOf(
       UnsupportedOperation,
+    );
+  });
+
+  test("stat on a missing file maps the adapter's NoSuchKey miss to NotFoundError", async () => {
+    // The local adapter translates a miss to the `NoSuchKey` shape (not S3's
+    // `NotFound`); stat must still surface a clean NOT_FOUND rather than letting
+    // the raw error bubble as a 500.
+    await expect(stat(ctx, { path: "/does-not-exist.txt" })).rejects.toBeInstanceOf(
+      NotFoundError,
     );
   });
 });

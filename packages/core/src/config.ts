@@ -155,14 +155,18 @@ function deepMergeConfig(
   const result = { ...defaults };
   for (const key of Object.keys(overrides) as (keyof AgentFSConfig)[]) {
     const ov = overrides[key];
-    // Storage is a tagged union: when the override switches `provider` to a
-    // different-shaped variant (e.g. "local"), a shallow 2-level merge would
-    // leave stale S3 fields (bucket/endpoint/…) bleeding under it. Replace
-    // wholesale on a provider switch; otherwise shallow-merge (same/unset
-    // provider) so partial S3 overrides keep their sibling defaults.
+    // Storage is a tagged union. The only genuine *shape* switch is to/from the
+    // local variant ({ provider, root }); all S3-compatible providers
+    // (minio/s3/r2/tigris/…) share the one S3 shape. A shallow 2-level merge
+    // across a shape switch would leave stale S3 fields (bucket/endpoint/…)
+    // bleeding under a local override, so replace wholesale ONLY on a local⇄S3
+    // switch; otherwise shallow-merge so a partial S3 override (e.g. just
+    // `{ provider: "s3", bucket }`) keeps its sibling S3 defaults.
     if (key === "s3" && ov && typeof ov === "object" && !Array.isArray(ov)) {
       const ovS3 = ov as Partial<AgentFSStorageConfig>;
-      if (ovS3.provider && ovS3.provider !== defaults.s3.provider) {
+      const overrideIsLocal = ovS3.provider === "local";
+      const defaultsAreLocal = defaults.s3.provider === "local";
+      if (overrideIsLocal !== defaultsAreLocal) {
         result.s3 = { ...(ovS3 as AgentFSStorageConfig) };
       } else {
         result.s3 = {
@@ -190,20 +194,33 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
 
   // Storage backend selection. AGENT_FS_STORAGE_PROVIDER switches the backend;
   // for the local-FS variant AGENT_FS_LOCAL_ROOT points at the managed dir.
-  // When local is selected we REPLACE config.s3 with the local-shaped variant
-  // (so no stale S3 fields linger) and SKIP the S3_*/AWS_* block below — those
-  // env vars are meaningless for a filesystem backend.
-  if (env.AGENT_FS_STORAGE_PROVIDER === "local" || config.s3.provider === "local") {
+  // An explicit env provider WINS over the persisted config (so a deployment
+  // can switch a machine that was onboarded `--filesystem` over to S3/MinIO via
+  // env); we only fall back to a persisted `local` provider when the env var
+  // doesn't force a backend. When local is selected we REPLACE config.s3 with
+  // the local-shaped variant (so no stale S3 fields linger) and SKIP the
+  // S3_*/AWS_* block below — those env vars are meaningless for a filesystem
+  // backend.
+  const envProvider = env.AGENT_FS_STORAGE_PROVIDER;
+  const useLocal =
+    envProvider === "local" || (!envProvider && config.s3.provider === "local");
+  if (useLocal) {
     const existingRoot = isLocalStorageConfig(config.s3) ? config.s3.root : undefined;
     const root =
       env.AGENT_FS_LOCAL_ROOT || existingRoot || join(getHome(), "storage");
     config.s3 = { provider: "local", root };
   } else {
-    // Not the local backend → S3 variant. `provider` is an open string so it is
-    // not a usable discriminant; cast to a mutable S3-typed reference (same
-    // object) for the in-place field overrides.
+    // Not the local backend → S3 variant. If the persisted config is the
+    // local-shaped variant (the env var is switching backends), seed the S3
+    // defaults so the override block has the full field set to populate instead
+    // of leaving bucket/region/endpoint undefined.
+    if (isLocalStorageConfig(config.s3)) {
+      config.s3 = { ...DEFAULT_CONFIG.s3 };
+    }
+    // `provider` is an open string so it is not a usable discriminant; cast to a
+    // mutable S3-typed reference (same object) for the in-place field overrides.
     const s3 = config.s3 as S3StorageConfig;
-    if (env.AGENT_FS_STORAGE_PROVIDER) s3.provider = env.AGENT_FS_STORAGE_PROVIDER;
+    if (envProvider) s3.provider = envProvider;
 
     // S3 overrides (AWS_* takes precedence over S3_*)
     if (env.AWS_ENDPOINT_URL_S3 || env.S3_ENDPOINT)

@@ -15,7 +15,15 @@ export async function stat(
   try {
     s3Head = await ctx.s3.headObject(s3Key);
   } catch (err: any) {
-    if (err?.name === "NotFound" || err?.$metadata?.httpStatusCode === 404) {
+    // S3 `headObject` misses surface as `NotFound`; the local-FS adapter
+    // translates misses to the `NoSuchKey` shape every other op branches on
+    // (cat/append/edit/tail/signed-url). Handle both so a missing file is a
+    // clean NOT_FOUND on every backend rather than a raw 500.
+    if (
+      err?.name === "NotFound" ||
+      err?.name === "NoSuchKey" ||
+      err?.$metadata?.httpStatusCode === 404
+    ) {
       throw new NotFoundError(`File not found: ${params.path}`, {
         path: params.path,
       });

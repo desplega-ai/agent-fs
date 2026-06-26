@@ -171,6 +171,24 @@ describe("Deep merge config", () => {
     expect((config.s3 as S3StorageConfig).region).toBe("us-east-1");
     expect((config.s3 as S3StorageConfig).endpoint).toBe("http://localhost:9000");
   });
+
+  test("non-minio S3 provider keeps default S3 fields (only local switches the shape)", () => {
+    // A partial S3-compatible config with a non-default provider must still
+    // inherit the sibling S3 defaults — all S3 providers share one shape, so it
+    // must NOT be replaced wholesale the way a `local` switch is.
+    const configPath = join(testHome, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ s3: { provider: "s3", bucket: "prod-bucket" } }, null, 2)
+    );
+
+    const config = getConfig();
+
+    expect(config.s3.provider).toBe("s3");
+    expect((config.s3 as S3StorageConfig).bucket).toBe("prod-bucket");
+    expect((config.s3 as S3StorageConfig).region).toBe("us-east-1");
+    expect((config.s3 as S3StorageConfig).endpoint).toBe("http://localhost:9000");
+  });
 });
 
 describe("Env var overrides", () => {
@@ -417,5 +435,32 @@ describe("Local-FS storage variant", () => {
     expect(config.s3.provider).toBe("local");
     expect((config.s3 as { root: string }).root).toBe("/data/fsroot");
     expect("endpoint" in config.s3).toBe(false);
+  });
+
+  test("AGENT_FS_STORAGE_PROVIDER overrides a persisted local config and applies S3 env vars", () => {
+    // A machine onboarded with `--filesystem` (persisted provider: "local") must
+    // still be switchable to S3 via env (deployment scenario). The env provider
+    // wins, and seeded S3 defaults fill the fields env doesn't set.
+    const configPath = join(testHome, "config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ s3: { provider: "local", root: "/data/fsroot" } }, null, 2)
+    );
+    process.env.AGENT_FS_STORAGE_PROVIDER = "s3";
+    process.env.S3_ENDPOINT = "https://s3.example.com";
+    process.env.S3_BUCKET = "switched-bucket";
+    process.env.S3_ACCESS_KEY_ID = "ak";
+    process.env.S3_SECRET_ACCESS_KEY = "sk";
+
+    const config = getConfig();
+
+    expect(config.s3.provider).toBe("s3");
+    expect("root" in config.s3).toBe(false);
+    expect((config.s3 as S3StorageConfig).bucket).toBe("switched-bucket");
+    expect((config.s3 as S3StorageConfig).endpoint).toBe("https://s3.example.com");
+    expect((config.s3 as S3StorageConfig).accessKeyId).toBe("ak");
+    expect((config.s3 as S3StorageConfig).secretAccessKey).toBe("sk");
+    // Seeded S3 defaults remain for fields env didn't override.
+    expect((config.s3 as S3StorageConfig).region).toBe("us-east-1");
   });
 });
