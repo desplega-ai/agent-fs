@@ -21,6 +21,8 @@ export type {
   StorageAdapter,
   StorageCapabilities,
 } from "./storage/adapter.js";
+export { LocalStorageAdapter } from "./storage/local-adapter.js";
+export type { LocalStorageAdapterOptions } from "./storage/local-adapter.js";
 export {
   AgentFSError,
   NotFoundError,

@@ -2,7 +2,7 @@
 id: step-3
 name: files-sdk local-FS adapter + app-level versioning
 depends_on: [step-1]
-status: ready
+status: done
 ---
 
 <!-- During /v-implement, `desplega:step-running` adds `assignee` and `claimed_at` while
@@ -49,13 +49,13 @@ Implement `LocalStorageAdapter` — a `StorageAdapter` backed by the `files-sdk`
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `files-sdk` recorded in `packages/core/package.json`; `bun install` clean.
-- [ ] Typecheck + tests: `bun run typecheck` && `bun test`
-- [ ] Adapter integration test (`packages/core/src/storage/__tests__/local-adapter.test.ts`, temp dir via `mkdtemp`): put/get/head/delete/copy round-trip; `listObjects(prefix, { delimiter: "/" })` returns files in `objects` + subdirs in `prefixes` and **never** surfaces `_afs-blobs`; `getObject(key)` after two writes returns latest, `getObject(key, oldHash)` returns the older bytes; `headObject` on a missing key throws an error with `name === "NoSuchKey"`.
+- [x] `files-sdk` recorded in `packages/core/package.json`; `bun install` clean.
+- [x] Typecheck + tests: `bun run typecheck` && `bun test`
+- [x] Adapter integration test (`packages/core/src/storage/__tests__/local-adapter.test.ts`, temp dir via `mkdtemp`): put/get/head/delete/copy round-trip; `listObjects(prefix, { delimiter: "/" })` returns files in `objects` + subdirs in `prefixes` and **never** surfaces `_afs-blobs`; `getObject(key)` after two writes returns latest, `getObject(key, oldHash)` returns the older bytes; `headObject` on a missing key throws an error with `name === "NoSuchKey"`.
 
 #### Automated QA:
-- [ ] Op-level end-to-end test with `ctx.s3 = new LocalStorageAdapter({ root: tmp })` + a test DB: `write → edit → append → log → diff(v1,v2) → revert(v1)` all succeed and **`revert`/`diff` return real content** (full tier proven on local).
-- [ ] `signed-url` op against the local adapter (with `ctx.appUrl` set) returns the `buildAppUrl` fallback URL, asserts it does **not** throw, and the result is marked as an app/non-presigned link; with `ctx.appUrl` unset it throws `UnsupportedOperation`.
+- [x] Op-level end-to-end test with `ctx.s3 = new LocalStorageAdapter({ root: tmp })` + a test DB: `write → edit → append → log → diff(v1,v2) → revert(v1)` all succeed and **`revert`/`diff` return real content** (full tier proven on local).
+- [x] `signed-url` op against the local adapter (with `ctx.appUrl` set) returns the `buildAppUrl` fallback URL, asserts it does **not** throw, and the result is marked as an app/non-presigned link; with `ctx.appUrl` unset it throws `UnsupportedOperation`.
 
 #### Manual Verification:
 - [ ] Confirm the signed-url fallback semantics are acceptable: given `/raw` + the viewer require auth, an authenticated app link (not a public URL) is the right "share" behavior for a local backend — sign off or adjust the labeling/UX.
