@@ -133,3 +133,15 @@ Verified against `github.com/haydenbleasel/files-sdk@main` (v2.0.0):
 - **References**:
   - Research: `thoughts/taras/research/2026-06-25-files-sdk-storage-adapters.md`
   - files-sdk: `https://files-sdk.dev/`, `https://github.com/haydenbleasel/files-sdk`, npm `files-sdk` v2.0.0
+
+## Review Errata
+
+_Reviewed: 2026-06-26 by Claude (post-implementation, autonomy=critical). Verification audit: `AUDIT: clean` — 0 blocking, 0 warnings. All findings below are Minor._
+
+### Resolved
+- [x] **Imprecise file path (step-4)** — step-4's "Retype the server-wide storage seam" listed `packages/server/src/ipc/server.ts`, but the retype actually landed in `ipc/handlers.ts` (`ipc/server.ts` only references the `IpcContext` type and was unchanged); `routes/ops.ts` was also retyped. — auto-fixed in `step-4.md`.
+
+### Noted (no action required)
+- [ ] **QA labeling** — steps report `QA: n/a`, which refers to "no separate `desplega:qa` doc." Each step nonetheless shipped substantial *automated* integration QA (e.g. `storage/__tests__/local-adapter-ops.test.ts`, the dual-backend `scripts/e2e.ts` matrix). The `n/a` undersells the actual coverage; wording only.
+- [ ] **Cross-store atomicity / local blob GC** — consciously deferred (see Derail notes). The object-then-commit write path leaves a narrow partial-failure window, and local content-addressed blobs under `_afs-blobs/sha256/` are never garbage-collected, so local version history grows unbounded. Harmless today (orphans are dedup-shared); track reconciliation + a GC/retention story before local sees heavy churn. Candidate for the consumer-provider follow-up plan.
+- [ ] **`--local` vs `--filesystem` naming** — `--local` means *local MinIO Docker* while `--filesystem`/`--storage local` mean *local filesystem*; a user could reasonably expect `--local` to mean the filesystem. Consider an alias/rename in a future onboarding-UX pass.

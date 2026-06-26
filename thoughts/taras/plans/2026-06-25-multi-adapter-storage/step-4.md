@@ -34,7 +34,7 @@ Make the local-FS backend reachable end-to-end by users. Evolve `AgentFSConfig.s
 **Changes**: Replace `const s3 = new AgentS3Client(config.s3)` (`:13`) with `const s3 = createStorageAdapter(config.s3)`. Update the import.
 
 #### 4. Retype the server-wide storage seam
-**Files**: `packages/server/src/app.ts`, `packages/server/src/routes/files.ts` (`:8`, `:14`), `packages/server/src/ipc/handlers.ts`, `packages/server/src/ipc/server.ts`, `packages/mcp/src/server.ts` (context type)
+**Files**: `packages/server/src/app.ts`, `packages/server/src/routes/files.ts` (`:8`, `:14`), `packages/server/src/routes/ops.ts`, `packages/server/src/ipc/handlers.ts`, `packages/mcp/src/server.ts` (context type). _(Post-impl correction: the seam retype landed in `ipc/handlers.ts`, not `ipc/server.ts` — `ipc/server.ts` only references the `IpcContext` type and needed no change; `routes/ops.ts` was also retyped.)_
 **Changes**: Change `s3: AgentS3Client` parameter/field annotations to `s3: StorageAdapter` (import from `@/core`). Mostly type-only — `AgentS3Client` already satisfies it (step-1). This is the step where a non-S3 adapter actually flows through these call sites.
 
 #### 5. `config validate` handles local
