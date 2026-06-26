@@ -14,12 +14,14 @@ import { listDrives } from "./identity/drives.js";
 import type { DB } from "./db/index.js";
 import type { OpContext } from "./ops/types.js";
 import type {
+  StorageAdapter,
+  StorageCapabilities,
   PutObjectResult,
   GetObjectResult,
   HeadObjectResult,
   S3Object,
   S3ObjectVersion,
-} from "./s3/client.js";
+} from "./storage/adapter.js";
 
 // Check if MinIO is available at localhost:9000
 export async function isMinioAvailable(): Promise<boolean> {
@@ -47,7 +49,7 @@ export function createTestDb(): DB {
 /**
  * In-memory mock of AgentS3Client for testing without MinIO.
  */
-export class MockS3Client {
+export class MockS3Client implements StorageAdapter {
   private store = new Map<string, {
     body: Uint8Array;
     metadata?: Record<string, string>;
@@ -60,9 +62,32 @@ export class MockS3Client {
     }>;
   }>();
   versioningEnabled: boolean;
+  private capabilityOverride?: Partial<StorageCapabilities>;
 
-  constructor(opts?: { versioningEnabled?: boolean }) {
+  constructor(opts?: {
+    versioningEnabled?: boolean;
+    /**
+     * Force specific capabilities for capability-gating tests (e.g.
+     * `{ versioning: false }` to model a backend that can't `revert`). The
+     * override is merged over the defaults derived from `versioningEnabled`.
+     */
+    capabilities?: Partial<StorageCapabilities>;
+  }) {
     this.versioningEnabled = opts?.versioningEnabled ?? false;
+    this.capabilityOverride = opts?.capabilities;
+  }
+
+  /**
+   * Mirrors AgentS3Client: versioning tracks the flag, presigned URLs are
+   * faked. Any constructor `capabilities` override wins so tests can model a
+   * limited backend.
+   */
+  get capabilities(): StorageCapabilities {
+    return {
+      versioning: this.versioningEnabled,
+      presignedUrls: true,
+      ...this.capabilityOverride,
+    };
   }
 
   async putObject(
@@ -193,6 +218,17 @@ export class MockS3Client {
     return true;
   }
 
+  async getPresignedUrl(
+    key: string,
+    expiresIn: number = 86400,
+    responseContentType?: string
+  ): Promise<string> {
+    const ct = responseContentType
+      ? `&ct=${encodeURIComponent(responseContentType)}`
+      : "";
+    return `https://mock.local/${key}?e=${expiresIn}${ct}`;
+  }
+
   /** Reset all stored objects */
   clear(): void {
     this.store.clear();
@@ -204,6 +240,8 @@ export class MockS3Client {
  */
 export function createTestContext(opts?: {
   versioningEnabled?: boolean;
+  /** Force adapter capabilities (e.g. `{ versioning: false }`) for gating tests. */
+  capabilities?: Partial<StorageCapabilities>;
 }): {
   ctx: OpContext;
   db: DB;
@@ -214,7 +252,10 @@ export function createTestContext(opts?: {
   apiKey: string;
 } {
   const db = createTestDb();
-  const s3 = new MockS3Client({ versioningEnabled: opts?.versioningEnabled ?? false });
+  const s3 = new MockS3Client({
+    versioningEnabled: opts?.versioningEnabled ?? false,
+    capabilities: opts?.capabilities,
+  });
 
   const { user, apiKey } = createUser(db, { email: "test@example.com" });
   const orgs = listUserOrgs(db, user.id);
@@ -222,7 +263,7 @@ export function createTestContext(opts?: {
 
   const ctx: OpContext = {
     db,
-    s3: s3 as any, // MockS3Client implements the same interface
+    s3,
     orgId: orgs[0].id,
     driveId: drives[0].id,
     userId: user.id,

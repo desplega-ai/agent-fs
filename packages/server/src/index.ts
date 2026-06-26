@@ -1,4 +1,4 @@
-import { createDatabase, getConfig, getHome, AgentS3Client, createEmbeddingProviderFromEnv } from "@/core";
+import { createDatabase, getConfig, getHome, createStorageAdapter, createEmbeddingProviderFromEnv } from "@/core";
 import type { EmbeddingProvider } from "@/core";
 import { join } from "node:path";
 import { createApp } from "./app.js";
@@ -9,8 +9,25 @@ const config = getConfig();
 // Initialize database
 const db = createDatabase();
 
-// Initialize S3 client
-const s3 = new AgentS3Client(config.s3);
+// Initialize the storage adapter for the configured backend (S3/MinIO or
+// local-FS). The factory also applies the test-only AGENT_FS_CAPABILITY_OVERRIDE
+// overlay used by the e2e suite (folded in from here in step-4).
+const s3 = createStorageAdapter(config.s3);
+
+// Reconcile the advertised versioning capability with the backend's ACTUAL
+// state. The S3 adapter otherwise derives `versioningEnabled` purely from a
+// config flag that onboarding never writes, so a bucket with versioning enabled
+// would report `versioning: false` and the revert/diff capability gate would
+// wrongly reject operations that would in fact succeed. checkVersioningEnabled()
+// queries the bucket (the local-FS adapter returns true unconditionally). The
+// test-only AGENT_FS_CAPABILITY_OVERRIDE (applied in the factory via
+// Object.defineProperty) shadows the `capabilities` getter, so this field write
+// cannot clobber a forced-off override used by the e2e gating tests.
+try {
+  s3.versioningEnabled = await s3.checkVersioningEnabled();
+} catch (err) {
+  console.warn("Could not reconcile storage versioning capability:", err);
+}
 
 // Initialize embedding provider (graceful failure — semantic search unavailable if this fails)
 let embeddingProvider: EmbeddingProvider | null = null;

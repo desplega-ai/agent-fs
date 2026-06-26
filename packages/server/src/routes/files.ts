@@ -5,13 +5,13 @@ import {
   getHeadVersionRow,
   getS3Key,
 } from "@/core";
-import type { DB, AgentS3Client, EmbeddingProvider } from "@/core";
+import type { DB, StorageAdapter, EmbeddingProvider } from "@/core";
 import { normalizePath } from "@/core/ops/paths.js";
 import type { AppEnv } from "../types.js";
 
 export function fileRoutes(
   db: DB,
-  s3: AgentS3Client,
+  s3: StorageAdapter,
   embeddingProvider: EmbeddingProvider | null = null,
   appUrl?: string
 ) {

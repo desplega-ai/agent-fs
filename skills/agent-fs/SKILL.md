@@ -17,19 +17,37 @@ description: >-
   "fuse", "remote mount", "sandbox mount", "expose drives as files",
   "use cat/grep/mv on my agent-fs files", "umount the drive", "mount a remote
   drive", "mount from sprite", "mount from e2b", "mount from hetzner"). Also use
-  when the user wants to use agent-fs as a just-bash filesystem. If the user
+  when the user wants to use agent-fs as a just-bash filesystem. Also use when the
+  user wants to set up agent-fs without Docker or S3 ("local filesystem backend",
+  "filesystem storage", "no docker", "onboard --filesystem", "store files on disk").
+  If the user
   mentions agent-fs in any context, always consult this skill.
 ---
 
 # agent-fs CLI
 
-agent-fs is an agent-first filesystem backed by S3 with full versioning, full-text search (FTS5), and semantic search. It provides a CLI that outputs JSON, making it ideal for agent workflows. Files are organized in drives within orgs.
+agent-fs is an agent-first filesystem with full versioning, full-text search (FTS5), and semantic search. It provides a CLI that outputs JSON, making it ideal for agent workflows. Files are organized in drives within orgs.
+
+## Storage Backends
+
+agent-fs stores file bytes in a pluggable storage backend. The durable value — version history, comments, and search — lives in SQLite and works identically on every backend.
+
+| Backend | Setup | Versioning tier | `signed-url` |
+|---------|-------|-----------------|--------------|
+| **S3 / MinIO** (default) | `agent-fs onboard -y` (local MinIO, needs Docker) or `--s3-*` flags for AWS/R2/etc. | Full — `revert` + historical `diff` via S3 object versioning | Real presigned URL (public, time-limited) |
+| **Local filesystem** | `agent-fs onboard --filesystem` (no Docker, no S3) | Full — `revert` + historical `diff` via content-addressed blobs on disk | Falls back to an authenticated in-app link (requires sign-in; does not expire) |
+
+Both backends are **full-tier**: every op — including `revert` and historical `diff` — works. Future backends may be **basic-tier** (no object versioning): on those, `revert` and historical `diff` are unavailable and fail cleanly with an `UNSUPPORTED_OPERATION` error (HTTP 422) rather than a raw storage error — current content, listing, comments, and search keep working. Check a backend's capabilities before relying on versioning if you're unsure which backend a drive uses.
 
 ## Quick Start
 
 ```bash
 # 1. Set up (local MinIO — requires Docker)
 agent-fs onboard -y
+
+#    ...or with no Docker/S3 at all — store bytes on the local filesystem:
+agent-fs onboard --filesystem            # uses ~/.agent-fs/storage
+agent-fs onboard --filesystem --storage-root /data/agent-fs   # custom dir
 
 # 2. Optionally start the daemon (CLI auto-detects and works without it)
 agent-fs daemon start
@@ -40,6 +58,8 @@ agent-fs cat docs/readme.txt
 ```
 
 For custom S3 (AWS, R2, etc.), use flags: `agent-fs onboard --s3-endpoint <url> --s3-bucket <name> --s3-access-key <key> --s3-secret-key <key>`.
+
+The local-filesystem backend (`--filesystem`, equivalently `--storage local`) needs no Docker and no S3 — bytes are stored under `--storage-root` (default `~/.agent-fs/storage`), with every version content-addressed so `revert` and historical `diff` work the same as on S3.
 
 ## just-bash Adapter
 
@@ -113,7 +133,7 @@ symlinks are unsupported and throw `EPERM`.
 | `rm` | `agent-fs rm <path>` | Delete a file |
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
-| `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>]` | Generate a presigned URL for direct download (default: 24h, max: 7 days) |
+| `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>]` | Generate a download URL. On S3/MinIO: a presigned URL (default 24h, max 7 days, `kind: "presigned"`). On local-FS: an authenticated in-app link (`kind: "app"`, requires sign-in, non-expiring). |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
 
 ### Versioning
@@ -123,6 +143,8 @@ symlinks are unsupported and throw `EPERM`.
 | `log` | `agent-fs log <path> [--limit <n>]` | Show version history |
 | `diff` | `agent-fs diff <path> --v1 <n> --v2 <n>` | Diff between versions |
 | `revert` | `agent-fs revert <path> --version <n>` | Revert to a previous version |
+
+`log` works on every backend (version metadata is in SQLite). `revert` and historical `diff` (comparing two stored versions) need a **full-tier** backend — S3/MinIO and local-filesystem both qualify. On a basic-tier backend without object versioning, `revert` and historical `diff` fail cleanly with `UNSUPPORTED_OPERATION` (HTTP 422); `diff` then degrades to the stored summary instead of full content.
 
 ### Search & Discovery
 
@@ -165,7 +187,7 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `onboard` | `agent-fs onboard [--local] [-y] [--embeddings <provider>]` | Set up agent-fs (S3 + database + user) |
+| `onboard` | `agent-fs onboard [--local] [--filesystem] [--storage <minio\|local>] [--storage-root <dir>] [-y] [--embeddings <provider>]` | Set up agent-fs (storage backend + database + user). `--filesystem` (or `--storage local`) uses an on-disk backend — no Docker/S3; `--storage-root <dir>` sets its directory. |
 | `init` | `agent-fs init [--local] [-y]` | Alias for `onboard` |
 | `auth register` | `agent-fs auth register <email>` | Register a new user |
 | `auth whoami` | `agent-fs auth whoami` | Show current user info |
@@ -362,7 +384,9 @@ agent-fs signed-url docs/report.pdf --json
 # → { "url": "https://...", "path": "/docs/report.pdf", "expiresIn": 86400, "expiresAt": "2026-03-20T..." }
 ```
 
-The presigned URL requires no authentication — anyone with the link can download the file until it expires. Access is RBAC-checked only at generation time (viewer-or-better on the drive); after that the URL is a bearer secret. Don't log it or paste it anywhere you wouldn't paste a credential, and prefer the shortest workable `--expires-in`. Signed URLs serve the correct `Content-Type` header based on file extension (e.g., `application/pdf` for `.pdf`, `image/png` for `.png`), so browsers render them natively.
+On an S3/MinIO backend (`kind: "presigned"`) the URL requires no authentication — anyone with the link can download the file until it expires. Access is RBAC-checked only at generation time (viewer-or-better on the drive); after that the URL is a bearer secret. Don't log it or paste it anywhere you wouldn't paste a credential, and prefer the shortest workable `--expires-in`. Signed URLs serve the correct `Content-Type` header based on file extension (e.g., `application/pdf` for `.pdf`, `image/png` for `.png`), so browsers render them natively.
+
+On a backend without presigned URLs (the local-filesystem backend), `signed-url` does **not** fail — it falls back to an authenticated in-app link (`kind: "app"`, `expiresIn: 0`) of the form `<appUrl>/file/~/<org>/<drive>/<path>`. Unlike a presigned URL this link is **not** a public bearer secret: the daemon's `/raw` route and the web viewer require sign-in, so the recipient must be an authenticated member of the drive. Set `AGENT_FS_APP_URL` (or `appUrl` in config) so the link points at your deployment.
 
 **MIME types on upload:** `write`, `edit`, `append`, and `revert` automatically detect and set the correct `Content-Type` on S3 objects based on file extension. The content type is also stored in the database and visible in `stat` output via the `contentType` field. Raw stdin and `--file` uploads preserve bytes exactly; text search/indexing is applied only when the payload is valid, indexable UTF-8 text.
 

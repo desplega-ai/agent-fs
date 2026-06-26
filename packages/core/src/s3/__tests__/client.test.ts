@@ -30,6 +30,25 @@ describe("S3 Client", () => {
     expect(client.versioningEnabled).toBe(true);
   });
 
+  test("capabilities.versioning tracks the mutable versioningEnabled flag (startup reconciliation)", () => {
+    // The daemon reconciles `versioningEnabled` with the bucket's real state at
+    // startup (`s3.versioningEnabled = await s3.checkVersioningEnabled()`); this
+    // only fixes the revert/diff gate if the `capabilities` getter reads the
+    // live field rather than a value frozen at construction.
+    const client = new AgentS3Client({
+      provider: "minio",
+      bucket: "test-bucket",
+      region: "us-east-1",
+      endpoint: "http://localhost:9000",
+      accessKeyId: "minioadmin",
+      secretAccessKey: "minioadmin",
+    });
+
+    expect(client.capabilities.versioning).toBe(false);
+    client.versioningEnabled = true;
+    expect(client.capabilities.versioning).toBe(true);
+  });
+
   test("getPresignedUrl uses publicEndpoint host when set", async () => {
     const client = new AgentS3Client({
       provider: "minio",

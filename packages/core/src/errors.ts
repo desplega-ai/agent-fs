@@ -107,3 +107,34 @@ export class ValidationError extends AgentFSError {
     };
   }
 }
+
+export class UnsupportedOperation extends AgentFSError {
+  readonly operation: string;
+  readonly backend?: string;
+
+  constructor(
+    operation: string,
+    backend?: string,
+    opts?: { suggestion?: string }
+  ) {
+    const message = backend
+      ? `Operation '${operation}' is not supported by the '${backend}' storage backend`
+      : `Operation '${operation}' is not supported by the current storage backend`;
+    super(
+      "UNSUPPORTED_OPERATION",
+      message,
+      opts?.suggestion ??
+        "Use a backend that supports this operation (e.g. an S3/MinIO or local-FS drive)"
+    );
+    this.operation = operation;
+    this.backend = backend;
+  }
+
+  toJSON() {
+    return {
+      ...super.toJSON(),
+      operation: this.operation,
+      ...(this.backend && { backend: this.backend }),
+    };
+  }
+}

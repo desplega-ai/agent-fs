@@ -1,10 +1,10 @@
-import type { AgentS3Client } from "../s3/client.js";
+import type { StorageAdapter } from "../storage/adapter.js";
 import type { DB } from "../db/index.js";
 import type { EmbeddingProvider } from "../search/embeddings/provider.js";
 
 export interface OpContext {
   db: DB;
-  s3: AgentS3Client;
+  s3: StorageAdapter;
   orgId: string;
   driveId: string;
   userId: string;

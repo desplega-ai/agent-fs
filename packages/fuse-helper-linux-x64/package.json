@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs-fuse-linux-x64",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Linux x86_64 FUSE helper binary for @desplega.ai/agent-fs. Do not install directly.",
   "os": [
     "linux"

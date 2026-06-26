@@ -41,8 +41,12 @@ export async function diff(
     );
   }
 
-  // If both versions have S3 version IDs, fetch and diff the actual content
-  if (v1Record.s3VersionId && v2Record.s3VersionId) {
+  // If the backend supports versioning AND both versions have version handles,
+  // fetch and diff the actual content. Unlike `revert` (which hard-throws
+  // UnsupportedOperation), historical `diff` degrades gracefully: a backend
+  // without versioning skips the doomed version-handle fetch and falls back to
+  // the stored `diffSummary` below — it must never throw UnsupportedOperation.
+  if (ctx.s3.capabilities.versioning && v1Record.s3VersionId && v2Record.s3VersionId) {
     const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
 
     try {

@@ -8,7 +8,13 @@ export {
   getDbPath,
   getHome,
 } from "./config.js";
-export type { AgentFSConfig } from "./config.js";
+export { isLocalStorageConfig } from "./config.js";
+export type {
+  AgentFSConfig,
+  AgentFSStorageConfig,
+  S3StorageConfig,
+  LocalStorageConfig,
+} from "./config.js";
 export { AgentS3Client } from "./s3/index.js";
 export type {
   S3Object,
@@ -17,6 +23,13 @@ export type {
   GetObjectResult,
   HeadObjectResult,
 } from "./s3/index.js";
+export type {
+  StorageAdapter,
+  StorageCapabilities,
+} from "./storage/adapter.js";
+export { LocalStorageAdapter } from "./storage/local-adapter.js";
+export type { LocalStorageAdapterOptions } from "./storage/local-adapter.js";
+export { createStorageAdapter } from "./storage/factory.js";
 export {
   AgentFSError,
   NotFoundError,
@@ -24,6 +37,7 @@ export {
   EditConflictError,
   IndexingInProgressError,
   ValidationError,
+  UnsupportedOperation,
 } from "./errors.js";
 export {
   dispatchOp,

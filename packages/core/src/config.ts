@@ -10,17 +10,59 @@ function resolveHome(): string {
   return home;
 }
 
+/**
+ * S3 / MinIO storage backend config (the historical default). `provider` is an
+ * open string — known labels are "minio" | "s3" | "r2" | "tigris", but any
+ * S3-compatible provider name (or an env-supplied value) is accepted.
+ */
+export interface S3StorageConfig {
+  provider: string;
+  bucket: string;
+  region: string;
+  endpoint: string;
+  publicEndpoint?: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  versioningEnabled?: boolean;
+}
+
+/** Local-filesystem storage backend config (no S3/Docker). */
+export interface LocalStorageConfig {
+  provider: "local";
+  /** Directory the local-FS backend manages (keys map to nested paths under it). */
+  root: string;
+}
+
+/**
+ * Storage backend configuration — a tagged union discriminated by `provider`.
+ * Existing S3 configs default to / migrate to the {@link S3StorageConfig}
+ * variant, keeping the S3 path byte-for-byte behavior-compatible.
+ */
+export type AgentFSStorageConfig = S3StorageConfig | LocalStorageConfig;
+
+/**
+ * Narrow the storage union to its local-FS variant.
+ *
+ * A user-defined type guard is required (rather than a bare
+ * `cfg.provider === "local"` check) because {@link S3StorageConfig.provider} is
+ * an open `string` that structurally subsumes the `"local"` literal, so plain
+ * control-flow narrowing can't discriminate the union on its own.
+ */
+export function isLocalStorageConfig(
+  cfg: AgentFSStorageConfig
+): cfg is LocalStorageConfig {
+  return cfg.provider === "local";
+}
+
 export interface AgentFSConfig {
-  s3: {
-    provider: string;
-    bucket: string;
-    region: string;
-    endpoint: string;
-    publicEndpoint?: string;
-    accessKeyId: string;
-    secretAccessKey: string;
-    versioningEnabled?: boolean;
-  };
+  /**
+   * Storage backend. Field name kept as `s3` (legacy) to minimize churn across
+   * the many `config.s3` consumers even though it now also carries the non-S3
+   * `local` variant; discriminated by `config.s3.provider`. (Renaming to
+   * `config.storage` is a larger refactor, recorded as a derail in the
+   * multi-adapter plan — intentionally not done here.)
+   */
+  s3: AgentFSStorageConfig;
   embedding: {
     provider: "local" | "openai" | "gemini";
     model: string;
@@ -112,14 +154,32 @@ function deepMergeConfig(
 ): AgentFSConfig {
   const result = { ...defaults };
   for (const key of Object.keys(overrides) as (keyof AgentFSConfig)[]) {
-    if (
-      overrides[key] &&
-      typeof overrides[key] === "object" &&
-      !Array.isArray(overrides[key])
-    ) {
-      result[key] = { ...(defaults[key] as any), ...(overrides[key] as any) } as any;
-    } else if (overrides[key] !== undefined) {
-      result[key] = overrides[key] as any;
+    const ov = overrides[key];
+    // Storage is a tagged union. The only genuine *shape* switch is to/from the
+    // local variant ({ provider, root }); all S3-compatible providers
+    // (minio/s3/r2/tigris/…) share the one S3 shape. A shallow 2-level merge
+    // across a shape switch would leave stale S3 fields (bucket/endpoint/…)
+    // bleeding under a local override, so replace wholesale ONLY on a local⇄S3
+    // switch; otherwise shallow-merge so a partial S3 override (e.g. just
+    // `{ provider: "s3", bucket }`) keeps its sibling S3 defaults.
+    if (key === "s3" && ov && typeof ov === "object" && !Array.isArray(ov)) {
+      const ovS3 = ov as Partial<AgentFSStorageConfig>;
+      const overrideIsLocal = ovS3.provider === "local";
+      const defaultsAreLocal = defaults.s3.provider === "local";
+      if (overrideIsLocal !== defaultsAreLocal) {
+        result.s3 = { ...(ovS3 as AgentFSStorageConfig) };
+      } else {
+        result.s3 = {
+          ...(defaults.s3 as object),
+          ...(ovS3 as object),
+        } as AgentFSStorageConfig;
+      }
+      continue;
+    }
+    if (ov && typeof ov === "object" && !Array.isArray(ov)) {
+      result[key] = { ...(defaults[key] as any), ...(ov as any) } as any;
+    } else if (ov !== undefined) {
+      result[key] = ov as any;
     }
   }
   return result;
@@ -132,19 +192,50 @@ function deepMergeConfig(
 function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
   const env = process.env;
 
-  // S3 overrides (AWS_* takes precedence over S3_*)
-  if (env.AWS_ENDPOINT_URL_S3 || env.S3_ENDPOINT)
-    config.s3.endpoint = (env.AWS_ENDPOINT_URL_S3 || env.S3_ENDPOINT)!;
-  if (env.AWS_ACCESS_KEY_ID || env.S3_ACCESS_KEY_ID)
-    config.s3.accessKeyId = (env.AWS_ACCESS_KEY_ID || env.S3_ACCESS_KEY_ID)!;
-  if (env.AWS_SECRET_ACCESS_KEY || env.S3_SECRET_ACCESS_KEY)
-    config.s3.secretAccessKey = (env.AWS_SECRET_ACCESS_KEY || env.S3_SECRET_ACCESS_KEY)!;
-  if (env.BUCKET_NAME || env.S3_BUCKET)
-    config.s3.bucket = (env.BUCKET_NAME || env.S3_BUCKET)!;
-  if (env.AWS_REGION || env.S3_REGION)
-    config.s3.region = (env.AWS_REGION || env.S3_REGION)!;
-  if (env.S3_PROVIDER) config.s3.provider = env.S3_PROVIDER;
-  if (env.S3_PUBLIC_ENDPOINT) config.s3.publicEndpoint = env.S3_PUBLIC_ENDPOINT;
+  // Storage backend selection. AGENT_FS_STORAGE_PROVIDER switches the backend;
+  // for the local-FS variant AGENT_FS_LOCAL_ROOT points at the managed dir.
+  // An explicit env provider WINS over the persisted config (so a deployment
+  // can switch a machine that was onboarded `--filesystem` over to S3/MinIO via
+  // env); we only fall back to a persisted `local` provider when the env var
+  // doesn't force a backend. When local is selected we REPLACE config.s3 with
+  // the local-shaped variant (so no stale S3 fields linger) and SKIP the
+  // S3_*/AWS_* block below — those env vars are meaningless for a filesystem
+  // backend.
+  const envProvider = env.AGENT_FS_STORAGE_PROVIDER;
+  const useLocal =
+    envProvider === "local" || (!envProvider && config.s3.provider === "local");
+  if (useLocal) {
+    const existingRoot = isLocalStorageConfig(config.s3) ? config.s3.root : undefined;
+    const root =
+      env.AGENT_FS_LOCAL_ROOT || existingRoot || join(getHome(), "storage");
+    config.s3 = { provider: "local", root };
+  } else {
+    // Not the local backend → S3 variant. If the persisted config is the
+    // local-shaped variant (the env var is switching backends), seed the S3
+    // defaults so the override block has the full field set to populate instead
+    // of leaving bucket/region/endpoint undefined.
+    if (isLocalStorageConfig(config.s3)) {
+      config.s3 = { ...DEFAULT_CONFIG.s3 };
+    }
+    // `provider` is an open string so it is not a usable discriminant; cast to a
+    // mutable S3-typed reference (same object) for the in-place field overrides.
+    const s3 = config.s3 as S3StorageConfig;
+    if (envProvider) s3.provider = envProvider;
+
+    // S3 overrides (AWS_* takes precedence over S3_*)
+    if (env.AWS_ENDPOINT_URL_S3 || env.S3_ENDPOINT)
+      s3.endpoint = (env.AWS_ENDPOINT_URL_S3 || env.S3_ENDPOINT)!;
+    if (env.AWS_ACCESS_KEY_ID || env.S3_ACCESS_KEY_ID)
+      s3.accessKeyId = (env.AWS_ACCESS_KEY_ID || env.S3_ACCESS_KEY_ID)!;
+    if (env.AWS_SECRET_ACCESS_KEY || env.S3_SECRET_ACCESS_KEY)
+      s3.secretAccessKey = (env.AWS_SECRET_ACCESS_KEY || env.S3_SECRET_ACCESS_KEY)!;
+    if (env.BUCKET_NAME || env.S3_BUCKET)
+      s3.bucket = (env.BUCKET_NAME || env.S3_BUCKET)!;
+    if (env.AWS_REGION || env.S3_REGION)
+      s3.region = (env.AWS_REGION || env.S3_REGION)!;
+    if (env.S3_PROVIDER) s3.provider = env.S3_PROVIDER;
+    if (env.S3_PUBLIC_ENDPOINT) s3.publicEndpoint = env.S3_PUBLIC_ENDPOINT;
+  }
 
   // Server overrides (SERVER_* takes precedence over generic PORT/HOST)
   if (env.SERVER_PORT || env.PORT)

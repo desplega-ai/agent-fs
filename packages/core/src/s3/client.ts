@@ -11,50 +11,39 @@ import {
   PutBucketVersioningCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import type { AgentFSConfig } from "../config.js";
+import type { S3StorageConfig } from "../config.js";
+import type {
+  StorageAdapter,
+  StorageCapabilities,
+  S3Object,
+  S3ObjectVersion,
+  PutObjectResult,
+  GetObjectResult,
+  HeadObjectResult,
+} from "../storage/adapter.js";
 
-export interface S3Object {
-  key: string;
-  size: number;
-  lastModified: Date;
-  etag?: string;
-}
+// These value/result types now live in storage/adapter.ts (canonical home).
+// Re-exported here for back-compat with existing `s3/client.js` / `@/core` imports.
+export type {
+  S3Object,
+  S3ObjectVersion,
+  PutObjectResult,
+  GetObjectResult,
+  HeadObjectResult,
+} from "../storage/adapter.js";
 
-export interface S3ObjectVersion {
-  versionId: string;
-  lastModified: Date;
-  size: number;
-  isLatest: boolean;
-}
-
-export interface PutObjectResult {
-  etag?: string;
-  versionId?: string;
-}
-
-export interface GetObjectResult {
-  body: Uint8Array;
-  contentType?: string;
-  size?: number;
-  versionId?: string;
-  etag?: string;
-}
-
-export interface HeadObjectResult {
-  contentType?: string;
-  size: number;
-  lastModified?: Date;
-  etag?: string;
-  versionId?: string;
-}
-
-export class AgentS3Client {
+export class AgentS3Client implements StorageAdapter {
   private client: S3Client;
   private presignClient: S3Client;
   private bucket: string;
   versioningEnabled: boolean = false;
 
-  constructor(config: AgentFSConfig["s3"]) {
+  /** S3/MinIO supports both bucket versioning and native presigned URLs. */
+  get capabilities(): StorageCapabilities {
+    return { versioning: this.versioningEnabled, presignedUrls: true };
+  }
+
+  constructor(config: S3StorageConfig) {
     this.bucket = config.bucket;
     const credentials = {
       accessKeyId: config.accessKeyId,
