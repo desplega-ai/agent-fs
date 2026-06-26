@@ -54,6 +54,9 @@ let skipped = 0;
 const failures: string[] = [];
 let fuseReady = false;
 let fuseSkipReason = "";
+// step-5: local-FS daemons spun up for the cross-backend matrix. Tracked so
+// `cleanup()` can stop each daemon and remove its isolated AGENT_FS_HOME.
+const localBackends: Backend[] = [];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -119,6 +122,188 @@ function run(args: string): string {
 
 function runJson(args: string): any {
   return JSON.parse(run(`--json ${args}`));
+}
+
+// ---------------------------------------------------------------------------
+// Multi-backend support (step-5)
+//
+// The same backend-agnostic op suite runs against MinIO (S3 object versioning)
+// AND a local-FS drive (content-addressed `_afs-blobs` versioning). A `Backend`
+// bundles a daemon's home/port/credentials; `runOn`/`runJsonOn` target it.
+// ---------------------------------------------------------------------------
+
+interface Backend {
+  label: string;
+  home: string;
+  daemonPort: number;
+  apiKey: string;
+  orgId: string;
+  driveId: string;
+  /** Env for CLI invocations targeting this backend's daemon (sans API URL/key). */
+  env: () => NodeJS.ProcessEnv;
+}
+
+/** Run a CLI command against a specific backend's daemon (full API context). */
+function runOn(b: Backend, args: string): string {
+  return execSync(`${cmd} ${args}`, {
+    encoding: "utf-8",
+    env: {
+      ...b.env(),
+      AGENT_FS_API_URL: `http://127.0.0.1:${b.daemonPort}`,
+      AGENT_FS_API_KEY: b.apiKey,
+    } as NodeJS.ProcessEnv,
+    timeout: 30_000,
+  }).trim();
+}
+
+function runJsonOn(b: Backend, args: string): any {
+  return JSON.parse(runOn(b, `--json ${args}`));
+}
+
+/** Build a `Backend` view over the already-running MinIO daemon + globals. */
+function makeMinioBackend(): Backend {
+  return {
+    label: "minio",
+    home: testDir,
+    daemonPort,
+    apiKey,
+    orgId: personalOrgId,
+    driveId: personalDriveId,
+    env: () => testEnv(),
+  };
+}
+
+/**
+ * Env that forces the daemon/CLI onto the local-FS backend (no MinIO/Docker).
+ * The S3_ and AWS_ vars are explicitly blanked so a stray endpoint can't bleed
+ * in — the local branch in `applyEnvOverrides` ignores them, but be defensive.
+ */
+function localEnv(
+  home: string,
+  storageRoot: string,
+  appUrl: string,
+  extra: Record<string, string> = {},
+): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    AGENT_FS_HOME: home,
+    AGENT_FS_STORAGE_PROVIDER: "local",
+    AGENT_FS_LOCAL_ROOT: storageRoot,
+    AGENT_FS_APP_URL: appUrl,
+    S3_ENDPOINT: "",
+    S3_BUCKET: "",
+    S3_ACCESS_KEY_ID: "",
+    S3_SECRET_ACCESS_KEY: "",
+    S3_REGION: "",
+    S3_PROVIDER: "",
+    AWS_ENDPOINT_URL_S3: "",
+    AWS_ACCESS_KEY_ID: "",
+    AWS_SECRET_ACCESS_KEY: "",
+    AWS_REGION: "",
+    BUCKET_NAME: "",
+    ...extra,
+  };
+}
+
+/**
+ * Boot an isolated local-FS daemon (own AGENT_FS_HOME + storage dir + port),
+ * register a user, and return its `Backend`. No MinIO/Docker.
+ *
+ * `capabilityOverride` (JSON, e.g. `{"versioning":false}`) is threaded through
+ * the spawned daemon's env so the step-2 test-only overlay forces a degraded
+ * backend — used to prove the unsupported-op gating surfaces cleanly.
+ */
+async function setupLocalBackend(opts: {
+  label: string;
+  capabilityOverride?: string;
+}): Promise<Backend> {
+  const home = join(tmpdir(), `${containerName}-${opts.label}`);
+  const storageRoot = join(home, "storage");
+  mkdirSync(storageRoot, { recursive: true });
+
+  const port = await findFreePort();
+  const appUrl = `http://127.0.0.1:${port}`;
+
+  writeFileSync(
+    join(home, "config.json"),
+    JSON.stringify(
+      {
+        s3: { provider: "local", root: storageRoot },
+        embedding: { provider: "local", model: "", apiKey: "" },
+        server: { port, host: "127.0.0.1", rateLimit: { requestsPerMinute: 5000 } },
+        auth: { apiKey: "" },
+        minio: { containerId: "", managed: false },
+        // Needed so `signed-url` can fall back to an authenticated app link on a
+        // backend without presigned URLs (instead of throwing UnsupportedOperation).
+        appUrl,
+      },
+      null,
+      2,
+    ),
+  );
+
+  const env = localEnv(
+    home,
+    storageRoot,
+    appUrl,
+    opts.capabilityOverride ? { AGENT_FS_CAPABILITY_OVERRIDE: opts.capabilityOverride } : {},
+  );
+
+  // Start the daemon. The spawned `server` child inherits this env (startDaemon
+  // calls spawn() without an explicit env), so the capability override reaches
+  // the storage factory.
+  execSync(`${cmd} daemon start`, { encoding: "utf-8", env, timeout: 30_000, stdio: "pipe" });
+
+  // Wait for health.
+  const start = Date.now();
+  while (Date.now() - start < 15_000) {
+    try {
+      const res = await fetch(`${appUrl}/health`);
+      if (res.ok) break;
+    } catch {}
+    await Bun.sleep(300);
+  }
+  const health = await fetch(`${appUrl}/health`).catch(() => null);
+  if (!health?.ok) {
+    throw new Error(`local daemon (${opts.label}) failed to start on port ${port}`);
+  }
+
+  // Register a user → API key + personal org.
+  const regRes = await fetch(`${appUrl}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: `${opts.label}@e2e.local` }),
+  });
+  if (!regRes.ok) {
+    throw new Error(`local register (${opts.label}) failed: ${regRes.status} ${await regRes.text()}`);
+  }
+  const reg = (await regRes.json()) as { apiKey: string; orgId: string };
+  const backendApiKey = reg.apiKey;
+  const orgId = reg.orgId;
+
+  const drivesRes = await fetch(`${appUrl}/orgs/${orgId}/drives`, {
+    headers: { Authorization: `Bearer ${backendApiKey}` },
+  });
+  const drivesData = (await drivesRes.json()) as any;
+  const driveId = drivesData.drives[0]?.id;
+
+  // Persist the key into config so IPC handlers can resolve it (parity w/ MinIO setup).
+  const cfgPath = join(home, "config.json");
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+  cfg.auth.apiKey = backendApiKey;
+  writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+
+  const backend: Backend = {
+    label: opts.label,
+    home,
+    daemonPort: port,
+    apiKey: backendApiKey,
+    orgId,
+    driveId,
+    env: () => env,
+  };
+  localBackends.push(backend);
+  return backend;
 }
 
 function assert(actual: any, expected: any, msg?: string) {
@@ -374,6 +559,16 @@ function cleanup() {
   try {
     runRaw("daemon stop");
   } catch {}
+  // step-5: stop every local-FS daemon spun up for the cross-backend matrix and
+  // remove its isolated AGENT_FS_HOME.
+  for (const b of localBackends) {
+    try {
+      execSync(`${cmd} daemon stop`, { env: b.env(), stdio: "ignore", timeout: 15_000 });
+    } catch {}
+    try {
+      rmSync(b.home, { recursive: true, force: true });
+    } catch {}
+  }
   // Remove MinIO container + the per-run docker network we created for it
   try {
     execSync(`docker rm -f ${containerName}`, { stdio: "ignore" });
@@ -651,7 +846,20 @@ async function runTests() {
   if (fuseOnly) console.log(`Mode: --fuse-only (skipping CLI/MCP/API tests)`);
   console.log("");
 
-  if (!fuseOnly) await runStandardTests(daemonUrl);
+  if (!fuseOnly) {
+    await runStandardTests(daemonUrl);
+
+    // step-5: prove the backend-agnostic op suite on BOTH backends.
+    const minioBackend = makeMinioBackend();
+    await coreOpsSuite(minioBackend);
+
+    const localBackend = await setupLocalBackend({ label: "local" });
+    await coreOpsSuite(localBackend);
+
+    // Capability gating (no-versioning) + signed-url presigned/app fallback.
+    await unsupportedOpSuite();
+    await signedUrlMatrix(minioBackend, localBackend);
+  }
   await runFuseTests();
 }
 
@@ -1822,6 +2030,184 @@ async function runStandardTests(daemonUrl: string) {
     assert(body.result?.isError, true, "Expected isError for cross-org driveId");
     const text = body.result?.content?.[0]?.text ?? "";
     assertIncludes(text, "Drive not found");
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Cross-backend op suite (step-5)
+//
+// The backend-agnostic ops — write/cat/ls/stat/edit/append/cp/mv/glob/recent/
+// log/diff/revert/rm — run identically against MinIO (S3 object versioning) and
+// a local-FS drive (content-addressed `_afs-blobs`). Paths are namespaced under
+// `/cos` so a re-run on the shared MinIO daemon never collides with the inline
+// MinIO suite above. Includes the full-tier assertions: historical `diff`
+// returns real content, `revert` appends a NEW version, and `ls` never leaks
+// the reserved `_afs-blobs` prefix.
+// ---------------------------------------------------------------------------
+
+async function coreOpsSuite(b: Backend) {
+  console.log(`\n-- core ops [${b.label}] --`);
+  const P = "/cos";
+  const rj = (a: string) => runJsonOn(b, a);
+
+  await test(`[${b.label}] write + cat roundtrip`, () => {
+    const res = rj(`write ${P}/hello.txt --content "Hello, agent-fs!"`);
+    assert(res.version, 1);
+    assert(rj(`cat ${P}/hello.txt`).content, "Hello, agent-fs!");
+  });
+
+  await test(`[${b.label}] ls shows dirs and never lists _afs-blobs`, () => {
+    rj(`write ${P}/sub/nested.txt --content "nested body"`);
+    const rootNames = rj(`ls /`).entries.map((e: any) => e.name);
+    assert(rootNames.includes("cos"), true, `expected 'cos' dir at root, got ${JSON.stringify(rootNames)}`);
+    // The content-addressed blob store lives at a reserved top-level key
+    // outside the drive prefix — it must NEVER surface in a drive listing.
+    assert(rootNames.includes("_afs-blobs"), false, "ls must never surface the _afs-blobs reserved prefix");
+    const cosNames = rj(`ls ${P}`).entries.map((e: any) => e.name);
+    assert(cosNames.includes("hello.txt"), true, `expected hello.txt under ${P}, got ${JSON.stringify(cosNames)}`);
+    assert(cosNames.includes("sub"), true, "ls must surface subdirectories");
+  });
+
+  await test(`[${b.label}] append + cat`, () => {
+    rj(`append ${P}/hello.txt --content " Appended."`);
+    assert(rj(`cat ${P}/hello.txt`).content, "Hello, agent-fs! Appended.");
+  });
+
+  await test(`[${b.label}] edit + cat`, () => {
+    rj(`edit ${P}/hello.txt --old "Appended." --new "Edited!"`);
+    assert(rj(`cat ${P}/hello.txt`).content, "Hello, agent-fs! Edited!");
+  });
+
+  await test(`[${b.label}] stat`, () => {
+    const s = rj(`stat ${P}/hello.txt`);
+    assert(s.path, `${P}/hello.txt`);
+    assert(typeof s.size, "number");
+    assert(s.currentVersion >= 3, true, `expected version >= 3, got ${s.currentVersion}`);
+  });
+
+  await test(`[${b.label}] cp + cat`, () => {
+    rj(`cp ${P}/hello.txt ${P}/hello-copy.txt`);
+    assert(rj(`cat ${P}/hello-copy.txt`).content, "Hello, agent-fs! Edited!");
+  });
+
+  await test(`[${b.label}] mv + cat + ls`, () => {
+    rj(`mv ${P}/hello-copy.txt ${P}/hello-moved.txt`);
+    assert(rj(`cat ${P}/hello-moved.txt`).content, "Hello, agent-fs! Edited!");
+    const names = rj(`ls ${P}`).entries.map((e: any) => e.name);
+    assert(names.includes("hello-copy.txt"), false, "source gone after mv");
+    assert(names.includes("hello-moved.txt"), true, "dest present after mv");
+  });
+
+  await test(`[${b.label}] glob`, () => {
+    const paths = rj(`glob 'cos/*.txt'`).matches.map((m: any) => m.path);
+    assert(paths.includes(`${P}/hello.txt`), true, `expected ${P}/hello.txt in glob, got ${JSON.stringify(paths)}`);
+  });
+
+  await test(`[${b.label}] recent`, () => {
+    assert(rj(`recent`).entries.length > 0, true, "expected recent entries");
+  });
+
+  await test(`[${b.label}] log (version history)`, () => {
+    assert(rj(`log ${P}/hello.txt`).versions.length >= 3, true, "expected >= 3 versions");
+  });
+
+  // -- Tier: historical diff returns real content (S3 object versions / local blobs) --
+  await test(`[${b.label}] diff (v1 vs v2) returns real content changes`, () => {
+    const d = rj(`diff ${P}/hello.txt --v1 1 --v2 2`);
+    assert(Array.isArray(d.changes), true);
+    assert(d.changes.length > 0, true, "expected real content diff between v1 and v2");
+  });
+
+  // -- Tier: revert restores prior content AS A NEW VERSION (not a rewind) --
+  await test(`[${b.label}] revert restores prior content as a new version`, () => {
+    const before = rj(`stat ${P}/hello.txt`).currentVersion;
+    const rev = rj(`revert ${P}/hello.txt --to 1`);
+    assert(rev.revertedTo, 1);
+    assert(rj(`cat ${P}/hello.txt`).content, "Hello, agent-fs!");
+    const after = rj(`stat ${P}/hello.txt`).currentVersion;
+    assert(after > before, true, `revert must append a new version (before=${before}, after=${after})`);
+  });
+
+  await test(`[${b.label}] rm + ls`, () => {
+    rj(`rm ${P}/hello-moved.txt`);
+    const names = rj(`ls ${P}`).entries.map((e: any) => e.name);
+    assert(names.includes("hello-moved.txt"), false, "file gone after rm");
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Unsupported-op gating (step-5)
+//
+// Force a no-versioning local backend via the step-2 test-only
+// AGENT_FS_CAPABILITY_OVERRIDE hook and assert `revert` fails cleanly: the real
+// CLI→daemon path prints a friendly message (no stack trace), and the daemon
+// returns HTTP 422 with the typed UNSUPPORTED_OPERATION body. (The CLI renders
+// `body.message`, so the literal code token is asserted on the API response.)
+// ---------------------------------------------------------------------------
+
+async function unsupportedOpSuite() {
+  console.log(`\n-- capability gating: unsupported op (local, versioning forced off) --`);
+  const capped = await setupLocalBackend({
+    label: "local-capped",
+    capabilityOverride: JSON.stringify({ versioning: false }),
+  });
+
+  await test(`[capped] seed file (write works without versioning capability)`, () => {
+    assert(runJsonOn(capped, `write /cap.txt --content "v1"`).version, 1);
+  });
+
+  await test(`[capped] revert exits non-zero with a clean message (no stack trace)`, () => {
+    let threw = false;
+    let combined = "";
+    try {
+      runOn(capped, `revert /cap.txt --to 1`);
+    } catch (e: any) {
+      threw = true;
+      combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}\n${e.message ?? ""}`;
+    }
+    assert(threw, true, "expected revert to exit non-zero on a no-versioning backend");
+    assertIncludes(combined, "not supported", "expected a clean unsupported-op message");
+    assert(/\n\s+at\s+\S/.test(combined), false, "must not leak a stack trace into the CLI error");
+  });
+
+  await test(`[capped] revert via API → HTTP 422 UNSUPPORTED_OPERATION`, async () => {
+    const res = await fetch(`http://127.0.0.1:${capped.daemonPort}/orgs/${capped.orgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${capped.apiKey}` },
+      body: JSON.stringify({ op: "revert", path: "/cap.txt", version: 1 }),
+    });
+    assert(res.status, 422, `expected 422, got ${res.status}`);
+    const body = (await res.json()) as any;
+    assert(body.error, "UNSUPPORTED_OPERATION");
+    assert(body.operation, "revert");
+  });
+}
+
+// ---------------------------------------------------------------------------
+// signed-url backend matrix (step-5)
+//
+// MinIO mints a real, time-limited presigned URL (regression). The local-FS
+// backend has no presigned URLs, so `signed-url` falls back to an authenticated
+// in-app link (kind="app", non-expiring) instead of erroring.
+// ---------------------------------------------------------------------------
+
+async function signedUrlMatrix(minio: Backend, local: Backend) {
+  console.log(`\n-- signed-url backend matrix (presigned vs app fallback) --`);
+
+  await test(`[minio] signed-url returns a real presigned URL`, () => {
+    runJsonOn(minio, `write /su-probe.txt --content "su"`);
+    const res = runJsonOn(minio, `signed-url /su-probe.txt`);
+    assert(res.kind, "presigned");
+    assertIncludes(res.url, "agentfs", "expected presigned URL to reference the bucket");
+    assert(res.expiresIn, 86400);
+  });
+
+  await test(`[local] signed-url falls back to an app URL (not an error)`, () => {
+    runJsonOn(local, `write /su-probe.txt --content "su"`);
+    const res = runJsonOn(local, `signed-url /su-probe.txt`);
+    assert(res.kind, "app", `expected app-URL fallback, got kind=${res.kind}`);
+    assert(res.expiresIn, 0);
+    assertIncludes(res.url, "/file/~/", "expected an in-app (non-presigned) link");
   });
 }
 

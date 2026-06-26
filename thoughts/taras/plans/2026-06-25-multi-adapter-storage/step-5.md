@@ -2,7 +2,7 @@
 id: step-5
 name: Cross-backend E2E + release checklist
 depends_on: [step-1, step-2, step-3, step-4]
-status: ready
+status: done
 ---
 
 <!-- During /v-implement, `desplega:step-running` adds `assignee` and `claimed_at` while
@@ -44,13 +44,13 @@ The terminal integration node. Extend `scripts/e2e.ts` to run the backend-agnost
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Whole-repo typecheck: `bun run typecheck`
-- [ ] Full test suite: `bun test`
-- [ ] E2E passes for **both** backends: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` (Docker available for the MinIO leg) — output shows a `minio` section and a `local` section, both green, including revert/diff and the unsupported-op assertion.
-- [ ] Version lockstep: `git grep -n '"version"' package.json .claude-plugin/plugin.json packages/*/package.json` all match the new version after `sync-versions.ts`.
+- [x] Whole-repo typecheck: `bun run typecheck`
+- [x] Full test suite: `bun test`
+- [x] E2E passes for **both** backends: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` (Docker available for the MinIO leg) — output shows a `minio` section and a `local` section, both green, including revert/diff and the unsupported-op assertion.
+- [x] Version lockstep: `git grep -n '"version"' package.json .claude-plugin/plugin.json packages/*/package.json` all match the new version after `sync-versions.ts`.
 
 #### Automated QA:
-- [ ] E2E run log demonstrates: identical core-ops results on MinIO and local; `revert`/`diff` real-content on both; `UNSUPPORTED_OPERATION` clean error on the capability-overridden local daemon; `signed-url` returns presigned (MinIO) vs app-URL fallback (local).
+- [x] E2E run log demonstrates: identical core-ops results on MinIO and local; `revert`/`diff` real-content on both; `UNSUPPORTED_OPERATION` clean error on the capability-overridden local daemon; `signed-url` returns presigned (MinIO) vs app-URL fallback (local).
 
 #### Manual Verification:
 - [ ] Read the `skills/agent-fs/SKILL.md` diff for accuracy (capability tiers + onboarding flag + signed-url semantics described correctly).

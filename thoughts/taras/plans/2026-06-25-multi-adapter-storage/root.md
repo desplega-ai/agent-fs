@@ -2,8 +2,8 @@
 date: 2026-06-25T12:00:00-00:00
 author: Taras (planned by Claude)
 plan_type: dag
-status: in-progress
-last_updated: 2026-06-25
+status: completed
+last_updated: 2026-06-26
 last_updated_by: Claude (for Taras)
 ---
 
@@ -95,18 +95,18 @@ graph TD
 
 ## Pre-flight Verification
 
-- [ ] Working tree is clean (or only intentional in-flight work)
-- [ ] Baseline tests pass: `bun test`
-- [ ] Baseline typecheck passes: `bun run typecheck`
-- [ ] Docker available for MinIO E2E (`scripts/e2e.ts`)
+- [x] Working tree is clean (or only intentional in-flight work)
+- [x] Baseline tests pass: `bun test` (832 pass / 114 skip / 0 fail at baseline)
+- [x] Baseline typecheck passes: `bun run typecheck`
+- [x] Docker available for MinIO E2E (`scripts/e2e.ts`) — confirmed by step-5's real MinIO run
 
 ## Global Verification
 
-- [ ] Whole-repo typecheck: `bun run typecheck`
-- [ ] Full test suite: `bun test`
-- [ ] E2E suite passes against MinIO **and** a local-FS drive: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`
-- [ ] S3 path behavior unchanged (existing E2E + revert/diff still pass on MinIO)
-- [ ] Release checklist done: `skills/agent-fs/SKILL.md` updated, `.claude-plugin/plugin.json` + root `package.json` bumped
+- [x] Whole-repo typecheck: `bun run typecheck`
+- [x] Full test suite: `bun test` (898 pass / 114 skip / 0 fail)
+- [x] E2E suite passes against MinIO **and** a local-FS drive: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` (127/127, 10 FUSE skipped on Darwin)
+- [x] S3 path behavior unchanged (existing E2E + revert/diff still pass on MinIO)
+- [x] Release checklist done: `skills/agent-fs/SKILL.md` updated, `.claude-plugin/plugin.json` + root `package.json` bumped (0.10.0)
 
 ## Confirmed Decisions (Taras, 2026-06-25)
 
