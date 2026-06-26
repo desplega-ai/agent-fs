@@ -1,4 +1,4 @@
-import { createDatabase, getConfig, getHome, AgentS3Client, createEmbeddingProviderFromEnv } from "@/core";
+import { createDatabase, getConfig, getHome, createStorageAdapter, createEmbeddingProviderFromEnv } from "@/core";
 import type { EmbeddingProvider } from "@/core";
 import { join } from "node:path";
 import { createApp } from "./app.js";
@@ -9,28 +9,10 @@ const config = getConfig();
 // Initialize database
 const db = createDatabase();
 
-// Initialize S3 client
-const s3 = new AgentS3Client(config.s3);
-
-// TEST-ONLY: overlay the adapter's advertised capabilities from a JSON env var
-// (e.g. AGENT_FS_CAPABILITY_OVERRIDE='{"versioning":false}'). This lets the e2e
-// suite drive the UNSUPPORTED_OPERATION path against a real backend that would
-// otherwise have the capability. Not for production use — gated on the env var
-// being present. (step-4 may fold this into the storage adapter factory.)
-const capOverrideRaw = process.env.AGENT_FS_CAPABILITY_OVERRIDE;
-if (capOverrideRaw) {
-  try {
-    const override = JSON.parse(capOverrideRaw);
-    const merged = { ...s3.capabilities, ...override };
-    Object.defineProperty(s3, "capabilities", {
-      value: merged,
-      configurable: true,
-    });
-    console.warn("[test-only] AGENT_FS_CAPABILITY_OVERRIDE applied:", merged);
-  } catch (err) {
-    console.warn("Failed to parse AGENT_FS_CAPABILITY_OVERRIDE:", err);
-  }
-}
+// Initialize the storage adapter for the configured backend (S3/MinIO or
+// local-FS). The factory also applies the test-only AGENT_FS_CAPABILITY_OVERRIDE
+// overlay used by the e2e suite (folded in from here in step-4).
+const s3 = createStorageAdapter(config.s3);
 
 // Initialize embedding provider (graceful failure — semantic search unavailable if this fails)
 let embeddingProvider: EmbeddingProvider | null = null;

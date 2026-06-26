@@ -1,9 +1,9 @@
 import { Hono } from "hono";
 import { dispatchOp, resolveContext } from "@/core";
-import type { DB, AgentS3Client, EmbeddingProvider } from "@/core";
+import type { DB, StorageAdapter, EmbeddingProvider } from "@/core";
 import type { AppEnv } from "../types.js";
 
-export function opsRoutes(db: DB, s3: AgentS3Client, embeddingProvider: EmbeddingProvider | null = null, appUrl?: string) {
+export function opsRoutes(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null, appUrl?: string) {
   const router = new Hono<AppEnv>();
 
   router.post("/:orgId/ops", async (c) => {

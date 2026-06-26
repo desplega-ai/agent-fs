@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { VERSION, getConfig } from "@/core";
-import type { DB, AgentS3Client, EmbeddingProvider } from "@/core";
+import type { DB, StorageAdapter, EmbeddingProvider } from "@/core";
 import { createMcpServer } from "@/mcp/server.js";
 import type { AppEnv } from "./types.js";
 import { authMiddleware } from "./middleware/auth.js";
@@ -15,7 +15,7 @@ import { orgRoutes } from "./routes/orgs.js";
 import { docsRoutes } from "./routes/docs.js";
 import { fileRoutes } from "./routes/files.js";
 
-export function createApp(db: DB, s3: AgentS3Client, embeddingProvider: EmbeddingProvider | null = null) {
+export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null) {
   const app = new Hono<AppEnv>();
   const config = getConfig();
 

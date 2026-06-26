@@ -2,7 +2,7 @@
 id: step-4
 name: Config tagged-union + adapter selection + onboarding
 depends_on: [step-1, step-3]
-status: ready
+status: done
 ---
 
 <!-- During /v-implement, `desplega:step-running` adds `assignee` and `claimed_at` while
@@ -48,14 +48,14 @@ Make the local-FS backend reachable end-to-end by users. Evolve `AgentFSConfig.s
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Typecheck + tests: `bun run typecheck` && `bun test`
-- [ ] Config unit tests (`packages/core/src/__tests__/config.test.ts`): a `{ provider: "local", root }` config round-trips through `getConfig`/`deepMergeConfig` **without** stale S3 fields; `applyEnvOverrides` skips `S3_*` for local and honors `AGENT_FS_LOCAL_ROOT`; an S3 config still merges/overrides exactly as before (regression).
-- [ ] `createStorageAdapter` unit test: `provider: "local"` → `LocalStorageAdapter`; `provider: "minio"` → `AgentS3Client`.
-- [ ] `bun run packages/cli/src/index.ts -- onboard --help` shows the new `--filesystem` flag; `… config --help` still works.
+- [x] Typecheck + tests: `bun run typecheck` && `bun test`
+- [x] Config unit tests (actual path `packages/core/src/config.test.ts`): a `{ provider: "local", root }` config round-trips through `getConfig`/`deepMergeConfig` **without** stale S3 fields; `applyEnvOverrides` skips `S3_*` for local and honors `AGENT_FS_LOCAL_ROOT`; an S3 config still merges/overrides exactly as before (regression).
+- [x] `createStorageAdapter` unit test: `provider: "local"` → `LocalStorageAdapter`; `provider: "minio"` → `AgentS3Client`.
+- [x] `bun run packages/cli/src/index.ts -- onboard --help` shows the new `--filesystem` flag; `… config --help` still works.
 
 #### Automated QA:
-- [ ] Daemon round-trip on local: start the daemon with a temp-root local config (env or written config.json), then via the CLI run `write → cat → ls → log → diff → revert` against it — all succeed, revert/diff return real content (full local tier through the real server, not just unit tests).
-- [ ] `agent-fs config validate` passes for a writable local `root` and fails with a clear message for an unwritable/bad `root`.
+- [x] Daemon round-trip on local: start the daemon with a temp-root local config (env or written config.json), then via the CLI run `write → cat → ls → log → diff → revert` against it — all succeed, revert/diff return real content (full local tier through the real server, not just unit tests).
+- [x] `agent-fs config validate` passes for a writable local `root` and fails with a clear message for an unwritable/bad `root`.
 
 #### Manual Verification:
 - [ ] Run `onboard --filesystem` from a clean `AGENT_FS_HOME`; confirm the flow wording, flag naming, and that the resulting daemon serves a local drive with no Docker involved.

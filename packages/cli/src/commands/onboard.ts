@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { execSync } from "node:child_process";
 import {
   getConfig,
+  setConfig,
   setConfigValue,
   createDatabase,
   getUserByApiKey,
@@ -10,13 +11,26 @@ import {
   createUser,
   getConfigPath,
   getDbPath,
+  getHome,
+  isLocalStorageConfig,
 } from "@/core";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 
 export function onboardCommand() {
   const cmd = new Command("onboard")
     .description("Set up agent-fs (storage, embeddings, database, first user)")
     .option("--local", "Use local MinIO Docker container for S3")
+    .option(
+      "--filesystem",
+      "Use a local filesystem directory for storage (no Docker/MinIO)"
+    )
+    .option("--storage <provider>", "Storage backend: minio (default) | local")
+    .option(
+      "--storage-root <dir>",
+      "Directory for --filesystem storage (default: ~/.agent-fs/storage)"
+    )
     .option("--remote <url>", "Connect to a remote agent-fs server")
     .option("-y, --yes", "Accept all defaults without prompts")
     .option("--s3-endpoint <url>", "S3 endpoint URL")
@@ -52,12 +66,18 @@ export function onboardCommand() {
 
       console.log("Setting up agent-fs...\n");
 
+      // A local filesystem backend ("--filesystem" / "--storage local") is a
+      // distinct path from "--local" (which means a local MinIO *container*).
+      const isFilesystem = !!opts.filesystem || opts.storage === "local";
+
       // Default to local mode unless explicit S3 flags or --remote provided
       const hasCustomS3 = opts.s3Endpoint || opts.s3Bucket || opts.s3AccessKey || opts.s3SecretKey;
-      const isLocal = !hasCustomS3;
+      const isLocal = !isFilesystem && !hasCustomS3;
 
       // Step 1: Storage backend
-      if (opts.s3Endpoint) {
+      if (isFilesystem) {
+        setupLocalFilesystem(opts.storageRoot);
+      } else if (opts.s3Endpoint) {
         // Custom S3 from flags
         setConfigValue("s3.endpoint", opts.s3Endpoint);
         if (opts.s3Bucket) setConfigValue("s3.bucket", opts.s3Bucket);
@@ -86,7 +106,7 @@ export function onboardCommand() {
       const db = createDatabase();
       console.log("Database ready.");
 
-      if (isLocal || opts.yes) {
+      if (isLocal || isFilesystem || opts.yes) {
         const { apiKey } = ensureLocalUser(db);
         const user = getUserByApiKey(db, apiKey)!;
         const orgs = listUserOrgs(db, user.id);
@@ -252,8 +272,39 @@ async function setupLocalMinIO(autoYes: boolean) {
   console.log("MinIO configured.");
 }
 
+/**
+ * Local-filesystem storage: no Docker, no S3. Replaces the whole `s3` config
+ * section with the `{ provider: "local", root }` variant (via setConfig, not a
+ * dot-path set, so stale S3 fields don't linger) and ensures the dir exists.
+ */
+function setupLocalFilesystem(rootOpt?: string) {
+  let root: string;
+  if (rootOpt && rootOpt.length > 0) {
+    if (rootOpt.startsWith("~/")) {
+      root = join(homedir(), rootOpt.slice(2));
+    } else {
+      root = isAbsolute(rootOpt) ? rootOpt : resolve(rootOpt);
+    }
+  } else {
+    root = join(getHome(), "storage");
+  }
+
+  mkdirSync(root, { recursive: true });
+  setConfig("s3", { provider: "local", root });
+
+  console.log("Filesystem storage configured (no Docker required).");
+  console.log(`  Provider: local`);
+  console.log(`  Root: ${root}`);
+}
+
 async function setupCustomS3() {
   const config = getConfig();
+  // The storage union is S3 here (this path is only reached for non-local
+  // backends); narrow so the S3-only fields are accessible.
+  if (isLocalStorageConfig(config.s3)) {
+    console.log(`Using local filesystem storage at ${config.s3.root}`);
+    return;
+  }
   console.log("Using S3 configuration from ~/.agent-fs/config.json");
   console.log(`  Provider: ${config.s3.provider}`);
   console.log(`  Endpoint: ${config.s3.endpoint}`);

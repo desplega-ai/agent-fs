@@ -21,14 +21,14 @@ import {
   assertDriveInOrg,
   VERSION,
 } from "@/core";
-import type { OpContext, DB, EmbeddingProvider, AgentS3Client } from "@/core";
+import type { OpContext, DB, EmbeddingProvider, StorageAdapter } from "@/core";
 import { registerTools } from "./tools.js";
 
 export type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
 
 export interface McpServerOptions {
   db: DB;
-  s3: AgentS3Client;
+  s3: StorageAdapter;
   embeddingProvider: EmbeddingProvider | null;
   appUrl?: string;
 }

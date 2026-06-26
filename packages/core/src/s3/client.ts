@@ -11,7 +11,7 @@ import {
   PutBucketVersioningCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import type { AgentFSConfig } from "../config.js";
+import type { S3StorageConfig } from "../config.js";
 import type {
   StorageAdapter,
   StorageCapabilities,
@@ -43,7 +43,7 @@ export class AgentS3Client implements StorageAdapter {
     return { versioning: this.versioningEnabled, presignedUrls: true };
   }
 
-  constructor(config: AgentFSConfig["s3"]) {
+  constructor(config: S3StorageConfig) {
     this.bucket = config.bucket;
     const credentials = {
       accessKeyId: config.accessKeyId,

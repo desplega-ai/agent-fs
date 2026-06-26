@@ -1,11 +1,13 @@
 import { Command } from "commander";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import {
   getConfig,
   setConfigValue,
   getDbPath,
   getConfigPath,
-  AgentS3Client,
+  createStorageAdapter,
+  isLocalStorageConfig,
   createEmbeddingProviderFromEnv,
 } from "@/core";
 
@@ -67,30 +69,57 @@ export function configCommands() {
         message: configExists ? getConfigPath() : "Not found — run `agent-fs onboard`",
       });
 
-      // 2. Required S3 fields
-      const s3Fields = ["endpoint", "bucket", "accessKeyId", "secretAccessKey"] as const;
-      const missingS3 = s3Fields.filter((f) => !config.s3[f]);
-      results.push({
-        name: "S3 config",
-        ok: missingS3.length === 0,
-        message:
-          missingS3.length === 0
-            ? `${config.s3.provider} → ${config.s3.endpoint}/${config.s3.bucket}`
-            : `Missing: ${missingS3.join(", ")}`,
-      });
+      // 2 + 3. Storage config + connectivity (provider-aware)
+      if (isLocalStorageConfig(config.s3)) {
+        // Local-FS backend: "validate" = root is set and creatable + writable.
+        const root = config.s3.root;
+        results.push({
+          name: "Storage config",
+          ok: !!root,
+          message: root ? `local → ${root}` : "Missing: root",
+        });
+        if (root) {
+          let ok = true;
+          let message = `Writable (${root})`;
+          try {
+            mkdirSync(root, { recursive: true });
+            const probe = join(root, `.agent-fs-probe-${process.pid}`);
+            writeFileSync(probe, "ok");
+            rmSync(probe);
+          } catch (err: any) {
+            ok = false;
+            message = err.message || `Not writable: ${root}`;
+          }
+          results.push({ name: "Storage connectivity", ok, message });
+        }
+      } else {
+        // S3 / MinIO backend: required fields + a live list probe. Capture a
+        // narrowed local (the guard's narrowing is lost inside the .filter
+        // callback since config.s3 is a property access).
+        const s3cfg = config.s3;
+        const s3Fields = ["endpoint", "bucket", "accessKeyId", "secretAccessKey"] as const;
+        const missingS3 = s3Fields.filter((f) => !s3cfg[f]);
+        results.push({
+          name: "S3 config",
+          ok: missingS3.length === 0,
+          message:
+            missingS3.length === 0
+              ? `${s3cfg.provider} → ${s3cfg.endpoint}/${s3cfg.bucket}`
+              : `Missing: ${missingS3.join(", ")}`,
+        });
 
-      // 3. S3 connectivity
-      if (missingS3.length === 0) {
-        try {
-          const s3 = new AgentS3Client(config.s3);
-          await s3.listObjects("");
-          results.push({ name: "S3 connectivity", ok: true, message: "Connected" });
-        } catch (err: any) {
-          results.push({
-            name: "S3 connectivity",
-            ok: false,
-            message: err.message || "Connection failed",
-          });
+        if (missingS3.length === 0) {
+          try {
+            const s3 = createStorageAdapter(s3cfg);
+            await s3.listObjects("");
+            results.push({ name: "S3 connectivity", ok: true, message: "Connected" });
+          } catch (err: any) {
+            results.push({
+              name: "S3 connectivity",
+              ok: false,
+              message: err.message || "Connection failed",
+            });
+          }
         }
       }
 
