@@ -2,7 +2,7 @@
 id: step-2
 name: Capability gating + clean surfacing (core→CLI→MCP)
 depends_on: [step-1]
-status: ready
+status: done
 ---
 
 <!-- During /v-implement, `desplega:step-running` adds `assignee` and `claimed_at` while
@@ -45,14 +45,14 @@ Wire capability checks into the version-critical ops so a backend that lacks a c
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Typecheck + tests: `bun run typecheck` && `bun test`
-- [ ] Unit: `revert` against `new MockS3Client({ capabilities: { versioning: false } })`-backed ctx throws `UnsupportedOperation` with `code === "UNSUPPORTED_OPERATION"` (`packages/core/src/ops/__tests__/revert.test.ts`).
-- [ ] Unit: `diff` against the same backend returns the `diffSummary` fallback and does **not** throw.
+- [x] Typecheck + tests: `bun run typecheck` && `bun test`
+- [x] Unit: `revert` against `new MockS3Client({ capabilities: { versioning: false } })`-backed ctx throws `UnsupportedOperation` with `code === "UNSUPPORTED_OPERATION"` (`packages/core/src/ops/__tests__/revert.test.ts`).
+- [x] Unit: `diff` against the same backend returns the `diffSummary` fallback and does **not** throw.
 
 #### Automated QA:
-- [ ] In-process daemon test (Hono `app.fetch`, `createApp(db, forcedMock, …)`): `POST /…/ops` op=`revert` → HTTP **422** with body `{ error: "UNSUPPORTED_OPERATION", message, suggestion }`.
-- [ ] MCP server test: invoking the `revert` tool against the no-versioning backend returns `isError: true` with the message text (not a raw throw).
-- [ ] CLI surfacing test: simulate the api-client receiving the 422 JSON and assert the thrown `Error.message` is the clean `message` + `Suggestion:` line (no stack trace).
+- [x] In-process daemon test (Hono `app.fetch`, `createApp(db, forcedMock, …)`): `POST /…/ops` op=`revert` → HTTP **422** with body `{ error: "UNSUPPORTED_OPERATION", message, suggestion }`.
+- [x] MCP server test: invoking the `revert` tool against the no-versioning backend returns `isError: true` with the message text (not a raw throw).
+- [x] CLI surfacing test: simulate the api-client receiving the 422 JSON and assert the thrown `Error.message` is the clean `message` + `Suggestion:` line (no stack trace).
 
 #### Manual Verification:
 - [ ] Read the rendered CLI error string for an unsupported `revert` — confirm the wording + suggestion are friendly and actionable.

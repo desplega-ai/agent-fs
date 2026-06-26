@@ -25,15 +25,38 @@ export function registerTools(
         : { params: z.any() },
       async (params: any, extra: Extra) => {
         const ctx = getContext(extra);
-        const result = await dispatchOp(ctx, opName, params);
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
-        };
+        try {
+          const result = await dispatchOp(ctx, opName, params);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(result, null, 2),
+              },
+            ],
+          };
+        } catch (err: any) {
+          // Surface op failures (e.g. UnsupportedOperation on a limited
+          // backend, NotFound, RBAC denials) as a clean MCP error result
+          // instead of a raw throw — mirrors the member-management tools.
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(
+                  {
+                    error: err?.code ?? "ERROR",
+                    message: err?.message ?? String(err),
+                    ...(err?.suggestion && { suggestion: err.suggestion }),
+                  },
+                  null,
+                  2
+                ),
+              },
+            ],
+            isError: true,
+          };
+        }
       }
     );
   }

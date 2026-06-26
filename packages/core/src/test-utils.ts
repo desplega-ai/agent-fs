@@ -62,14 +62,32 @@ export class MockS3Client implements StorageAdapter {
     }>;
   }>();
   versioningEnabled: boolean;
+  private capabilityOverride?: Partial<StorageCapabilities>;
 
-  constructor(opts?: { versioningEnabled?: boolean }) {
+  constructor(opts?: {
+    versioningEnabled?: boolean;
+    /**
+     * Force specific capabilities for capability-gating tests (e.g.
+     * `{ versioning: false }` to model a backend that can't `revert`). The
+     * override is merged over the defaults derived from `versioningEnabled`.
+     */
+    capabilities?: Partial<StorageCapabilities>;
+  }) {
     this.versioningEnabled = opts?.versioningEnabled ?? false;
+    this.capabilityOverride = opts?.capabilities;
   }
 
-  /** Mirrors AgentS3Client: versioning tracks the flag, presigned URLs are faked. */
+  /**
+   * Mirrors AgentS3Client: versioning tracks the flag, presigned URLs are
+   * faked. Any constructor `capabilities` override wins so tests can model a
+   * limited backend.
+   */
   get capabilities(): StorageCapabilities {
-    return { versioning: this.versioningEnabled, presignedUrls: true };
+    return {
+      versioning: this.versioningEnabled,
+      presignedUrls: true,
+      ...this.capabilityOverride,
+    };
   }
 
   async putObject(
@@ -222,6 +240,8 @@ export class MockS3Client implements StorageAdapter {
  */
 export function createTestContext(opts?: {
   versioningEnabled?: boolean;
+  /** Force adapter capabilities (e.g. `{ versioning: false }`) for gating tests. */
+  capabilities?: Partial<StorageCapabilities>;
 }): {
   ctx: OpContext;
   db: DB;
@@ -232,7 +252,10 @@ export function createTestContext(opts?: {
   apiKey: string;
 } {
   const db = createTestDb();
-  const s3 = new MockS3Client({ versioningEnabled: opts?.versioningEnabled ?? false });
+  const s3 = new MockS3Client({
+    versioningEnabled: opts?.versioningEnabled ?? false,
+    capabilities: opts?.capabilities,
+  });
 
   const { user, apiKey } = createUser(db, { email: "test@example.com" });
   const orgs = listUserOrgs(db, user.id);

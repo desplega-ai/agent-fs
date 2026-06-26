@@ -8,6 +8,7 @@ import {
   assertExpectedVersion,
 } from "./versioning.js";
 import { NotFoundError, AgentFSError } from "../errors.js";
+import { assertCapability } from "../storage/capabilities.js";
 import { detectMimeType } from "./mime.js";
 import { indexBytesForSearch } from "./search-index.js";
 
@@ -15,6 +16,12 @@ export async function revert(
   ctx: OpContext,
   params: RevertParams
 ): Promise<RevertResult> {
+  // Capability gate: a backend without object versioning can never retrieve
+  // old content by version handle, so fail fast with a typed, friendly error
+  // rather than a raw S3/FS error later. (The narrower VERSIONING_REQUIRED
+  // case below covers a versioning-capable backend whose row lacks a handle.)
+  assertCapability(ctx.s3, "versioning", "revert");
+
   // Optimistic concurrency: head must match expectedVersion before
   // a new revert version is created on top of it.
   if (params.expectedVersion !== undefined) {

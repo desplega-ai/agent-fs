@@ -89,6 +89,35 @@ describe("registerTools", () => {
   });
 });
 
+describe("ops tool error surfacing", () => {
+  test("revert on a no-versioning backend returns isError with the message (no raw throw)", async () => {
+    const handlers = new Map<string, (params: any, extra: any) => Promise<any>>();
+    const mockServer = {
+      tool: (name: string, _desc: string, _schema: any, handler: any) => {
+        handlers.set(name, handler);
+      },
+    };
+
+    const { ctx } = createTestContext({ capabilities: { versioning: false } });
+    registerTools(mockServer as any, () => ctx);
+
+    // Seed a file via the captured write handler so a version row exists.
+    const write = handlers.get("write")!;
+    await write({ path: "/mcp-cap.txt", content: "v1" }, {});
+
+    const revertHandler = handlers.get("revert")!;
+    // Must resolve to an isError result, NOT reject — surfaced cleanly to the agent.
+    const result = await revertHandler({ path: "/mcp-cap.txt", version: 1 }, {});
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].type).toBe("text");
+    const body = JSON.parse(result.content[0].text);
+    expect(body.error).toBe("UNSUPPORTED_OPERATION");
+    expect(body.message).toContain("not supported");
+    expect(body.suggestion).toBeTruthy();
+  });
+});
+
 // --- Identity tool harness ---
 
 type ToolHandler = (params: any, extra: any) => Promise<any>;
