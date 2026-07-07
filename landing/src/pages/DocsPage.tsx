@@ -94,7 +94,7 @@ function slugify(value: string) {
 
 function stripMarkdown(value: string) {
   return value
-    .replace(/[`*_#>\[\]]/g, "")
+    .replace(/[`*_#>[\]]/g, "")
     .replace(/\((https?:\/\/[^)]+)\)/g, "")
     .trim()
 }
@@ -455,23 +455,27 @@ function buildSearchHits(query: string): SearchHit[] {
 }
 
 function SearchModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [query, setQuery] = useState("")
-  const [selected, setSelected] = useState(0)
+  const [query, setQueryState] = useState("")
+  const [selected, setSelectedState] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const listRef = useRef<HTMLUListElement | null>(null)
   const hits = useMemo(() => buildSearchHits(query), [query])
+  const setQuery = (value: string) => {
+    setQueryState(value)
+    setSelectedState(0)
+  }
+  const setSelected = (value: number | ((current: number) => number)) => {
+    setSelectedState(value)
+  }
 
   useEffect(() => {
     if (open) {
-      setQuery("")
-      setSelected(0)
+      setTimeout(() => {
+        setQuery("")
+      }, 0)
       setTimeout(() => inputRef.current?.focus(), 10)
     }
   }, [open])
-
-  useEffect(() => {
-    setSelected(0)
-  }, [query])
 
   useEffect(() => {
     if (!open) return
