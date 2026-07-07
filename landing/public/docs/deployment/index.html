@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Deployment — agent-fs docs</title>
+    <meta name="description" content="Run locally, use remote S3, deploy services, and publish releases." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/deployment" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment" aria-current="page">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/deployment.md</p>
+    <h1 id="deployment-guide">Deployment Guide</h1>
+<p>Four deployment scenarios, from simplest to most complex.</p>
+<h2 id="1-single-developer-local">1. Single Developer, Local</h2>
+<p>Everything runs on your machine. SQLite for metadata, MinIO (Docker) for file storage.</p>
+<h3 id="prerequisites">Prerequisites</h3>
+<ul><li><a href="https://bun.sh">Bun</a> v1.2+</li><li><a href="https://docker.com">Docker</a> (for MinIO)</li></ul>
+<h3 id="setup">Setup</h3>
+<pre><code data-language="bash"># Install agent-fs
+bun add -g @desplega.ai/agent-fs
+
+# Initialize (starts MinIO container, creates DB, registers local user)
+agent-fs init --local
+
+# Verify
+agent-fs config show
+agent-fs write /hello.md --content &quot;Hello from agent-fs&quot;
+agent-fs cat /hello.md</code></pre>
+<p>This creates `~/.agent-fs/` with:</p>
+<ul><li>`agent-fs.db` — SQLite database (metadata, FTS5 index, embeddings)</li><li>`config.json` — S3 endpoint, credentials, embedding settings</li><li>`agent-fs.pid` / `agent-fs.log` — daemon PID and logs (when running as daemon)</li></ul>
+<h3 id="running-as-a-daemon">Running as a daemon</h3>
+<pre><code data-language="bash">agent-fs daemon start   # Start background daemon
+agent-fs daemon status  # Check if running
+agent-fs daemon stop    # Stop daemon</code></pre>
+<p>The daemon serves both the HTTP REST API and the MCP endpoint on `127.0.0.1:7433`. The CLI and `agent-fs mcp` proxy both require a running daemon.</p>
+<h2 id="2-single-developer-remote-s3">2. Single Developer, Remote S3</h2>
+<p>Use Cloudflare R2, AWS S3, or any S3-compatible storage instead of local MinIO.</p>
+<h3 id="setup">Setup</h3>
+<pre><code data-language="bash">agent-fs init --local
+
+# Then configure remote S3
+agent-fs config set s3.endpoint &quot;https://&lt;account-id&gt;.r2.cloudflarestorage.com&quot;
+agent-fs config set s3.bucket &quot;agent-fs&quot;
+agent-fs config set s3.accessKeyId &quot;&lt;your-access-key&gt;&quot;
+agent-fs config set s3.secretAccessKey &quot;&lt;your-secret-key&gt;&quot;
+agent-fs config set s3.region &quot;auto&quot;</code></pre>
+<h3 id="s3-provider-notes">S3 Provider Notes</h3>
+<p>| Provider | `endpoint` | `region` | `forcePathStyle` | |----------|-----------|----------|------------------| | **MinIO** (local) | `http://localhost:9000` | `us-east-1` | `true` | | **Cloudflare R2** | `https://&lt;account&gt;.r2.cloudflarestorage.com` | `auto` | `true` | | **AWS S3** | `https://s3.&lt;region&gt;.amazonaws.com` | your region | `false` | | **DigitalOcean Spaces** | `https://&lt;region&gt;.digitaloceanspaces.com` | your region | `false` |</p>
+<h3 id="s3-versioning">S3 Versioning</h3>
+<p>Enable S3 versioning on your bucket for full `diff` and `revert` support. Without versioning, these operations degrade (no content-level diffs, revert creates from latest only).</p>
+<pre><code data-language="bash"># AWS
+aws s3api put-bucket-versioning --bucket agent-fs --versioning-configuration Status=Enabled
+
+# MinIO
+mc version enable myminio/agent-fs</code></pre>
+<h2 id="3-team-shared-server">3. Team, Shared Server</h2>
+<p>Deploy the HTTP server so multiple developers or agents can share the same filesystem.</p>
+<h3 id="setup">Setup</h3>
+<pre><code data-language="bash"># On the server
+agent-fs init --local
+agent-fs server --host 0.0.0.0 --port 7433</code></pre>
+<blockquote><p>**Important**: The default bind address is `127.0.0.1` (localhost only). Use `--host 0.0.0.0` to accept external connections.</p></blockquote>
+<h3 id="register-users">Register users</h3>
+<pre><code data-language="bash"># Each team member gets their own identity
+curl -X POST http://your-server:7433/auth/register \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#39;{&quot;email&quot;: &quot;alice@example.com&quot;}&#39;
+# Returns: { &quot;apiKey&quot;: &quot;...&quot; }</code></pre>
+<h3 id="client-configuration">Client configuration</h3>
+<p>Each team member configures their CLI or MCP client:</p>
+<pre><code data-language="bash">agent-fs config set api.url &quot;http://your-server:7433&quot;
+agent-fs config set api.key &quot;&lt;their-api-key&gt;&quot;</code></pre>
+<p>Or via environment variables:</p>
+<pre><code data-language="bash">export AGENT_FS_API_URL=&quot;http://your-server:7433&quot;
+export AGENT_FS_API_KEY=&quot;&lt;their-api-key&gt;&quot;</code></pre>
+<h3 id="rbac">RBAC</h3>
+<p>Users have roles per-organization and per-drive:</p>
+<p>| Role | Permissions | |------|-------------| | `viewer` | Read files, search, list | | `editor` | Read + write, edit, delete files | | `admin` | Full access + manage users, drives, orgs |</p>
+<p>Key rules:</p>
+<ul><li>**Drive membership is explicit.** A drive is only visible and usable for users with a drive membership row. New drives grant the creator admin membership automatically; invite other users per drive (or rely on org-invite&#39;s default-drive grant).</li><li>**Member management is admin-only.** Inviting, listing, updating, and removing org members requires org `admin`. Managing drive members requires drive `admin` or admin of the owning org. Creating drives in an org requires org `admin`.</li><li>**Write paths all enforce editor-or-better** — the JSON ops route, the binary `PUT /raw` route, and FUSE mounts share the same check. Viewers can read everywhere they&#39;re a member but cannot write through any surface.</li><li>**Org/drive IDs are bound.** A request that addresses a drive under the wrong org — or any org/drive the caller has no membership in — returns `404`, indistinguishable from a nonexistent ID.</li></ul>
+<h2 id="4-multi-agent-hosted">4. Multi-Agent, Hosted</h2>
+<p>Deploy agent-fs as shared infrastructure for autonomous agents.</p>
+<h3 id="architecture">Architecture</h3>
+<pre><code data-language="">Agent A (Claude Code) ──┐
+Agent B (Cursor)     ───┤──→ agent-fs server ──→ SQLite + S3
+Agent C (custom)     ───┘        :7433</code></pre>
+<h3 id="setup">Setup</h3>
+<ol><li>Deploy server with remote S3 (see scenario 2 for S3 config)</li><li>Register each agent as a user with its own API key</li><li>Create shared drives and assign access via RBAC</li><li>Configure each agent&#39;s MCP client with its API key</li></ol>
+<pre><code data-language="bash"># Register agents
+curl -X POST http://agent-fs:7433/auth/register -d &#39;{&quot;email&quot;: &quot;agent-a@agents.local&quot;}&#39;
+curl -X POST http://agent-fs:7433/auth/register -d &#39;{&quot;email&quot;: &quot;agent-b@agents.local&quot;}&#39;</code></pre>
+<p>Each agent gets its own identity, so file operations are attributed to the agent that performed them. Use `log` to see who wrote what.</p>
+<h3 id="multi-tenant-isolation-model">Multi-tenant isolation model</h3>
+<p>When mutually distrustful users or agents share one server, understand what the boundary is — and is not:</p>
+<ul><li>**Isolation is enforced at the application layer** by RBAC: every HTTP, MCP, raw, and FUSE operation proves the caller has an explicit role on the target org/drive before touching data. Cross-tenant org/drive/comment IDs resolve to `404`, so tenants can&#39;t probe each other&#39;s resources.</li><li>**Storage is a single shared S3 bucket**, namespaced by `&lt;orgId&gt;/drives/&lt;driveId&gt;/...` key prefixes. There is no per-tenant bucket, credential, or encryption key — anyone holding the *server&#39;s* S3 credentials (or the server&#39;s SQLite DB) can read all tenants&#39; data. Tenant isolation holds only as long as the server host and its credentials are trusted.</li><li>**Signed URLs are an intentional escape hatch.** Generation is RBAC-checked (viewer-or-better on the drive), but the resulting presigned S3 URL is an unauthenticated bearer secret until it expires. A tenant who shares a signed URL is sharing read access to that file with anyone who has the URL.</li></ul>
+<p>If you need isolation that survives a server-credential leak, run separate agent-fs instances (or buckets) per tenant.</p>
+<h2 id="embedding-providers">Embedding Providers</h2>
+<p>Semantic search requires an embedding provider. Configure via environment variable or `config.json`.</p>
+<p>| Provider | Env Variable | Cost | Notes | |----------|-------------|------|-------| | **OpenAI** | `OPENAI_API_KEY` | ~$0.02/1M tokens | Best quality, requires API key | | **Google Gemini** | `GEMINI_API_KEY` | Free tier available | Good quality, generous free tier | | **Local (llama.cpp)** | — | Free | Requires local model download, slower |</p>
+<p>Priority: environment variable &gt; `config.json` &gt; none (semantic search disabled).</p>
+<h3 id="configuring-in-config-json">Configuring in config.json</h3>
+<pre><code data-language="json">{
+  &quot;embedding&quot;: {
+    &quot;provider&quot;: &quot;openai&quot;,
+    &quot;model&quot;: &quot;text-embedding-3-small&quot;,
+    &quot;apiKey&quot;: &quot;sk-...&quot;
+  }
+}</code></pre>
+<h2 id="configuration-reference">Configuration Reference</h2>
+<p>The config file lives at `~/.agent-fs/config.json` (or `$AGENT_FS_HOME/config.json`).</p>
+<pre><code data-language="json">{
+  &quot;s3&quot;: {
+    &quot;endpoint&quot;: &quot;http://localhost:9000&quot;,
+    &quot;bucket&quot;: &quot;agent-fs&quot;,
+    &quot;region&quot;: &quot;us-east-1&quot;,
+    &quot;accessKeyId&quot;: &quot;minioadmin&quot;,
+    &quot;secretAccessKey&quot;: &quot;minioadmin&quot;,
+    &quot;forcePathStyle&quot;: true
+  },
+  &quot;embedding&quot;: {
+    &quot;provider&quot;: &quot;openai&quot;,
+    &quot;model&quot;: &quot;text-embedding-3-small&quot;,
+    &quot;apiKey&quot;: &quot;sk-...&quot;
+  },
+  &quot;server&quot;: {
+    &quot;host&quot;: &quot;127.0.0.1&quot;,
+    &quot;port&quot;: 7433
+  }
+}</code></pre>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3 id="sqliteerror-no-such-module-fts5">&quot;SQLITEERROR: no such module: fts5&quot;</h3>
+<p>On macOS, Apple&#39;s bundled SQLite doesn&#39;t support extensions. Install via Homebrew:</p>
+<pre><code data-language="bash">brew install sqlite</code></pre>
+<p>Bun will use the Homebrew version automatically.</p>
+<h3 id="minio-container-won-t-start">MinIO container won&#39;t start</h3>
+<p>Check if port 9000 is already in use:</p>
+<pre><code data-language="bash">lsof -i :9000</code></pre>
+<p>The MinIO container is named `agent-fs-minio`. Check its status:</p>
+<pre><code data-language="bash">docker ps -a --filter name=agent-fs-minio
+docker logs agent-fs-minio</code></pre>
+<h3 id="daemon-won-t-start">Daemon won&#39;t start</h3>
+<p>Check for stale PID file:</p>
+<pre><code data-language="bash">cat ~/.agent-fs/agent-fs.pid
+kill -0 $(cat ~/.agent-fs/agent-fs.pid) 2&gt;/dev/null &amp;&amp; echo &quot;running&quot; || echo &quot;stale&quot;</code></pre>
+<p>If stale, remove the PID file and restart:</p>
+<pre><code data-language="bash">rm ~/.agent-fs/agent-fs.pid
+agent-fs daemon start</code></pre>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

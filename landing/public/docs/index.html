@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>agent-fs docs</title>
+    <meta name="description" content="Documentation for agent-fs setup, deployment, HTTP APIs, SQL queries, and remote mounting." />
+    <link rel="canonical" href="https://agent-fs.dev/docs" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>Documentation</p>
+    <h1>Build against the agent filesystem.</h1>
+    <p>The docs index is emitted as static HTML at build time so crawlers can discover every docs route before client-side JavaScript runs.</p>
+    <section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a> — Connect agent-fs to Claude Code, Cursor, Codex, and other MCP clients.</li><li><a href="/docs/deployment">Deployment</a> — Run locally, use remote S3, deploy services, and publish releases.</li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a> — HTTP endpoints, auth, MCP transport, and operation dispatch.</li><li><a href="/docs/sql">SQL Queries</a> — Query CSV, Parquet, Excel, JSON, and SQLite documents with DuckDB.</li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a> — Mount an agent-fs drive as a Linux filesystem with open-to-close consistency.</li><li><a href="/docs/fuse-compat">FUSE Compatibility</a> — Sandbox and container runtime matrix for Linux FUSE support.</li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a> — Common mount errors, diagnosis order, and recovery commands.</li><li><a href="/docs/mounting">Mounting Overview</a> — Topologies, prerequisites, auth, and the remote mount flow.</li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a> — Prerequisites and remote mount flow for Sprite sandboxes.</li><li><a href="/docs/mounting-e2b">Mounting on E2B</a> — Best-effort E2B sandbox template and mount flow.</li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a> — A clean VM install and systemd auto-mount path.</li></ul></section>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

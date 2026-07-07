@@ -63,5 +63,19 @@
       ]
     }
   ],
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/docs", "destination": "/docs/index.html" },
+    { "source": "/docs/api-reference", "destination": "/docs/api-reference/index.html" },
+    { "source": "/docs/sql", "destination": "/docs/sql/index.html" },
+    { "source": "/docs/mcp-setup", "destination": "/docs/mcp-setup/index.html" },
+    { "source": "/docs/deployment", "destination": "/docs/deployment/index.html" },
+    { "source": "/docs/fuse-mount", "destination": "/docs/fuse-mount/index.html" },
+    { "source": "/docs/fuse-compat", "destination": "/docs/fuse-compat/index.html" },
+    { "source": "/docs/fuse-troubleshooting", "destination": "/docs/fuse-troubleshooting/index.html" },
+    { "source": "/docs/mounting", "destination": "/docs/mounting/index.html" },
+    { "source": "/docs/mounting-sprite", "destination": "/docs/mounting-sprite/index.html" },
+    { "source": "/docs/mounting-e2b", "destination": "/docs/mounting-e2b/index.html" },
+    { "source": "/docs/mounting-hetzner", "destination": "/docs/mounting-hetzner/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

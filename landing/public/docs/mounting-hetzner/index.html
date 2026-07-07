@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mounting on Hetzner — agent-fs docs</title>
+    <meta name="description" content="A clean VM install and systemd auto-mount path." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/mounting-hetzner" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner" aria-current="page">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/mounting/hetzner.md</p>
+    <h1 id="mounting-agent-fs-on-hetzner-cloud-vms">Mounting agent-fs on Hetzner Cloud VMs</h1>
+<p>Hetzner Cloud VMs (Ubuntu/Debian) are the cleanest target for `agent-fs mount`: root access, `/dev/fuse` available out of the box, no sandbox restrictions. The full happy path is four commands.</p>
+<blockquote><p>See <a href="/docs/mounting">`README.md`</a> for the general overview and architecture.</p></blockquote>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>A Hetzner Cloud Ubuntu 24.04 or Debian 12 server. The `fuse3` package is missing from the base image but `/dev/fuse` is already accessible.</p>
+<pre><code data-language="bash"># Provision (host side, with hcloud CLI)
+hcloud server create \
+  --name agent-fs-host \
+  --image ubuntu-24.04 \
+  --type cx23 \
+  --ssh-key &lt;your-key&gt;
+# Use `cax11` for ARM (same 2 vCPU / 4 GB tier, slightly cheaper).
+
+ssh root@$(hcloud server ip agent-fs-host)</code></pre>
+<h2 id="install-mount">Install + mount</h2>
+<p>Inside the VM:</p>
+<pre><code data-language="bash"># 1. Install fuse3 + Bun installer prereqs (unzip is required by bun.sh/install).
+apt-get update -qq &amp;&amp; apt-get install -y fuse3 curl unzip
+
+# 2. Install Bun + agent-fs.
+curl -fsSL https://bun.sh/install | bash
+export PATH=&quot;$HOME/.bun/bin:$PATH&quot;
+bun install -g @desplega.ai/agent-fs
+
+# 3. Configure auth.
+mkdir -p ~/.agent-fs
+cat &gt; ~/.agent-fs/config.json &lt;&lt;EOF
+{
+  &quot;apiUrl&quot;: &quot;https://agent-fs-taras.fly.dev&quot;,
+  &quot;apiKey&quot;: &quot;&lt;YOUR_API_KEY&gt;&quot;
+}
+EOF
+
+# Or via env (preferred for systemd units):
+# export AGENT_FS_API_URL=https://agent-fs-taras.fly.dev
+# export AGENT_FS_API_KEY=...
+
+# 4. Verify auth + mount.
+agent-fs auth whoami
+mkdir -p /mnt/agent-fs
+agent-fs mount /mnt/agent-fs --remote</code></pre>
+<h2 id="verify">Verify</h2>
+<pre><code data-language="bash">ls /mnt/agent-fs
+ls /mnt/agent-fs/current
+echo &quot;hello from hetzner $(date)&quot; &gt; /mnt/agent-fs/current/hetzner-test.txt
+cat /mnt/agent-fs/current/hetzner-test.txt
+rm /mnt/agent-fs/current/hetzner-test.txt</code></pre>
+<h2 id="unmount">Unmount</h2>
+<pre><code data-language="bash">fusermount3 -u /mnt/agent-fs</code></pre>
+<h2 id="auto-mount-on-boot-systemd">Auto-mount on boot (systemd)</h2>
+<p>To mount agent-fs automatically at boot, drop a systemd unit:</p>
+<pre><code data-language="ini"># /etc/systemd/system/agent-fs-mount.service
+[Unit]
+Description=agent-fs FUSE mount (remote)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=AGENT_FS_API_URL=https://agent-fs-taras.fly.dev
+Environment=AGENT_FS_API_KEY=&lt;YOUR_API_KEY&gt;
+Environment=PATH=/root/.bun/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=/bin/mkdir -p /mnt/agent-fs
+ExecStart=/root/.bun/bin/agent-fs mount /mnt/agent-fs --remote
+ExecStop=/usr/bin/fusermount3 -u /mnt/agent-fs
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+<p>Activate:</p>
+<pre><code data-language="bash">systemctl daemon-reload
+systemctl enable --now agent-fs-mount.service
+systemctl status agent-fs-mount.service</code></pre>
+<p>**Security note**: putting `AGENT_FS_API_KEY` directly in the unit file is convenient but readable by anyone with root. Prefer `EnvironmentFile=/etc/agent-fs.env` with `chmod 600 /etc/agent-fs.env`, or use systemd credentials (`LoadCredential=`) on systemd 250+.</p>
+<h2 id="known-issues">Known issues</h2>
+<ul><li>**`user_allow_other` is not required** on stock Hetzner Ubuntu/Debian images because root is the mounting user. If you mount as a non-root user and need other UIDs to read the mount, add `user_allow_other` to `/etc/fuse.conf`.</li><li>**Firewall**: outbound HTTPS (443) must be open to reach the remote agent-fs API. Hetzner&#39;s default firewall allows this; check your custom rules if mount stalls.</li><li>See <a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a> for the full error catalogue.</li></ul>
+<h2 id="see-also">See also</h2>
+<ul><li><a href="/docs/mounting">`README.md`</a> — overview and shared prerequisites</li><li><a href="/docs/fuse-mount">`fuse-mount.md`</a> — mount semantics</li><li><a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a> — full error catalogue</li></ul>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

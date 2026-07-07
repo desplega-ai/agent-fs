@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCP Setup — agent-fs docs</title>
+    <meta name="description" content="Connect agent-fs to Claude Code, Cursor, Codex, and other MCP clients." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/mcp-setup" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup" aria-current="page">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/mcp-setup.md</p>
+    <h1 id="mcp-setup-guide">MCP Setup Guide</h1>
+<p>Connect agent-fs to any MCP-compatible AI assistant (Claude Code, Cursor, Windsurf, etc.).</p>
+<h2 id="claude-code">Claude Code</h2>
+<p>Add to your `.mcp.json` (project-level or `~/.claude/.mcp.json` for global):</p>
+<pre><code data-language="json">{
+  &quot;mcpServers&quot;: {
+    &quot;agent-fs&quot;: {
+      &quot;command&quot;: &quot;agent-fs&quot;,
+      &quot;args&quot;: [&quot;mcp&quot;],
+      &quot;env&quot;: {
+        &quot;AGENT_FS_API_URL&quot;: &quot;http://localhost:7433&quot;,
+        &quot;AGENT_FS_API_KEY&quot;: &quot;your-api-key&quot;
+      }
+    }
+  }
+}</code></pre>
+<p>**Prerequisites**: The agent-fs daemon must be running (`agent-fs daemon start`). The `agent-fs mcp` command is a stdio-to-HTTP proxy that connects to the daemon&#39;s `/mcp` endpoint.</p>
+<h3 id="with-embeddings">With embeddings</h3>
+<p>To enable semantic search, configure an embedding provider on the daemon (via `~/.agent-fs/config.json` or environment variables). The daemon initializes embeddings at startup and makes them available to both REST and MCP clients.</p>
+<p>Supported providers: `OPENAI_API_KEY` (OpenAI), `GEMINI_API_KEY` (Google Gemini), or local llama.cpp (configured in `~/.agent-fs/config.json`).</p>
+<h2 id="cursor">Cursor</h2>
+<p>Add to your Cursor MCP settings (Settings &gt; MCP Servers):</p>
+<pre><code data-language="json">{
+  &quot;agent-fs&quot;: {
+    &quot;command&quot;: &quot;agent-fs&quot;,
+    &quot;args&quot;: [&quot;mcp&quot;],
+    &quot;env&quot;: {
+      &quot;AGENT_FS_API_URL&quot;: &quot;http://localhost:7433&quot;,
+      &quot;AGENT_FS_API_KEY&quot;: &quot;your-api-key&quot;
+    }
+  }
+}</code></pre>
+<h2 id="generic-mcp-client-stdio-transport">Generic MCP Client (stdio transport)</h2>
+<p>agent-fs uses **stdio transport**. Spawn the process and communicate via JSON-RPC over stdin/stdout:</p>
+<pre><code data-language="bash">agent-fs mcp</code></pre>
+<p>The server advertises tools via the standard MCP `tools/list` method.</p>
+<h2 id="available-tools">Available Tools</h2>
+<h3 id="content-operations">Content Operations</h3>
+<p>| Tool | Description | |------|-------------| | `write` | Write or overwrite a file. Creates a new version. Use `expectedVersion` for optimistic concurrency. | | `cat` | Read file content with optional pagination via `offset`/`limit`. | | `edit` | Replace a specific string in a file (surgical find-and-replace). | | `append` | Append content to the end of an existing file. | | `tail` | Read the last N lines of a file. |</p>
+<h3 id="navigation">Navigation</h3>
+<p>| Tool | Description | |------|-------------| | `ls` | List immediate children of a directory. Path defaults to `/` (root). | | `stat` | Get file metadata without reading content. | | `tree` | Recursively list all files and directories. Path defaults to `/` (root). Use `depth` to limit. | | `glob` | Find files by pattern. `*.md` matches root only; `**/*.md` matches recursively. |</p>
+<h3 id="file-management">File Management</h3>
+<p>| Tool | Description | |------|-------------| | `rm` | Delete a file. Removes from S3, cleans up FTS5 and embeddings. | | `mv` | Move or rename a file. Preserves version history. | | `cp` | Copy a file using server-side S3 copy. |</p>
+<h3 id="version-control">Version Control</h3>
+<p>| Tool | Description | |------|-------------| | `log` | Show version history for a file. | | `diff` | Show the diff between two versions of a file. | | `revert` | Revert a file to a previous version. Creates a new version with the old content. |</p>
+<h3 id="search">Search</h3>
+<p>| Tool | Description | |------|-------------| | `grep` | Regex search across file content via FTS5 index. | | `fts` | Full-text keyword search across all files using FTS5 tokens. | | `search` | Semantic search using natural language (requires embedding provider). |</p>
+<h3 id="maintenance">Maintenance</h3>
+<p>| Tool | Description | |------|-------------| | `recent` | Show recent activity. Filter by path prefix and time window. | | `reindex` | Re-index files with failed or missing FTS5/embedding entries. |</p>
+<h3 id="comments">Comments</h3>
+<p>| Tool | Description | |------|-------------| | `comment-add` | Add a comment to a file. Supports line ranges and threading. | | `comment-list` | List comments on a file with inline replies. Filter by path, resolved state, or parent. | | `comment-get` | Get a single comment by ID with all replies. | | `comment-update` | Update a comment&#39;s body (author only). | | `comment-delete` | Soft-delete a comment (author only). | | `comment-resolve` | Resolve or reopen a root comment. |</p>
+<h3 id="identity-member-management">Identity &amp; Member Management</h3>
+<p>| Tool | Description | |------|-------------| | `whoami` | Get current user identity, org memberships, and drive roles. Lists only drives you&#39;re an explicit member of. | | `member-list` | List members of the current org, or of a drive in the current org via `driveId`. | | `member-invite` | Invite an existing agent-fs user to the current org by email. | | `member-update-role` | Update a member&#39;s org role, or drive role via `driveId`. | | `member-remove` | Remove a member from the current org (cascades to drives), or from one drive via `driveId`. |</p>
+<p>Member tools are admin-gated, mirroring the HTTP member routes: org-scoped calls require org `admin`; drive-scoped calls require drive `admin` or admin of the owning org. A `driveId` must belong to your active org — drive IDs from other orgs return &quot;not found&quot;, and authorization runs before any email lookup, so non-admins can&#39;t probe whether an account or drive exists.</p>
+<h2 id="which-search-tool-should-i-use">Which Search Tool Should I Use?</h2>
+<p>agent-fs has three search tools for different use cases:</p>
+<p>| Tool | Use When | Example | |------|----------|---------| | `grep` | You know the exact text or pattern | `grep --pattern &quot;TODO&quot;` | | `fts` | You know keywords but not exact text | `fts --query &quot;authentication middleware&quot;` | | `search` | You want to find by meaning/concept | `search --query &quot;how does auth work?&quot;` |</p>
+<p>**`grep`** is fastest — it uses regex against the FTS5 index. Use for exact strings, patterns, variable names.</p>
+<p>**`fts`** is keyword-based full-text search. Use when you know relevant terms but not the exact phrasing. Supports FTS5 query syntax (AND, OR, NOT, phrases).</p>
+<p>**`search`** is semantic/vector search. Use when you want to find files by meaning, not keywords. Requires an embedding provider (OpenAI, Gemini, or local llama.cpp). Best for questions like &quot;files related to user authentication&quot; where keyword matching would miss relevant results.</p>
+<h2 id="environment-variables">Environment Variables</h2>
+<p>| Variable | Description | Required | |----------|-------------|----------| | `AGENT_FS_API_URL` | Server URL (e.g., `http://localhost:7433`) | For remote mode | | `AGENT_FS_API_KEY` | API key for authentication | For remote mode | | `AGENT_FS_HOME` | Data directory (default: `~/.agent-fs`) | No | | `OPENAI_API_KEY` | OpenAI API key for embeddings | For semantic search | | `GEMINI_API_KEY` | Google Gemini API key for embeddings | For semantic search |</p>
+<h2 id="troubleshooting">Troubleshooting</h2>
+<h3 id="no-embedding-provider-configured">&quot;No embedding provider configured&quot;</h3>
+<p>Semantic search (`search` tool) requires an embedding provider. Set `OPENAI_API_KEY` or `GEMINI_API_KEY` in your MCP config&#39;s `env` block, or configure a provider in `~/.agent-fs/config.json`.</p>
+<h3 id="cannot-connect-to-agent-fs">&quot;Cannot connect to agent-fs&quot;</h3>
+<p>The daemon must be running. Start it with `agent-fs daemon start`, or set `AGENT_FS_API_URL` to point to a remote server. Default port is 7433.</p>
+<h3 id="tools-not-appearing">Tools not appearing</h3>
+<p>Restart your MCP client after updating the config. Check that `agent-fs` is in your PATH (`which agent-fs`).</p>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

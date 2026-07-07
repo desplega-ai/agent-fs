@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mounting on Sprite — agent-fs docs</title>
+    <meta name="description" content="Prerequisites and remote mount flow for Sprite sandboxes." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/mounting-sprite" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite" aria-current="page">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/mounting/sprite.md</p>
+    <h1 id="mounting-agent-fs-on-sprite">Mounting agent-fs on Sprite</h1>
+<p>Sprite sandboxes are Linux containers (Ubuntu 25.10 base as of 2026-05-18). They can mount FUSE but require four one-time prerequisites because the base image is minimal.</p>
+<blockquote><p>See <a href="/docs/mounting">`README.md`</a> for the general overview and architecture.</p></blockquote>
+<h2 id="prerequisites">Prerequisites</h2>
+<p>Run these four commands inside the sprite before mounting:</p>
+<pre><code data-language="bash">sudo apt-get update -qq &amp;&amp; sudo apt-get install -y fuse3
+sudo chmod 666 /dev/fuse
+sudo ln -sf /proc/mounts /etc/mtab
+echo user_allow_other | sudo tee -a /etc/fuse.conf</code></pre>
+<p>Each step is necessary:</p>
+<p>| Step | Why | |---|---| | `apt-get install fuse3` | `fusermount3` + libfuse3 are not in the sprite base image. | | `chmod 666 /dev/fuse` | Default perms on the sprite are `c-w--wx-wT`, unreadable for the non-root `sprite` user. | | `ln -sf /proc/mounts /etc/mtab` | `/etc/mtab` is absent; `fusermount3` errors out trying to update the mount table. | | `user_allow_other` | The helper passes `allow_other` so other UIDs (supervisors) can read the mount. |</p>
+<h3 id="one-liner-idempotent-script">One-liner idempotent script</h3>
+<pre><code data-language="bash">#!/usr/bin/env bash
+# Apply all four agent-fs mount prereqs. Safe to re-run.
+set -euo pipefail
+
+sudo apt-get update -qq
+sudo apt-get install -y fuse3
+sudo chmod 666 /dev/fuse
+[ -e /etc/mtab ] || sudo ln -sf /proc/mounts /etc/mtab
+grep -q &#39;^user_allow_other&#39; /etc/fuse.conf 2&gt;/dev/null \
+  || echo user_allow_other | sudo tee -a /etc/fuse.conf
+echo &quot;agent-fs mount prereqs applied.&quot;</code></pre>
+<p>Save as `prereqs.sh`, then `chmod +x prereqs.sh &amp;&amp; ./prereqs.sh`.</p>
+<blockquote><p>Sprite envs do not persist these changes across fresh sprite creations. Re-run the script every time you spin up a new sprite.</p></blockquote>
+<h2 id="install-mount">Install + mount</h2>
+<pre><code data-language="bash"># 1. Install the CLI (pulls the right FUSE sub-package via optionalDependencies).
+# Sprite ships Bun pre-installed; use it. `npm install -g` against the stock
+# Node aborts on a transitive dep&#39;s postinstall syntax.
+bun install -g @desplega.ai/agent-fs
+
+# 2. Configure auth (writes ~/.agent-fs/config.json).
+mkdir -p ~/.agent-fs
+cat &gt; ~/.agent-fs/config.json &lt;&lt;EOF
+{
+  &quot;apiUrl&quot;: &quot;https://agent-fs-taras.fly.dev&quot;,
+  &quot;apiKey&quot;: &quot;&lt;YOUR_API_KEY&gt;&quot;
+}
+EOF
+
+# 3. Verify auth.
+agent-fs auth whoami
+
+# 4. Make a mount point and mount in remote mode.
+mkdir -p ~/mnt
+agent-fs mount ~/mnt --remote</code></pre>
+<h2 id="verify">Verify</h2>
+<pre><code data-language="bash">ls ~/mnt
+ls ~/mnt/current
+echo &quot;hello from sprite $(date)&quot; &gt; ~/mnt/current/sprite-test.txt
+cat ~/mnt/current/sprite-test.txt
+rm ~/mnt/current/sprite-test.txt</code></pre>
+<h2 id="unmount">Unmount</h2>
+<pre><code data-language="bash">fusermount3 -u ~/mnt</code></pre>
+<h2 id="known-issues">Known issues</h2>
+<ul><li>**Writes return `EACCES` if you used a sprite-local daemon without an S3 backend.** Use `--remote` against a hosted instance instead — the FUSE plumbing itself works fine.</li><li>**`fusermount3: failed to access mountpoint`** — your mount path doesn&#39;t exist (`mkdir -p ~/mnt` first).</li><li>See <a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a> for the full error catalogue.</li></ul>
+<h2 id="see-also">See also</h2>
+<ul><li><a href="/docs/mounting">`README.md`</a> — overview and shared prerequisites</li><li><a href="/docs/fuse-mount">`fuse-mount.md`</a> — mount semantics</li><li><a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a> — full error catalogue</li></ul>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

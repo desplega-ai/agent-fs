@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mounting Overview — agent-fs docs</title>
+    <meta name="description" content="Topologies, prerequisites, auth, and the remote mount flow." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/mounting" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting" aria-current="page">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/mounting/README.md</p>
+    <h1 id="mounting-agent-fs">Mounting agent-fs</h1>
+<p>`agent-fs mount` exposes your drives as a Linux FUSE filesystem so agents and humans can use plain shell verbs (`cat`, `grep`, `mv`, `rm`) against agent-fs content. Two topologies are supported:</p>
+<ol><li>**Local daemon** — helper talks to a daemon on a Unix socket; the daemon owns the HTTP API + S3 client.</li><li>**Remote API (`--remote`)** — helper talks directly to a remote `agent-fs` HTTP API. No local daemon, no S3 credentials in the sandbox.</li></ol>
+<p>This page covers prerequisites, common errors, and links out to per-environment guides.</p>
+<blockquote><p>Already familiar with FUSE? See <a href="/docs/fuse-mount">`fuse-mount.md`</a> for the mount semantics (open-to-close consistency, conflict handling, `.agent-fs/` feedback surfaces), <a href="/docs/fuse-compat">`fuse-compat.md`</a> for the sandbox compatibility matrix, and <a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a> for the canonical error catalogue.</p></blockquote>
+<h2 id="topologies">Topologies</h2>
+<pre><code data-language="">Topology A — local daemon + local S3
+====================================
+
+  +-----------------+         +------------+         +---------+
+  | shell / agent   |  FUSE   | agent-fs-  |  Unix   | bun     |
+  | cat foo / rm    +--------&gt;+ fuse       +--------&gt;+ daemon  |
+  | mv a b ...      |  kernel | (Rust)     | socket  | HTTP    |
+  +-----------------+         +------------+         +----+----+
+                                                          |
+                                                          v
+                                                     +---------+
+                                                     |   S3    |
+                                                     +---------+
+
+Topology B — remote agent-fs HTTP API (--remote)
+================================================
+
+  +-----------------+         +------------+         +-----------------+
+  | shell / agent   |  FUSE   | agent-fs-  |  HTTPS  | remote agent-fs |
+  | cat foo / rm    +--------&gt;+ fuse       +--------&gt;+ (fly / hetzner /|
+  | mv a b ...      |  kernel | (Rust)     |  TLS    |  k8s / ...)     |
+  +-----------------+         +------------+         +--------+--------+
+                                                              |
+                                                              v
+                                                         +---------+
+                                                         |   S3    |
+                                                         +---------+</code></pre>
+<p>Topology B is what you want in sandboxes (Sprite, E2B, ephemeral CI runners) where running a local daemon + S3 client is impractical.</p>
+<h2 id="prerequisites-common-to-all-environments">Prerequisites (common to all environments)</h2>
+<p>| Requirement | Why | Check | |---|---|---| | Linux x86_64 or arm64 | FUSE is a Linux kernel feature; the helper ships as static musl binaries for these two arches. | `uname -sm` | | `fuse3` package | Provides `fusermount3` + libfuse3 used by the helper. | `which fusermount3` | | `/dev/fuse` readable | Kernel FUSE device must be accessible by the user mounting. | `ls -l /dev/fuse` | | `/etc/mtab` exists (or is a symlink to `/proc/mounts`) | `fusermount3` updates the mount table. | `ls -l /etc/mtab` | | `user_allow_other` in `/etc/fuse.conf` (only if `--allow-other`) | Lets the helper expose the mount to other UIDs. | `grep user_allow_other /etc/fuse.conf` |</p>
+<p>See <a href="/docs/fuse-compat">`fuse-compat.md`</a> for the full sandbox matrix (gVisor / Codespaces / Fly Machines are blocked; Docker rootful / E2B / Hetzner VMs / Kata Containers / Apple Container / Cloudflare Containers all work).</p>
+<h2 id="mount-command">Mount command</h2>
+<pre><code data-language="bash">agent-fs mount &lt;mountpoint&gt; [--remote] [--api-url &lt;url&gt;] [--api-key &lt;key&gt;] [--allow-other]</code></pre>
+<ul><li>Without `--remote`: requires `agent-fs daemon start` first; the helper talks to the local daemon on a Unix socket.</li><li>With `--remote`: skips the local daemon entirely; the helper talks to the remote HTTP API.</li></ul>
+<h2 id="auth-remote-mode">Auth (remote mode)</h2>
+<p>In remote mode the helper needs `AGENT_FS_API_URL` + `AGENT_FS_API_KEY`. Three sources, in precedence order:</p>
+<ol><li>**CLI flags** — `--api-url &lt;url&gt; --api-key &lt;key&gt;` (the key is forwarded as env to the helper, never on argv).</li><li>**Env vars** — `AGENT_FS_API_URL=...`, `AGENT_FS_API_KEY=...`.</li><li>**Config file** — `~/.agent-fs/config.json`:</li></ol>
+<p>```json { &quot;apiUrl&quot;: &quot;https://my-agent-fs.example.com&quot;, &quot;apiKey&quot;: &quot;afs_...&quot; } ```</p>
+<p>Verify creds before mounting:</p>
+<pre><code data-language="bash">agent-fs auth whoami</code></pre>
+<h2 id="troubleshooting-top-errors-observed-on-fresh-sandboxes">Troubleshooting (top errors observed on fresh sandboxes)</h2>
+<p>These are the four most common errors hit during the 2026-05-18 sprite test. For the full catalogue (EIO, conflicts, transport-endpoint-disconnected, EROFS, etc.) see <a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a>.</p>
+<h3 id="mountpoint-is-not-a-directory">mountpoint is not a directory</h3>
+<p>The path you passed to `agent-fs mount` doesn&#39;t exist or is a file. Create the directory first:</p>
+<pre><code data-language="bash">mkdir -p ~/mnt
+agent-fs mount ~/mnt --remote</code></pre>
+<h3 id="fusermount3-command-not-found">fusermount3: command not found</h3>
+<p>The `fuse3` package isn&#39;t installed.</p>
+<pre><code data-language="bash"># Debian / Ubuntu
+sudo apt-get install -y fuse3
+
+# Alpine
+sudo apk add fuse3
+
+# Fedora / RHEL
+sudo dnf install -y fuse3</code></pre>
+<h3 id="fuse-device-not-found-or-dev-fuse-permission-denied">fuse: device not found or /dev/fuse: Permission denied</h3>
+<p>The kernel FUSE device exists but isn&#39;t readable by the current user.</p>
+<pre><code data-language="bash">sudo chmod 666 /dev/fuse</code></pre>
+<p>Note: this is a band-aid for sandboxes. On a real host, prefer adding your user to the `fuse` group (or running the mount with the right capabilities).</p>
+<h3 id="option-allowother-only-allowed-if-userallowother-is-set-in-etc-fuse-conf">option allowother only allowed if &#39;userallowother&#39; is set in /etc/fuse.conf</h3>
+<p>The helper passes `allow_other` so other UIDs (root, agent supervisors) can read the mount. Enable it:</p>
+<pre><code data-language="bash">echo user_allow_other | sudo tee -a /etc/fuse.conf</code></pre>
+<h3 id="fusermount3-failed-to-update-etc-mtab">fusermount3: failed to update /etc/mtab</h3>
+<p>Some minimal images don&#39;t ship `/etc/mtab`. Symlink it to `/proc/mounts`:</p>
+<pre><code data-language="bash">sudo ln -sf /proc/mounts /etc/mtab</code></pre>
+<h2 id="per-environment-guides">Per-environment guides</h2>
+<p>| Environment | Doc | Status | |---|---|---| | Sprite (Linux sandboxes) | <a href="/docs/mounting-sprite">`sprite.md`</a> | Validated 2026-05-18 | | E2B (Firecracker sandboxes) | <a href="/docs/mounting-e2b">`e2b.md`</a> | Untested — best-effort instructions | | Hetzner Cloud VMs | <a href="/docs/mounting-hetzner">`hetzner.md`</a> | Validated approach (Ubuntu/Debian base) |</p>
+<h2 id="see-also">See also</h2>
+<ul><li><a href="/docs/fuse-mount">`fuse-mount.md`</a> — mount semantics, feedback surfaces, mount layout</li><li><a href="/docs/fuse-compat">`fuse-compat.md`</a> — sandbox compatibility per runtime</li><li><a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a> — full error catalogue</li><li><a href="/docs/api-reference">`api-reference.md`</a> — CLI / MCP / HTTP surfaces</li></ul>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

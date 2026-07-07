@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FUSE Compatibility — agent-fs docs</title>
+    <meta name="description" content="Sandbox and container runtime matrix for Linux FUSE support." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/fuse-compat" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat" aria-current="page">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/fuse-compat.md</p>
+    <h1 id="fuse-sandbox-compatibility-agent-fs-v1">FUSE Sandbox Compatibility (agent-fs v1)</h1>
+<p>`agent-fs mount` exposes drives as a Linux FUSE filesystem. FUSE requires `/dev/fuse` and the `SYS_ADMIN` capability inside the container. Not every agent sandbox grants those, so this page documents what works, what doesn&#39;t, and the exact incantation per runtime.</p>
+<blockquote><p>**Universal fallback**: the CLI / MCP / HTTP API paths are always available. If FUSE is blocked in your sandbox, fall back to `agent-fs write`, `agent-fs cat`, `agent-fs grep`, etc.</p></blockquote>
+<h2 id="tl-dr-matrix">TL;DR matrix</h2>
+<p>| Runtime | FUSE works? | Minimal incantation | Fallback | |---|---|---|---| | **Docker rootful** | Yes | `docker run --cap-add SYS_ADMIN --device /dev/fuse --security-opt apparmor=unconfined ...` | n/a | | **Podman rootful** | Yes | Same as Docker rootful (`--cap-add SYS_ADMIN --device /dev/fuse`) | n/a | | **Podman rootless** | Conditional | Run as UID-0 inside the userns; `--privileged` alone is insufficient (<a href="https://github.com/containers/podman/issues/13449">podman#13449</a>) | CLI / MCP | | **Kubernetes — privileged PSS** | Yes | `securityContext: { privileged: true }` or `capabilities.add: [SYS_ADMIN]` + `/dev/fuse` device | n/a | | **Kubernetes — baseline PSS** | Conditional | Explicitly `capabilities.add: [SYS_ADMIN]` + device-plugin / hostPath for `/dev/fuse` | CLI / MCP | | **Kubernetes — restricted PSS** | No (use CSI sidecar) | See <a href="https://github.com/GoogleCloudPlatform/gcs-fuse-csi-driver">GCS FUSE CSI driver</a> pattern — privileged init opens `/dev/fuse`, hands FD to unprivileged sidecar | CLI / MCP via init container | | **GKE Autopilot** | No (managed only) | Cluster-managed FUSE only via Google&#39;s CSI driver — users can&#39;t mount arbitrary FUSE FSes | CLI / MCP | | **Cloudflare Containers** | Yes (since 2025-11) | Install FUSE binary in image, mount at startup; platform exposes `/dev/fuse` | n/a | | **Apple Container (macOS)** | Yes | Each container is a full Linux VM — FUSE behaves like any in-guest Linux mount | n/a | | **E2B sandboxes** | Yes | Firecracker with `CONFIG_FUSE_FS=y`. `e2b connect-bucket` auto-installs FUSE helpers | n/a | | **Kata Containers** | Yes | virtio-fs default + in-guest FUSE works when `SYS_ADMIN` granted | n/a | | **gVisor (runsc)** | **No** | Sentry has stub FUSE only (<a href="https://github.com/google/gvisor/issues/2752">#2752</a>, <a href="https://github.com/google/gvisor/issues/2753">#2753</a>) — affects GKE Sandbox, Cloud Run gen1 | CLI / MCP | | **GitHub Codespaces (hosted)** | **No** | Hosted env ignores `--device` in devcontainer config (<a href="https://github.com/orgs/community/discussions/163129">community#163129</a>) | CLI / MCP | | **Modal sandboxes** | **No** | Modal uses FUSE internally; user code has no `/dev/fuse` access | CLI / MCP | | **Fly.io Machines (Firecracker)** | **No** | Default Fly kernel does not have `CONFIG_FUSE_FS=y` (<a href="https://community.fly.io/t/include-fuse-module-in-the-kernel-of-the-vm/649">community#649</a>) | CLI / MCP |</p>
+<blockquote><p>**Last checked**: 2026-05. Sandboxes change quickly — file an issue if you hit a fresh blocker.</p></blockquote>
+<p>---</p>
+<h2 id="per-runtime-incantations">Per-runtime incantations</h2>
+<h3 id="docker-rootful-the-canonical-case">Docker rootful (the canonical case)</h3>
+<pre><code data-language="bash">docker run -d \
+  --name agent-fs-runner \
+  --cap-add SYS_ADMIN \
+  --device /dev/fuse \
+  --security-opt apparmor=unconfined \
+  -v &quot;$PWD&quot;:/work \
+  -w /work \
+  ubuntu:24.04 \
+  tail -f /dev/null
+
+# Inside the container:
+docker exec -it agent-fs-runner bash
+apt-get update &amp;&amp; apt-get install -y fuse3
+# install agent-fs (Linux x64): bun install -g @desplega.ai/agent-fs
+agent-fs daemon start
+agent-fs mount /mnt/agent-fs</code></pre>
+<p>**Gotchas**</p>
+<ul><li>`--security-opt apparmor=unconfined` is required on Ubuntu hosts because the default AppArmor profile blocks `/dev/fuse` access for containerised processes. On Docker Desktop (Darwin) it&#39;s harmless.</li><li>`--cap-add MKNOD` is sometimes also recommended; in practice `SYS_ADMIN` covers it.</li></ul>
+<h3 id="podman-rootful">Podman rootful</h3>
+<p>Identical to Docker. Use `--security-opt label=disable` instead of AppArmor when SELinux is the host MAC system.</p>
+<h3 id="podman-rootless">Podman rootless</h3>
+<p>You must be root *inside the userns* for `SYS_ADMIN` to actually grant FUSE. `--privileged` is not enough (<a href="https://github.com/containers/podman/issues/13449">podman#13449</a>). If you&#39;re using Podman rootless, prefer the CLI / MCP fallback.</p>
+<h3 id="kubernetes-privileged">Kubernetes — privileged</h3>
+<pre><code data-language="yaml">apiVersion: v1
+kind: Pod
+metadata:
+  name: agent-fs
+spec:
+  containers:
+    - name: agent
+      image: my-agent-image:latest
+      securityContext:
+        privileged: true   # OR capabilities: { add: [SYS_ADMIN] }
+      volumeMounts:
+        - name: fuse-device
+          mountPath: /dev/fuse
+  volumes:
+    - name: fuse-device
+      hostPath:
+        path: /dev/fuse
+        type: CharDevice</code></pre>
+<h3 id="kubernetes-baseline-pss">Kubernetes — baseline PSS</h3>
+<pre><code data-language="yaml">securityContext:
+  capabilities:
+    add: [SYS_ADMIN]</code></pre>
+<p>Plus a device plugin or hostPath for `/dev/fuse`. The pod will be admitted under the **baseline** Pod Security Standard but rejected under **restricted**.</p>
+<h3 id="kubernetes-restricted-pss">Kubernetes — restricted PSS</h3>
+<p>Direct FUSE mounts are not possible. The supported pattern is the <a href="https://github.com/GoogleCloudPlatform/gcs-fuse-csi-driver">GCS FUSE CSI driver</a> / <a href="https://github.com/pfnet-research/meta-fuse-csi-plugin">meta-fuse-csi-plugin</a> shape:</p>
+<ol><li>A privileged CSI node-driver opens `/dev/fuse` and hands the FD to an unprivileged sidecar.</li><li>The sidecar runs the FUSE daemon (our Rust helper, in a future v1.x adapter).</li><li>The workload pod mounts the FUSE FS as a volume — no caps needed.</li></ol>
+<p>**Status for agent-fs**: v1 does not ship a CSI adapter. Tracked as a v1.x deliverable in the plan appendix.</p>
+<h3 id="cloudflare-containers">Cloudflare Containers</h3>
+<p>Native FUSE support since <a href="https://developers.cloudflare.com/changelog/post/2025-11-21-fuse-support-in-containers/">2025-11-21</a>. Install the FUSE helper in your Dockerfile and mount at startup; the platform handles the device. See the <a href="https://developers.cloudflare.com/containers/examples/r2-fuse-mount/">r2-fuse-mount example</a>.</p>
+<h3 id="apple-container-macos">Apple Container (macOS)</h3>
+<p>Each container is a full Linux VM (WWDC 2025 announcement). FUSE works in-guest like any Linux VM. macFUSE 5.1.0 / fuse-t are host-side concerns and do not affect in-guest behavior.</p>
+<h3 id="e2b">E2B</h3>
+<p>First-class FUSE — Firecracker kernel ships `CONFIG_FUSE_FS=y`. Use `e2b.dev` directly, or install `agent-fs` and run `agent-fs mount` like any Linux host. The E2B `connect-bucket` API auto-installs `s3fs`/`gcsfuse`/R2 helpers; ours is direct.</p>
+<h3 id="kata-containers">Kata Containers</h3>
+<p>virtio-fs is the default sharing mechanism since Kata 2.0; in-guest FUSE also works when `SYS_ADMIN` is granted. See <a href="https://github.com/kata-containers/kata-containers/blob/main/docs/how-to/how-to-use-virtio-fs-with-kata.md">kata-containers virtio-fs guide</a>.</p>
+<p>---</p>
+<h2 id="where-fuse-is-blocked">Where FUSE is blocked</h2>
+<h3 id="gvisor-runsc">gVisor (runsc)</h3>
+<p>Practical status: **broken for our use case.** The gVisor sentry has a stub FUSE client only — <a href="https://github.com/google/gvisor/issues/2752">#2752</a> and <a href="https://github.com/google/gvisor/issues/2753">#2753</a> have been open since 2020. The &quot;Setting up FUSE&quot; boot message is internal scaffolding, not user-mountable. Affects:</p>
+<ul><li>GKE Sandbox (workloads with `runtimeClassName: gvisor`)</li><li>Cloud Run gen1</li><li>Several agent platforms that use gVisor for tenant isolation</li></ul>
+<p>Use the CLI / MCP path instead.</p>
+<h3 id="github-codespaces-hosted">GitHub Codespaces (hosted)</h3>
+<p>Codespaces ignores devcontainer `mounts` / `runArgs` for `--device` in the hosted environment. See <a href="https://github.com/orgs/community/discussions/163129">community#163129</a>. **Local** VS Code Dev Containers can pass `--device /dev/fuse` fine.</p>
+<h3 id="modal-sandboxes">Modal sandboxes</h3>
+<p>Modal uses FUSE internally for its lazy-loading image filesystem, but <a href="https://modal.com/docs/guide/sandboxes">user code has no privileges</a> to interact with `/dev/fuse`. No public path to mount user FUSE FSes.</p>
+<h3 id="fly-io-machines">Fly.io Machines</h3>
+<p>Default Fly kernel does not have `CONFIG_FUSE_FS=y`. LiteFS works because Fly ships LiteFS-specific kernel support. See <a href="https://community.fly.io/t/include-fuse-module-in-the-kernel-of-the-vm/649">community#649</a>. Practical conclusion: agent-fs FUSE won&#39;t run on Fly Machines without Fly-side changes.</p>
+<p>---</p>
+<h2 id="see-also">See also</h2>
+<ul><li><a href="/docs/fuse-mount">`fuse-mount.md`</a> — how to use the mount once it&#39;s up</li><li><a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a> — common errors + fixes</li><li>Original research with sources: <a href="../thoughts/taras/research/2026-05-15-fuse-sandbox-compat.md">`thoughts/taras/research/2026-05-15-fuse-sandbox-compat.md`</a></li></ul>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

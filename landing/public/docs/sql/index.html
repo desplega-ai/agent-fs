@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SQL Queries — agent-fs docs</title>
+    <meta name="description" content="Query CSV, Parquet, Excel, JSON, and SQLite documents with DuckDB." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/sql" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql" aria-current="page">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/sql.md</p>
+    <h1 id="sql-queries">SQL Queries</h1>
+<p>Run DuckDB SQL directly against documents stored in agent-fs — CSV, TSV, Parquet, Excel, JSON, NDJSON, SQLite databases, and DuckDB databases. Available as a CLI command (`agent-fs sql`), an API op (`sql`), and an MCP tool.</p>
+<pre><code data-language="bash">agent-fs sql &quot;SELECT category, sum(amount) FROM &#39;/finance/2026.csv&#39; GROUP BY category&quot;</code></pre>
+<h2 id="supported-formats">Supported formats</h2>
+<p>| Format | Extensions | Notes | |--------|------------|-------| | CSV | `.csv`, `.csv.gz` | Delimiter, header, and types auto-detected | | TSV | `.tsv`, `.tab`, `.tsv.gz` | Tab-delimited | | Parquet | `.parquet` | | | Excel | `.xlsx` | First sheet; header auto-detected | | JSON | `.json`, `.json.gz` | Arrays of objects or single objects | | NDJSON | `.ndjson`, `.jsonl` (+ `.gz`) | Newline-delimited JSON | | SQLite | `.db`, `.sqlite`, `.sqlite3` | All tables exposed — see below | | DuckDB | `.duckdb` | Tables from the `main` schema |</p>
+<h2 id="referencing-documents">Referencing documents</h2>
+<p>There are two ways to make a document queryable:</p>
+<h3 id="1-path-literals-file-formats">1. Path literals (file formats)</h3>
+<p>Reference any stored CSV/TSV/Parquet/Excel/JSON/NDJSON document by its drive path as a quoted string, exactly like DuckDB&#39;s own file syntax:</p>
+<pre><code data-language="bash">agent-fs sql &quot;SELECT * FROM &#39;/data/sales.csv&#39; WHERE amount &gt; 100&quot;
+agent-fs sql &quot;SELECT a.id FROM &#39;/data/a.parquet&#39; a JOIN &#39;/data/b.ndjson&#39; b USING (id)&quot;</code></pre>
+<p>Only string literals that resolve to an existing document in the drive are bound — other strings are left untouched, so `WHERE name = &#39;report.csv&#39;` works as expected.</p>
+<h3 id="2-named-table-bindings">2. Named table bindings</h3>
+<p>Bind documents to table names with `--table` (repeatable). Required for SQLite/DuckDB databases, and useful for readable multi-file queries:</p>
+<pre><code data-language="bash">agent-fs sql &quot;SELECT s.name, t.tag FROM sales s JOIN tags t ON s.id = t.id&quot; \
+  -t sales=/data/sales.csv -t tags=/data/tags.parquet</code></pre>
+<p>SQLite and DuckDB databases expose every table under the binding name as a schema:</p>
+<pre><code data-language="bash"># /backups/app.db has tables `users` and `orders`
+agent-fs sql &quot;SELECT u.email, count(*) FROM app.users u JOIN app.orders o ON o.user_id = u.id GROUP BY 1&quot; \
+  -t app=/backups/app.db</code></pre>
+<h3 id="making-any-document-sql-able-format-override">Making any document SQL-able (format override)</h3>
+<p>If a document doesn&#39;t have a recognized extension, override the format with a `:format` suffix (CLI) or `{ path, format }` (API/MCP):</p>
+<pre><code data-language="bash">agent-fs sql &quot;SELECT sum(a) FROM logs&quot; -t logs=/raw/data.txt:csv</code></pre>
+<p>Formats: `csv`, `tsv`, `parquet`, `xlsx`, `json`, `ndjson`, `sqlite`, `duckdb`.</p>
+<h2 id="cli-usage">CLI usage</h2>
+<pre><code data-language="bash">agent-fs sql [query] [options]
+
+  -t, --table &lt;name=path[:format]&gt;  Bind a document as a named table (repeatable)
+  --max-rows &lt;n&gt;                    Max rows to return (default: 1000, max: 10000)
+  --json                            Output the raw result object</code></pre>
+<p>The query can also be piped via stdin:</p>
+<pre><code data-language="bash">echo &quot;SELECT count(*) FROM &#39;/data/events.ndjson&#39;&quot; | agent-fs sql</code></pre>
+<p>Multi-statement queries are supported — the result of the last statement is returned:</p>
+<pre><code data-language="bash">agent-fs sql &quot;CREATE TABLE big AS SELECT * FROM &#39;/data/sales.csv&#39; WHERE amount &gt; 100; SELECT count(*) FROM big&quot;</code></pre>
+<h2 id="api-usage">API usage</h2>
+<p>`sql` is a standard op on the dispatch endpoint:</p>
+<pre><code data-language="bash">curl -X POST http://localhost:7433/orgs/{orgId}/ops \
+  -H &quot;Authorization: Bearer &lt;api-key&gt;&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#39;{
+    &quot;op&quot;: &quot;sql&quot;,
+    &quot;driveId&quot;: &quot;&lt;driveId&gt;&quot;,
+    &quot;query&quot;: &quot;SELECT s.name, t.tag FROM sales s JOIN tags t ON s.id = t.id&quot;,
+    &quot;tables&quot;: {
+      &quot;sales&quot;: &quot;/data/sales.csv&quot;,
+      &quot;tags&quot;: { &quot;path&quot;: &quot;/data/tags.parquet&quot;, &quot;format&quot;: &quot;parquet&quot; }
+    },
+    &quot;maxRows&quot;: 1000
+  }&#39;</code></pre>
+<p>Response:</p>
+<pre><code data-language="json">{
+  &quot;columns&quot;: [{ &quot;name&quot;: &quot;name&quot;, &quot;type&quot;: &quot;VARCHAR&quot; }, { &quot;name&quot;: &quot;tag&quot;, &quot;type&quot;: &quot;VARCHAR&quot; }],
+  &quot;rows&quot;: [{ &quot;name&quot;: &quot;alpha&quot;, &quot;tag&quot;: &quot;aa&quot; }],
+  &quot;rowCount&quot;: 1,
+  &quot;truncated&quot;: false,
+  &quot;files&quot;: [
+    { &quot;table&quot;: &quot;sales&quot;, &quot;path&quot;: &quot;/data/sales.csv&quot;, &quot;format&quot;: &quot;csv&quot; },
+    { &quot;table&quot;: &quot;tags&quot;, &quot;path&quot;: &quot;/data/tags.parquet&quot;, &quot;format&quot;: &quot;parquet&quot; }
+  ],
+  &quot;elapsedMs&quot;: 42
+}</code></pre>
+<p>Value encoding: `BIGINT`s outside JavaScript&#39;s safe integer range and timestamps/dates/UUIDs are returned as strings; decimals as numbers; lists and structs as JSON arrays/objects; blobs as `&lt;blob N bytes&gt;` placeholders. The op requires the `viewer` role.</p>
+<p>The same op is exposed as the `sql` MCP tool with identical arguments.</p>
+<h2 id="web-ui">Web UI</h2>
+<p>The live UI has a SQL workbench at `/sql/~/{orgId}/{driveId}` — pick documents, write queries (Cmd+Enter to run), and view results as a table or quick chart. CSV/TSV/Parquet/JSON/NDJSON queries run client-side via DuckDB WASM; Excel/SQLite/DuckDB documents automatically run on the server. Open it from any queryable file via the **Query** button in the file detail view.</p>
+<h2 id="sandboxing-limits">Sandboxing &amp; limits</h2>
+<p>User SQL never touches the host. Referenced documents are downloaded and materialized into an in-memory DuckDB instance during setup; before any user SQL executes, external access is disabled, the local filesystem is turned off, and the configuration is locked. SQLite files are converted in an isolated bridge instance — the instance that runs your query never loads the sqlite extension, closing its direct-I/O escape hatch. Attempts to read host paths, fetch URLs, `ATTACH`, `COPY ... TO`, or change settings fail with a `VALIDATION_ERROR`.</p>
+<p>Server-side knobs (environment variables on the daemon/server):</p>
+<p>| Variable | Default | Meaning | |----------|---------|---------| | `AGENT_FS_SQL_TIMEOUT_MS` | `30000` | Query timeout (the query is interrupted) | | `AGENT_FS_SQL_MAX_FILE_BYTES` | `268435456` (256 MB) | Per-document size cap | | `AGENT_FS_SQL_MEMORY_LIMIT` | `512MB` | DuckDB memory limit |</p>
+<p>`maxRows` caps the returned rows (default 1000, max 10000); `truncated: true` signals there were more.</p>
+<p>Note: the first query that touches an `.xlsx` or SQLite document downloads the DuckDB `excel`/`sqlite` extension on the server (cached in `~/.duckdb` afterwards), so the server needs outbound network access once.</p>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FUSE Mount — agent-fs docs</title>
+    <meta name="description" content="Mount an agent-fs drive as a Linux filesystem with open-to-close consistency." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/fuse-mount" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount" aria-current="page">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/fuse-mount.md</p>
+    <h1 id="agent-fs-fuse-mount">agent-fs FUSE Mount</h1>
+<p>`agent-fs mount` exposes your drives as a Linux FUSE filesystem so agents and humans can use plain shell verbs (`cat`, `grep`, `mv`, `rm`) against agent-fs content. It&#39;s a *shell adapter for agents*, not a replacement for the CLI / MCP / HTTP surfaces — they remain the universal path for sandboxes that block FUSE.</p>
+<blockquote><p>**Platform**: Linux only in v1. macOS host mount is on the v2 roadmap. See <a href="/docs/fuse-compat">`fuse-compat.md`</a> for which container runtimes support FUSE.</p></blockquote>
+<h2 id="quickstart">Quickstart</h2>
+<pre><code data-language="bash"># 1. Install the CLI (Linux x64 or arm64 — the FUSE helper ships in an
+#    optionalDependencies sub-package). Prefer Bun&#39;s installer; stock
+#    Ubuntu/Debian Node 18.x aborts on a transitive dep&#39;s postinstall.
+bun install -g @desplega.ai/agent-fs
+
+# 2. Start a daemon (uses your local agent-fs config).
+agent-fs daemon start
+
+# 3. Make a mount point and mount.
+mkdir -p /mnt/agent-fs
+agent-fs mount /mnt/agent-fs
+
+# 4. List drives — each drive shows up as a top-level directory; `current`
+#    is a symlink to your default drive.
+ls /mnt/agent-fs/
+# personal/  team-docs/  current -&gt; ./personal
+
+# 5. Use plain shell verbs against the mount.
+echo &quot;hello from FUSE&quot; &gt; /mnt/agent-fs/current/scratch.md
+cat /mnt/agent-fs/current/scratch.md
+grep -r scratch /mnt/agent-fs/current/
+mv /mnt/agent-fs/current/scratch.md /mnt/agent-fs/current/notes/scratch.md
+
+# 6. Unmount when you&#39;re done.
+agent-fs umount /mnt/agent-fs</code></pre>
+<p>If `agent-fs mount` complains it can&#39;t find the helper (`agent-fs-fuse: command not found`), see <a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a>.</p>
+<h2 id="architecture">Architecture</h2>
+<pre><code data-language="">+--------------------+           +----------------+
+|     agent / shell  |           | other agents / |
+| (cat, grep, mv, …) |           |  CLI / MCP     |
++----------+---------+           +-------+--------+
+           |                             |
+           v                             v
++--------------------+           +----------------+
+|  FUSE kernel layer |           |   Bun daemon   |
+|  /mnt/agent-fs     |           |  (HTTP server) |
++----------+---------+           +-------+--------+
+           |                             ^
+           | FUSE protocol               |
+           v                             | HTTP /raw + /ops
++--------------------+    Unix socket    |
+|  agent-fs-fuse     +-------------------+
+|  (Rust helper)     |
++----------+---------+
+           |
+           v
++--------------------+
+|       S3           |
+|    (or MinIO)      |
++--------------------+</code></pre>
+<ul><li>**The mount is a FUSE filesystem implemented by `agent-fs-fuse`**, a small statically-linked Rust binary that the daemon spawns on `agent-fs mount`.</li><li>**The helper talks to the daemon over a Unix socket** (`~/.agent-fs/agent-fs.sock`) using msgpack frames. All read/write requests on the mount turn into IPC calls to the daemon.</li><li>**The daemon owns the HTTP API and the S3 client.** It runs PUT/GET against S3 (or MinIO) directly, with optimistic concurrency via the `expectedVersion` parameter on writes.</li><li>**There is no separate cache.** Each FUSE `open()` fetches the head version from the daemon and buffers it; each `close()` after a content change pushes a new version to S3. We call this *open-to-close consistency*.</li></ul>
+<h2 id="open-to-close-consistency">Open-to-close consistency</h2>
+<p>The mount does **not** stream byte-by-byte to S3. Instead:</p>
+<ol><li>`open(path, O_WRONLY)` — the helper allocates a scratch buffer.</li><li>`write(...)` — bytes accumulate in the scratch buffer; nothing hits S3 yet.</li><li>`close(...)` — the helper:</li></ol>
+<p>- Computes the SHA-256 of the buffer. - If the hash matches the current head version, **no new version is written** (idempotent dedup — `touch` and `echo &gt; same-content` are free). - Otherwise, PUT `/raw` to the daemon with `If-Match: &lt;expected-version&gt;` for optimistic concurrency. - On 409, the helper records a conflict in `&lt;mount&gt;/.agent-fs/conflicts.ndjson` and returns `EIO` to the caller.</p>
+<p>This means:</p>
+<ul><li>A line-buffered `echo &quot;x&quot; &gt; foo` produces **exactly one** version per `close()`.</li><li>Two concurrent writers produce **exactly one** new version + **exactly one** `conflicts.ndjson` record + **exactly one** `EIO` to the loser. No silent overwrites.</li><li>Programs that `fsync()` between writes still only get one version per `close()`. There&#39;s no per-byte commit.</li></ul>
+<h2 id="feedback-surfaces">Feedback surfaces</h2>
+<p>agent-fs exposes operational signal at well-known paths so agents can self-diagnose. All paths are *virtual* — they live inside the mount but are served by the helper, not S3.</p>
+<p>| Path | Contents | |---|---| | `&lt;mount&gt;/.agent-fs/conflicts.ndjson` | One JSON line per conflict: `{ ts, path, drive, op, head_version, your_version, outcome: &quot;rejected&quot; }` | | `&lt;mount&gt;/.agent-fs/conflicts.latest.json` | The most recent conflict record (for quick reads, no `tail -1` needed) | | `&lt;mount&gt;/.agent-fs/errors.ndjson` | One JSON line per error surfaced as `EIO`/`EACCES` to the caller: `{ ts, path, op, http_status, error }` | | `&lt;mount&gt;/.agent-fs/status` | Current daemon-link status: `{ daemon: &quot;ok&quot; \| &quot;down&quot; \| &quot;auth_error&quot;, last_seen, drive_count }` | | `~/.agent-fs/mount.log` | One line per FUSE callback (debug-only; rotated at 10 MB). Set via `--log-level=debug`. |</p>
+<p>**Recommended agent recipe**: after a write that returned non-zero, `cat &lt;mount&gt;/.agent-fs/status` first, then `tail -1 &lt;mount&gt;/.agent-fs/errors.ndjson` — the combination almost always explains the failure.</p>
+<h2 id="mount-layout">Mount layout</h2>
+<pre><code data-language="">/mnt/agent-fs/
+  current -&gt; ./personal         # symlink to your default drive
+  personal/                     # drive root (read-write for files; read-only for the directory itself)
+    docs/
+      readme.md
+    scratch.md
+  team-docs/                    # other drives you have access to
+    onboarding.md
+  .agent-fs/                    # operational surfaces (read-only)
+    conflicts.ndjson
+    conflicts.latest.json
+    errors.ndjson
+    status</code></pre>
+<ul><li>The **drive root** is read-only: `mkdir /mnt/agent-fs/new-drive` returns `EROFS`. Create drives via `agent-fs drive create` (CLI) and they&#39;ll show up automatically on next `readdir`.</li><li>The `current` symlink updates **dynamically** when you switch default drive (`agent-fs drive switch &lt;name&gt;`) — no remount needed.</li><li>POSIX locks (`flock`) return `ENOSYS` in v1; agents that rely on them must use the `expectedVersion` parameter on the CLI / MCP / HTTP surfaces for optimistic concurrency.</li></ul>
+<h2 id="what-you-can-and-can-t-do">What you can and can&#39;t do</h2>
+<p>| Op | Works? | Notes | |---|---|---| | `cat`, `head`, `tail`, `less` | Yes | Buffered read; daemon serves the head version | | `echo &gt;`, `cat &lt;&lt;&lt;`, `printf &gt;&gt;` | Yes | Open-to-close consistency; one version per `close()` | | `grep -r`, `rg`, `find` | Yes | Reads only | | `mv`, `rename` | Yes | One op per directory entry | | `rm`, `unlink` | Yes | Soft-deletes; previous versions stay accessible via `agent-fs log` | | `cp` (within mount) | Yes | Two ops: read + write | | `mkdir`, `rmdir` (inside a drive) | Yes | Versions still tracked per file | | `mkdir` at mount root | No (`EROFS`) | Use `agent-fs drive create` | | Writes on a drive where you&#39;re a `viewer` | No (`EACCES`) | All FUSE writes require the `editor` role or better — see below | | `chmod`, `chown` | No (`ENOSYS` / no-op) | agent-fs has no POSIX permissions model | | `flock`, `fcntl` locks | No (`ENOSYS`) | Use `--expected-version` for optimistic concurrency | | Streaming large files (&gt;50 MB) | Partial | The 50 MB Hono body limit caps a single PUT; streaming-into-S3 is v1.x | | Extended attributes (`xattr`) | No | Read-only xattr window is v1.1 (`user.agent-fs.{version, content-hash, ...}`) |</p>
+<h3 id="write-permissions">Write permissions</h3>
+<p>FUSE writes enforce the same RBAC as the JSON `write` op and `PUT /raw`: opening a file for write, creating a file, or truncating requires the **editor** role (or better) on the drive. On a drive where you&#39;re a `viewer`, the mount is effectively **read-only for file writes** — write attempts fail with `EACCES`, and the denial is recorded in `&lt;mount&gt;/.agent-fs/errors.ndjson` with `http_status: 403` and `error: &quot;PERMISSION_DENIED&quot;`. Reads (`cat`, `grep`, `find`, ...) work with any role.</p>
+<h2 id="see-also">See also</h2>
+<ul><li><a href="/docs/fuse-compat">`fuse-compat.md`</a> — sandbox compatibility matrix and runtime-specific incantations</li><li><a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a> — `EIO`, `Transport endpoint is not connected`, helper-not-found, etc.</li><li><a href="/docs/api-reference">`api-reference.md`</a> — CLI / MCP / HTTP surfaces, including the `expectedVersion` parameter</li><li>Implementation plan: <a href="../thoughts/taras/plans/2026-05-15-agent-fs-fuse-mount-v1.md">`thoughts/taras/plans/2026-05-15-agent-fs-fuse-mount-v1.md`</a></li></ul>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

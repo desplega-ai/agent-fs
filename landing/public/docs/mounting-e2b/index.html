@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mounting on E2B — agent-fs docs</title>
+    <meta name="description" content="Best-effort E2B sandbox template and mount flow." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/mounting-e2b" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b" aria-current="page">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/mounting/e2b.md</p>
+    <h1 id="mounting-agent-fs-on-e2b">Mounting agent-fs on E2B</h1>
+<blockquote><p>**Status**: untested. Best-effort instructions follow based on E2B&#39;s documented FUSE support. Please report results at &lt;https://github.com/desplega-ai/agent-fs/issues&gt;.</p></blockquote>
+<p>E2B sandboxes run on Firecracker microVMs whose kernel ships `CONFIG_FUSE_FS=y` — FUSE is a first-class capability. E2B&#39;s `connect-bucket` API uses FUSE (s3fs / gcsfuse / R2 helpers) under the hood, so the kernel-side plumbing is known to work. What we have **not** validated as of 2026-05-18 is `agent-fs mount` specifically running inside an E2B sandbox.</p>
+<blockquote><p>See <a href="/docs/mounting">`README.md`</a> for the general overview and architecture. See <a href="/docs/fuse-compat">`fuse-compat.md`</a> for the upstream compatibility note.</p></blockquote>
+<h2 id="expected-prerequisites">Expected prerequisites</h2>
+<p>E2B&#39;s default sandbox image (`base`) does **not** ship `fuse3`. You&#39;ll need a custom sandbox built from a Dockerfile that adds it.</p>
+<h3 id="dockerfile-snippet-best-effort">Dockerfile snippet (best-effort)</h3>
+<pre><code data-language="dockerfile">FROM e2bdev/code-interpreter:latest
+
+# fuse3 for agent-fs mount
+RUN apt-get update -qq \
+ &amp;&amp; apt-get install -y --no-install-recommends fuse3 ca-certificates curl \
+ &amp;&amp; rm -rf /var/lib/apt/lists/*
+
+# Bun (for `bun install -g @desplega.ai/agent-fs` — npm install -g aborts on stock Node 18.x)
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH=&quot;/root/.bun/bin:${PATH}&quot;
+
+# Pre-install agent-fs (so the FUSE sub-package is resolved at image build time)
+RUN bun install -g @desplega.ai/agent-fs
+
+# fuse.conf — only needed if you mount with --allow-other
+RUN echo user_allow_other &gt;&gt; /etc/fuse.conf
+
+# /etc/mtab → /proc/mounts symlink (E2B base may or may not have this)
+RUN [ -e /etc/mtab ] || ln -sf /proc/mounts /etc/mtab</code></pre>
+<p>Build with the E2B CLI:</p>
+<pre><code data-language="bash">e2b template build --name agent-fs-fuse --dockerfile e2b.Dockerfile</code></pre>
+<h2 id="expected-mount-flow">Expected mount flow</h2>
+<p>Inside the sandbox (Python SDK example — adapt to JS as needed):</p>
+<pre><code data-language="python">from e2b_code_interpreter import Sandbox
+
+sandbox = Sandbox(template=&quot;agent-fs-fuse&quot;)
+
+# Configure auth
+sandbox.commands.run(&quot;mkdir -p ~/.agent-fs&quot;)
+sandbox.files.write(&quot;~/.agent-fs/config.json&quot;, &quot;&quot;&quot;{
+  &quot;apiUrl&quot;: &quot;https://agent-fs-taras.fly.dev&quot;,
+  &quot;apiKey&quot;: &quot;&lt;YOUR_API_KEY&gt;&quot;
+}&quot;&quot;&quot;)
+
+# Mount
+sandbox.commands.run(&quot;mkdir -p ~/mnt&quot;)
+sandbox.commands.run(&quot;agent-fs mount ~/mnt --remote&quot;, background=True)
+
+# Use
+sandbox.commands.run(&quot;ls ~/mnt/current&quot;)
+sandbox.commands.run(&quot;echo &#39;hello from e2b&#39; &gt; ~/mnt/current/e2b-test.txt&quot;)</code></pre>
+<h2 id="what-might-still-go-wrong">What might still go wrong</h2>
+<p>E2B&#39;s runtime documentation states FUSE works, but there are degrees of &quot;works&quot;:</p>
+<p>| Risk | What to check | |---|---| | `/dev/fuse` not exposed to the sandbox user | `ls -l /dev/fuse` inside the sandbox. If missing or unreadable, the E2B template may need to be configured to expose it — open a ticket. | | `SYS_ADMIN` capability not granted | `agent-fs mount` will return `Operation not permitted`. E2B&#39;s stock template should have it; custom templates may strip it. | | `fusermount3` not on `PATH` | Confirm the Dockerfile snippet above installed `fuse3`. | | Sandbox lifecycle terminates the mount | Sandboxes can be paused/resumed. The mount may need to be re-established after resume. |</p>
+<h2 id="fallback-cli-http-without-mount">Fallback: CLI / HTTP without mount</h2>
+<p>If `agent-fs mount` doesn&#39;t work in your E2B sandbox, fall back to direct CLI / HTTP. All file operations are reachable without FUSE:</p>
+<pre><code data-language="bash">agent-fs ls /
+agent-fs cat /path/to/file
+echo &quot;...&quot; | agent-fs write /path/to/file --stdin</code></pre>
+<h2 id="help-us-validate-this">Help us validate this</h2>
+<p>If you successfully mount agent-fs in an E2B sandbox, please open a PR updating this doc with:</p>
+<ul><li>E2B SDK version</li><li>Sandbox template used (or full Dockerfile)</li><li>Any extra steps not listed here</li><li>A session log of `agent-fs mount ~/mnt --remote &amp;&amp; ls ~/mnt`</li></ul>
+<p>Report at &lt;https://github.com/desplega-ai/agent-fs/issues&gt;.</p>
+<h2 id="see-also">See also</h2>
+<ul><li><a href="/docs/mounting">`README.md`</a> — overview and shared prerequisites</li><li><a href="/docs/fuse-compat">`fuse-compat.md`</a> — E2B in the sandbox compatibility matrix</li><li><a href="/docs/fuse-troubleshooting">`fuse-troubleshooting.md`</a> — full error catalogue</li></ul>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

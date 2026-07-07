@@ -94,7 +94,9 @@ function slugify(value: string) {
 
 function stripMarkdown(value: string) {
   return value
-    .replace(/[`*_#>\[\]]/g, "")
+    .replaceAll("[", "")
+    .replaceAll("]", "")
+    .replace(/[`*_#>]/g, "")
     .replace(/\((https?:\/\/[^)]+)\)/g, "")
     .trim()
 }
@@ -463,14 +465,16 @@ function SearchModal({ open, onClose }: { open: boolean; onClose: () => void }) 
 
   useEffect(() => {
     if (open) {
-      setQuery("")
-      setSelected(0)
-      setTimeout(() => inputRef.current?.focus(), 10)
+      setTimeout(() => {
+        setQuery("")
+        setSelected(0)
+        inputRef.current?.focus()
+      }, 10)
     }
   }, [open])
 
   useEffect(() => {
-    setSelected(0)
+    queueMicrotask(() => setSelected(0))
   }, [query])
 
   useEffect(() => {

@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Reference — agent-fs docs</title>
+    <meta name="description" content="HTTP endpoints, auth, MCP transport, and operation dispatch." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/api-reference" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference" aria-current="page">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/api-reference.md</p>
+    <h1 id="api-reference">API Reference</h1>
+<p>agent-fs exposes a single HTTP API. All file operations go through one dispatch endpoint.</p>
+<h2 id="base-url">Base URL</h2>
+<pre><code data-language="">http://localhost:7433</code></pre>
+<h2 id="authentication">Authentication</h2>
+<p>All endpoints (except `/health` and `/auth/register`) require a Bearer token:</p>
+<pre><code data-language="">Authorization: Bearer &lt;api-key&gt;</code></pre>
+<p>Get an API key by registering:</p>
+<pre><code data-language="bash">curl -X POST http://localhost:7433/auth/register \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#39;{&quot;email&quot;: &quot;you@example.com&quot;}&#39;</code></pre>
+<h2 id="endpoints">Endpoints</h2>
+<h3 id="get-health">GET /health</h3>
+<p>Health check. No auth required.</p>
+<pre><code data-language="bash">curl http://localhost:7433/health
+# {&quot;ok&quot;:true,&quot;version&quot;:&quot;0.1.1&quot;}</code></pre>
+<h3 id="post-auth-register">POST /auth/register</h3>
+<p>Register a new user. Returns user ID, org ID, drive ID, and API key.</p>
+<pre><code data-language="bash">curl -X POST http://localhost:7433/auth/register \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#39;{&quot;email&quot;: &quot;agent@example.com&quot;}&#39;</code></pre>
+<h3 id="get-auth-me">GET /auth/me</h3>
+<p>Get current user info with default org/drive context.</p>
+<pre><code data-language="bash">curl http://localhost:7433/auth/me \
+  -H &quot;Authorization: Bearer &lt;api-key&gt;&quot;
+# {&quot;userId&quot;:&quot;...&quot;,&quot;email&quot;:&quot;...&quot;,&quot;defaultOrgId&quot;:&quot;...&quot;,&quot;defaultDriveId&quot;:&quot;...&quot;}</code></pre>
+<h3 id="all-mcp">ALL /mcp</h3>
+<p>MCP endpoint (Streamable HTTP transport). Accepts JSON-RPC requests from MCP clients. Stateless — each request creates a fresh MCP server instance.</p>
+<pre><code data-language="bash">curl -X POST http://localhost:7433/mcp \
+  -H &quot;Authorization: Bearer &lt;api-key&gt;&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -H &quot;Accept: application/json, text/event-stream&quot; \
+  -d &#39;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;method&quot;:&quot;initialize&quot;,&quot;params&quot;:{&quot;protocolVersion&quot;:&quot;2025-03-26&quot;,&quot;capabilities&quot;:{},&quot;clientInfo&quot;:{&quot;name&quot;:&quot;test&quot;,&quot;version&quot;:&quot;1.0&quot;}},&quot;id&quot;:1}&#39;</code></pre>
+<p>In practice, use `agent-fs mcp` (stdio proxy) rather than calling `/mcp` directly. The proxy handles the MCP lifecycle (initialize, tools/list, tool calls) automatically.</p>
+<h3 id="post-orgs-orgid-ops">POST /orgs/{orgId}/ops</h3>
+<p>Dispatch any file operation. The `op` field determines which operation runs.</p>
+<pre><code data-language="bash">curl -X POST http://localhost:7433/orgs/&lt;orgId&gt;/ops \
+  -H &quot;Authorization: Bearer &lt;api-key&gt;&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d &#39;{&quot;op&quot;: &quot;write&quot;, &quot;path&quot;: &quot;/hello.md&quot;, &quot;content&quot;: &quot;# Hello&quot;}&#39;</code></pre>
+<p>An optional `driveId` field targets a specific drive. The drive **must belong to `{orgId}`** — a `driveId` from another org returns `404 NOT_FOUND`, the same response as a nonexistent drive, so drive IDs cannot be probed across tenants. Each op requires a minimum drive role (see <a href="#access-control">Access control</a>).</p>
+<p>See the <a href="/docs/openapi.json">OpenAPI spec</a> for the full schema of each operation, or browse it interactively:</p>
+<ul><li>**Live endpoint**: `GET /docs/openapi.json` (when server is running)</li><li>**Static file**: <a href="/docs/openapi.json">`docs/openapi.json`</a> (committed to repo)</li></ul>
+<p>Import either into <a href="https://editor.swagger.io">Swagger Editor</a> or <a href="https://scalar.com">Scalar</a> for interactive exploration.</p>
+<h3 id="raw-file-bytes">Raw file bytes</h3>
+<p>Use the raw file route for binary-safe uploads and downloads:</p>
+<pre><code data-language="bash">curl -X PUT http://localhost:7433/orgs/&lt;orgId&gt;/drives/&lt;driveId&gt;/files/assets/logo.png/raw \
+  -H &quot;Authorization: Bearer &lt;api-key&gt;&quot; \
+  -H &quot;Content-Type: application/octet-stream&quot; \
+  --data-binary @logo.png
+
+curl http://localhost:7433/orgs/&lt;orgId&gt;/drives/&lt;driveId&gt;/files/assets/logo.png/raw \
+  -H &quot;Authorization: Bearer &lt;api-key&gt;&quot; \
+  -o logo.png</code></pre>
+<p>The raw route preserves bytes exactly. Text indexing runs only for valid, indexable UTF-8 payloads.</p>
+<p>`PUT /raw` requires the **editor** role (or better) on the target drive — viewers get `403 PERMISSION_DENIED`, matching the JSON `write` op. `GET /raw` is viewer-accessible. As with the ops route, the `driveId` in the path must belong to the `orgId` in the path; mismatches return `404`.</p>
+<h2 id="access-control">Access control</h2>
+<p>All routes authenticate via API key and authorize against explicit memberships:</p>
+<ul><li>**Strict drive membership** — a drive is only visible and accessible to users with an explicit drive membership row. Creating a drive grants the creator an admin membership automatically.</li><li>**Per-op role gates** — read ops (`ls`, `cat`, `search`, `signed-url`, ...) require `viewer`; write ops (`write`, `edit`, `append`, `rm`, `mv`, `cp`, `revert`, `comment-add`, ...) require `editor`; `reindex` requires `admin`.</li><li>**Member management is admin-only** — inviting, listing, updating, and removing org members requires org `admin`. Drive member routes require drive `admin` or admin of the owning org.</li><li>**No existence oracle** — requests that reference an org or drive you have no access to return `404`, identical to the response for IDs that don&#39;t exist.</li><li>**Scoped comment IDs** — comment IDs only resolve within the org/drive context they were created in; cross-tenant IDs return `404`.</li></ul>
+<h3 id="signed-urls-are-bearer-secrets">Signed URLs are bearer secrets</h3>
+<p>The `signed-url` op is viewer-accessible and RBAC is checked **only at generation time**. The returned URL is a presigned S3 URL: it requires no authentication and grants download access to **anyone who has it** until it expires (default 24h, max 7 days). Treat signed URLs like bearer tokens — don&#39;t log them, don&#39;t post them anywhere you wouldn&#39;t post a credential, and use the shortest expiry that works (`expiresIn`).</p>
+<h2 id="operations">Operations</h2>
+<p>All 26 operations are dispatched through `POST /orgs/{orgId}/ops`. Each expects `{&quot;op&quot;: &quot;&lt;name&gt;&quot;, ...params}`.</p>
+<p>| Category | Operations | |----------|-----------| | **Content** | `write`, `cat`, `edit`, `append`, `tail` | | **Navigation** | `ls`, `stat`, `tree`, `glob` | | **File Management** | `rm`, `mv`, `cp` | | **Version Control** | `log`, `diff`, `revert` | | **Search** | `grep`, `fts`, `search` | | **Maintenance** | `recent`, `reindex` | | **Comments** | `comment-add`, `comment-list`, `comment-get`, `comment-update`, `comment-delete`, `comment-resolve` |</p>
+<p>For parameter details, see the <a href="/docs/openapi.json">OpenAPI spec</a>.</p>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>

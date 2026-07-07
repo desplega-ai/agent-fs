@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FUSE Troubleshooting — agent-fs docs</title>
+    <meta name="description" content="Common mount errors, diagnosis order, and recovery commands." />
+    <link rel="canonical" href="https://agent-fs.dev/docs/fuse-troubleshooting" />
+    <style>
+      :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #09090b; color: #fafafa; }
+      body { margin: 0; }
+      a { color: #f5b942; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      header, footer { border-color: #27272a; }
+      header { border-bottom: 1px solid #27272a; padding: 16px 24px; }
+      header nav, footer nav { display: flex; flex-wrap: wrap; gap: 12px 18px; font-family: ui-monospace, monospace; font-size: 13px; }
+      main { display: grid; gap: 32px; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); max-width: 1180px; margin: 0 auto; padding: 48px 24px; }
+      aside { border-right: 1px solid #27272a; padding-right: 24px; }
+      aside h2 { color: #a1a1aa; font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      ul { padding-left: 20px; }
+      li { margin: 8px 0; }
+      article { max-width: 760px; }
+      h1 { font-size: clamp(36px, 6vw, 64px); line-height: .95; margin: 0 0 16px; }
+      h2 { margin-top: 40px; }
+      p, li { color: #d4d4d8; line-height: 1.75; }
+      pre { overflow-x: auto; border: 1px solid #27272a; border-radius: 8px; padding: 16px; background: #18181b; }
+      footer { border-top: 1px solid #27272a; padding: 24px; }
+      @media (max-width: 760px) { main { grid-template-columns: 1fr; } aside { border-right: 0; padding-right: 0; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <nav aria-label="Primary">
+        <a href="/">agent-fs</a>
+        <a href="/docs">Docs</a>
+        <a href="/docs/mcp-setup">MCP Setup</a>
+        <a href="/docs/api-reference">API Reference</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </header>
+    <main>
+  <aside><section><h2>Start</h2><ul><li><a href="/docs/mcp-setup">MCP Setup</a></li><li><a href="/docs/deployment">Deployment</a></li></ul></section><section><h2>Reference</h2><ul><li><a href="/docs/api-reference">API Reference</a></li><li><a href="/docs/sql">SQL Queries</a></li></ul></section><section><h2>Mounting</h2><ul><li><a href="/docs/fuse-mount">FUSE Mount</a></li><li><a href="/docs/fuse-compat">FUSE Compatibility</a></li><li><a href="/docs/fuse-troubleshooting" aria-current="page">FUSE Troubleshooting</a></li><li><a href="/docs/mounting">Mounting Overview</a></li><li><a href="/docs/mounting-sprite">Mounting on Sprite</a></li><li><a href="/docs/mounting-e2b">Mounting on E2B</a></li><li><a href="/docs/mounting-hetzner">Mounting on Hetzner</a></li></ul></section></aside>
+  <article>
+    <p>docs/fuse-troubleshooting.md</p>
+    <h1 id="agent-fs-fuse-troubleshooting">agent-fs FUSE Troubleshooting</h1>
+<p>This page maps the most common errors you&#39;ll see when running `agent-fs mount` to their root cause and fix.</p>
+<h2 id="input-output-error-eio">Input/output error (EIO)</h2>
+<p>**Symptom**: A write returns `cat: foo.md: Input/output error` or `close: EIO`.</p>
+<p>**Diagnosis order** (do these in sequence):</p>
+<ol><li>**Check daemon-link status**:</li></ol>
+<p>```bash cat /mnt/agent-fs/.agent-fs/status ``` Look for `daemon: &quot;down&quot;` or `daemon: &quot;auth_error&quot;`. If the daemon is down, restart it: ```bash agent-fs daemon start ``` The FUSE process stays alive across daemon restarts — you don&#39;t need to remount.</p>
+<ol><li>**Read the most recent error**:</li></ol>
+<p>```bash tail -1 /mnt/agent-fs/.agent-fs/errors.ndjson ``` This is a JSON object with `{ ts, path, op, http_status, error }`. The `http_status` tells you whether it was a 4xx (auth / validation), a 409 (conflict), or a 5xx (server / S3).</p>
+<ol><li>**For conflicts**, look at `conflicts.ndjson`:</li></ol>
+<p>```bash tail -1 /mnt/agent-fs/.agent-fs/conflicts.ndjson ``` `EIO` after a conflict is *expected* — exactly one of N concurrent writers gets it. The winner&#39;s bytes are on disk and a new version is recorded; the losers get `EIO`. Use `--expected-version` on the CLI for explicit OCC.</p>
+<ol><li>**For unexplained `EIO`**, check the mount log:</li></ol>
+<p>```bash tail -50 ~/.agent-fs/mount.log ``` The helper logs one line per FUSE callback. Look for the `op=` line that immediately precedes your error and the HTTP status it returned.</p>
+<h2 id="fusermount-mount-failed-operation-not-permitted">fusermount: mount failed: Operation not permitted</h2>
+<p>**Cause**: The container or sandbox lacks `SYS_ADMIN` and/or `/dev/fuse`.</p>
+<p>**Fix**: Add the capability and device flag (Docker example):</p>
+<pre><code data-language="bash">docker run \
+  --cap-add SYS_ADMIN \
+  --device /dev/fuse \
+  --security-opt apparmor=unconfined \
+  ...</code></pre>
+<p>See <a href="/docs/fuse-compat">`fuse-compat.md`</a> for per-runtime incantations. If you&#39;re in a sandbox that blocks FUSE entirely (gVisor / GitHub Codespaces hosted / Fly Machines / Modal), fall back to the CLI / MCP / HTTP API path — they always work.</p>
+<h2 id="transport-endpoint-is-not-connected">Transport endpoint is not connected</h2>
+<p>**Cause**: The daemon stopped (or crashed) while the mount was up. The kernel still has the FUSE FS in its mount table but there&#39;s nobody on the other end of the socket.</p>
+<p>**Fix**:</p>
+<ol><li>Restart the daemon:</li></ol>
+<p>```bash agent-fs daemon start ```</p>
+<ol><li>The mount usually auto-recovers on next operation. If not, unmount and remount:</li></ol>
+<p>```bash agent-fs umount /mnt/agent-fs agent-fs mount /mnt/agent-fs ```</p>
+<p>If `agent-fs umount` itself fails with &quot;transport endpoint is not connected&quot;, use the kernel-level escape hatch:</p>
+<pre><code data-language="bash">fusermount3 -u /mnt/agent-fs
+# or, as last resort:
+sudo umount -l /mnt/agent-fs   # lazy unmount</code></pre>
+<h2 id="agent-fs-fuse-command-not-found">agent-fs-fuse: command not found</h2>
+<p>**Cause**: The helper binary wasn&#39;t installed or isn&#39;t on `PATH`. The main npm package resolves it from `optionalDependencies` (per-platform sub-package); on non-Linux platforms it&#39;s intentionally absent.</p>
+<p>**Fix** (in order of preference):</p>
+<ol><li>**Confirm you&#39;re on Linux**: `uname -s` should say `Linux`. macOS / Windows have no FUSE helper in v1.</li></ol>
+<ol><li>**Reinstall the main package** so the right optional dependency is resolved. Prefer Bun&#39;s installer — `npm install -g` against stock Ubuntu/Debian Node 18.x aborts on a transitive dep&#39;s postinstall (`SyntaxError: Unexpected token &#39;with&#39;`) before the binary lands:</li></ol>
+<p>```bash bun install -g @desplega.ai/agent-fs # Check the sub-package landed: ls &quot;$(bun pm -g bin)/../install/global/node_modules/@desplega.ai/agent-fs-fuse-linux-&quot;*/bin/agent-fs-fuse ``` With npm (Node 20+ required): `ls $(npm root -g)/@desplega.ai/agent-fs-fuse-linux-*/bin/agent-fs-fuse`</p>
+<ol><li>**Use the `AGENT_FS_FUSE_BIN` env override** for local dev or unusual install layouts:</li></ol>
+<p>```bash export AGENT_FS_FUSE_BIN=&quot;$HOME/code/agent-fs/packages/fuse-helper/target/release/agent-fs-fuse&quot; agent-fs mount /mnt/agent-fs ```</p>
+<ol><li>**Check the SHA-256 manifest** if the binary exists but the daemon refuses to spawn it: a tampered binary will fail the integrity check. Reinstall the sub-package or contact us if you suspect a supply-chain issue.</li></ol>
+<h2 id="mount-succeeds-but-ls-mnt-agent-fs-is-empty">Mount succeeds but ls /mnt/agent-fs/ is empty</h2>
+<p>**Cause**: The API key the daemon is using has no drives accessible.</p>
+<p>**Fix**:</p>
+<pre><code data-language="bash">agent-fs auth whoami        # confirm you&#39;re logged in
+agent-fs drive list         # confirm you have at least one drive</code></pre>
+<p>If `drive list` is empty, you need to register/onboard:</p>
+<pre><code data-language="bash">agent-fs onboard -y</code></pre>
+<h2 id="erofs-read-only-file-system-when-creating-a-directory-at-the-mount-root">EROFS: Read-only file system when creating a directory at the mount root</h2>
+<p>**Expected.** The mount root is read-only. Drives are managed via the CLI:</p>
+<pre><code data-language="bash">agent-fs drive create new-drive
+ls /mnt/agent-fs/   # the new drive appears on next readdir</code></pre>
+<h2 id="function-not-implemented-from-flock-or-fcntl">Function not implemented from flock or fcntl</h2>
+<p>**Expected.** POSIX file locks are not implemented in v1 (`ENOSYS`). For optimistic concurrency, use `--expected-version` on the CLI:</p>
+<pre><code data-language="bash">agent-fs write config.json --content &#39;{}&#39; --expected-version 3</code></pre>
+<h2 id="mount-works-but-mv-across-drives-fails">Mount works, but mv across drives fails</h2>
+<p>**Expected.** `mv` across drives requires a server-side copy + delete (different S3 prefixes). In v1 the mount returns `EXDEV` for cross-drive renames, which is the standard POSIX signal for &quot;you need to fall back to `cp` + `rm`&quot;. Most `mv` implementations (GNU coreutils, busybox) handle `EXDEV` automatically by switching to copy mode.</p>
+<h2 id="performance-large-directory-listings-are-slow">Performance: large directory listings are slow</h2>
+<p>The mount caches `readdir` results for 30 seconds. A first-time `ls` on a directory with thousands of entries can take a few hundred ms while the helper fetches metadata. Subsequent `ls`es within the TTL are served from cache.</p>
+<p>If you need a faster first listing, use `agent-fs ls --json` directly — the CLI uses the same underlying op but skips the FUSE layer.</p>
+<h2 id="reporting-bugs">Reporting bugs</h2>
+<p>If you hit something not covered here, please include:</p>
+<ol><li>`agent-fs --version` (and the helper version: `agent-fs-fuse --version`)</li><li>Kernel + distro: `uname -a` and `cat /etc/os-release`</li><li>The container runtime + flags (the `docker run` line, the Pod spec, etc.)</li><li>`tail -200 ~/.agent-fs/mount.log` and `cat /mnt/agent-fs/.agent-fs/status`</li><li>The exact command that triggered the error and the full error text</li></ol>
+<p>Open an issue at &lt;https://github.com/desplega-ai/agent-fs&gt;.</p>
+<h2 id="see-also">See also</h2>
+<ul><li><a href="/docs/fuse-mount">`fuse-mount.md`</a> — how the mount works conceptually</li><li><a href="/docs/fuse-compat">`fuse-compat.md`</a> — sandbox compatibility per runtime</li></ul>
+  </article>
+</main>
+    <footer>
+      <nav aria-label="Footer">
+        <a href="/docs">Docs index</a>
+        <a href="/llms.txt">llms.txt</a>
+        <a href="https://github.com/desplega-ai/agent-fs">GitHub</a>
+      </nav>
+    </footer>
+  </body>
+</html>
