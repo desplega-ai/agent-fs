@@ -23,7 +23,7 @@ export function Navbar({ wide = false }: { wide?: boolean }) {
             href="/docs"
             className="font-mono text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
-            Docs
+            docs
           </a>
           <a
             href="https://www.npmjs.com/package/@desplega.ai/agent-fs"
