@@ -49,6 +49,25 @@ const server = Bun.serve({
 
 console.log(`agent-fs daemon running on http://${server.hostname}:${server.port}`);
 
+// Event-loop lag watchdog. A synchronous operation that blocks the loop
+// (the prod wedge: /health dead for minutes while the process sits at
+// ~7% CPU) delays this timer along with everything else — when the loop
+// finally unblocks, we log how long it was stalled so the incident can be
+// correlated with the request-log's unmatched `-->` lines. It cannot fire
+// DURING a permanent wedge; the request start-lines cover that case.
+let watchdogLast = performance.now();
+setInterval(() => {
+  const now = performance.now();
+  const stalledMs = now - watchdogLast - 1_000;
+  if (stalledMs > 5_000) {
+    console.error(
+      `event-loop was blocked for ~${(stalledMs / 1000).toFixed(1)}s ` +
+        `(rss=${Math.round(process.memoryUsage.rss() / 1024 / 1024)}MB)`,
+    );
+  }
+  watchdogLast = now;
+}, 1_000).unref();
+
 // Start the IPC listener on a Unix socket alongside the HTTP listener.
 // The FUSE helper connects here for length-prefixed-msgpack request /
 // response. Failures here don't take down the HTTP listener — we log and

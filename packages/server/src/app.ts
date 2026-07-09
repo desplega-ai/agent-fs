@@ -9,6 +9,7 @@ import type { AppEnv } from "./types.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { handleError } from "./middleware/error.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
+import { requestLogMiddleware } from "./middleware/request-log.js";
 import { authRoutes } from "./routes/auth.js";
 import { opsRoutes } from "./routes/ops.js";
 import { orgRoutes } from "./routes/orgs.js";
@@ -27,6 +28,7 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
     app.use("*", cors({ origin: origins }));
   }
 
+  app.use("*", requestLogMiddleware());
   app.use("*", bodyLimit({ maxSize: 50 * 1024 * 1024 }));
   app.use("*", authMiddleware(db));
 
