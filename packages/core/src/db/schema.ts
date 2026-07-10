@@ -2,6 +2,7 @@ import {
   sqliteTable,
   text,
   integer,
+  index,
   primaryKey,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
@@ -154,24 +155,36 @@ export const comments = sqliteTable("comments", {
 });
 
 // events (generic event/notification table)
-export const events = sqliteTable("events", {
-  id: text("id").primaryKey(),
-  orgId: text("org_id")
-    .notNull()
-    .references(() => orgs.id),
-  type: text("type").notNull(),
-  resourceType: text("resource_type").notNull(),
-  resourceId: text("resource_id").notNull(),
-  actor: text("actor")
-    .notNull()
-    .references(() => users.id),
-  target: text("target"),
-  status: text("status", { enum: ["created", "ack", "deleted"] })
-    .notNull()
-    .default("created"),
-  metadata: text("metadata"),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+export const events = sqliteTable(
+  "events",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id),
+    type: text("type").notNull(),
+    resourceType: text("resource_type").notNull(),
+    resourceId: text("resource_id").notNull(),
+    actor: text("actor")
+      .notNull()
+      .references(() => users.id),
+    target: text("target"),
+    status: text("status", { enum: ["created", "ack", "deleted"] })
+      .notNull()
+      .default("created"),
+    metadata: text("metadata"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => ({
+    notificationInboxIdx: index("idx_events_notification_inbox").on(
+      table.orgId,
+      table.type,
+      table.target,
+      table.status,
+      table.createdAt
+    ),
+  })
+);
 
 // content_chunks (for embedding)
 export const contentChunks = sqliteTable("content_chunks", {

@@ -1,4 +1,4 @@
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, ne } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type {
   OpContext,
@@ -45,6 +45,45 @@ function emitEvent(
       metadata: params.metadata ? JSON.stringify(params.metadata) : null,
       createdAt: new Date(),
     })
+    .run();
+}
+
+function emitCommentNotifications(
+  ctx: OpContext,
+  params: { commentId: string; path: string; parentId?: string; createdAt: Date }
+) {
+  const recipients = ctx.db
+    .select({ userId: schema.driveMembers.userId })
+    .from(schema.driveMembers)
+    .where(
+      and(
+        eq(schema.driveMembers.driveId, ctx.driveId),
+        ne(schema.driveMembers.userId, ctx.userId)
+      )
+    )
+    .all();
+
+  if (recipients.length === 0) return;
+
+  ctx.db
+    .insert(schema.events)
+    .values(
+      recipients.map(({ userId }) => ({
+        id: crypto.randomUUID(),
+        orgId: ctx.orgId,
+        type: "comment_notification",
+        resourceType: "comment",
+        resourceId: params.commentId,
+        actor: ctx.userId,
+        target: userId,
+        status: "created" as const,
+        metadata: JSON.stringify({
+          path: params.path,
+          parentId: params.parentId,
+        }),
+        createdAt: params.createdAt,
+      }))
+    )
     .run();
 }
 
@@ -170,6 +209,12 @@ export async function commentAdd(
     resourceType: "comment",
     resourceId: id,
     metadata: { path, parentId: params.parentId },
+  });
+  emitCommentNotifications(ctx, {
+    commentId: id,
+    path,
+    parentId: params.parentId,
+    createdAt: now,
   });
 
   return {

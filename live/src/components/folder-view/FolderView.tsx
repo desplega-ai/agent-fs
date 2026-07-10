@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { ListView } from "./ListView"
 import { GridView } from "./GridView"
 import { ViewModeToggle, useFolderViewMode } from "./ViewModeToggle"
+import { RecentActivity } from "./RecentActivity"
 import type { LsEntry, LsResult } from "@/api/types"
 
 interface FolderViewProps {
@@ -89,6 +90,8 @@ export function FolderView({ path }: FolderViewProps) {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-3">
+        {currentPath === "" && <RecentActivity />}
+
         {isLoading ? (
           <div className="flex h-full items-center justify-center">
             <Spinner />
@@ -110,19 +113,33 @@ export function FolderView({ path }: FolderViewProps) {
             </div>
           </div>
         ) : mode === "grid" ? (
-          <GridView
-            entries={sorted}
-            currentPath={currentPath}
-            onEntryClick={handleEntryClick}
-          />
+          <>
+            {currentPath === "" && <AllFilesHeading />}
+            <GridView
+              entries={sorted}
+              currentPath={currentPath}
+              onEntryClick={handleEntryClick}
+            />
+          </>
         ) : (
-          <ListView
-            entries={sorted}
-            currentPath={currentPath}
-            onEntryClick={handleEntryClick}
-          />
+          <>
+            {currentPath === "" && <AllFilesHeading />}
+            <ListView
+              entries={sorted}
+              currentPath={currentPath}
+              onEntryClick={handleEntryClick}
+            />
+          </>
         )}
       </div>
     </div>
+  )
+}
+
+function AllFilesHeading() {
+  return (
+    <h2 className="px-3 py-1 text-xs font-medium text-muted-foreground">
+      All files
+    </h2>
   )
 }

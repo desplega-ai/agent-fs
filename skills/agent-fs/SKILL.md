@@ -182,6 +182,8 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 | `comment update` | `agent-fs comment update <id> --body <text>` | Update a comment (author only) |
 | `comment delete` | `agent-fs comment delete <id>` | Soft-delete a comment (author only) |
 | `comment resolve` | `agent-fs comment resolve <id>` | Resolve a comment |
+| `comment notifications` | `agent-fs comment notifications [--unread] [--limit <n>]` | List comment notifications for the current user in the active drive |
+| `comment read` | `agent-fs comment read [ids...] [--all]` | Mark selected notification event IDs, or all active-drive notifications, as read |
 
 ### Setup & Auth
 
@@ -320,6 +322,15 @@ agent-fs comment reply <comment-id> --body "Added in v3"
 
 # List comments
 agent-fs comment list docs/spec.md
+
+# Check unread notifications (the returned IDs are notification event IDs)
+agent-fs comment notifications --unread --limit 20
+
+# Mark selected notifications as read
+agent-fs comment read <notification-id> [<notification-id>...]
+
+# Or acknowledge every notification in the active drive
+agent-fs comment read --all
 
 # Resolve a comment
 agent-fs comment resolve <comment-id>

@@ -39,6 +39,8 @@ const OP_ROLES: Record<string, Role> = {
   "comment-add": "editor",
   "comment-list": "viewer",
   "comment-get": "viewer",
+  "comment-notification-list": "viewer",
+  "comment-notification-read": "viewer",
   "comment-update": "editor",
   "comment-delete": "editor",
   "comment-resolve": "editor",

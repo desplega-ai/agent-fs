@@ -1,15 +1,25 @@
-import { useCallback, useRef } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useCallback, useEffect, useRef } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { FolderOpen, SearchX } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
+import { useBrowser } from "@/contexts/browser"
 import { FileTreeNode } from "./FileTreeNode"
 import { treeExpansionStore, useFocusedPath } from "@/stores/tree-expansion"
 import { useFileSearch } from "@/stores/file-search"
 import { useSearchInput } from "@/contexts/search-input"
 import type { LsResult } from "@/api/types"
 
+const REVEAL_TIMEOUT_MS = 15_000
+
+function ancestorPaths(path: string): string[] {
+  const parts = path.split("/").filter(Boolean)
+  return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"))
+}
+
 export function FileTree() {
   const { client, orgId, driveId } = useAuth()
+  const { selectedFile } = useBrowser()
+  const queryClient = useQueryClient()
   const containerRef = useRef<HTMLDivElement>(null)
   const focusedPath = useFocusedPath()
   const filter = useFileSearch()
@@ -20,6 +30,60 @@ export function FileTree() {
     queryFn: () => client.callOp<LsResult>(orgId!, "ls", {}, driveId),
     enabled: !!orgId && !!driveId,
   })
+  const treeReady = !!data
+
+  useEffect(() => {
+    const path = selectedFile?.replace(/^\/+/, "")
+    if (!path || path.endsWith("/") || !treeReady) return
+
+    const ancestors = ancestorPaths(path)
+    treeExpansionStore.expandMany(ancestors)
+
+    // The file may have been created by another client after an ls result was
+    // cached. Refresh only the listings needed to reveal this path; invalidating
+    // every expanded tree node would turn one selection into an unbounded fanout.
+    for (const listingPath of ["", ...ancestors]) {
+      void queryClient.invalidateQueries({
+        queryKey: ["ls", orgId, driveId, listingPath],
+        exact: true,
+      })
+    }
+
+    const container = containerRef.current
+    if (!container) return
+
+    const revealSelectedRow = () => {
+      const row = Array.from(
+        container.querySelectorAll<HTMLButtonElement>("[data-tree-path]"),
+      ).find((candidate) => candidate.dataset.treePath === path)
+
+      if (!row) return false
+
+      // Update the roving tab stop without moving DOM focus away from the
+      // viewer, editor, or search input that the user is currently using.
+      treeExpansionStore.setFocusedPath(path)
+      row.scrollIntoView({ block: "center", inline: "nearest" })
+      return true
+    }
+
+    if (revealSelectedRow()) return
+
+    // Child directories load lazily. Watch this tree until the selected row
+    // materializes, then disconnect immediately.
+    const observer = new MutationObserver(() => {
+      if (!revealSelectedRow()) return
+      observer.disconnect()
+      window.clearTimeout(timeoutId)
+    })
+    observer.observe(container, { childList: true, subtree: true })
+
+    const timeoutId = window.setTimeout(() => observer.disconnect(), REVEAL_TIMEOUT_MS)
+
+    return () => {
+      observer.disconnect()
+      window.clearTimeout(timeoutId)
+    }
+  }, [driveId, orgId, queryClient, selectedFile, treeReady])
 
   /** Collect all visible row paths in DOM order. */
   const collectVisible = useCallback((): {
@@ -170,7 +234,10 @@ export function FileTree() {
   })
 
   const noFilterMatches =
-    filter.status === "loaded" && filter.query.length > 0 && filter.matchedPaths.length === 0
+    filter.status === "loaded" &&
+    filter.query.length > 0 &&
+    filter.matchedPaths.length === 0 &&
+    !selectedFile
 
   return (
     <div

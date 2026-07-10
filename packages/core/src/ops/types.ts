@@ -310,6 +310,40 @@ export interface CommentResolveResult {
   resolvedAt?: Date;
 }
 
+export interface CommentNotificationListParams {
+  unreadOnly?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface CommentNotificationEntry {
+  /** Notification event ID. */
+  id: string;
+  commentId: string;
+  parentId?: string;
+  path: string;
+  body: string;
+  actor: string;
+  createdAt: Date;
+  read: boolean;
+}
+
+export interface CommentNotificationListResult {
+  notifications: CommentNotificationEntry[];
+  unreadCount: number;
+}
+
+export interface CommentNotificationReadParams {
+  /** Mark only these notification event IDs as read. */
+  ids?: string[];
+  /** Mark every unread comment notification in the active drive as read. */
+  all?: boolean;
+}
+
+export interface CommentNotificationReadResult {
+  markedRead: number;
+}
+
 // --- Tree types ---
 
 export interface TreeParams {
