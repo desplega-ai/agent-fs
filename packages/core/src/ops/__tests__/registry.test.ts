@@ -7,11 +7,12 @@ describe("Op Registry", () => {
     "tail", "log", "diff", "revert", "recent",
     "grep", "fts", "search", "vec-search", "reindex", "tree", "glob", "sql", "signed-url",
     "comment-add", "comment-list", "comment-get", "comment-update", "comment-delete", "comment-resolve",
+    "comment-notification-list", "comment-notification-read",
   ];
 
-  test("getRegisteredOps returns all 29 ops", () => {
+  test("getRegisteredOps returns all 31 ops", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(29);
+    expect(ops.length).toBe(31);
     for (const op of expectedOps) {
       expect(ops).toContain(op);
     }

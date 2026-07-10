@@ -59,7 +59,13 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
   // to the store so re-renders fire on every keystroke.
   const filter = useFileSearch()
   const filterActive = filter.query.length > 0
-  const visible = isPathVisible(fullPath)
+  // Keep the selected file and its ancestor chain visible even when an old
+  // in-tree search is still active (for example after opening a notification).
+  // This preserves the promise that every file open reveals itself in Tree.
+  const selectedPath = selectedFile?.replace(/^\/+|\/+$/g, "") ?? null
+  const isOnSelectedPath =
+    selectedPath === fullPath || selectedPath?.startsWith(`${fullPath}/`) === true
+  const visible = isPathVisible(fullPath) || isOnSelectedPath
   const expandedByFilter = filterActive && isDir && hasMatchingDescendant(fullPath)
   const expanded = userExpanded || expandedByFilter
   const focusedPath = useFocusedPath()

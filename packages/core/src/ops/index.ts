@@ -33,6 +33,10 @@ import {
   commentDelete,
   commentResolve,
 } from "./comment.js";
+import {
+  commentNotificationList,
+  commentNotificationRead,
+} from "./comment-notification.js";
 
 export interface OpDefinition {
   description: string;
@@ -299,6 +303,23 @@ const opRegistry: Record<string, OpDefinition> = {
       resolved: z.boolean(),
     }),
   },
+  "comment-notification-list": {
+    description: "List comment notifications for the current user in the active drive. Returns { notifications, unreadCount }.",
+    handler: commentNotificationList,
+    schema: z.object({
+      unreadOnly: z.boolean().optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+      offset: z.number().int().min(0).optional(),
+    }),
+  },
+  "comment-notification-read": {
+    description: "Mark selected comment notification IDs, or all comment notifications in the active drive, as read. Returns { markedRead }.",
+    handler: commentNotificationRead,
+    schema: z.object({
+      ids: z.array(z.string()).min(1).max(100).optional(),
+      all: z.literal(true).optional(),
+    }),
+  },
 };
 
 export async function dispatchOp(
@@ -346,5 +367,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve };
+export { write, writeRaw, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead };
 export type * from "./types.js";

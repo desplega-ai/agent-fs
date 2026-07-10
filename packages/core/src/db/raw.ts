@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_resource ON events(resource_type, resource_id);
 CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
+CREATE INDEX IF NOT EXISTS idx_events_notification_inbox
+  ON events(org_id, type, target, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

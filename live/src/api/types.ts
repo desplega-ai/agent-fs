@@ -147,6 +147,26 @@ export interface CommentResolveResult {
   resolvedAt?: string
 }
 
+export interface CommentNotificationEntry {
+  id: string
+  commentId: string
+  parentId?: string
+  path: string
+  body: string
+  actor: string
+  createdAt: string
+  read: boolean
+}
+
+export interface CommentNotificationListResult {
+  notifications: CommentNotificationEntry[]
+  unreadCount: number
+}
+
+export interface CommentNotificationReadResult {
+  markedRead: number
+}
+
 // FTS types (from core/ops/fts.ts)
 
 export interface FtsOpMatch {

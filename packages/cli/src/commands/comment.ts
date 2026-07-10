@@ -1,12 +1,18 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
 
-export function commentCommands(client: ApiClient, getOrgId: () => string | Promise<string>) {
+export function commentCommands(
+  client: ApiClient,
+  getOrgId: () => string | Promise<string>,
+  getDriveId: (orgId?: string) => string | Promise<string>
+) {
   const cmd = new Command("comment").description("Document comments");
 
   async function callOp(opName: string, params: Record<string, any>) {
     try {
-      return await client.callOp(await getOrgId(), opName, params);
+      const orgId = await getOrgId();
+      const driveId = await getDriveId(orgId);
+      return await client.callOp(orgId, opName, { ...params, driveId });
     } catch (err: any) {
       if (err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed")) {
         console.error(
@@ -151,6 +157,59 @@ export function commentCommands(client: ApiClient, getOrgId: () => string | Prom
     .action(async (id: string) => {
       try {
         const result = await callOp("comment-resolve", { id, resolved: false });
+        console.log(JSON.stringify(result, null, 2));
+      } catch (err: any) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+    });
+
+  cmd
+    .command("notifications")
+    .option("--unread", "Show unread notifications only")
+    .option("--limit <n>", "Max results (1-100)")
+    .description("List comment notifications for the current user")
+    .action(async (opts: any) => {
+      try {
+        const params: Record<string, any> = {};
+        if (opts.unread) params.unreadOnly = true;
+        if (opts.limit !== undefined) {
+          const limit = Number(opts.limit);
+          if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+            throw new Error("--limit must be an integer between 1 and 100");
+          }
+          params.limit = limit;
+        }
+        const result = await callOp("comment-notification-list", params);
+        console.log(JSON.stringify(result, null, 2));
+      } catch (err: any) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+    });
+
+  cmd
+    .command("read")
+    .argument("[ids...]", "Notification event IDs")
+    .option("--all", "Mark all notifications in the active drive as read")
+    .description("Mark comment notifications as read")
+    .action(async (ids: string[] | undefined, opts: any) => {
+      try {
+        const notificationIds = ids ?? [];
+        if (opts.all && notificationIds.length > 0) {
+          throw new Error("Provide notification IDs or --all, not both");
+        }
+        if (!opts.all && notificationIds.length === 0) {
+          throw new Error("Provide one or more notification IDs or --all");
+        }
+        if (notificationIds.length > 100) {
+          throw new Error("At most 100 notification IDs can be marked read at once");
+        }
+
+        const params = opts.all
+          ? { all: true }
+          : { ids: notificationIds };
+        const result = await callOp("comment-notification-read", params);
         console.log(JSON.stringify(result, null, 2));
       } catch (err: any) {
         console.error(`Error: ${err.message}`);

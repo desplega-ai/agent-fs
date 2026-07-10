@@ -4,6 +4,7 @@ import { DriveSwitcher } from "./DriveSwitcher"
 import { HealthIndicator } from "./HealthIndicator"
 import { ThemeToggle } from "./ThemeToggle"
 import { AccountSwitcher } from "@/components/AccountSwitcher"
+import { CommentNotifications } from "@/components/comments/CommentNotifications"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import {
@@ -24,6 +25,7 @@ export function TopBar({ leading }: { leading?: React.ReactNode }) {
       </div>
       <div className="flex-1" />
       <div className="flex items-center gap-1 shrink-0">
+        <CommentNotifications />
         <HealthIndicator />
         <HelpButton />
         <ThemeToggle />

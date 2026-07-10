@@ -1783,6 +1783,8 @@ async function runStandardTests(daemonUrl: string) {
   });
 
   let user3ApiKey = "";
+  let user3PersonalOrgId = "";
+  let user3PersonalDriveId = "";
   await test("rbac: register third user", async () => {
     const res = await fetch(`${daemonUrl}/auth/register`, {
       method: "POST",
@@ -1792,7 +1794,17 @@ async function runStandardTests(daemonUrl: string) {
     assert(res.ok, true, `Expected 200, got ${res.status}`);
     const data = await res.json() as any;
     user3ApiKey = data.apiKey;
+    user3PersonalOrgId = data.orgId;
     assert(!!user3ApiKey, true, "Expected API key for user3");
+    assert(!!user3PersonalOrgId, true, "Expected personal org ID for user3");
+
+    const drivesRes = await fetch(`${daemonUrl}/orgs/${user3PersonalOrgId}/drives`, {
+      headers: authed(user3ApiKey),
+    });
+    assert(drivesRes.ok, true, `Expected 200, got ${drivesRes.status}`);
+    const drives = ((await drivesRes.json()) as any).drives;
+    user3PersonalDriveId = drives[0]?.id;
+    assert(!!user3PersonalDriveId, true, "Expected personal drive ID for user3");
   });
 
   await test("rbac: invite user3 to second org as viewer", async () => {
@@ -1937,6 +1949,122 @@ async function runStandardTests(daemonUrl: string) {
     });
     assert(res.status, 403, `Expected 403, got ${res.status}`);
     assert(((await res.json()) as any).error, "PERMISSION_DENIED");
+  });
+
+  await test("rbac: comment notifications are target and drive scoped", async () => {
+    const addRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({
+        op: "comment-add",
+        driveId: secondDriveId,
+        path: "/rbac-probe.txt",
+        body: "notification scope probe",
+      }),
+    });
+    assert(addRes.ok, true, `comment-add failed: ${addRes.status}`);
+    const commentId = ((await addRes.json()) as any).id;
+    assert(!!commentId, true, "Expected comment ID");
+
+    const user3ListRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({
+        op: "comment-notification-list",
+        driveId: secondDriveId,
+        unreadOnly: true,
+      }),
+    });
+    assert(user3ListRes.ok, true, `notification list failed: ${user3ListRes.status}`);
+    const user3List = await user3ListRes.json() as any;
+    const notification = user3List.notifications.find((entry: any) => entry.commentId === commentId);
+    assert(!!notification, true, "Expected user3 to receive the comment notification");
+    assert(notification.read, false, "Expected notification to be unread");
+    assert(user3List.unreadCount >= 1, true, "Expected a positive unread count");
+
+    const actorListRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({
+        op: "comment-notification-list",
+        driveId: secondDriveId,
+        unreadOnly: true,
+      }),
+    });
+    assert(actorListRes.ok, true, `actor notification list failed: ${actorListRes.status}`);
+    const actorList = await actorListRes.json() as any;
+    assert(
+      actorList.notifications.some((entry: any) => entry.commentId === commentId),
+      false,
+      "Expected comment author to receive no self-notification",
+    );
+
+    const crossUserReadRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(apiKey),
+      body: JSON.stringify({
+        op: "comment-notification-read",
+        driveId: secondDriveId,
+        ids: [notification.id],
+      }),
+    });
+    assert(crossUserReadRes.ok, true, `cross-user read failed: ${crossUserReadRes.status}`);
+    assert(((await crossUserReadRes.json()) as any).markedRead, 0);
+
+    const crossDriveReadRes = await fetch(`${daemonUrl}/orgs/${user3PersonalOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({
+        op: "comment-notification-read",
+        driveId: user3PersonalDriveId,
+        ids: [notification.id],
+      }),
+    });
+    assert(crossDriveReadRes.ok, true, `cross-drive read failed: ${crossDriveReadRes.status}`);
+    assert(((await crossDriveReadRes.json()) as any).markedRead, 0);
+
+    const stillUnreadRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({
+        op: "comment-notification-list",
+        driveId: secondDriveId,
+        unreadOnly: true,
+      }),
+    });
+    assert(stillUnreadRes.ok, true, `notification list failed: ${stillUnreadRes.status}`);
+    const stillUnread = await stillUnreadRes.json() as any;
+    assert(
+      stillUnread.notifications.some((entry: any) => entry.id === notification.id),
+      true,
+      "Expected scoped-out reads to leave the notification unread",
+    );
+
+    const readRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({
+        op: "comment-notification-read",
+        driveId: secondDriveId,
+        ids: [notification.id],
+      }),
+    });
+    assert(readRes.ok, true, `notification read failed: ${readRes.status}`);
+    assert(((await readRes.json()) as any).markedRead, 1);
+
+    const afterReadRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({
+        op: "comment-notification-list",
+        driveId: secondDriveId,
+      }),
+    });
+    assert(afterReadRes.ok, true, `notification list failed: ${afterReadRes.status}`);
+    const afterRead = await afterReadRes.json() as any;
+    const readNotification = afterRead.notifications.find((entry: any) => entry.id === notification.id);
+    assert(!!readNotification, true, "Expected acknowledged notification in the full list");
+    assert(readNotification.read, true, "Expected notification to be marked read");
   });
 
   await test("rbac: comment IDs are org/drive scoped (cross-tenant 404)", async () => {

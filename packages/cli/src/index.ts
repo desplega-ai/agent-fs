@@ -86,7 +86,7 @@ program.addCommand(driveCommands(client, getOrgId));
 program.addCommand(orgCommands(client));
 program.addCommand(initCommand());
 program.addCommand(onboardCommand());
-program.addCommand(commentCommands(client, getOrgId));
+program.addCommand(commentCommands(client, getOrgId, getDriveId));
 program.addCommand(memberCommands(client, getOrgId));
 program.addCommand(mountCommand());
 program.addCommand(umountCommand());

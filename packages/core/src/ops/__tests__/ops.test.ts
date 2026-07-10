@@ -328,7 +328,7 @@ describe.skipIf(SKIP)("recent", () => {
 describe.skipIf(SKIP)("op registry", () => {
   test("all ops are registered", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(29);
+    expect(ops.length).toBe(31);
     expect(ops).toContain("write");
     expect(ops).toContain("cat");
     expect(ops).toContain("edit");
@@ -338,6 +338,8 @@ describe.skipIf(SKIP)("op registry", () => {
     expect(ops).toContain("search");
     expect(ops).toContain("reindex");
     expect(ops).toContain("tree");
+    expect(ops).toContain("comment-notification-list");
+    expect(ops).toContain("comment-notification-read");
     expect(ops).toContain("glob");
     expect(ops).toContain("sql");
   });

@@ -59,6 +59,26 @@ class TreeExpansionStore {
     this.emit()
   }
 
+  expandMany(paths: Iterable<string>) {
+    let changed = false
+
+    for (const path of paths) {
+      if (!path || this.paths.has(path)) continue
+      this.paths.add(path)
+      this.order.push(path)
+      changed = true
+    }
+
+    if (!changed) return
+
+    while (this.order.length > MAX_PATHS) {
+      const evict = this.order.shift()!
+      this.paths.delete(evict)
+    }
+    this.persist()
+    this.emit()
+  }
+
   collapse(path: string) {
     if (!this.paths.has(path)) return
     this.paths.delete(path)
@@ -143,6 +163,7 @@ export const treeExpansionStore = {
   isExpanded: (path: string) => store.isExpanded(path),
   toggle: (path: string) => store.toggle(path),
   expand: (path: string) => store.expand(path),
+  expandMany: (paths: Iterable<string>) => store.expandMany(paths),
   collapse: (path: string) => store.collapse(path),
   getFocusedPath: () => store.getFocusedPath(),
   setFocusedPath: (path: string | null) => store.setFocusedPath(path),
