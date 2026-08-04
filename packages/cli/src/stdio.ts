@@ -15,8 +15,12 @@ import { writeSync } from "node:fs";
  * to a file — always a synchronous write — returned the full byte count
  * every time. A raw `writeSync` retry loop on the fd bypasses the async
  * stream path entirely and blocks until every byte is on the pipe.
+ *
+ * Exported (in addition to being used internally by `stdio`) so unit tests
+ * can verify byte-exactness directly against a real fd (e.g. a temp file)
+ * without touching the process's actual stdout/stderr.
  */
-function writeAllSync(fd: number, data: string): void {
+export function writeAllSync(fd: number, data: string): void {
   if (data.length === 0) return;
   const buf = Buffer.from(data, "utf-8");
   let offset = 0;
@@ -38,5 +42,13 @@ export const stdio = {
   },
   writeStderr(data: string): void {
     writeAllSync(2, data.endsWith("\n") ? data : data + "\n");
+  },
+  // For raw/programmatic consumers (`cat --raw`, non-TTY `cat`): the stored
+  // bytes, exactly as stored — no synthesized trailing newline, so `wc -c`
+  // and hashes over the piped output match `stat.size` exactly (see PR #27
+  // review: writeStdout's newline synthesis made an empty file emit "\n"
+  // and a file with no trailing newline emit one extra byte).
+  writeStdoutRaw(data: string): void {
+    writeAllSync(1, data);
   },
 };

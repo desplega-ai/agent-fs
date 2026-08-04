@@ -976,6 +976,67 @@ async function runStandardTests(daemonUrl: string) {
     }
   });
 
+  // -- cat --raw EOF-exactness regression (PR #27 review) --
+  //
+  // `stdio.writeStdout` (used for human/log output) synthesizes a trailing
+  // "\n" when absent. The raw/non-TTY cat path must NOT do that — it needs
+  // to emit exactly the stored bytes, or `wc -c`/hashes over a piped read
+  // diverge from `stat.size` for files with no trailing newline or empty
+  // files. `run()`/`runJson()` `.trim()` their output, so these use raw
+  // `execSync` + `wc -c` (same pattern as the 64KB test above) to assert
+  // real byte counts.
+
+  await test("cat --raw: a file with no trailing newline is byte-exact (no newline synthesized)", () => {
+    const fixDir = mkdtempSync(join(tmpdir(), "agent-fs-e2e-cat-noeol-"));
+    const localPath = join(fixDir, "noeol.txt");
+    const content = "no-trailing-newline-here";
+    writeFileSync(localPath, content);
+    runJson(`write /cat-regress/noeol.txt --file ${localPath}`);
+
+    const stat = runJson("stat /cat-regress/noeol.txt");
+    assert(stat.size, Buffer.byteLength(content, "utf-8"), "Fixture size mismatch");
+
+    const byteCount = parseInt(
+      execSync(`${cmd} cat /cat-regress/noeol.txt --raw | wc -c`, {
+        encoding: "utf-8",
+        shell: "/bin/bash",
+        env: {
+          ...testEnv(),
+          AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`,
+          AGENT_FS_API_KEY: apiKey,
+        },
+        timeout: 30_000,
+      }).trim(),
+      10,
+    );
+    assert(byteCount, stat.size, `Expected ${stat.size} bytes with no synthesized newline, got ${byteCount}`);
+  });
+
+  await test("cat --raw: an empty file emits 0 bytes, not a synthesized newline", () => {
+    const fixDir = mkdtempSync(join(tmpdir(), "agent-fs-e2e-cat-empty-"));
+    const localPath = join(fixDir, "empty.txt");
+    writeFileSync(localPath, "");
+    runJson(`write /cat-regress/empty.txt --file ${localPath}`);
+
+    const stat = runJson("stat /cat-regress/empty.txt");
+    assert(stat.size, 0, "Fixture should be 0 bytes");
+
+    const byteCount = parseInt(
+      execSync(`${cmd} cat /cat-regress/empty.txt --raw | wc -c`, {
+        encoding: "utf-8",
+        shell: "/bin/bash",
+        env: {
+          ...testEnv(),
+          AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`,
+          AGENT_FS_API_KEY: apiKey,
+        },
+        timeout: 30_000,
+      }).trim(),
+      10,
+    );
+    assert(byteCount, 0, `Expected 0 bytes for an empty file, got ${byteCount}`);
+  });
+
   // -- ls --
 
   await test("ls", () => {

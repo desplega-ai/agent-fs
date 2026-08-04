@@ -214,8 +214,10 @@ export function registerOpCommands(
         }
 
         if (def.name === "cat" && !program.opts().json && (catRaw || !catStdoutIsTty)) {
-          // Raw / non-TTY reads: exact stored bytes, no line-number gutter.
-          stdio.writeStdout(result.content ?? "");
+          // Raw / non-TTY reads: exact stored bytes, no line-number gutter,
+          // and no synthesized trailing newline (writeStdoutRaw preserves
+          // EOF exactly as stored — see PR #27 review).
+          stdio.writeStdoutRaw(result.content ?? "");
         } else {
           outputResult(def.name, result, program.opts().json);
         }
