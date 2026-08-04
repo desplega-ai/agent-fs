@@ -4,6 +4,7 @@
  *
  * Usage:
  *   bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"
+ *   bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only
  *   bun run scripts/e2e.ts "./packages/cli/dist/cli.js"
  *   bun run scripts/e2e.ts "agent-fs"
  */
@@ -22,12 +23,16 @@ const positional = rawArgs.filter((a) => !a.startsWith("--"));
 const flags = new Set(rawArgs.filter((a) => a.startsWith("--")));
 const cmd = positional[0];
 if (!cmd) {
-  console.error("Usage: bun run scripts/e2e.ts <cli-command> [--fuse-only]");
+  console.error("Usage: bun run scripts/e2e.ts <cli-command> [--fuse-only] [--local-only]");
   console.error('  e.g. bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"');
   process.exit(1);
 }
 
 const fuseOnly = flags.has("--fuse-only");
+// Run the CLI/API/MCP suite against the local filesystem adapter without
+// Docker, MinIO, or credentials. MinIO presigned-URL and FUSE-specific cases
+// are reported as explicit skips; the existing default mode still covers them.
+const localOnly = flags.has("--local-only");
 // Whether to attempt FUSE tests via a sibling Docker container with FUSE caps.
 // Auto-enabled on Linux, opt-in on Darwin via AGENT_FS_USE_DOCKER_FUSE=1.
 // Set AGENT_FS_USE_DOCKER_FUSE=0 to force-skip everywhere.
@@ -43,6 +48,7 @@ const containerName = `agent-fs-e2e-${process.pid}-${Date.now()}`;
 const fuseContainerName = `${containerName}-fuse`;
 const fuseImageTag = "agent-fs-e2e-fuse:local";
 const testDir = join(tmpdir(), containerName);
+const primaryStorageRoot = join(testDir, "storage");
 let minioPort = "";
 let daemonPort = 0;
 let apiKey = "";
@@ -79,24 +85,46 @@ function findFreePort(): Promise<number> {
   });
 }
 
-/** Env object that forces the daemon/CLI to use the test MinIO, not .env values. */
-const testEnv = () => ({
-  ...process.env,
-  AGENT_FS_HOME: testDir,
-  // Override S3 env vars to ensure daemon uses test MinIO, not .env values
-  S3_ENDPOINT: `http://localhost:${minioPort}`,
-  S3_BUCKET: "agentfs",
-  S3_ACCESS_KEY_ID: "minioadmin",
-  S3_SECRET_ACCESS_KEY: "minioadmin",
-  S3_REGION: "us-east-1",
-  S3_PROVIDER: "minio",
-  // Clear AWS_* vars (they take precedence over S3_* in applyEnvOverrides)
-  AWS_ENDPOINT_URL_S3: "",
-  AWS_ACCESS_KEY_ID: "",
-  AWS_SECRET_ACCESS_KEY: "",
-  AWS_REGION: "",
-  BUCKET_NAME: "",
-});
+/** Env object that isolates the daemon/CLI from developer .env values. */
+const testEnv = (): NodeJS.ProcessEnv => {
+  const base = {
+    ...process.env,
+    AGENT_FS_HOME: testDir,
+    // Clear AWS_* vars (they take precedence over S3_* in applyEnvOverrides).
+    AWS_ENDPOINT_URL_S3: "",
+    AWS_ACCESS_KEY_ID: "",
+    AWS_SECRET_ACCESS_KEY: "",
+    AWS_REGION: "",
+    BUCKET_NAME: "",
+  };
+
+  if (localOnly) {
+    return {
+      ...base,
+      AGENT_FS_STORAGE_PROVIDER: "local",
+      AGENT_FS_LOCAL_ROOT: primaryStorageRoot,
+      AGENT_FS_APP_URL: `http://127.0.0.1:${daemonPort}`,
+      S3_ENDPOINT: "",
+      S3_BUCKET: "",
+      S3_ACCESS_KEY_ID: "",
+      S3_SECRET_ACCESS_KEY: "",
+      S3_REGION: "",
+      S3_PROVIDER: "",
+    };
+  }
+
+  return {
+    ...base,
+    AGENT_FS_STORAGE_PROVIDER: "minio",
+    // Override S3 env vars to ensure daemon uses test MinIO, not .env values.
+    S3_ENDPOINT: `http://localhost:${minioPort}`,
+    S3_BUCKET: "agentfs",
+    S3_ACCESS_KEY_ID: "minioadmin",
+    S3_SECRET_ACCESS_KEY: "minioadmin",
+    S3_REGION: "us-east-1",
+    S3_PROVIDER: "minio",
+  };
+};
 
 /** Run a CLI command. Only passes AGENT_FS_HOME (no API key/URL needed for daemon commands). */
 function runRaw(args: string): string {
@@ -160,10 +188,10 @@ function runJsonOn(b: Backend, args: string): any {
   return JSON.parse(runOn(b, `--json ${args}`));
 }
 
-/** Build a `Backend` view over the already-running MinIO daemon + globals. */
-function makeMinioBackend(): Backend {
+/** Build a `Backend` view over the primary daemon + globals. */
+function makePrimaryBackend(): Backend {
   return {
-    label: "minio",
+    label: localOnly ? "local" : "minio",
     home: testDir,
     daemonPort,
     apiKey,
@@ -332,6 +360,11 @@ async function test(name: string, fn: () => void | Promise<void>) {
   }
 }
 
+function skipTest(name: string, reason: string): void {
+  skipped++;
+  console.log(`  ⊘ ${name} — skipped (${reason})`);
+}
+
 /**
  * Run a `fuse`-tagged test. Auto-skips if the FUSE container isn't ready
  * (e.g. running on Darwin without AGENT_FS_USE_DOCKER_FUSE=1).
@@ -439,46 +472,49 @@ async function setup() {
   // Create temp AGENT_FS_HOME
   mkdirSync(testDir, { recursive: true });
 
-  // Start MinIO container on a random port
-  execSync(
-    `docker run -d --name ${containerName} ` +
-      `-p 0:9000 ` +
-      `-e MINIO_ROOT_USER=minioadmin ` +
-      `-e MINIO_ROOT_PASSWORD=minioadmin ` +
-      `minio/minio server /data`,
-    { stdio: "pipe" },
-  );
+  if (localOnly) {
+    mkdirSync(primaryStorageRoot, { recursive: true });
+  } else {
+    // Start MinIO container on a random port.
+    execSync(
+      `docker run -d --name ${containerName} ` +
+        `-p 0:9000 ` +
+        `-e MINIO_ROOT_USER=minioadmin ` +
+        `-e MINIO_ROOT_PASSWORD=minioadmin ` +
+        `minio/minio server /data`,
+      { stdio: "pipe" },
+    );
 
-  // Get the assigned port
-  const portLine = execSync(`docker port ${containerName} 9000`, {
-    encoding: "utf-8",
-  }).trim();
-  // Format: "0.0.0.0:XXXXX" or ":::XXXXX" — take the last port
-  minioPort = portLine.split("\n")[0].split(":").pop()!;
+    // Get the assigned port.
+    const portLine = execSync(`docker port ${containerName} 9000`, {
+      encoding: "utf-8",
+    }).trim();
+    // Format: "0.0.0.0:XXXXX" or ":::XXXXX" — take the last port.
+    minioPort = portLine.split("\n")[0].split(":").pop()!;
 
-  // Wait for MinIO to be healthy
-  const start = Date.now();
-  const timeoutMs = 15_000;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(`http://localhost:${minioPort}/minio/health/live`);
-      if (res.ok) break;
-    } catch {}
-    await Bun.sleep(500);
+    // Wait for MinIO to be healthy.
+    const start = Date.now();
+    const timeoutMs = 15_000;
+    while (Date.now() - start < timeoutMs) {
+      try {
+        const res = await fetch(`http://localhost:${minioPort}/minio/health/live`);
+        if (res.ok) break;
+      } catch {}
+      await Bun.sleep(500);
+    }
+    const health = await fetch(`http://localhost:${minioPort}/minio/health/live`).catch(() => null);
+    if (!health?.ok) {
+      throw new Error(`MinIO failed to start within ${timeoutMs}ms`);
+    }
+
+    // Create bucket with versioning enabled (required for diff/revert).
+    execSync(
+      `docker exec ${containerName} mc alias set local http://localhost:9000 minioadmin minioadmin && ` +
+        `docker exec ${containerName} mc mb local/agentfs && ` +
+        `docker exec ${containerName} mc version enable local/agentfs`,
+      { stdio: "pipe" },
+    );
   }
-  // Final check
-  const health = await fetch(`http://localhost:${minioPort}/minio/health/live`).catch(() => null);
-  if (!health?.ok) {
-    throw new Error(`MinIO failed to start within ${timeoutMs}ms`);
-  }
-
-  // Create bucket with versioning enabled (required for diff/revert)
-  execSync(
-    `docker exec ${containerName} mc alias set local http://localhost:9000 minioadmin minioadmin && ` +
-      `docker exec ${containerName} mc mb local/agentfs && ` +
-      `docker exec ${containerName} mc version enable local/agentfs`,
-    { stdio: "pipe" },
-  );
 
   // Find a free port for the daemon
   daemonPort = await findFreePort();
@@ -488,19 +524,22 @@ async function setup() {
     join(testDir, "config.json"),
     JSON.stringify(
       {
-        s3: {
-          provider: "minio",
-          bucket: "agentfs",
-          region: "us-east-1",
-          endpoint: `http://localhost:${minioPort}`,
-          accessKeyId: "minioadmin",
-          secretAccessKey: "minioadmin",
-          versioningEnabled: true,
-        },
+        s3: localOnly
+          ? { provider: "local", root: primaryStorageRoot }
+          : {
+              provider: "minio",
+              bucket: "agentfs",
+              region: "us-east-1",
+              endpoint: `http://localhost:${minioPort}`,
+              accessKeyId: "minioadmin",
+              secretAccessKey: "minioadmin",
+              versioningEnabled: true,
+            },
         embedding: { provider: "local", model: "", apiKey: "" },
         server: { port: daemonPort, host: "127.0.0.1", rateLimit: { requestsPerMinute: 5000 } },
         auth: { apiKey: "" },
         minio: { containerId: "", managed: false },
+        ...(localOnly ? { appUrl: `http://127.0.0.1:${daemonPort}` } : {}),
       },
       null,
       2,
@@ -569,13 +608,15 @@ function cleanup() {
       rmSync(b.home, { recursive: true, force: true });
     } catch {}
   }
-  // Remove MinIO container + the per-run docker network we created for it
-  try {
-    execSync(`docker rm -f ${containerName}`, { stdio: "ignore" });
-  } catch {}
-  try {
-    execSync(`docker network rm ${containerName}-net`, { stdio: "ignore" });
-  } catch {}
+  // Remove MinIO container + the per-run docker network we created for it.
+  if (!localOnly) {
+    try {
+      execSync(`docker rm -f ${containerName}`, { stdio: "ignore" });
+    } catch {}
+    try {
+      execSync(`docker network rm ${containerName}-net`, { stdio: "ignore" });
+    } catch {}
+  }
   // Remove FUSE runner container + named volumes (best-effort: unmount + stop + rm)
   if (fuseReady) {
     try {
@@ -588,16 +629,19 @@ function cleanup() {
       execSync(`docker rm -f ${fuseContainerName}`, { stdio: "ignore" });
     } catch {}
   }
-  // Always try to clean up the per-run named volumes, regardless of fuseReady.
-  for (const vol of [
-    `${fuseContainerName}-nm-root`,
-    `${fuseContainerName}-nm-cli`,
-    `${fuseContainerName}-nm-core`,
-    `${fuseContainerName}-nm-server`,
-    `${fuseContainerName}-nm-mcp`,
-    `${fuseContainerName}-target`,
-  ]) {
-    try { execSync(`docker volume rm -f ${vol}`, { stdio: "ignore", timeout: 10_000 }); } catch {}
+  // Always try to clean up the per-run named volumes in Docker-backed mode,
+  // regardless of fuseReady. Local-only mode never creates them.
+  if (!localOnly) {
+    for (const vol of [
+      `${fuseContainerName}-nm-root`,
+      `${fuseContainerName}-nm-cli`,
+      `${fuseContainerName}-nm-core`,
+      `${fuseContainerName}-nm-server`,
+      `${fuseContainerName}-nm-mcp`,
+      `${fuseContainerName}-target`,
+    ]) {
+      try { execSync(`docker volume rm -f ${vol}`, { stdio: "ignore", timeout: 10_000 }); } catch {}
+    }
   }
   // Remove temp directory
   try {
@@ -617,6 +661,10 @@ function cleanup() {
  * Reuses the existing MinIO container (joins its docker network).
  */
 async function setupFuse(): Promise<boolean> {
+  if (localOnly) {
+    fuseSkipReason = "--local-only runs without Docker services; FUSE is covered by the fuse-smoke CI job";
+    return false;
+  }
   if (!useDockerFuse) {
     fuseSkipReason = process.platform === "darwin"
       ? "set AGENT_FS_USE_DOCKER_FUSE=1 to run FUSE tests via Docker on Darwin"
@@ -841,20 +889,29 @@ async function runTests() {
 
   console.log(`\nagent-fs E2E Tests`);
   console.log(`Using: ${cmd}`);
-  console.log(`MinIO: localhost:${minioPort} (container: ${containerName})`);
+  console.log(
+    localOnly
+      ? `Storage: local filesystem (${primaryStorageRoot})`
+      : `MinIO: localhost:${minioPort} (container: ${containerName})`,
+  );
   console.log(`Daemon: ${daemonUrl}`);
   if (fuseOnly) console.log(`Mode: --fuse-only (skipping CLI/MCP/API tests)`);
+  if (localOnly) console.log(`Mode: --local-only (credential-free, no Docker services)`);
   console.log("");
 
   if (!fuseOnly) {
     await runStandardTests(daemonUrl);
 
-    // step-5: prove the backend-agnostic op suite on BOTH backends.
-    const minioBackend = makeMinioBackend();
-    await coreOpsSuite(minioBackend);
+    // Prove the backend-agnostic op suite on the primary backend. Default mode
+    // additionally starts local-FS so it continues to cover BOTH adapters.
+    const primaryBackend = makePrimaryBackend();
+    await coreOpsSuite(primaryBackend);
 
-    const localBackend = await setupLocalBackend({ label: "local" });
-    await coreOpsSuite(localBackend);
+    const minioBackend = localOnly ? undefined : primaryBackend;
+    const localBackend = localOnly
+      ? primaryBackend
+      : await setupLocalBackend({ label: "local" });
+    if (!localOnly) await coreOpsSuite(localBackend);
 
     // Capability gating (no-versioning) + signed-url presigned/app fallback.
     await unsupportedOpSuite();
@@ -906,7 +963,7 @@ async function runStandardTests(daemonUrl: string) {
     const cat = runJson("cat /cat-regress/big.csv");
     assert(cat.totalLines, 250, `Expected totalLines 250 (249 lines + trailing empty split), got ${cat.totalLines}`);
     assert(cat.truncated, false, "Default cat through a pipe should not be truncated");
-    assert(cat.content.split("\n").length, 249, "Expected all 249 lines back, not capped at 200");
+    assert(cat.content.split("\n").length, 250, "Expected 249 lines + trailing empty split, not capped at 200");
   });
 
   await test("cat: explicit --limit smaller than the file truncates and reports it on stderr, not stdout", () => {
@@ -1225,25 +1282,37 @@ async function runStandardTests(daemonUrl: string) {
   await test("signed-url", () => {
     const result = runJson("signed-url /hello.txt");
     assert(typeof result.url, "string", "Expected url string");
-    assertIncludes(result.url, "agentfs", "Expected presigned URL to reference bucket");
     assert(result.path, "/hello.txt");
-    assert(result.expiresIn, 86400);
-    assert(typeof result.expiresAt, "string", "Expected expiresAt ISO string");
+    if (localOnly) {
+      assert(result.kind, "app");
+      assertIncludes(result.url, "/file/~/", "Expected authenticated app URL fallback");
+      assert(result.expiresIn, 0);
+      assert(result.expiresAt, "");
+    } else {
+      assert(result.kind, "presigned");
+      assertIncludes(result.url, "agentfs", "Expected presigned URL to reference bucket");
+      assert(result.expiresIn, 86400);
+      assert(typeof result.expiresAt, "string", "Expected expiresAt ISO string");
+    }
   });
 
   await test("signed-url with custom expiry", () => {
     const result = runJson("signed-url /hello.txt --expires-in 3600");
-    assert(result.expiresIn, 3600);
+    assert(result.expiresIn, localOnly ? 0 : 3600);
     assert(typeof result.url, "string");
   });
 
-  await test("signed-url presigned URL is fetchable", async () => {
-    const result = runJson("signed-url /hello.txt");
-    const res = await fetch(result.url);
-    assert(res.ok, true, `Expected 200, got ${res.status}`);
-    const body = await res.text();
-    assert(body, "Hello, agent-fs!", "Expected file content from presigned URL");
-  });
+  if (localOnly) {
+    skipTest("signed-url presigned URL is fetchable", "local storage returns an authenticated app URL, not a public presigned URL");
+  } else {
+    await test("signed-url presigned URL is fetchable", async () => {
+      const result = runJson("signed-url /hello.txt");
+      const res = await fetch(result.url);
+      assert(res.ok, true, `Expected 200, got ${res.status}`);
+      const body = await res.text();
+      assert(body, "Hello, agent-fs!", "Expected file content from presigned URL");
+    });
+  }
 
   await test("signed-url nonexistent file fails", () => {
     try {
@@ -1268,8 +1337,10 @@ async function runStandardTests(daemonUrl: string) {
     const body = await res.json() as any;
     assert(typeof body.url, "string", "Expected url in response");
     assert(body.path, "/hello.txt");
-    assert(body.expiresIn, 86400);
-    assert(typeof body.expiresAt, "string");
+    assert(body.expiresIn, localOnly ? 0 : 86400);
+    assert(body.kind, localOnly ? "app" : "presigned");
+    if (localOnly) assert(body.expiresAt, "");
+    else assert(typeof body.expiresAt, "string");
   });
 
   await test("signed-url via API — 404 for missing file", async () => {
@@ -1329,7 +1400,8 @@ async function runStandardTests(daemonUrl: string) {
     const parsed = JSON.parse(text);
     assert(typeof parsed.url, "string", "Expected url in MCP result");
     assert(parsed.path, "/hello.txt");
-    assert(parsed.expiresIn, 86400);
+    assert(parsed.expiresIn, localOnly ? 0 : 86400);
+    assert(parsed.kind, localOnly ? "app" : "presigned");
   });
 
   // -- MIME type detection --
@@ -1351,22 +1423,27 @@ async function runStandardTests(daemonUrl: string) {
     assert(stat.contentType, "text/markdown", `Expected text/markdown, got ${stat.contentType}`);
   });
 
-  await test("signed-url serves correct Content-Type for PDF", async () => {
-    const result = runJson("signed-url /mime-test.pdf");
-    // Use GET (not HEAD) — MinIO presigned URLs are method-specific
-    const res = await fetch(result.url);
-    assert(res.ok, true, `Expected 200, got ${res.status}`);
-    const ct = res.headers.get("content-type");
-    assert(ct, "application/pdf", `Expected application/pdf, got ${ct}`);
-  });
+  if (localOnly) {
+    skipTest("signed-url serves correct Content-Type for PDF", "requires a public MinIO presigned URL");
+    skipTest("signed-url serves correct Content-Type for PNG", "requires a public MinIO presigned URL");
+  } else {
+    await test("signed-url serves correct Content-Type for PDF", async () => {
+      const result = runJson("signed-url /mime-test.pdf");
+      // Use GET (not HEAD) — MinIO presigned URLs are method-specific
+      const res = await fetch(result.url);
+      assert(res.ok, true, `Expected 200, got ${res.status}`);
+      const ct = res.headers.get("content-type");
+      assert(ct, "application/pdf", `Expected application/pdf, got ${ct}`);
+    });
 
-  await test("signed-url serves correct Content-Type for PNG", async () => {
-    const result = runJson("signed-url /mime-test.png");
-    const res = await fetch(result.url);
-    assert(res.ok, true, `Expected 200, got ${res.status}`);
-    const ct = res.headers.get("content-type");
-    assert(ct, "image/png", `Expected image/png, got ${ct}`);
-  });
+    await test("signed-url serves correct Content-Type for PNG", async () => {
+      const result = runJson("signed-url /mime-test.png");
+      const res = await fetch(result.url);
+      assert(res.ok, true, `Expected 200, got ${res.status}`);
+      const ct = res.headers.get("content-type");
+      assert(ct, "image/png", `Expected image/png, got ${ct}`);
+    });
+  }
 
   // -- sql (DuckDB) --
 
@@ -2471,16 +2548,20 @@ async function unsupportedOpSuite() {
 // in-app link (kind="app", non-expiring) instead of erroring.
 // ---------------------------------------------------------------------------
 
-async function signedUrlMatrix(minio: Backend, local: Backend) {
+async function signedUrlMatrix(minio: Backend | undefined, local: Backend) {
   console.log(`\n-- signed-url backend matrix (presigned vs app fallback) --`);
 
-  await test(`[minio] signed-url returns a real presigned URL`, () => {
-    runJsonOn(minio, `write /su-probe.txt --content "su"`);
-    const res = runJsonOn(minio, `signed-url /su-probe.txt`);
-    assert(res.kind, "presigned");
-    assertIncludes(res.url, "agentfs", "expected presigned URL to reference the bucket");
-    assert(res.expiresIn, 86400);
-  });
+  if (minio) {
+    await test(`[minio] signed-url returns a real presigned URL`, () => {
+      runJsonOn(minio, `write /su-probe.txt --content "su"`);
+      const res = runJsonOn(minio, `signed-url /su-probe.txt`);
+      assert(res.kind, "presigned");
+      assertIncludes(res.url, "agentfs", "expected presigned URL to reference the bucket");
+      assert(res.expiresIn, 86400);
+    });
+  } else {
+    skipTest(`[minio] signed-url returns a real presigned URL`, "--local-only runs without MinIO");
+  }
 
   await test(`[local] signed-url falls back to an app URL (not an error)`, () => {
     runJsonOn(local, `write /su-probe.txt --content "su"`);

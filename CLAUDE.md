@@ -11,6 +11,7 @@ Bun monorepo: `packages/{core, cli, mcp, server}`
 - `bun run build` — bundle CLI for npm to `packages/cli/dist/cli.js`
 - `bun run test` — run tests (manual/integration tests auto-skip without env)
 - `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` — CLI E2E tests (requires Docker for MinIO)
+- `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only` — credential-free local-filesystem E2E mode used in CI
 
 ## Releasing & Deployment
 
@@ -41,7 +42,7 @@ Plans and research documents MUST include these as explicit steps when they invo
 
 ## E2E Tests
 
-`scripts/e2e.ts` spins up an isolated MinIO container, starts a daemon on a random port, and runs 24 CLI + MCP tests end-to-end. Run it as a regression check when modifying core ops, CLI commands, or MCP. If a core change breaks something, extend the E2E suite to cover it. Not in CI or pre-push — run on demand locally.
+`scripts/e2e.ts` spins up an isolated backend, starts a daemon on a random port, and runs the CLI + MCP tests end-to-end. CI uses `--local-only` for credential-free local-filesystem coverage without Docker; the default mode additionally covers MinIO presigned URLs and Docker FUSE. Run the default mode as a regression check when modifying core ops, CLI commands, or MCP. If a core change breaks something, extend the E2E suite to cover it.
 
 ## Gotcha: `live/` and `landing/` are pnpm, not bun
 

@@ -31,6 +31,19 @@ jobs:
           bun run scripts/sync-openapi.ts
           git diff --exit-code docs/openapi.json
 
+  # Credential-free CLI/API/MCP coverage. The local filesystem adapter keeps
+  # this job fork-safe and Docker-free; MinIO presigned URLs stay covered by
+  # the full local E2E mode, while FUSE has the dedicated smoke job below.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Run local-filesystem E2E suite
+        run: bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only
+
   # FUSE smoke (Linux-only): build the helper, run the in-container mount test.
   # macOS/Windows runners are excluded — FUSE is Linux-only by design.
   fuse-smoke:
