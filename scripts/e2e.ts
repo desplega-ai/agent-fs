@@ -136,7 +136,7 @@ function runRaw(args: string): string {
 }
 
 /** Run a CLI command with full API context (URL + key). */
-function run(args: string): string {
+function run(args: string, timeoutMs = 30_000): string {
   return execSync(`${cmd} ${args}`, {
     encoding: "utf-8",
     env: {
@@ -144,12 +144,12 @@ function run(args: string): string {
       AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`,
       AGENT_FS_API_KEY: apiKey,
     },
-    timeout: 30_000,
+    timeout: timeoutMs,
   }).trim();
 }
 
-function runJson(args: string): any {
-  return JSON.parse(run(`--json ${args}`));
+function runJson(args: string, timeoutMs?: number): any {
+  return JSON.parse(run(`--json ${args}`, timeoutMs));
 }
 
 // ---------------------------------------------------------------------------
@@ -1186,7 +1186,9 @@ async function runStandardTests(daemonUrl: string) {
   // -- reindex (must run before grep/fts to populate FTS index) --
 
   await test("reindex", () => {
-    const result = runJson("reindex");
+    // Hosted runners can take more than the default 30s to load/index the
+    // complete fixture set. Keep the wider budget isolated to this heavy op.
+    const result = runJson("reindex", 90_000);
     assert(typeof result.reindexed, "number");
   });
 
