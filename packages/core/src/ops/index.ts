@@ -56,7 +56,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   cat: {
-    description: "Read file content with optional pagination via offset/limit. Returns { content, totalLines, truncated }.",
+    description: "Read file content with optional pagination via offset/limit; defaults to the first 200 lines when limit is omitted. Returns { content, totalLines, truncated } — always check `truncated` before trusting a row/line count. For a complete, byte-exact read (e.g. before parsing as CSV/JSON), use `download` instead.",
     handler: cat,
     schema: z.object({
       path: z.string(),

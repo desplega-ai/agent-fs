@@ -2,6 +2,7 @@ import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
 import { getConfig, getOpDefinition } from "@/core";
 import { outputResult } from "../formatters.js";
+import { stdio } from "../stdio.js";
 
 interface OpCommandDef {
   name: string;
@@ -35,7 +36,7 @@ export function resolveSinceDuration(value: string): string {
 
 const OP_COMMANDS: OpCommandDef[] = [
   { name: "write", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "File content (reads stdin if omitted)" }, { flag: "--file <path>", description: "Read bytes from a local file and upload without text decoding" }, { flag: "-m, --message <msg>", description: "Version message" }, { flag: "--expected-version <n>", description: "Fail if file is not at this version (optimistic concurrency)" }] },
-  { name: "cat", args: [{ name: "path", required: true }], options: [{ flag: "--offset <n>", description: "Line offset" }, { flag: "--limit <n>", description: "Max lines" }] },
+  { name: "cat", args: [{ name: "path", required: true }], options: [{ flag: "--offset <n>", description: "Line offset" }, { flag: "--limit <n>", description: "Max lines (default: 200 when stdout is a TTY, unlimited when piped/redirected)" }, { flag: "--raw", description: "Exact stored bytes: no line-number gutter" }] },
   { name: "edit", args: [{ name: "path", required: true }], options: [{ flag: "--old <string>", description: "Text to replace" }, { flag: "--new <string>", description: "Replacement text" }, { flag: "-m, --message <msg>", description: "Version message" }] },
   { name: "append", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "Content to append" }, { flag: "-m, --message <msg>", description: "Version message" }] },
   { name: "ls", args: [{ name: "path", required: false }], options: [] },
@@ -78,6 +79,13 @@ export function registerOpCommands(
 
     for (const opt of def.options) {
       cmd.option(opt.flag, opt.description);
+    }
+
+    if (def.name === "cat") {
+      cmd.addHelpText(
+        "after",
+        "\nFor a complete, byte-exact read (e.g. before parsing as CSV/JSON), prefer:\n  agent-fs download <path> -o <file>\n"
+      );
     }
 
     cmd.action(async (...actionArgs: any[]) => {
@@ -158,6 +166,23 @@ export function registerOpCommands(
         params.since = resolveSinceDuration(params.since);
       }
 
+      // `--raw` is CLI-only display sugar (skip the line-number gutter); the
+      // op schema doesn't know about it.
+      const catRaw = def.name === "cat" && params.raw === true;
+      if (def.name === "cat") {
+        delete params.raw;
+      }
+
+      // The op's own default (200 lines, see packages/core/src/ops/cat.ts)
+      // is meant for an interactive human glancing at a terminal. A pipe or
+      // redirect is almost always "give me the whole file" — piping or
+      // redirecting truncated content is what caused real data loss (issue
+      // #25), so only apply the silent default when stdout is a TTY.
+      const catStdoutIsTty = process.stdout.isTTY === true;
+      if (def.name === "cat" && params.limit === undefined && !catStdoutIsTty) {
+        params.limit = Number.MAX_SAFE_INTEGER;
+      }
+
       try {
         const orgId = await getOrgId();
         const driveId = program.opts().drive ?? getConfig().defaultDrive;
@@ -178,7 +203,22 @@ export function registerOpCommands(
         }
 
         const result = await client.callOp(orgId, def.name, params);
-        outputResult(def.name, result, program.opts().json);
+
+        if (def.name === "cat" && result?.truncated) {
+          // Always surfaced on stderr — even in --json mode — so a
+          // truncated read is never mistaken for a complete one and never
+          // contaminates stdout (piped/redirected consumers see only the
+          // content or the JSON document, never this marker).
+          const shown = result.content ? String(result.content).split("\n").length : 0;
+          console.error(`truncated: showing ${shown} of ${result.totalLines} lines (use --limit)`);
+        }
+
+        if (def.name === "cat" && !program.opts().json && (catRaw || !catStdoutIsTty)) {
+          // Raw / non-TTY reads: exact stored bytes, no line-number gutter.
+          stdio.writeStdout(result.content ?? "");
+        } else {
+          outputResult(def.name, result, program.opts().json);
+        }
       } catch (err: any) {
         if (err?.cause?.code === "ECONNREFUSED" || err?.message?.includes("fetch failed")) {
           console.error(

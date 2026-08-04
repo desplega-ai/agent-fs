@@ -4,6 +4,8 @@
  * MCP always returns JSON — these formatters are CLI-only.
  */
 
+import { stdio } from "./stdio.js";
+
 // --- Helpers ---
 
 function formatSize(bytes: number): string {
@@ -331,11 +333,15 @@ function formatResult(opName: string, result: any): string {
 /**
  * Single entry point for all CLI output.
  * If json is true, outputs raw JSON. Otherwise, uses the pretty-print formatter.
+ *
+ * Writes via `stdio.writeStdout` (a synchronous, retrying `writeSync` loop)
+ * rather than `console.log` — see stdio.ts for why: large payloads piped
+ * through a non-TTY stdout can otherwise be silently truncated.
  */
 export function outputResult(opName: string, result: any, json: boolean): void {
   if (json) {
-    console.log(JSON.stringify(result, null, 2));
+    stdio.writeStdout(JSON.stringify(result, null, 2));
   } else {
-    console.log(formatResult(opName, result));
+    stdio.writeStdout(formatResult(opName, result));
   }
 }

@@ -122,7 +122,7 @@ symlinks are unsupported and throw `EPERM`.
 | Command | Usage | Description |
 |---------|-------|-------------|
 | `write` | `agent-fs write <path> [--content <text>] [--file <local-path>] [-m <msg>] [--expected-version <n>]` | Write text or binary bytes |
-| `cat` | `agent-fs cat <path> [--offset <n>] [--limit <n>]` | Read text file content |
+| `cat` | `agent-fs cat <path> [--offset <n>] [--limit <n>] [--raw]` | Read text file content |
 | `edit` | `agent-fs edit <path> --old <text> --new <text> [-m <msg>]` | Find-and-replace in file |
 | `append` | `agent-fs append <path> [--content <text>] [-m <msg>]` | Append to file (stdin or --content) |
 | `tail` | `agent-fs tail <path> [--lines <n>]` | Last N lines (default: 20) |
@@ -135,6 +135,8 @@ symlinks are unsupported and throw `EPERM`.
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
 | `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>]` | Generate a download URL. On S3/MinIO: a presigned URL (default 24h, max 7 days, `kind: "presigned"`). On local-FS: an authenticated in-app link (`kind: "app"`, requires sign-in, non-expiring). |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
+
+`cat` is a paginated viewer, not a raw file reader: without `--limit`, it defaults to the first 200 lines at a TTY, but returns the **whole file** when stdout is piped or redirected (a pipe/redirect almost always means "give me everything"). Any time `cat` returns fewer lines than requested, a `truncated: showing N of M lines (use --limit)` note goes to **stderr** — never stdout, so it never corrupts piped/redirected output. The default (non-`--raw`, TTY) view also prefixes each line with a line number for readability; that prefix is **not** part of the stored bytes. For a complete, byte-exact read — required before parsing as CSV/JSON, or any time line numbers or a partial read would corrupt the data — use `agent-fs cat <path> --raw` or, better, `agent-fs download <path> -o <file>`.
 
 ### Versioning
 

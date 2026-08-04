@@ -8,7 +8,7 @@
  *   bun run scripts/e2e.ts "agent-fs"
  */
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, readFileSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
@@ -883,6 +883,97 @@ async function runStandardTests(daemonUrl: string) {
     assert(result.version, 1);
     const cat = runJson("cat /hello.txt");
     assert(cat.content, "Hello, agent-fs!");
+  });
+
+  // -- cat truncation regressions (issue #25) --
+  //
+  // Bug 1: `cat` capped output at 200 lines with no indication, even when
+  // piped/redirected (a pipe/redirect is almost always "give me everything").
+  // Bug 2: piping a large `cat` result truncated non-deterministically —
+  // root cause was a single non-retried write() to the stdout pipe silently
+  // dropping bytes once the OS pipe buffer (65536 bytes on Linux) filled and
+  // the reader hadn't fully drained. Both are CLI-only (`run()`/`runJson()`
+  // always execute through a pipe, never a TTY), which is exactly the
+  // triggering condition for both bugs — every invocation below exercises it.
+
+  await test("cat: default (no --limit) returns the whole file when piped, not capped at 200", () => {
+    const lines = Array.from({ length: 249 }, (_, i) => `${i + 1},field-${i + 1}`);
+    const fixDir = mkdtempSync(join(tmpdir(), "agent-fs-e2e-cat-"));
+    const localPath = join(fixDir, "big.csv");
+    writeFileSync(localPath, lines.join("\n") + "\n");
+    runJson(`write /cat-regress/big.csv --file ${localPath}`);
+
+    const cat = runJson("cat /cat-regress/big.csv");
+    assert(cat.totalLines, 250, `Expected totalLines 250 (249 lines + trailing empty split), got ${cat.totalLines}`);
+    assert(cat.truncated, false, "Default cat through a pipe should not be truncated");
+    assert(cat.content.split("\n").length, 249, "Expected all 249 lines back, not capped at 200");
+  });
+
+  await test("cat: explicit --limit smaller than the file truncates and reports it on stderr, not stdout", () => {
+    // stdout must stay valid JSON (never cut mid-string) and the marker
+    // must land on stderr so it can never corrupt a piped/redirected read.
+    const raw = execSync(`${cmd} --json cat /cat-regress/big.csv --limit 50`, {
+      encoding: "utf-8",
+      env: {
+        ...testEnv(),
+        AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`,
+        AGENT_FS_API_KEY: apiKey,
+      },
+      timeout: 30_000,
+    });
+    const parsed = JSON.parse(raw); // throws if stdout is corrupt/cut mid-string
+    assert(parsed.truncated, true);
+    assert(parsed.content.split("\n").length, 50);
+
+    const stderr = execSync(
+      `${cmd} cat /cat-regress/big.csv --limit 50 2>&1 1>/dev/null`,
+      {
+        encoding: "utf-8",
+        env: {
+          ...testEnv(),
+          AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`,
+          AGENT_FS_API_KEY: apiKey,
+        },
+        timeout: 30_000,
+      },
+    ).trim();
+    assertIncludes(stderr, "truncated: showing 50 of 250 lines", `Expected a truncation marker, got: ${stderr}`);
+  });
+
+  await test("cat --raw: exact stored bytes, no line-number gutter", () => {
+    const out = run("cat /cat-regress/big.csv --raw");
+    assert(out.startsWith("1,field-1"), true, `Expected raw content with no gutter, got: ${JSON.stringify(out.slice(0, 20))}`);
+  });
+
+  await test("cat: piping a payload larger than the OS pipe buffer (64KB) is byte-exact and deterministic across repeated runs", () => {
+    // Reproduces the exact shape of the original report: same file, same
+    // command, repeated runs, compared against `stat.size` (ground truth).
+    const bigLines = Array.from({ length: 5000 }, (_, i) => `${i + 1},field-${i + 1}-a,field-${i + 1}-b,field-${i + 1}-c`);
+    const fixDir = mkdtempSync(join(tmpdir(), "agent-fs-e2e-cat-big-"));
+    const localPath = join(fixDir, "huge.csv");
+    const content = bigLines.join("\n") + "\n";
+    writeFileSync(localPath, content);
+    runJson(`write /cat-regress/huge.csv --file ${localPath}`);
+
+    const stat = runJson("stat /cat-regress/huge.csv");
+    assert(stat.size > 65536, true, `Fixture must exceed the 64KB pipe buffer to reproduce Bug 2, got ${stat.size} bytes`);
+
+    for (let i = 0; i < 5; i++) {
+      const byteCount = parseInt(
+        execSync(`${cmd} cat /cat-regress/huge.csv --raw | wc -c`, {
+          encoding: "utf-8",
+          shell: "/bin/bash",
+          env: {
+            ...testEnv(),
+            AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`,
+            AGENT_FS_API_KEY: apiKey,
+          },
+          timeout: 30_000,
+        }).trim(),
+        10,
+      );
+      assert(byteCount, stat.size, `Run ${i + 1}/5: piped cat truncated (got ${byteCount} of ${stat.size} bytes — Bug 2 regression)`);
+    }
   });
 
   // -- ls --

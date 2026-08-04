@@ -1,15 +1,17 @@
 import { describe, test, expect } from "bun:test";
 import { outputResult } from "../formatters.js";
+import { stdio } from "../stdio.js";
 
-// Capture console.log output
+// Capture stdio.writeStdout output (outputResult writes via a flush-safe
+// writeSync loop, not console.log — see stdio.ts)
 function captureOutput(fn: () => void): string {
   const logs: string[] = [];
-  const origLog = console.log;
-  console.log = (...args: any[]) => logs.push(args.join(" "));
+  const orig = stdio.writeStdout;
+  stdio.writeStdout = (data: string) => logs.push(data.replace(/\n$/, ""));
   try {
     fn();
   } finally {
-    console.log = origLog;
+    stdio.writeStdout = orig;
   }
   return logs.join("\n");
 }
