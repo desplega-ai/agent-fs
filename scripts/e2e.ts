@@ -90,6 +90,14 @@ const testEnv = (): NodeJS.ProcessEnv => {
   const base = {
     ...process.env,
     AGENT_FS_HOME: testDir,
+    // Force the credential-free/no-embedding path. The local provider lazily
+    // downloads a ~329MB model on first reindex, which is not part of these
+    // CLI/API/MCP tests; vec/hybrid search already assert graceful degradation.
+    EMBEDDING_PROVIDER: "openai",
+    EMBEDDING_API_KEY: "",
+    EMBEDDING_MODEL: "",
+    OPENAI_API_KEY: "",
+    GEMINI_API_KEY: "",
     // Clear AWS_* vars (they take precedence over S3_* in applyEnvOverrides).
     AWS_ENDPOINT_URL_S3: "",
     AWS_ACCESS_KEY_ID: "",
@@ -136,7 +144,7 @@ function runRaw(args: string): string {
 }
 
 /** Run a CLI command with full API context (URL + key). */
-function run(args: string, timeoutMs = 30_000): string {
+function run(args: string): string {
   return execSync(`${cmd} ${args}`, {
     encoding: "utf-8",
     env: {
@@ -144,12 +152,12 @@ function run(args: string, timeoutMs = 30_000): string {
       AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`,
       AGENT_FS_API_KEY: apiKey,
     },
-    timeout: timeoutMs,
+    timeout: 30_000,
   }).trim();
 }
 
-function runJson(args: string, timeoutMs?: number): any {
-  return JSON.parse(run(`--json ${args}`, timeoutMs));
+function runJson(args: string): any {
+  return JSON.parse(run(`--json ${args}`));
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +226,11 @@ function localEnv(
     AGENT_FS_STORAGE_PROVIDER: "local",
     AGENT_FS_LOCAL_ROOT: storageRoot,
     AGENT_FS_APP_URL: appUrl,
+    EMBEDDING_PROVIDER: "openai",
+    EMBEDDING_API_KEY: "",
+    EMBEDDING_MODEL: "",
+    OPENAI_API_KEY: "",
+    GEMINI_API_KEY: "",
     S3_ENDPOINT: "",
     S3_BUCKET: "",
     S3_ACCESS_KEY_ID: "",
@@ -1186,9 +1199,7 @@ async function runStandardTests(daemonUrl: string) {
   // -- reindex (must run before grep/fts to populate FTS index) --
 
   await test("reindex", () => {
-    // Hosted runners can take more than the default 30s to load/index the
-    // complete fixture set. Keep the wider budget isolated to this heavy op.
-    const result = runJson("reindex", 90_000);
+    const result = runJson("reindex");
     assert(typeof result.reindexed, "number");
   });
 
