@@ -235,6 +235,31 @@ describe("sql op", () => {
     expect(String(row.blb)).toContain("blob");
   });
 
+  test("named table binding resolves when the file was written without a leading slash", async () => {
+    // Regression test: the agent-fs CLI, MCP tools, and the live web UI all
+    // write/reference paths without a leading slash (e.g. "data/sales.csv"),
+    // and `write` stores `params.path` verbatim — so this is what a real
+    // file's stored path looks like. `collectBindings` normalizes bound
+    // table paths to "/data/sales.csv" before the DB lookup; `findFile` must
+    // still resolve the un-prefixed row rather than 404.
+    const { ctx } = createTestContext();
+    await write(ctx, { path: "data/sales.csv", content: CSV });
+    const result = await sql(ctx, {
+      query: "SELECT count(*) AS n FROM t",
+      tables: { t: "data/sales.csv" },
+    });
+    expect(result.rows).toEqual([{ n: 3 }]);
+  });
+
+  test("bare path literal resolves when the file was written without a leading slash", async () => {
+    const { ctx } = createTestContext();
+    await write(ctx, { path: "data/sales.csv", content: CSV });
+    const result = await sql(ctx, {
+      query: "SELECT count(*) AS n FROM '/data/sales.csv'",
+    });
+    expect(result.rows).toEqual([{ n: 3 }]);
+  });
+
   test("binding a missing file throws NotFound", async () => {
     const { ctx } = createTestContext();
     await expect(
