@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.11.0",
+    "version": "0.12.0",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -211,7 +211,7 @@
                   {
                     "type": "object",
                     "title": "cat",
-                    "description": "Read file content with optional pagination via offset/limit. Returns { content, totalLines, truncated }.",
+                    "description": "Read file content with optional pagination via offset/limit; defaults to the first 200 lines when limit is omitted. Returns { content, totalLines, truncated } — always check `truncated` before trusting a row/line count. For a complete, byte-exact read (e.g. before parsing as CSV/JSON), use `download` instead.",
                     "required": [
                       "op",
                       "path"
