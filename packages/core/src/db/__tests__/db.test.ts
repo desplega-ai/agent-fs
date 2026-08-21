@@ -4,7 +4,7 @@ import * as sqliteVec from "sqlite-vec";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { VIRTUAL_TABLE_SQL } from "../raw.js";
+import { VEC_TABLE_SQL } from "../raw.js";
 import { createDatabase } from "../index.js";
 
 // setup-sqlite.ts is auto-imported by db/index.ts, which runs setCustomSQLite once.
@@ -57,7 +57,7 @@ describe("Database initialization", () => {
   test("vec0 virtual table can be created and queried", () => {
     const sqlite = new Database(":memory:");
     sqliteVec.load(sqlite);
-    sqlite.exec(VIRTUAL_TABLE_SQL);
+    sqlite.exec(VEC_TABLE_SQL);
 
     // Insert a vector
     const embedding = new Float32Array(768);

@@ -1,4 +1,13 @@
-import { createDatabase, getConfig, getHome, createStorageAdapter, createEmbeddingProviderFromEnv } from "@/core";
+import {
+  createDatabase,
+  getConfig,
+  getHome,
+  createStorageAdapter,
+  createEmbeddingProviderFromEnv,
+  prepareFtsMigration,
+  runFtsMigration,
+} from "@/core";
+import type { Database } from "bun:sqlite";
 import type { EmbeddingProvider } from "@/core";
 import { join } from "node:path";
 import { createApp } from "./app.js";
@@ -8,6 +17,13 @@ const config = getConfig();
 
 // Initialize database
 const db = createDatabase();
+const sqlite = (db as any).$client as Database;
+
+// Databases from before 0.13.1 carry the old full-text index layout. Swap the
+// name over now (instant DDL) so every write from here on lands in the new
+// layout; the row copy itself runs in the background once we are listening,
+// in small batches, so /health keeps answering and a restart resumes it.
+const ftsMigrationPending = prepareFtsMigration(sqlite);
 
 // Initialize the storage adapter for the configured backend (S3/MinIO or
 // local-FS). The factory also applies the test-only AGENT_FS_CAPABILITY_OVERRIDE
@@ -48,6 +64,12 @@ const server = Bun.serve({
 });
 
 console.log(`agent-fs daemon running on http://${server.hostname}:${server.port}`);
+
+if (ftsMigrationPending) {
+  runFtsMigration(sqlite, { log: (msg) => console.log(msg) }).catch((err) => {
+    console.error("search index migration failed (will resume on next start):", err);
+  });
+}
 
 // Event-loop lag watchdog. A synchronous operation that blocks the loop
 // (the prod wedge: /health dead for minutes while the process sits at

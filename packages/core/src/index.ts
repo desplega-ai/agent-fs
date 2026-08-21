@@ -1,6 +1,12 @@
 export { createDatabase, schema } from "./db/index.js";
 export type { DB } from "./db/index.js";
 export {
+  prepareFtsMigration,
+  runFtsMigration,
+  hasLegacyFts,
+} from "./db/fts-migration.js";
+export type { FtsMigrationResult } from "./db/fts-migration.js";
+export {
   getConfig,
   setConfig,
   setConfigValue,

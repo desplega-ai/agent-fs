@@ -8,8 +8,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { getDbPath } from "../config.js";
 import * as schema from "./schema.js";
-import { CREATE_TABLES_SQL, VIRTUAL_TABLE_SQL } from "./raw.js";
+import { CREATE_TABLES_SQL, VEC_TABLE_SQL, FTS_SCHEMA_SQL } from "./raw.js";
 import { runMigrations } from "./migrate.js";
+import { isLegacyFtsTable } from "./fts-migration.js";
 
 export type DB = ReturnType<typeof createDatabase>;
 
@@ -37,7 +38,15 @@ export function createDatabase(dbPath?: string): ReturnType<typeof drizzle> {
 
   // Create all tables (idempotent)
   sqlite.exec(CREATE_TABLES_SQL);
-  sqlite.exec(VIRTUAL_TABLE_SQL);
+  sqlite.exec(VEC_TABLE_SQL);
+
+  // The full-text index is only installed when the name is free. A database
+  // from before 0.13.1 still has the internal-content `files_fts`; the daemon
+  // migrates it (fts-migration.ts) and nothing else may touch it, so a newer
+  // CLI binary cannot rename it under an older daemon on the same file.
+  if (!isLegacyFtsTable(sqlite)) {
+    sqlite.exec(FTS_SCHEMA_SQL);
+  }
 
   // Run additive migrations for older DBs (idempotent)
   runMigrations(sqlite);

@@ -187,12 +187,21 @@ export const events = sqliteTable(
 );
 
 // content_chunks (for embedding)
-export const contentChunks = sqliteTable("content_chunks", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  filePath: text("file_path").notNull(),
-  driveId: text("drive_id").notNull(),
-  chunkIndex: integer("chunk_index").notNull(),
-  content: text("content").notNull(),
-  charOffset: integer("char_offset").notNull(),
-  tokenCount: integer("token_count").notNull(),
-});
+export const contentChunks = sqliteTable(
+  "content_chunks",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    filePath: text("file_path").notNull(),
+    driveId: text("drive_id").notNull(),
+    chunkIndex: integer("chunk_index").notNull(),
+    content: text("content").notNull(),
+    charOffset: integer("char_offset").notNull(),
+    tokenCount: integer("token_count").notNull(),
+  },
+  (table) => ({
+    drivePathIdx: index("idx_content_chunks_drive_path").on(
+      table.driveId,
+      table.filePath
+    ),
+  })
+);

@@ -122,17 +122,76 @@ CREATE TABLE IF NOT EXISTS content_chunks (
   char_offset INTEGER NOT NULL,
   token_count INTEGER NOT NULL
 );
-`;
 
-export const VIRTUAL_TABLE_SQL = `
--- FTS5 full-text index (internal content storage)
-CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
-  path, content, drive_id UNINDEXED
+-- Every write, rm, mv and the embedding job look chunks up by (drive, path).
+-- Without this index each of those is a full scan of a table that holds a
+-- copy of every indexed file.
+CREATE INDEX IF NOT EXISTS idx_content_chunks_drive_path
+  ON content_chunks(drive_id, file_path);
+
+-- Content table behind the files_fts external-content index. FTS5 cannot use
+-- an equality constraint on a column (only MATCH and rowid), so keying the
+-- text here with a unique (drive_id, path) index is what makes delete and
+-- upsert O(log n) instead of a scan of the whole index.
+CREATE TABLE IF NOT EXISTS files_fts_docs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  drive_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  content TEXT NOT NULL
 );
 
--- sqlite-vec vector index for semantic search (768 dimensions)
+CREATE UNIQUE INDEX IF NOT EXISTS files_fts_docs_drive_path_uq
+  ON files_fts_docs(drive_id, path);
+
+-- Small key/value store for internal bookkeeping (e.g. migration cursors).
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+`;
+
+/** sqlite-vec vector index for semantic search (768 dimensions). */
+export const VEC_TABLE_SQL = `
 CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors USING vec0(
   chunk_id INTEGER PRIMARY KEY,
   embedding float[768]
 );
 `;
+
+/**
+ * FTS5 full-text index as an external-content table over files_fts_docs.
+ *
+ * The triggers keep the index in sync with the content table, so callers only
+ * ever touch files_fts_docs. The 'delete' command needs the old column values
+ * to remove the right tokens; the triggers are the one place that always has
+ * them.
+ *
+ * Not applied while a pre-0.13.1 internal-content files_fts table still holds
+ * the name: see fts-migration.ts.
+ */
+export const FTS_SCHEMA_SQL = `
+CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
+  path, content, drive_id UNINDEXED,
+  content='files_fts_docs', content_rowid='id'
+);
+
+CREATE TRIGGER IF NOT EXISTS files_fts_docs_ai AFTER INSERT ON files_fts_docs BEGIN
+  INSERT INTO files_fts(rowid, path, content, drive_id)
+    VALUES (new.id, new.path, new.content, new.drive_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS files_fts_docs_ad AFTER DELETE ON files_fts_docs BEGIN
+  INSERT INTO files_fts(files_fts, rowid, path, content, drive_id)
+    VALUES ('delete', old.id, old.path, old.content, old.drive_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS files_fts_docs_au AFTER UPDATE ON files_fts_docs BEGIN
+  INSERT INTO files_fts(files_fts, rowid, path, content, drive_id)
+    VALUES ('delete', old.id, old.path, old.content, old.drive_id);
+  INSERT INTO files_fts(rowid, path, content, drive_id)
+    VALUES (new.id, new.path, new.content, new.drive_id);
+END;
+`;
+
+/** Every virtual-table object, for fresh databases and tests. */
+export const VIRTUAL_TABLE_SQL = VEC_TABLE_SQL + FTS_SCHEMA_SQL;

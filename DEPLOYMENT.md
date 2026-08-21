@@ -16,7 +16,7 @@ Full process, version-sync rules, and recovery steps: **[RELEASING.md](./RELEASI
 
 - **Name:** `@desplega.ai/agent-fs`
 - **Scope:** public
-- **Runtime:** Bun-only (`engines.bun >= 1.2.0`)
+- **Runtime:** Bun-only (`engines.bun >= 1.4.0`)
 - **Contents:** Bundled CLI (`dist/cli.js`) with external npm dependencies
 
 ### just-bash Adapter Package
@@ -124,6 +124,17 @@ curl -X POST https://your-app.fly.dev/auth/register \
 | `performance-1x` | 1 dedicated | 2 GB | Production, heavy embedding workloads |
 
 The default `fly.toml` uses `shared-cpu-1x` with 512 MB. Adjust in `fly.toml` under `[[vm]]` or pass the instance size when prompted by the deploy script.
+
+## Upgrading to 0.13.1: search index migration
+
+0.13.1 changes how the full-text index is stored. Before, every write (including binary uploads) scanned the whole index twice to find one row, which on a GB-scale index froze the daemon for tens of seconds per write. The new layout keys the index by `(drive, path)`, so writes are constant-time again.
+
+Existing databases migrate themselves on the first start of 0.13.1:
+
+1. **At startup, before listening:** one new index on `content_chunks` is built. This reads the table once. Budget roughly 10-20 s per GB of database on a laptop, several minutes on a `shared-cpu-1x` Fly machine. `/health` is not served during this step.
+2. **In the background, after listening:** the old index rows are copied into the new layout in small committed batches. Progress is logged as `search index migration: ...`. A restart resumes where it left off. Search stays complete during the copy: both layouts are queried until the copy finishes. Expect a few multi-second stalls on large indexes (FTS5 merges and the final drop of the old table), then nothing.
+
+Nothing to do by hand. If you prefer the startup cost outside a traffic window, start the new version once off-peak. If search results ever look incomplete after an upgrade, `agent-fs reindex` rebuilds the index from storage.
 
 ## Environment Variables Reference
 
