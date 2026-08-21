@@ -11,6 +11,12 @@ import * as schema from "./schema.js";
 import { CREATE_TABLES_SQL, VEC_TABLE_SQL, FTS_SCHEMA_SQL } from "./raw.js";
 import { runMigrations } from "./migrate.js";
 import { isLegacyFtsTable } from "./fts-migration.js";
+import {
+  INLINE_BUILD_MAX_ROWID,
+  contentChunksMaxRowid,
+  ensureContentChunksIndexInline,
+  hasContentChunksIndex,
+} from "./content-chunks-index.js";
 
 export type DB = ReturnType<typeof createDatabase>;
 
@@ -18,7 +24,36 @@ function loadSqliteVec(sqlite: Database): void {
   sqliteVec.load(sqlite);
 }
 
-export function createDatabase(dbPath?: string): ReturnType<typeof drizzle> {
+/**
+ * Per-connection pragmas shared by the daemon, the CLI and the test helper.
+ *
+ * synchronous=NORMAL: under WAL a process crash loses nothing (the WAL is
+ * still fsynced at checkpoint), only a host power loss can lose the most
+ * recent commits. It removes one fsync per commit, and a single write commits
+ * several times.
+ *
+ * busy_timeout=250: bun:sqlite spins the event loop for the whole wait, so
+ * keep it short. The only second connections this project has are the CLI in
+ * embedded mode against a running daemon and the one-off index helper.
+ */
+export function applyConnectionPragmas(sqlite: Database): void {
+  sqlite.exec("PRAGMA synchronous=NORMAL;");
+  sqlite.exec("PRAGMA busy_timeout=250;");
+}
+
+export interface CreateDatabaseOptions {
+  /**
+   * Leave idx_content_chunks_drive_path unbuilt when the table is large, so
+   * the caller (the daemon) can build it after its listener is open. Small
+   * tables still build inline because that takes milliseconds.
+   */
+  deferContentChunksIndex?: boolean;
+}
+
+export function createDatabase(
+  dbPath?: string,
+  opts: CreateDatabaseOptions = {}
+): ReturnType<typeof drizzle> {
   const resolvedPath = dbPath ?? getDbPath();
 
   // Ensure parent directory exists
@@ -35,6 +70,7 @@ export function createDatabase(dbPath?: string): ReturnType<typeof drizzle> {
   // Enable WAL mode for concurrent reads during async embedding writes
   sqlite.exec("PRAGMA journal_mode=WAL;");
   sqlite.exec("PRAGMA foreign_keys=ON;");
+  applyConnectionPragmas(sqlite);
 
   // Create all tables (idempotent)
   sqlite.exec(CREATE_TABLES_SQL);
@@ -50,6 +86,14 @@ export function createDatabase(dbPath?: string): ReturnType<typeof drizzle> {
 
   // Run additive migrations for older DBs (idempotent)
   runMigrations(sqlite);
+
+  if (
+    !hasContentChunksIndex(sqlite) &&
+    (!opts.deferContentChunksIndex ||
+      contentChunksMaxRowid(sqlite) <= INLINE_BUILD_MAX_ROWID)
+  ) {
+    ensureContentChunksIndexInline(sqlite);
+  }
 
   const db = drizzle(sqlite, { schema });
   return db;

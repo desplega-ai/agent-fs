@@ -131,10 +131,10 @@ The default `fly.toml` uses `shared-cpu-1x` with 512 MB. Adjust in `fly.toml` un
 
 Existing databases migrate themselves on the first start of 0.13.1:
 
-1. **At startup, before listening:** one new index on `content_chunks` is built. This reads the table once. Budget roughly 10-20 s per GB of database on a laptop, several minutes on a `shared-cpu-1x` Fly machine. `/health` is not served during this step.
-2. **In the background, after listening:** the old index rows are copied into the new layout in small committed batches. Progress is logged as `search index migration: ...`. A restart resumes where it left off. Search stays complete during the copy: both layouts are queried until the copy finishes. Expect a few multi-second stalls on large indexes (FTS5 merges and the final drop of the old table), then nothing.
+1. **After listening, in a helper process:** one new index on `content_chunks` is built. This reads the table once. Budget roughly 10-20 s per GB of database on a laptop, several minutes on a `shared-cpu-1x` Fly machine. The daemon is already listening: `/health` answers (with an extra `upgrade` field naming the build), and reads work. Writes and `/mcp` (reads included, it is POST-based) return `503` with `Retry-After: 30` and `error: "UPGRADE_IN_PROGRESS"` until the log line `search index upgrade: idx_content_chunks_drive_path built in <N>ms` appears. FUSE writes over the IPC socket are not gated and fail with a database-busy error during that window. Small databases (up to 10,000 chunk rows) skip the helper and build the index inline at startup in milliseconds.
+2. **In the background, after the index build:** the old full-text index rows are copied into the new layout in small committed batches. Progress is logged as `search index migration: ...`. A restart resumes where it left off. Search stays complete during the copy: both layouts are queried until the copy finishes. Expect a few multi-second stalls on large indexes (FTS5 merges and the final drop of the old table), then nothing.
 
-Nothing to do by hand. If you prefer the startup cost outside a traffic window, start the new version once off-peak. If search results ever look incomplete after an upgrade, `agent-fs reindex` rebuilds the index from storage.
+Nothing to do by hand. If you prefer the write outage outside a traffic window, start the new version once off-peak. If the helper fails, the daemon logs `search index upgrade: ... build failed`, writes resume on the pre-0.13.1 slow path, and the build retries on the next start. If search results ever look incomplete after an upgrade, `agent-fs reindex` rebuilds the index from storage.
 
 ## Environment Variables Reference
 
