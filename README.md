@@ -31,7 +31,7 @@ agent-fs was built to power the shared filesystem in [agent-swarm](https://githu
 
 ### Install
 
-Requires [Bun](https://bun.sh) >= 1.2.0.
+Requires [Bun](https://bun.sh) >= 1.4.0.
 
 ```bash
 bun add -g @desplega.ai/agent-fs

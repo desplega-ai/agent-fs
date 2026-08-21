@@ -17,6 +17,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
       - run: bun install --frozen-lockfile
       # Catches a partial version bump (root package.json moved but the
       # sub-packages, Cargo.toml, or plugin.json were left behind) on the PR
@@ -45,6 +47,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
       - run: bun install --frozen-lockfile
       - name: Run local-filesystem E2E suite
         run: bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only

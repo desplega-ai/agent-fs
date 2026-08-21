@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "drizzle-kit": "^0.30.0",
-    "bun-types": "^1.2.0",
+    "bun-types": "^1.4.0",
     "typescript": "^5.7.0"
   }
 }

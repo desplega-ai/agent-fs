@@ -35,6 +35,8 @@ jobs:
           fetch-depth: 0 # need full history + tags to test tag existence
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
 
       # Hard gate: a partial bump (root moved, sub-packages/Cargo.toml/plugin
       # left behind) fails here instead of shipping a broken version set.

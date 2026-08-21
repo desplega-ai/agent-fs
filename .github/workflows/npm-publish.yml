@@ -31,6 +31,8 @@ jobs:
           ref: ${{ inputs.tag || github.ref_name }}
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
+        with:
+          bun-version: "1.4.0"
 
       - name: Verify tag matches package.json version
         id: pkg
@@ -206,6 +208,8 @@ jobs:
           ref: ${{ needs.validate.outputs.release_tag }}
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
+        with:
+          bun-version: "1.4.0"
 
       - name: Download linux-x64 artifact
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
@@ -253,6 +257,8 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
+        with:
+          bun-version: "1.4.0"
 
       - run: bun install --frozen-lockfile
       - run: bun run build

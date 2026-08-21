@@ -1,6 +1,7 @@
 {
   "name": "agent-fs",
   "version": "0.13.0",
+  "packageManager": "bun@1.4.0",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -16,7 +17,7 @@
   },
   "devDependencies": {
     "@duckdb/node-api": "1.5.3-r.3",
-    "bun-types": "^1.2.0",
+    "bun-types": "^1.4.0",
     "typescript": "^5.7.0",
     "yaml": "^2.8.2",
     "zod-to-json-schema": "^3.25.1"
