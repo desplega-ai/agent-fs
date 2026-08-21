@@ -77,7 +77,7 @@ export async function buildContentChunksIndexInHelperProcess(
   const started = performance.now();
   const proc = Bun.spawn([opts.execPath ?? process.execPath, "-e", HELPER_SCRIPT], {
     env: { ...process.env, AGENT_FS_INDEX_DB_PATH: dbPath },
-    stdout: "pipe",
+    stdout: "ignore",
     stderr: "pipe",
   });
   const [exitCode, stderr] = await Promise.all([

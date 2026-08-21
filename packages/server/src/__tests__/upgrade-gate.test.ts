@@ -67,6 +67,24 @@ describe("upgrade gate", () => {
     expect(read.status).not.toBe(503);
   });
 
+  test("/mcp is gated as a whole; HEAD and OPTIONS pass", async () => {
+    setUpgradeInProgress("test build");
+    const mcp = await app.request("/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(mcp.status).toBe(503);
+
+    const head = await app.request(rawUrl("missing.txt"), {
+      method: "HEAD",
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    expect(head.status).not.toBe(503);
+    const options = await app.request(rawUrl("missing.txt"), { method: "OPTIONS" });
+    expect(options.status).not.toBe(503);
+  });
+
   test("writes flow again once the upgrade is cleared", async () => {
     setUpgradeInProgress("test build");
     clearUpgradeInProgress();
