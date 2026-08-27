@@ -114,9 +114,11 @@ export class ApiClient {
     }
     if (opts.message) {
       // Header values must be Latin-1; fetch's Headers throws on a raw
-      // non-ASCII message (e.g. an em dash). Percent-encode for transport;
-      // the server decodes it back on read.
+      // non-ASCII message (e.g. an em dash). Percent-encode for transport
+      // and flag it so the server knows to decode it back on read (an
+      // unflagged header is trusted as a literal, e.g. "50% done").
       headers.set("X-Agent-FS-Message", encodeURIComponent(opts.message));
+      headers.set("X-Agent-FS-Message-Encoding", "percent");
     }
     // The server's raw route matches everything between `/files/` and
     // `/raw`. The path may already start with `/`; strip leading slashes

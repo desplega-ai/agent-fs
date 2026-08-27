@@ -95,7 +95,9 @@ export function fileRoutes(
   // Binary write path used by the FUSE mount's close-time PUT. Headers:
   //   - If-Match: <version>            → expectedVersion: <version>
   //   - If-None-Match: *               → expectedVersion: 0 (create only)
-  //   - X-Agent-FS-Message: <percent-encoded message>  → version message
+  //   - X-Agent-FS-Message: <message>  → version message
+  //   - X-Agent-FS-Message-Encoding: percent → the message above is
+  //     percent-encoded and must be decoded before use.
   //
   // Reuses the in-process `writeRaw` helper, which enforces editor-or-better
   // drive RBAC (viewers get 403 PERMISSION_DENIED, matching the JSON `write`
@@ -161,16 +163,24 @@ export function fileRoutes(
       expectedVersion = parsed;
     }
 
-    // The client percent-encodes this header because raw fetch Headers
-    // reject non-Latin-1 values (e.g. an em dash). Decode defensively: a
-    // plain ASCII message from an older client round-trips unchanged since
-    // it has nothing to unescape.
+    // Some clients percent-encode this header because raw fetch Headers
+    // reject non-Latin-1 values (e.g. an em dash) — they flag that with
+    // X-Agent-FS-Message-Encoding: percent. Only decode when that flag is
+    // present: an unconditional decode can't tell "this was encoded by us"
+    // from "this literally contains a percent sign" (e.g. "50% done" or a
+    // client that hasn't been migrated to encode yet), and would silently
+    // mangle the latter.
     const rawMessage = c.req.header("X-Agent-FS-Message");
+    const messageEncoding = c.req.header("X-Agent-FS-Message-Encoding");
     let message: string | undefined;
     if (rawMessage !== undefined) {
-      try {
-        message = decodeURIComponent(rawMessage);
-      } catch {
+      if (messageEncoding === "percent") {
+        try {
+          message = decodeURIComponent(rawMessage);
+        } catch {
+          message = rawMessage;
+        }
+      } else {
         message = rawMessage;
       }
     }

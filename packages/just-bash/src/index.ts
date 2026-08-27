@@ -613,7 +613,11 @@ export class AgentFsFileSystem implements IFileSystem {
       headers.set("Authorization", `Bearer ${this.apiKey}`);
     }
     if (message) {
-      headers.set("X-Agent-FS-Message", message);
+      // Header values must be Latin-1; fetch's Headers throws on a raw
+      // non-ASCII message. Percent-encode for transport and flag it so
+      // the server knows to decode it back on read.
+      headers.set("X-Agent-FS-Message", encodeURIComponent(message));
+      headers.set("X-Agent-FS-Message-Encoding", "percent");
     }
 
     const response = await this.fetchFn(this.rawUrl(path), {

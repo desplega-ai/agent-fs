@@ -157,6 +157,36 @@ describe("AgentFsFileSystem", () => {
     expect(await fs.readFile("/bytes.bin", "base64")).toBe("AP9B");
   });
 
+  test("percent-encodes a non-ASCII write message and flags the encoding", async () => {
+    // Raw fetch Headers reject non-Latin-1 values outright (e.g. an em
+    // dash), so putRaw must percent-encode X-Agent-FS-Message and flag it
+    // with X-Agent-FS-Message-Encoding so the server knows to decode it.
+    const { fetch: mockFetch } = createMockFetch();
+    const seenHeaders: Headers[] = [];
+    const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? "GET") === "PUT") {
+        seenHeaders.push(new Headers(init?.headers));
+      }
+      return mockFetch(input, init);
+    };
+
+    const fs = new AgentFsFileSystem({
+      baseUrl: "http://agent.test",
+      orgId: "org",
+      driveId: "drive",
+      writeMessage: "v2 — fix (café)",
+      fetch,
+    });
+
+    await fs.writeFile("/message.txt", "content");
+
+    expect(seenHeaders).toHaveLength(1);
+    expect(seenHeaders[0].get("X-Agent-FS-Message-Encoding")).toBe("percent");
+    expect(seenHeaders[0].get("X-Agent-FS-Message")).toBe(
+      encodeURIComponent("v2 — fix (café)"),
+    );
+  });
+
   test("copies, moves, and recursively removes synthetic directories", async () => {
     const { fetch } = createMockFetch();
     const fs = new AgentFsFileSystem({

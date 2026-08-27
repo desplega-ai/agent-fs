@@ -386,10 +386,11 @@ describe("raw RBAC — viewer vs editor vs admin", () => {
     expect(v2Body.version).toBe(2);
   });
 
-  test("X-Agent-FS-Message round-trips a percent-encoded non-ASCII message", async () => {
-    // Raw fetch Headers reject non-Latin-1 values outright, so the CLI
-    // percent-encodes the message before sending it (see api-client.ts
-    // putRaw). Confirm the server decodes it back to the original text.
+  test("X-Agent-FS-Message round-trips a percent-encoded non-ASCII message when flagged", async () => {
+    // Raw fetch Headers reject non-Latin-1 values outright, so encoding
+    // clients (CLI api-client.ts, just-bash) percent-encode the message and
+    // flag it with X-Agent-FS-Message-Encoding: percent. Confirm the server
+    // decodes it back to the original text only when that flag is present.
     const original = "v2 — fix (café)";
     const put = await authedFetch(
       `/orgs/${orgId}/drives/${driveId}/files/raw-message.txt/raw`,
@@ -398,6 +399,7 @@ describe("raw RBAC — viewer vs editor vs admin", () => {
         headers: {
           "Content-Type": "application/octet-stream",
           "X-Agent-FS-Message": encodeURIComponent(original),
+          "X-Agent-FS-Message-Encoding": "percent",
         },
         body: "content",
       }
@@ -414,10 +416,9 @@ describe("raw RBAC — viewer vs editor vs admin", () => {
     expect(logBody.versions[0].message).toBe(original);
   });
 
-  test("X-Agent-FS-Message tolerates a plain ASCII message with a bare %", async () => {
-    // An older client (or one that forgets to encode) sends the header
-    // un-encoded. decodeURIComponent throws on a lone `%`; the route must
-    // fall back to the raw value instead of failing the write.
+  test("X-Agent-FS-Message tolerates a plain ASCII message with a bare % when unflagged", async () => {
+    // An unmigrated client sends the header raw, with no encoding flag.
+    // The route must not attempt to decode it — it's trusted as a literal.
     const original = "50% done";
     const put = await authedFetch(
       `/orgs/${orgId}/drives/${driveId}/files/raw-message-ascii.txt/raw`,
@@ -436,6 +437,34 @@ describe("raw RBAC — viewer vs editor vs admin", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "log", path: "/raw-message-ascii.txt" }),
+    });
+    const logBody = await log.json();
+    expect(logBody.versions[0].message).toBe(original);
+  });
+
+  test("X-Agent-FS-Message preserves a literal percent-escape when unflagged", async () => {
+    // Regression for unconditional decoding: "%20" is a *valid* percent
+    // escape, so decodeURIComponent wouldn't throw on it — an unflagged
+    // decode would silently turn a literal "release-%20-final" into
+    // "release- -final" instead of leaving it alone.
+    const original = "release-%20-final";
+    const put = await authedFetch(
+      `/orgs/${orgId}/drives/${driveId}/files/raw-message-literal-escape.txt/raw`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "X-Agent-FS-Message": original,
+        },
+        body: "content",
+      }
+    );
+    expect(put.status).toBe(200);
+
+    const log = await authedFetch(`/orgs/${orgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op: "log", path: "/raw-message-literal-escape.txt" }),
     });
     const logBody = await log.json();
     expect(logBody.versions[0].message).toBe(original);
