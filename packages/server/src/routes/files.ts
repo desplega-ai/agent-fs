@@ -95,7 +95,7 @@ export function fileRoutes(
   // Binary write path used by the FUSE mount's close-time PUT. Headers:
   //   - If-Match: <version>            → expectedVersion: <version>
   //   - If-None-Match: *               → expectedVersion: 0 (create only)
-  //   - X-Agent-FS-Message: <message>  → version message
+  //   - X-Agent-FS-Message: <percent-encoded message>  → version message
   //
   // Reuses the in-process `writeRaw` helper, which enforces editor-or-better
   // drive RBAC (viewers get 403 PERMISSION_DENIED, matching the JSON `write`
@@ -161,7 +161,19 @@ export function fileRoutes(
       expectedVersion = parsed;
     }
 
-    const message = c.req.header("X-Agent-FS-Message") ?? undefined;
+    // The client percent-encodes this header because raw fetch Headers
+    // reject non-Latin-1 values (e.g. an em dash). Decode defensively: a
+    // plain ASCII message from an older client round-trips unchanged since
+    // it has nothing to unescape.
+    const rawMessage = c.req.header("X-Agent-FS-Message");
+    let message: string | undefined;
+    if (rawMessage !== undefined) {
+      try {
+        message = decodeURIComponent(rawMessage);
+      } catch {
+        message = rawMessage;
+      }
+    }
 
     // Read body. Hono's bodyLimit middleware already caps this at 50 MB.
     const arrayBuffer = await c.req.arrayBuffer();

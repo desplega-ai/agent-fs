@@ -45,10 +45,12 @@ export function driveCommands(
           return;
         }
         const config = getConfig();
+        const activeOrgId = config.defaultOrg || process.env.AGENT_FS_DEFAULT_ORG_ID;
+        const activeDriveId = config.defaultDrive || process.env.AGENT_FS_DEFAULT_DRIVE_ID;
         for (const org of orgs) {
           const orgFlags: string[] = [];
           if (org.isPersonal) orgFlags.push("personal");
-          if (config.defaultOrg === org.id) orgFlags.push("active");
+          if (activeOrgId === org.id) orgFlags.push("active");
           const orgSuffix = orgFlags.length > 0 ? `  (${orgFlags.join(", ")})` : "";
           console.log(`\n${org.name} [${org.role}]${orgSuffix}`);
 
@@ -56,7 +58,7 @@ export function driveCommands(
           for (const d of drives) {
             const flags: string[] = [];
             if (d.isDefault) flags.push("default");
-            if (config.defaultDrive === d.id) flags.push("active");
+            if (activeDriveId === d.id) flags.push("active");
             const suffix = flags.length > 0 ? `  (${flags.join(", ")})` : "";
             console.log(`  ${d.id}  ${d.name}${suffix}`);
           }
@@ -90,7 +92,8 @@ export function driveCommands(
       try {
         const config = getConfig();
         const me = await client.getMe();
-        const orgId = config.defaultOrg ?? me.defaultOrgId;
+        const orgId =
+          config.defaultOrg || process.env.AGENT_FS_DEFAULT_ORG_ID || me.defaultOrgId;
         if (!orgId) {
           console.error("Error: No org context. Run 'agent-fs auth register' first.");
           process.exit(1);
@@ -99,11 +102,18 @@ export function driveCommands(
         let drive: any;
         if (config.defaultDrive) {
           drive = drives.find((d: any) => d.id === config.defaultDrive);
+        } else if (process.env.AGENT_FS_DEFAULT_DRIVE_ID) {
+          drive = drives.find((d: any) => d.id === process.env.AGENT_FS_DEFAULT_DRIVE_ID);
         }
         if (!drive) {
           drive = drives.find((d: any) => d.isDefault) ?? drives[0] ?? null;
         }
-        const source = config.defaultOrg ? "config (org switch)" : "server default";
+        const source =
+          config.defaultOrg || config.defaultDrive
+            ? "config (org switch)"
+            : process.env.AGENT_FS_DEFAULT_ORG_ID || process.env.AGENT_FS_DEFAULT_DRIVE_ID
+              ? "env (AGENT_FS_DEFAULT_ORG_ID/AGENT_FS_DEFAULT_DRIVE_ID)"
+              : "server default";
         if (json) {
           console.log(JSON.stringify({ orgId, drive, source }, null, 2));
         } else {

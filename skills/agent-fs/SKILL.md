@@ -90,7 +90,9 @@ symlinks are unsupported and throw `EPERM`.
 
 2. **Auto-detection** — the CLI automatically detects whether the daemon is running. If it is, commands go via HTTP; otherwise, they use embedded mode directly. No user action needed.
 
-3. **Stdin and file upload** — `write` accepts raw bytes from stdin or `--file`, and text from `--content`; `append` accepts text via stdin or `--content`:
+3. **Default org/drive resolution** — with no `--org`/`--drive` flag, the CLI resolves in order: the flag itself, then local config (`org switch <id>` / `drive switch <id>`, sticky per machine), then the `AGENT_FS_DEFAULT_ORG_ID` / `AGENT_FS_DEFAULT_DRIVE_ID` env vars (a deployment-level hint, e.g. the shared org an agent-swarm worker container is provisioned to write to), then the account's own default org/drive from `GET /me` (the auto-created personal org, unless changed). Check `agent-fs org current` / `agent-fs drive current` (`source` field) if a write lands somewhere unexpected — a write with no flags always lands on the personal org/drive unless one of the earlier tiers is set.
+
+4. **Stdin and file upload** — `write` accepts raw bytes from stdin or `--file`, and text from `--content`; `append` accepts text via stdin or `--content`:
    ```bash
    # Preferred for multi-line text
    echo "content here" | agent-fs write path/to/file.txt
@@ -102,14 +104,14 @@ symlinks are unsupported and throw `EPERM`.
    agent-fs write assets/screenshot.png --file ./screenshot.png
    ```
 
-4. **Paths** — forward-slash separated, no leading slash required. Example: `docs/notes/meeting.md`
+5. **Paths** — forward-slash separated, no leading slash required. Example: `docs/notes/meeting.md`
 
-5. **Version messages** — optional but recommended for auditability:
+6. **Version messages** — optional but recommended for auditability:
    ```bash
    agent-fs write docs/spec.md --content "..." -m "added API section"
    ```
 
-6. **Optimistic concurrency** — use `--expected-version` on `write` to prevent conflicts:
+7. **Optimistic concurrency** — use `--expected-version` on `write` to prevent conflicts:
    ```bash
    agent-fs write config.json --content '{}' --expected-version 3
    # Fails if file is not at version 3

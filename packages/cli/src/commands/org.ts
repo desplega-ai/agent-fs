@@ -21,10 +21,11 @@ export function orgCommands(client: ApiClient) {
           return;
         }
         const config = getConfig();
+        const activeOrgId = config.defaultOrg || process.env.AGENT_FS_DEFAULT_ORG_ID;
         for (const org of orgs) {
           const flags: string[] = [];
           if (org.isPersonal) flags.push("personal");
-          if (config.defaultOrg === org.id) flags.push("active");
+          if (activeOrgId === org.id) flags.push("active");
           const suffix = flags.length > 0 ? `  (${flags.join(", ")})` : "";
           console.log(`${org.id}  ${org.name}  [${org.role}]${suffix}`);
         }
@@ -42,13 +43,18 @@ export function orgCommands(client: ApiClient) {
       try {
         const config = getConfig();
         const me = await client.getMe();
-        const effectiveOrgId = config.defaultOrg ?? me.defaultOrgId;
+        const effectiveOrgId =
+          config.defaultOrg || process.env.AGENT_FS_DEFAULT_ORG_ID || me.defaultOrgId;
         if (!effectiveOrgId) {
           console.error("Error: No org context. Run 'agent-fs auth register' first.");
           process.exit(1);
         }
         const org = await client.get(`/orgs/${effectiveOrgId}`);
-        const source = config.defaultOrg ? "config (org switch)" : "server default";
+        const source = config.defaultOrg
+          ? "config (org switch)"
+          : process.env.AGENT_FS_DEFAULT_ORG_ID
+            ? "env (AGENT_FS_DEFAULT_ORG_ID)"
+            : "server default";
         if (json) {
           console.log(JSON.stringify({ ...org, source }, null, 2));
         } else {

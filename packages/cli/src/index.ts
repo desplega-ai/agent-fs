@@ -30,6 +30,14 @@ program
 const client = new ApiClient();
 
 // Resolve the default org ID via the API
+//
+// Precedence: --org flag > local config (`org switch`, an explicit choice
+// persisted on this machine) > AGENT_FS_DEFAULT_ORG_ID (a deployment-level
+// hint, e.g. the agent-swarm shared org set on every worker container) >
+// the account's own defaultOrgId from GET /me, which is the auto-created
+// personal org unless the user has changed it. Without the env tier, every
+// call with no flag and no local override silently lands on the personal
+// org/drive even when the environment is pointing at a shared one.
 async function getOrgId(): Promise<string> {
   const orgId = program.opts().org;
   if (orgId) return orgId;
@@ -38,9 +46,14 @@ async function getOrgId(): Promise<string> {
   const config = getConfig();
   if (config.defaultOrg) return config.defaultOrg;
 
+  if (process.env.AGENT_FS_DEFAULT_ORG_ID) return process.env.AGENT_FS_DEFAULT_ORG_ID;
+
   try {
     const me = await client.getMe();
-    if (me.defaultOrgId) return me.defaultOrgId;
+    if (me.defaultOrgId) {
+      warnIfSharedOrgAvailable(me.defaultOrgId);
+      return me.defaultOrgId;
+    }
   } catch (err: any) {
     if (err?.message?.includes("Cannot connect")) {
       console.error(err.message);
@@ -52,12 +65,29 @@ async function getOrgId(): Promise<string> {
   process.exit(1);
 }
 
+// AGENT_FS_DEFAULT_ORG_ID already covers the common case above. This covers
+// the narrower case where only AGENT_FS_SHARED_ORG_ID is set (agent-swarm
+// sets both, but they're independent knobs) — falling back to the personal
+// org while a shared one is known and unused is worth a loud warning rather
+// than a silent surprise the next time someone can't find their file.
+function warnIfSharedOrgAvailable(resolvedOrgId: string): void {
+  const sharedOrgId = process.env.AGENT_FS_SHARED_ORG_ID;
+  if (sharedOrgId && sharedOrgId !== resolvedOrgId) {
+    console.error(
+      `Warning: using personal org ${resolvedOrgId}, but AGENT_FS_SHARED_ORG_ID=${sharedOrgId} is set. ` +
+        `Pass --org ${sharedOrgId} or run 'agent-fs org switch ${sharedOrgId}' if you meant to write to the shared org.`
+    );
+  }
+}
+
 async function getDriveId(orgId?: string): Promise<string> {
   const driveId = program.opts().drive;
   if (driveId) return driveId;
 
   const config = getConfig();
   if (config.defaultDrive) return config.defaultDrive;
+
+  if (process.env.AGENT_FS_DEFAULT_DRIVE_ID) return process.env.AGENT_FS_DEFAULT_DRIVE_ID;
 
   const resolvedOrgId = orgId ?? (await getOrgId());
   const me = await client.getMe();

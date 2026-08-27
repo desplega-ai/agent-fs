@@ -113,7 +113,10 @@ export class ApiClient {
       headers.set("X-Agent-FS-Content-Hash", opts.contentHash);
     }
     if (opts.message) {
-      headers.set("X-Agent-FS-Message", opts.message);
+      // Header values must be Latin-1; fetch's Headers throws on a raw
+      // non-ASCII message (e.g. an em dash). Percent-encode for transport;
+      // the server decodes it back on read.
+      headers.set("X-Agent-FS-Message", encodeURIComponent(opts.message));
     }
     // The server's raw route matches everything between `/files/` and
     // `/raw`. The path may already start with `/`; strip leading slashes

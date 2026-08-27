@@ -103,6 +103,14 @@ const testEnv = (): NodeJS.ProcessEnv => {
     AWS_ACCESS_KEY_ID: "",
     AWS_SECRET_ACCESS_KEY: "",
     AWS_REGION: "",
+    // Clear the swarm's own default-org/drive vars: this harness's default
+    // resolution tests set these explicitly per-call (via runWithEnv), and a
+    // stray value inherited from the host shell (e.g. an agent-swarm worker
+    // container) would point every unflagged command at an org/drive that
+    // doesn't exist on this ephemeral test server.
+    AGENT_FS_DEFAULT_ORG_ID: "",
+    AGENT_FS_DEFAULT_DRIVE_ID: "",
+    AGENT_FS_SHARED_ORG_ID: "",
     BUCKET_NAME: "",
   };
 
@@ -158,6 +166,24 @@ function run(args: string): string {
 
 function runJson(args: string): any {
   return JSON.parse(run(`--json ${args}`));
+}
+
+/** Run a CLI command with full API context plus extra env overrides (e.g. AGENT_FS_DEFAULT_ORG_ID). */
+function runWithEnv(args: string, extraEnv: Record<string, string>): string {
+  return execSync(`${cmd} ${args}`, {
+    encoding: "utf-8",
+    env: {
+      ...testEnv(),
+      AGENT_FS_API_URL: `http://127.0.0.1:${daemonPort}`,
+      AGENT_FS_API_KEY: apiKey,
+      ...extraEnv,
+    },
+    timeout: 30_000,
+  }).trim();
+}
+
+function runJsonWithEnv(args: string, extraEnv: Record<string, string>): any {
+  return JSON.parse(runWithEnv(`--json ${args}`, extraEnv));
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +268,12 @@ function localEnv(
     AWS_SECRET_ACCESS_KEY: "",
     AWS_REGION: "",
     BUCKET_NAME: "",
+    // See testEnv()'s matching comment: don't let a host-inherited shared
+    // org/drive point unflagged commands at a server this backend knows
+    // nothing about.
+    AGENT_FS_DEFAULT_ORG_ID: "",
+    AGENT_FS_DEFAULT_DRIVE_ID: "",
+    AGENT_FS_SHARED_ORG_ID: "",
     ...extra,
   };
 }
@@ -1772,6 +1804,59 @@ async function runStandardTests(daemonUrl: string) {
     assert(names.includes("e2e-second-org"), true, `Expected e2e-second-org in ${JSON.stringify(names)}`);
   });
 
+  // -- AGENT_FS_DEFAULT_ORG_ID / AGENT_FS_DEFAULT_DRIVE_ID env fallback --
+  //
+  // Regression coverage: the CLI's default-context resolution used to only
+  // check --org/--drive flags and `org switch` config, silently falling
+  // through to the account's personal org/drive otherwise. That meant a
+  // shared org/drive pointed at by these env vars (as agent-swarm sets on
+  // every worker container) was never honored without an explicit flag —
+  // writes with no flags landed on the caller's private drive and were
+  // invisible to every other agent. Runs before any `org switch` in this
+  // suite so config.defaultOrg/defaultDrive are still unset — `org switch`
+  // (tested further below) still wins over the env vars once set.
+
+  await test("org current: AGENT_FS_DEFAULT_ORG_ID is honored with no flags/config", () => {
+    const result = runJsonWithEnv("org current", { AGENT_FS_DEFAULT_ORG_ID: secondOrgId });
+    assert(result.id, secondOrgId);
+    assert(result.source, "env (AGENT_FS_DEFAULT_ORG_ID)");
+  });
+
+  await test("drive current: AGENT_FS_DEFAULT_ORG_ID/DRIVE_ID are honored with no flags/config", () => {
+    const result = runJsonWithEnv("drive current", {
+      AGENT_FS_DEFAULT_ORG_ID: secondOrgId,
+      AGENT_FS_DEFAULT_DRIVE_ID: secondDriveId,
+    });
+    assert(result.orgId, secondOrgId);
+    assert(result.drive.id, secondDriveId);
+    assert(result.source, "env (AGENT_FS_DEFAULT_ORG_ID/AGENT_FS_DEFAULT_DRIVE_ID)");
+  });
+
+  await test("write with no flags lands in the env-designated org/drive, not personal", () => {
+    const result = runJsonWithEnv('write /env-default.txt --content "from env default"', {
+      AGENT_FS_DEFAULT_ORG_ID: secondOrgId,
+      AGENT_FS_DEFAULT_DRIVE_ID: secondDriveId,
+    });
+    assert(result.version, 1);
+
+    // Visible under the second org/drive...
+    const cat = runJsonWithEnv("cat /env-default.txt", {
+      AGENT_FS_DEFAULT_ORG_ID: secondOrgId,
+      AGENT_FS_DEFAULT_DRIVE_ID: secondDriveId,
+    });
+    assert(cat.content, "from env default");
+
+    // ...and absent from the personal org/drive (no env, no flags).
+    let leaked = false;
+    try {
+      run("cat /env-default.txt");
+      leaked = true;
+    } catch {
+      // expected: not found under the personal default
+    }
+    assert(leaked, false, "Expected /env-default.txt to be absent from the personal drive");
+  });
+
   await test("org switch to second org", () => {
     const out = run(`org switch ${secondOrgId}`);
     assertIncludes(out, "Switched to org: e2e-second-org");
@@ -1790,6 +1875,12 @@ async function runStandardTests(daemonUrl: string) {
 
   await test("org current after switch back", () => {
     const result = runJson("org current");
+    assert(result.id, personalOrgId);
+    assert(result.source, "config (org switch)");
+  });
+
+  await test("org switch still wins over AGENT_FS_DEFAULT_ORG_ID", () => {
+    const result = runJsonWithEnv("org current", { AGENT_FS_DEFAULT_ORG_ID: secondOrgId });
     assert(result.id, personalOrgId);
     assert(result.source, "config (org switch)");
   });

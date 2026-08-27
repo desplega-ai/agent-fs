@@ -100,6 +100,20 @@ describe("ApiClient", () => {
     expect(get.contentHash).toBe(put.contentHash);
   });
 
+  test("putRaw() with a non-ASCII message does not throw and round-trips", async () => {
+    // Headers.set() throws on a raw non-Latin-1 value (e.g. an em dash);
+    // putRaw() must percent-encode the message before setting the header.
+    const client = await makeClient();
+    const message = "v2 — fix (café)";
+
+    await client.putRaw(orgId, driveId, "/cli-message.txt", new TextEncoder().encode("body"), {
+      message,
+    });
+
+    const logResult = await client.callOp(orgId, "log", { path: "/cli-message.txt" });
+    expect(logResult.versions[0].message).toBe(message);
+  });
+
   test("setApiKey() changes auth", async () => {
     const client = await makeClient();
     client.setApiKey("af_invalid_key");
