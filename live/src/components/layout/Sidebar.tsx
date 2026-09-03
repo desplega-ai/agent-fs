@@ -1,9 +1,11 @@
-import { useEffect, useId, useState, type KeyboardEvent } from "react"
+import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react"
 import { FileTree } from "@/components/file-tree/FileTree"
 import { RecentFiles } from "@/components/file-tree/RecentFiles"
+import { FolderActions } from "@/components/file-mutations/FolderActions"
 import { SearchBar } from "@/components/search/SearchBar"
 import { Button } from "@/components/ui/button"
 import { useBrowser } from "@/contexts/browser"
+import { cleanPath, parentOf } from "@/lib/paths"
 import { useFileSearch } from "@/stores/file-search"
 
 type SidebarView = "tree" | "recent"
@@ -24,6 +26,14 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
   // A user may still switch back to Recent afterward without changing files.
   useEffect(() => {
     if (selectedFile && !selectedFile.endsWith("/")) setView("tree")
+  }, [selectedFile])
+
+  // New / Upload in the sidebar act on the folder the user is looking at:
+  // the open folder, or the open file's parent, else the drive root.
+  const contextFolder = useMemo(() => {
+    if (!selectedFile) return ""
+    if (selectedFile.endsWith("/")) return cleanPath(selectedFile)
+    return parentOf(selectedFile)
   }, [selectedFile])
 
   const selectTab = (next: SidebarView) => {
@@ -57,11 +67,11 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
     <aside className="flex h-full w-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <SearchBar />
       {children}
-      <div className="shrink-0 border-b border-sidebar-border px-3 py-2">
+      <div className="flex shrink-0 items-center gap-1.5 border-b border-sidebar-border px-3 py-2">
         <div
           role="tablist"
           aria-label="File navigation"
-          className="flex rounded-md border border-sidebar-border bg-sidebar-accent/30 p-0.5"
+          className="flex flex-1 rounded-md border border-sidebar-border bg-sidebar-accent/30 p-0.5"
         >
           <Button
             id={treeTabId}
@@ -104,6 +114,7 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
             Recent
           </Button>
         </div>
+        <FolderActions folder={contextFolder} size="icon-xs" />
       </div>
       <div
         id={activeView === "tree" ? treePanelId : recentPanelId}

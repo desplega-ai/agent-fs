@@ -1,13 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useMemo } from "react"
 import { useNavigate } from "react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useDropzone } from "react-dropzone"
-import { FolderOpen, FilePlus, FolderPlus, FolderUp, Upload } from "lucide-react"
+import { FolderOpen, FilePlus, Upload } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
-import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
-import { NewEntryDialog, type NewEntryKind } from "@/components/file-mutations/NewEntryDialog"
+import { FolderActions } from "@/components/file-mutations/FolderActions"
 import { MAX_UPLOAD_BYTES, toUploadInputs, uploadStore } from "@/stores/upload"
 import { cleanPath } from "@/lib/paths"
 import { ListView } from "./ListView"
@@ -34,7 +33,7 @@ const UPLOAD_LIMIT_LABEL = `${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
  * `selectFile` flow which navigates the SPA + selects the file.
  *
  * The whole pane is a drop zone: dropped files and folders upload into the
- * current folder. The header offers New file, New folder and Upload actions.
+ * current folder. The header carries the New and Upload dropdowns.
  */
 export function FolderView({ path }: FolderViewProps) {
   const { client, orgId, driveId } = useAuth()
@@ -42,8 +41,6 @@ export function FolderView({ path }: FolderViewProps) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [mode] = useFolderViewMode()
-  const [dialog, setDialog] = useState<NewEntryKind | null>(null)
-  const dirInputRef = useRef<HTMLInputElement>(null)
   const canMutate = !!orgId && !!driveId
 
   // Normalize: strip trailing/leading slashes so we have a canonical path.
@@ -88,12 +85,12 @@ export function FolderView({ path }: FolderViewProps) {
   )
 
   // react-dropzone traverses dropped folders via `webkitGetAsEntry` and keeps
-  // each file's relative path. Clicks and keyboard are handled by our own
-  // buttons, so the root only reacts to drops (its default
-  // `preventDropOnDocument` also stops a missed drop from navigating away).
-  // Paste-to-upload stays off: the dialogs render inside this React tree and
-  // a pasted image while typing a path should not start an upload.
-  const { getRootProps, getInputProps, open: openFilePicker, isDragActive } = useDropzone({
+  // each file's relative path. The pickers live in `FolderActions`, so the
+  // root only reacts to drops (its default `preventDropOnDocument` also stops
+  // a missed drop from navigating away). Paste-to-upload stays off: the
+  // dialogs render inside this React tree and a pasted image while typing a
+  // path should not start an upload.
+  const { getRootProps, isDragActive } = useDropzone({
     onDrop: enqueueFiles,
     noClick: true,
     noKeyboard: true,
@@ -103,27 +100,14 @@ export function FolderView({ path }: FolderViewProps) {
     disabled: !canMutate,
   })
 
-  // `webkitdirectory` is not a typed React attribute; set it imperatively on
-  // the second hidden input that backs the "Upload folder" button.
-  useEffect(() => {
-    dirInputRef.current?.setAttribute("webkitdirectory", "")
-  }, [])
-
   return (
-    <div {...getRootProps({ className: "relative flex h-full flex-col min-w-0 outline-none" })}>
-      <input {...getInputProps()} />
-      <input
-        ref={dirInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        aria-label="Upload folder"
-        onChange={(e) => {
-          enqueueFiles(Array.from(e.target.files ?? []))
-          e.target.value = ""
-        }}
-      />
-
+    <div
+      {...getRootProps({
+        className: "relative flex h-full flex-col min-w-0 outline-none",
+        role: "region",
+        "aria-label": `Folder ${currentPath || "drive root"}`,
+      })}
+    >
       {/* Header: title (left) + actions and view toggle (right) */}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2">
         <div className="flex min-w-0 items-center gap-2 text-sm">
@@ -137,51 +121,8 @@ export function FolderView({ path }: FolderViewProps) {
             </span>
           )}
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setDialog("file")}
-            disabled={!canMutate}
-            title="New file"
-          >
-            <FilePlus />
-            <span className="hidden lg:inline">New file</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setDialog("folder")}
-            disabled={!canMutate}
-            title="New folder"
-          >
-            <FolderPlus />
-            <span className="hidden lg:inline">New folder</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={openFilePicker}
-            disabled={!canMutate}
-            title={`Upload files (up to ${UPLOAD_LIMIT_LABEL} each)`}
-          >
-            <Upload />
-            <span className="hidden lg:inline">Upload</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => dirInputRef.current?.click()}
-            disabled={!canMutate}
-            title="Upload a folder"
-          >
-            <FolderUp />
-            <span className="hidden lg:inline">Upload folder</span>
-          </Button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <FolderActions folder={currentPath} />
           <ViewModeToggle />
         </div>
       </div>
@@ -243,17 +184,6 @@ export function FolderView({ path }: FolderViewProps) {
             </p>
           </div>
         </div>
-      )}
-
-      {dialog && (
-        <NewEntryDialog
-          kind={dialog}
-          basePath={currentPath}
-          open
-          onOpenChange={(open) => {
-            if (!open) setDialog(null)
-          }}
-        />
       )}
     </div>
   )

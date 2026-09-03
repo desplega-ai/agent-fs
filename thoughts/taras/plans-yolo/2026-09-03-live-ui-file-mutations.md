@@ -94,3 +94,12 @@ Accepted as is:
 - `# <name>` template for new Markdown files (from the research evaluation).
 - "Upload folder" button in addition to drag-and-drop (the research listed `webkitdirectory` as the input-side option).
 - Paths are not URL-encoded in the edit redirect, matching the existing `selectFile` behavior for names with `#` or `?`.
+
+## Addendum (2026-09-03, follow-up in the same session)
+
+Taras asked for two icon dropdowns instead of four text buttons, tooltips, the same actions outside the folder view, and a look at org switching.
+
+- `live/src/components/file-mutations/FolderActions.tsx`: two icon buttons with tooltips. Plus opens New file / New folder; Upload opens Files / Folder. It owns the hidden pickers and the New dialog and takes a target folder. Used in the `FolderView` header (drop zone stays in `FolderView`) and in the sidebar tab row (`live/src/components/layout/Sidebar.tsx`), where it targets the open folder, or the open file's parent, else the drive root. The folder pane is now a labelled `region` ("Folder <path>") so tests and screen readers can address it.
+- **Org switch bug (root cause and fix).** `BrowserRouter` applies navigations inside `React.startTransition`, so a switcher click commits the context update first while the old file route is still mounted. `RouteParamsSync` had `orgId`/`driveId` in its effect deps, so that commit re-ran the URL sync and the stale URL params reverted the switch. The second click worked only because `/files` mounts no `RouteParamsSync`. Fix in `live/src/App.tsx`: the sync effects read the current context through a ref and run only when the URL params change. Companion changes: `OrgSwitcher` navigates to `/orgs/<id>/files/` so the redirect lands on the new org's drive root; `DriveSwitcher` and `DrivePicker` navigate to the picked drive's root so the URL matches the context (the picker used to change context without touching the URL).
+- Verification: `pnpm build` passes. E2E extended to 46 checks (dropdown items, tooltip, sidebar New from a file view, one-click org switch landing on `/file/~/<orgB>/<driveB>/`); 45 pass, the one failure remains the server path-form probe.
+- Pre-existing and untouched: the design hook flags two side-tab accent borders in `live/src/index.css` (lines 156 and 165). Not part of this change.
