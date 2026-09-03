@@ -1,4 +1,5 @@
 import { ChevronDown, Check, HardDrive, Building2 } from "lucide-react"
+import { useNavigate } from "react-router"
 import { useAuth } from "@/contexts/auth"
 import {
   DropdownMenu,
@@ -8,8 +9,16 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function DrivePicker() {
-  const { drives, driveId, driveName, setDriveId, orgName } = useAuth()
+  const { drives, driveId, driveName, setDriveId, orgId, orgName } = useAuth()
+  const navigate = useNavigate()
   const hasMultiple = drives.length > 1
+
+  // Keep the URL in step with the context so a reload lands on the same drive.
+  const pickDrive = (id: string) => {
+    if (id === driveId) return
+    setDriveId(id)
+    navigate(orgId ? `/file/~/${orgId}/${id}/` : "/files")
+  }
 
   return (
     <div className="border-b border-sidebar-border px-3 py-2 space-y-1">
@@ -31,7 +40,7 @@ export function DrivePicker() {
             {drives.map((drive) => (
               <DropdownMenuItem
                 key={drive.id}
-                onClick={() => setDriveId(drive.id)}
+                onClick={() => pickDrive(drive.id)}
               >
                 <span className="truncate flex-1">{drive.name}</span>
                 {drive.id === driveId && <Check className="size-3 text-primary ml-auto" />}

@@ -18,8 +18,8 @@ import { Kbd } from "@/components/ui/kbd"
 import { toast } from "@/stores/toast"
 
 export function DriveSwitcher() {
-  const { drives, driveId, driveName, setDriveId } = useAuth()
-  const { selectFile } = useBrowser()
+  const { drives, driveId, driveName, setDriveId, orgId } = useAuth()
+  const { setSelectedFile } = useBrowser()
   const navigate = useNavigate()
   const displayName = driveName || driveId.slice(0, 8)
 
@@ -68,9 +68,9 @@ export function DriveSwitcher() {
             onClick={() => {
               if (drive.id === driveId) return
               setDriveId(drive.id)
-              selectFile(null)
+              setSelectedFile(null)
               toast(`Switched to ${drive.name}`)
-              navigate("/")
+              navigate(orgId ? `/file/~/${orgId}/${drive.id}/` : "/files")
             }}
           >
             <HardDrive className="size-3 text-muted-foreground" />

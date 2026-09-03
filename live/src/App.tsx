@@ -1,4 +1,4 @@
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -81,17 +81,29 @@ function RouteParamsSync({ syncFile = true }: { syncFile?: boolean } = {}) {
   const paramDriveId = params.driveId
   const paramFile = params["*"] ?? null
 
+  // URL -> context is one-way and must fire only when the URL changes. The
+  // router applies navigations inside a transition, so an in-app org or drive
+  // switch commits its context update first, while this route (and its stale
+  // params) is still mounted. With `orgId`/`driveId` in the deps that commit
+  // re-ran the sync and the old URL overwrote the switch, which is why a
+  // switch from a file view used to need two clicks. Read the current context
+  // through a ref instead so only a param change triggers a sync.
+  const ctxRef = useRef({ orgId, driveId })
   useEffect(() => {
-    if (paramOrgId && paramOrgId !== orgId) {
-      setOrgId(paramOrgId)
-    }
-  }, [paramOrgId, orgId, setOrgId])
+    ctxRef.current = { orgId, driveId }
+  })
 
   useEffect(() => {
-    if (paramDriveId && paramDriveId !== driveId) {
+    if (paramOrgId && paramOrgId !== ctxRef.current.orgId) {
+      setOrgId(paramOrgId)
+    }
+  }, [paramOrgId, setOrgId])
+
+  useEffect(() => {
+    if (paramDriveId && paramDriveId !== ctxRef.current.driveId) {
       setDriveId(paramDriveId)
     }
-  }, [paramDriveId, driveId, setDriveId])
+  }, [paramDriveId, setDriveId])
 
   useEffect(() => {
     if (!syncFile) return

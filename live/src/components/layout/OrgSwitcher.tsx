@@ -19,7 +19,7 @@ import { toast } from "@/stores/toast"
 
 export function OrgSwitcher() {
   const { orgs, orgId, orgName, setOrgId } = useAuth()
-  const { selectFile } = useBrowser()
+  const { setSelectedFile } = useBrowser()
   const navigate = useNavigate()
   const displayName = orgName || orgId?.slice(0, 8) || "..."
 
@@ -68,9 +68,11 @@ export function OrgSwitcher() {
             onClick={() => {
               if (org.id === orgId) return
               setOrgId(org.id)
-              selectFile(null)
+              setSelectedFile(null)
               toast(`Switched to ${org.name}`)
-              navigate("/")
+              // Land on the new org's default (or first) drive root; the
+              // redirect route resolves the drive once it has loaded.
+              navigate(`/orgs/${org.id}/files/`)
             }}
           >
             <Building2 className="size-3 text-muted-foreground" />
