@@ -294,3 +294,16 @@ export interface Org {
   id: string
   name: string
 }
+
+// File mutation ops (mv / rm)
+
+export interface MvResult {
+  from: string
+  to: string
+  version: number
+}
+
+export interface RmResult {
+  path: string
+  deleted: boolean
+}

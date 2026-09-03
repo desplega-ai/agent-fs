@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, type MutableRefObject } from "react"
 import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid } from "lucide-react"
-import { useNavigate } from "react-router"
+import { useNavigate, useSearchParams } from "react-router"
 import { isQueryablePath } from "@/lib/sql-engine/types"
 import { useAuth } from "@/contexts/auth"
 import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
@@ -150,6 +150,20 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     setIsEditing(false)
     setMdEditView("source")
   }, [path]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // `?edit=1` (set by the New file dialog) opens the file straight into edit
+  // mode. Runs after the reset above so it wins on the same path change, then
+  // consumes the flag so a reload or Cancel does not re-enter editing.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const wantsEdit = searchParams.get("edit") === "1"
+  useEffect(() => {
+    if (!wantsEdit) return
+    setIsEditing(true)
+    setMdEditView("source")
+    const next = new URLSearchParams(searchParams)
+    next.delete("edit")
+    setSearchParams(next, { replace: true })
+  }, [wantsEdit, path]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleEnterEdit = useCallback(() => {
     setIsEditing(true)

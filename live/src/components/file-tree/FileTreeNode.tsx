@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   Folder,
@@ -8,6 +9,10 @@ import {
   Download,
   Link as LinkIcon,
   FolderOpen as OpenIcon,
+  FilePlus,
+  FolderPlus,
+  Pencil,
+  Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/auth"
@@ -32,7 +37,12 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu"
+import { NewEntryDialog, type NewEntryKind } from "@/components/file-mutations/NewEntryDialog"
+import { RenameDialog } from "@/components/file-mutations/RenameDialog"
+import { DeleteDialog } from "@/components/file-mutations/DeleteDialog"
 import type { LsEntry, LsResult } from "@/api/types"
+
+type NodeDialog = NewEntryKind | "rename" | "delete"
 
 interface FileTreeNodeProps {
   entry: LsEntry
@@ -75,6 +85,14 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
   const tabIndex = isFocused || (focusedPath === null && isDefaultFocus) ? 0 : -1
   const isUuidDir = isDir && isUuidLike(entry.name)
   const resolvedUuidName = useUuidName(path, isUuidDir ? entry.name : "")
+  // Mutation dialogs opened from the context menu. Mounted only while open so
+  // a large tree does not carry a dialog per row.
+  const [dialog, setDialog] = useState<NodeDialog | null>(null)
+  const closeDialog = (open: boolean) => {
+    if (!open) setDialog(null)
+  }
+  // "New file" / "New folder" target the folder itself, or a file's parent.
+  const newEntryBase = isDir ? fullPath : path
 
   const { data: children } = useQuery({
     queryKey: ["ls", orgId, driveId, fullPath],
@@ -224,6 +242,29 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
             Download
           </ContextMenuItem>
           <ContextMenuSeparator />
+          <ContextMenuItem onClick={() => setDialog("file")} disabled={!driveId}>
+            <FilePlus className="h-4 w-4" />
+            New file…
+          </ContextMenuItem>
+          <ContextMenuItem onClick={() => setDialog("folder")} disabled={!driveId}>
+            <FolderPlus className="h-4 w-4" />
+            New folder…
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* mv and rm are single-file ops; folders stay read-only here. */}
+          <ContextMenuItem onClick={() => setDialog("rename")} disabled={isDir || !driveId}>
+            <Pencil className="h-4 w-4" />
+            Rename…
+          </ContextMenuItem>
+          <ContextMenuItem
+            variant="destructive"
+            onClick={() => setDialog("delete")}
+            disabled={isDir || !driveId}
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete…
+          </ContextMenuItem>
+          <ContextMenuSeparator />
           <ContextMenuItem
             onClick={handleOpenInNewTab}
             disabled={!deepLink}
@@ -233,6 +274,16 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
+
+      {(dialog === "file" || dialog === "folder") && (
+        <NewEntryDialog kind={dialog} basePath={newEntryBase} open onOpenChange={closeDialog} />
+      )}
+      {dialog === "rename" && (
+        <RenameDialog path={fullPath} open onOpenChange={closeDialog} />
+      )}
+      {dialog === "delete" && (
+        <DeleteDialog path={fullPath} open onOpenChange={closeDialog} />
+      )}
 
       {isDir && expanded && children && (
         <div>

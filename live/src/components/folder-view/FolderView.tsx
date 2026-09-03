@@ -1,10 +1,15 @@
-import { useMemo } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { useQuery } from "@tanstack/react-query"
-import { FolderOpen, FilePlus } from "lucide-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useDropzone } from "react-dropzone"
+import { FolderOpen, FilePlus, FolderPlus, FolderUp, Upload } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
+import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { NewEntryDialog, type NewEntryKind } from "@/components/file-mutations/NewEntryDialog"
+import { MAX_UPLOAD_BYTES, toUploadInputs, uploadStore } from "@/stores/upload"
+import { cleanPath } from "@/lib/paths"
 import { ListView } from "./ListView"
 import { GridView } from "./GridView"
 import { ViewModeToggle, useFolderViewMode } from "./ViewModeToggle"
@@ -19,26 +24,30 @@ interface FolderViewProps {
   path: string
 }
 
+const UPLOAD_LIMIT_LABEL = `${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
+
 /**
  * Renders the contents of a folder when no file is selected. Toggleable
  * between list and grid views (persisted to `liveui:browser:view`).
  *
  * Folders open by URL navigation (deep-linkable); files open via the existing
  * `selectFile` flow which navigates the SPA + selects the file.
+ *
+ * The whole pane is a drop zone: dropped files and folders upload into the
+ * current folder. The header offers New file, New folder and Upload actions.
  */
 export function FolderView({ path }: FolderViewProps) {
   const { client, orgId, driveId } = useAuth()
   const { selectFile, setSelectedFile } = useBrowser()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [mode] = useFolderViewMode()
+  const [dialog, setDialog] = useState<NewEntryKind | null>(null)
+  const dirInputRef = useRef<HTMLInputElement>(null)
+  const canMutate = !!orgId && !!driveId
 
   // Normalize: strip trailing/leading slashes so we have a canonical path.
-  const currentPath = useMemo(() => {
-    let p = path ?? ""
-    while (p.endsWith("/")) p = p.slice(0, -1)
-    while (p.startsWith("/")) p = p.slice(1)
-    return p
-  }, [path])
+  const currentPath = useMemo(() => cleanPath(path ?? ""), [path])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["ls", orgId, driveId, currentPath],
@@ -70,9 +79,52 @@ export function FolderView({ path }: FolderViewProps) {
     }
   }
 
+  const enqueueFiles = useCallback(
+    (files: File[]) => {
+      if (!orgId || !driveId || files.length === 0) return
+      uploadStore.enqueue({ client, orgId, driveId, queryClient }, currentPath, toUploadInputs(files))
+    },
+    [client, orgId, driveId, queryClient, currentPath],
+  )
+
+  // react-dropzone traverses dropped folders via `webkitGetAsEntry` and keeps
+  // each file's relative path. Clicks and keyboard are handled by our own
+  // buttons, so the root only reacts to drops (its default
+  // `preventDropOnDocument` also stops a missed drop from navigating away).
+  // Paste-to-upload stays off: the dialogs render inside this React tree and
+  // a pasted image while typing a path should not start an upload.
+  const { getRootProps, getInputProps, open: openFilePicker, isDragActive } = useDropzone({
+    onDrop: enqueueFiles,
+    noClick: true,
+    noKeyboard: true,
+    noPaste: true,
+    multiple: true,
+    useFsAccessApi: false,
+    disabled: !canMutate,
+  })
+
+  // `webkitdirectory` is not a typed React attribute; set it imperatively on
+  // the second hidden input that backs the "Upload folder" button.
+  useEffect(() => {
+    dirInputRef.current?.setAttribute("webkitdirectory", "")
+  }, [])
+
   return (
-    <div className="flex h-full flex-col min-w-0">
-      {/* Header: title (left) + view toggle (right) */}
+    <div {...getRootProps({ className: "relative flex h-full flex-col min-w-0 outline-none" })}>
+      <input {...getInputProps()} />
+      <input
+        ref={dirInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        aria-label="Upload folder"
+        onChange={(e) => {
+          enqueueFiles(Array.from(e.target.files ?? []))
+          e.target.value = ""
+        }}
+      />
+
+      {/* Header: title (left) + actions and view toggle (right) */}
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2">
         <div className="flex min-w-0 items-center gap-2 text-sm">
           <FolderOpen className="size-4 shrink-0 text-amber-500" />
@@ -85,7 +137,53 @@ export function FolderView({ path }: FolderViewProps) {
             </span>
           )}
         </div>
-        <ViewModeToggle />
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setDialog("file")}
+            disabled={!canMutate}
+            title="New file"
+          >
+            <FilePlus />
+            <span className="hidden lg:inline">New file</span>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setDialog("folder")}
+            disabled={!canMutate}
+            title="New folder"
+          >
+            <FolderPlus />
+            <span className="hidden lg:inline">New folder</span>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={openFilePicker}
+            disabled={!canMutate}
+            title={`Upload files (up to ${UPLOAD_LIMIT_LABEL} each)`}
+          >
+            <Upload />
+            <span className="hidden lg:inline">Upload</span>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => dirInputRef.current?.click()}
+            disabled={!canMutate}
+            title="Upload a folder"
+          >
+            <FolderUp />
+            <span className="hidden lg:inline">Upload folder</span>
+          </Button>
+          <ViewModeToggle />
+        </div>
       </div>
 
       {/* Body */}
@@ -108,7 +206,7 @@ export function FolderView({ path }: FolderViewProps) {
                 {currentPath ? "This folder is empty" : "This drive is empty"}
               </p>
               <p className="text-xs text-muted-foreground">
-                Files added here will appear automatically.
+                Create a file, or drop files here to upload (up to {UPLOAD_LIMIT_LABEL} each).
               </p>
             </div>
           </div>
@@ -132,6 +230,31 @@ export function FolderView({ path }: FolderViewProps) {
           </>
         )}
       </div>
+
+      {isDragActive && (
+        <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-background/85">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Upload className="size-6 text-primary" />
+            <p className="text-sm font-medium">
+              Drop to upload into {currentPath || "the drive root"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Folders keep their structure. Files over {UPLOAD_LIMIT_LABEL} are skipped.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {dialog && (
+        <NewEntryDialog
+          kind={dialog}
+          basePath={currentPath}
+          open
+          onOpenChange={(open) => {
+            if (!open) setDialog(null)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -27,6 +27,7 @@
     "monaco-editor": "^0.55.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-dropzone": "^20.1.1",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^4.10.0",
     "react-router": "^7.6.0",

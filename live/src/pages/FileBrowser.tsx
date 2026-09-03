@@ -3,6 +3,7 @@ import { useBrowser } from "@/contexts/browser"
 import { FileViewer } from "@/components/viewers/FileViewer"
 import { MainWithComments } from "@/components/layout/MainWithComments"
 import { FolderView } from "@/components/folder-view/FolderView"
+import { UploadPanel } from "@/components/file-mutations/UploadPanel"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import type { OutlineItem } from "@/lib/outline"
 
@@ -38,24 +39,35 @@ export function FileBrowserPage() {
     return null
   }, [selectedFile])
 
+  // The upload panel floats over both modes so in-flight progress and pending
+  // Replace / Skip prompts stay reachable when the user opens a file mid-upload.
+  // Bottom-left keeps it clear of the comments rail on the right.
+  const uploadPanel = <UploadPanel className="absolute bottom-3 left-3 z-20" />
+
   if (folderPath !== null) {
     // Folder mode — comments rail is hidden by MainWithComments when filePath
     // is null, so we just render the FolderView full-width.
     return (
-      <MainWithComments filePath={null} onCommentClick={handleCommentClick}>
-        <FolderView path={folderPath} />
-      </MainWithComments>
+      <div className="relative h-full">
+        <MainWithComments filePath={null} onCommentClick={handleCommentClick}>
+          <FolderView path={folderPath} />
+        </MainWithComments>
+        {uploadPanel}
+      </div>
     )
   }
 
   return (
-    <MainWithComments filePath={selectedFile} onCommentClick={handleCommentClick} outline={outline}>
-      <FileViewer
-        path={selectedFile!}
-        className="h-full"
-        onScrollToCommentRef={scrollToCommentRef}
-        onOutlineChange={setOutline}
-      />
-    </MainWithComments>
+    <div className="relative h-full">
+      <MainWithComments filePath={selectedFile} onCommentClick={handleCommentClick} outline={outline}>
+        <FileViewer
+          path={selectedFile!}
+          className="h-full"
+          onScrollToCommentRef={scrollToCommentRef}
+          onOutlineChange={setOutline}
+        />
+      </MainWithComments>
+      {uploadPanel}
+    </div>
   )
 }
