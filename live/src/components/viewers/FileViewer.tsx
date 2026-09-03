@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useCallback, useRef, type MutableRefObject } from "react"
-import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid } from "lucide-react"
+import React, { Suspense, lazy, useState, useEffect, useCallback, useRef, type MutableRefObject } from "react"
+import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid, Type } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router"
 import { isQueryablePath } from "@/lib/sql-engine/types"
 import { useAuth } from "@/contexts/auth"
 import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
 import { useFileActions } from "@/hooks/use-file-actions"
 import { useFileSave } from "@/hooks/use-file-save"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 import { uiChromeStore } from "@/stores/ui-chrome"
 import { sidePanelStore } from "@/stores/side-panel"
 import { toast } from "@/stores/toast"
@@ -32,8 +33,14 @@ import {
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
-type MdEditView = "source" | "split" | "preview"
+type MdEditView = "source" | "split" | "preview" | "rich"
+/** Which editor the pencil opens for markdown; remembered per browser. */
+type MdEditPreference = "source" | "rich"
 type SplitOrientation = "horizontal" | "vertical"
+
+// MDXEditor and its CodeMirror bundle are only fetched when a user opts into
+// the rich mode.
+const RichMarkdownEditor = lazy(() => import("./RichMarkdownEditor"))
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"])
 
@@ -137,8 +144,13 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   const [isDirty, setIsDirty] = useState(false)
   const { save, isSaving, error: saveError, clearError } = useFileSave(path)
 
-  // Markdown split-view state (only in edit mode)
-  const [mdEditView, setMdEditView] = useState<MdEditView>("source")
+  // Markdown edit layout (only in edit mode). The rich (MDXEditor) opt-in is
+  // remembered per browser and only offered for `.md`; the Monaco layouts
+  // (source / split / preview) always start from source.
+  const [mdEditPreference, setMdEditPreference] = useLocalStorage<MdEditPreference>("liveui:md-edit-view", "source")
+  const canRichEdit = getExt(path) === "md"
+  const defaultMdEditView: MdEditView = canRichEdit && mdEditPreference === "rich" ? "rich" : "source"
+  const [mdEditView, setMdEditView] = useState<MdEditView>(defaultMdEditView)
   const [splitOrientation, setSplitOrientation] = useState<SplitOrientation>("horizontal")
   const [liveEditContent, setLiveEditContent] = useState<string>("")
 
@@ -148,7 +160,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       setIsDirty(false)
     }
     setIsEditing(false)
-    setMdEditView("source")
+    setMdEditView(defaultMdEditView)
   }, [path]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // `?edit=1` (set by the New file dialog) opens the file straight into edit
@@ -159,7 +171,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   useEffect(() => {
     if (!wantsEdit) return
     setIsEditing(true)
-    setMdEditView("source")
+    setMdEditView(defaultMdEditView)
     const next = new URLSearchParams(searchParams)
     next.delete("edit")
     setSearchParams(next, { replace: true })
@@ -167,25 +179,26 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   const handleEnterEdit = useCallback(() => {
     setIsEditing(true)
-    setMdEditView("source")
-  }, [])
+    setMdEditView(defaultMdEditView)
+  }, [defaultMdEditView])
 
   const handleCancelEdit = useCallback(() => {
     setIsEditing(false)
     setIsDirty(false)
-    setMdEditView("source")
-  }, [])
+    setMdEditView(defaultMdEditView)
+  }, [defaultMdEditView])
 
-  const handleSave = useCallback(async (content: string) => {
-    try {
-      const result = await save(content, stat?.currentVersion)
-      toast.success(`Saved (v${result.version})`)
-      setIsDirty(false)
-      refetchStat()
-    } catch {
-      // error is already in the hook state
-    }
-  }, [save, stat?.currentVersion, refetchStat])
+  // Every layout mounts its own editor instance, so unsaved edits do not carry
+  // over a switch. Confirm first, then remember the rich/source choice.
+  const handleMdEditViewChange = useCallback((view: MdEditView) => {
+    if (view === mdEditView) return
+    if (isDirty && !window.confirm("Discard unsaved changes?")) return
+    setIsDirty(false)
+    // Drop the discarded text so the split/preview pane falls back to the file.
+    setLiveEditContent("")
+    setMdEditView(view)
+    if (canRichEdit) setMdEditPreference(view === "rich" ? "rich" : "source")
+  }, [mdEditView, isDirty, canRichEdit, setMdEditPreference])
 
   const isTabBin = isTabularBinary(path)
   const isTabTxt = isTabularText(path)
@@ -195,11 +208,27 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   // csv/tsv/ndjson in grid mode) need no raw-bytes fetch — the grid data comes
   // from the SQL engine. The raw fetch (presigned URL) is only used for text
   // and the optional "Source" toggle of tabular-text files.
-  const { data: content, isLoading } = useFileContent(
+  const { data: content, isLoading, setContent } = useFileContent(
     isImg || isVid || isPdf(path) || isTabBin || isDb || (isTabTxt && !showRaw)
       ? null
       : path
   )
+
+  const handleSave = useCallback(async (text: string): Promise<boolean> => {
+    try {
+      const result = await save(text, stat?.currentVersion)
+      toast.success(`Saved (v${result.version})`)
+      setIsDirty(false)
+      // Keep the cached text in step with the write so Cancel and the preview
+      // show the saved content without a reload.
+      setContent(path, text)
+      refetchStat()
+      return true
+    } catch {
+      // error is already in the hook state
+      return false
+    }
+  }, [save, stat?.currentVersion, refetchStat, setContent])
 
   // Outline only exists for a rendered markdown preview. When the viewer shows
   // anything else (source view, image, etc.) clear it so the rail's Outline
@@ -403,7 +432,8 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           isEditing={isEditing}
           onEdit={handleEnterEdit}
           mdEditView={editingMarkdown ? mdEditView : undefined}
-          onMdEditViewChange={editingMarkdown ? setMdEditView : undefined}
+          onMdEditViewChange={editingMarkdown ? handleMdEditViewChange : undefined}
+          showRichEditView={canRichEdit}
           splitOrientation={editingMarkdown && mdEditView === "split" ? splitOrientation : undefined}
           onToggleOrientation={editingMarkdown && mdEditView === "split" ? () => setSplitOrientation(o => o === "horizontal" ? "vertical" : "horizontal") : undefined}
         />
@@ -424,6 +454,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
             liveEditContent={liveEditContent}
             onContentChange={setLiveEditContent}
             onOutlineChange={onOutlineChange}
+            onRichParseError={() => setMdEditView("source")}
           />
         ) : (
           <TextViewer
@@ -463,16 +494,16 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   )
 }
 
-/** Markdown split/source/preview editor layout */
+/** Markdown rich/split/source/preview editor layout */
 function MarkdownEditView({
   content, path, view, orientation, onSave, isSaving, saveError, onClearError, onCancel,
-  onDirtyChange, liveEditContent, onContentChange, onOutlineChange,
+  onDirtyChange, liveEditContent, onContentChange, onOutlineChange, onRichParseError,
 }: {
   content: string
   path: string
   view: MdEditView
   orientation: SplitOrientation
-  onSave: (content: string) => Promise<void>
+  onSave: (content: string) => Promise<boolean>
   isSaving: boolean
   saveError: Error | null
   onClearError: () => void
@@ -481,11 +512,37 @@ function MarkdownEditView({
   liveEditContent: string
   onContentChange: (content: string) => void
   onOutlineChange?: (items: OutlineItem[]) => void
+  /** The rich editor could not parse the file; fall back to the source layout. */
+  onRichParseError: () => void
 }) {
   // Initialize live content with original
   useEffect(() => {
     onContentChange(content)
   }, [content]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (view === "rich") {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex flex-1 items-center justify-center">
+            <Spinner />
+          </div>
+        }
+      >
+        <RichMarkdownEditor
+          content={content}
+          className="flex-1 min-h-0"
+          onSave={onSave}
+          isSaving={isSaving}
+          saveError={saveError}
+          onClearError={onClearError}
+          onCancel={onCancel}
+          onDirtyChange={onDirtyChange}
+          onParseError={onRichParseError}
+        />
+      </Suspense>
+    )
+  }
 
   const editorElement = (
     <TextViewer
@@ -589,7 +646,7 @@ function SplitPane({ children, orientation }: { children: [React.ReactNode, Reac
   )
 }
 
-function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCount = 0, showViewToggle, showRaw, onToggleRaw, isEditable, isEditing, onEdit, mdEditView, onMdEditViewChange, splitOrientation, onToggleOrientation }: {
+function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCount = 0, showViewToggle, showRaw, onToggleRaw, isEditable, isEditing, onEdit, mdEditView, onMdEditViewChange, showRichEditView, splitOrientation, onToggleOrientation }: {
   path: string
   actions: ReturnType<typeof useFileActions>
   showExpand: boolean
@@ -604,6 +661,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
   onEdit?: () => void
   mdEditView?: MdEditView
   onMdEditViewChange?: (view: MdEditView) => void
+  showRichEditView?: boolean
   splitOrientation?: SplitOrientation
   onToggleOrientation?: () => void
 }) {
@@ -622,10 +680,27 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        {/* Markdown split-view toggle (only in edit mode) */}
+        {/* Markdown edit layout toggle (only in edit mode) */}
         {mdEditView && onMdEditViewChange && (
           <>
             <div className="flex items-center rounded-md border border-border bg-muted/40 p-0.5 gap-0.5">
+              {showRichEditView && (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant={mdEditView === "rich" ? "secondary" : "ghost"}
+                        size="icon-xs"
+                        onClick={() => onMdEditViewChange("rich")}
+                        aria-label="Rich editor"
+                      >
+                        <Type className="size-3.5" />
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>Rich editor</TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger
                   render={

@@ -275,3 +275,61 @@
 .hljs-strong {
   font-weight: 600;
 }
+
+/* MDXEditor (rich markdown edit mode). Its stylesheet reads Radix-style scale
+   variables (base 1..12, accent 1..12); remap them to the app tokens so both
+   themes follow the app palette. The class is set on the editor root and on
+   the popup container MDXEditor appends to <body>, so dialogs and menus pick
+   up the same values. Two classes so this outranks MDXEditor's own root rule,
+   which is loaded later. */
+.mdxeditor.mdx-rich-editor,
+.mdxeditor-popup-container.mdx-rich-editor {
+  --basePageBg: var(--popover);
+  --baseBase: var(--background);
+  --baseBgSubtle: color-mix(in oklab, var(--muted) 50%, var(--background));
+  --baseBg: var(--muted);
+  --baseBgHover: var(--accent);
+  --baseBgActive: var(--secondary);
+  --baseLine: var(--border);
+  --baseBorder: var(--border);
+  --baseBorderHover: color-mix(in oklab, var(--muted-foreground) 50%, var(--border));
+  --baseSolid: var(--muted-foreground);
+  --baseSolidHover: var(--foreground);
+  --baseText: var(--muted-foreground);
+  --baseTextContrast: var(--foreground);
+
+  --accentBase: color-mix(in oklab, var(--primary) 4%, var(--background));
+  --accentBgSubtle: color-mix(in oklab, var(--primary) 8%, var(--background));
+  --accentBg: color-mix(in oklab, var(--primary) 14%, var(--background));
+  --accentBgHover: color-mix(in oklab, var(--primary) 20%, var(--background));
+  --accentBgActive: color-mix(in oklab, var(--primary) 28%, var(--background));
+  --accentLine: color-mix(in oklab, var(--primary) 35%, var(--background));
+  --accentBorder: color-mix(in oklab, var(--primary) 50%, var(--background));
+  --accentBorderHover: color-mix(in oklab, var(--primary) 65%, var(--background));
+  --accentSolid: var(--primary);
+  --accentSolidHover: color-mix(in oklab, var(--primary) 85%, var(--foreground));
+  --accentText: var(--primary);
+  --accentTextContrast: var(--foreground);
+
+  --font-body: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Layout: flatten the toolbar into the viewer chrome and give the content the
+   same gutters as the markdown preview. */
+.mdxeditor.mdx-rich-editor {
+  background: var(--background);
+}
+.mdxeditor.mdx-rich-editor .mdxeditor-toolbar {
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--muted) 30%, var(--background));
+}
+.mdxeditor.mdx-rich-editor .mdxeditor-rich-text-editor .mdxeditor-root-contenteditable {
+  padding: 2rem 1.5rem;
+}
+@media (min-width: 64rem) {
+  .mdxeditor.mdx-rich-editor .mdxeditor-rich-text-editor .mdxeditor-root-contenteditable {
+    padding: 2rem 3rem;
+  }
+}

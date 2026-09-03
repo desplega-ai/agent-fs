@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/contexts/auth"
 
 interface FileContentData {
@@ -42,5 +42,15 @@ export function useFileContent(path: string | null, _offset = 0, _limit = 200) {
     return () => { cancelled = true }
   }, [path, orgId, driveId, client])
 
-  return { data, isLoading, error }
+  /**
+   * Replace the cached text after a successful save so every viewer shows
+   * what was written, without a refetch through a new signed URL. Ignored
+   * when the save belongs to a path that is no longer open.
+   */
+  const setContent = useCallback((forPath: string, text: string) => {
+    if (forPath !== path) return
+    setData((d) => (d ? { ...d, content: text, totalLines: text.split("\n").length } : d))
+  }, [path])
+
+  return { data, isLoading, error, setContent }
 }
