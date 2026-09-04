@@ -18,6 +18,10 @@
 //     @desplega.ai/agent-fs-fuse-linux-* — pinned to the new version
 //   - packages/fuse-helper/Cargo.toml — `version = "..."` on the [package] line
 //   - .claude-plugin/plugin.json
+//   - bun.lock: the "version" of every workspace entry plus the FUSE
+//     optionalDependencies pins. bun 1.4.1 refuses --frozen-lockfile when
+//     these lag package.json; only these fields are rewritten, resolutions
+//     are never touched.
 //
 // --dry-run prints the would-be changes without writing.
 //
@@ -27,7 +31,7 @@
 // before it reaches main, and the auto-release workflow runs it as a gate
 // before tagging.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -124,6 +128,89 @@ function readCargoLockVersion(relPath: string): string | null {
   return mapCargoLockVersion(readFileSync(abs, "utf-8"), FUSE_CRATE, null).version;
 }
 
+// bun.lock records every workspace's version and the FUSE optionalDependencies
+// pins. bun 1.4.0 tolerated a lagging lockfile under --frozen-lockfile; bun
+// 1.4.1 refuses it. That is how v0.13.4 reached npm but failed the Docker and
+// Fly builds: CI ran the pinned 1.4.0, the image ran the floating 1.4.1. Only
+// the version fields are rewritten here, so a release never pulls a new
+// dependency resolution on the side.
+//
+// Pass `replacement: null` to read the current values without rewriting.
+const BUN_LOCK = "bun.lock";
+
+function mapBunLockVersions(
+  raw: string,
+  replacement: string | null
+): { versions: string[]; fusePins: string[]; text: string } {
+  const lines = raw.split("\n");
+  let inWorkspaces = false;
+  const versions: string[] = [];
+  const fusePins: string[] = [];
+  const out = lines.map((line) => {
+    if (line === '  "workspaces": {') {
+      inWorkspaces = true;
+      return line;
+    }
+    // The next two-space-indented section ("packages", "overrides", ...)
+    // closes the workspaces block.
+    if (inWorkspaces && /^  "[^"]*": \{$/.test(line)) {
+      inWorkspaces = false;
+      return line;
+    }
+    if (!inWorkspaces) return line;
+    const v = /^(\s{6}"version": ")([^"]*)(",?)$/.exec(line);
+    if (v) {
+      versions.push(v[2] as string);
+      return replacement === null ? line : `${v[1]}${replacement}${v[3]}`;
+    }
+    if (line.trimStart().startsWith(`"${FUSE_OPT_DEP_PREFIX}`)) {
+      const f = /^(\s{8}"[^"]*": ")([^"]*)(",?)$/.exec(line);
+      if (f) {
+        fusePins.push(f[2] as string);
+        return replacement === null ? line : `${f[1]}^${replacement}${f[3]}`;
+      }
+    }
+    return line;
+  });
+  return { versions, fusePins, text: out.join("\n") };
+}
+
+// The Docker build, CI, and the packageManager field must run the same exact
+// bun. A floating `oven/bun:1.4` tag is what let CI (pinned 1.4.0) stay green
+// while the image build (resolved to 1.4.1) failed --frozen-lockfile on the
+// same commit. Checked only; nothing here is rewritten by a version bump.
+function checkBunPinParity(): string[] {
+  const problems: string[] = [];
+  const rootPkg = readJson("package.json");
+  const pm = String(rootPkg?.packageManager ?? "");
+  const m = /^bun@(\d+\.\d+\.\d+)$/.exec(pm);
+  if (!m) {
+    return [`package.json packageManager: "${pm}" (expected bun@<exact version>)`];
+  }
+  const expected = m[1] as string;
+
+  const dockerfile = readFileSync(resolve(repoRoot, "Dockerfile"), "utf-8");
+  for (const match of dockerfile.matchAll(/^FROM oven\/bun:(\S+)/gm)) {
+    const tag = match[1] as string;
+    if (tag.replace(/-slim$/, "") !== expected) {
+      problems.push(`Dockerfile FROM oven/bun:${tag}: expected ${expected} (no floating tags)`);
+    }
+  }
+
+  const wfDir = resolve(repoRoot, ".github/workflows");
+  for (const name of readdirSync(wfDir).sort()) {
+    if (!name.endsWith(".yml") && !name.endsWith(".yaml")) continue;
+    const text = readFileSync(resolve(wfDir, name), "utf-8");
+    for (const match of text.matchAll(/bun-version:\s*"?([^"\s]+)"?/g)) {
+      const found = match[1] as string;
+      if (found !== expected) {
+        problems.push(`.github/workflows/${name} bun-version ${found}: expected ${expected}`);
+      }
+    }
+  }
+  return problems;
+}
+
 // --check ---------------------------------------------------------------
 // Compares the version *fields* rather than whole-file bytes, so reformatting
 // a package.json can never trip the gate — only a real version mismatch does.
@@ -173,6 +260,24 @@ if (check) {
     problems.push(`${CARGO_LOCK} — ${lockVersion} (expected ${expected})`);
   }
 
+  const bunLockAbs = resolve(repoRoot, BUN_LOCK);
+  if (!existsSync(bunLockAbs)) {
+    problems.push(`${BUN_LOCK}: file not found`);
+  } else {
+    const { versions, fusePins } = mapBunLockVersions(readFileSync(bunLockAbs, "utf-8"), null);
+    if (versions.length === 0) {
+      problems.push(`${BUN_LOCK}: no workspace version entries found`);
+    }
+    for (const found of new Set(versions.filter((v) => v !== expected))) {
+      problems.push(`${BUN_LOCK} workspace version ${found}: expected ${expected}`);
+    }
+    for (const found of new Set(fusePins.filter((p) => p !== `^${expected}`))) {
+      problems.push(`${BUN_LOCK} FUSE optionalDependencies pin ${found}: expected ^${expected}`);
+    }
+  }
+
+  const pinProblems = checkBunPinParity();
+
   const plugin = readJson(".claude-plugin/plugin.json");
   if (!plugin) {
     problems.push(".claude-plugin/plugin.json — file not found");
@@ -188,8 +293,20 @@ if (check) {
     console.error(
       `\nFix with:  bun run scripts/sync-versions.ts ${expected}\nthen commit the result.`
     );
-    process.exit(1);
   }
+
+  if (pinProblems.length > 0) {
+    if (problems.length > 0) console.error("");
+    console.error("bun pin drift (packageManager, Dockerfile, and workflows must agree):\n");
+    for (const p of pinProblems) console.error(`  ✗ ${p}`);
+    console.error(
+      "\nFix by hand: set the same exact bun version in package.json packageManager,\n" +
+        "both Dockerfile FROM oven/bun: tags, and every workflow bun-version:, then\n" +
+        "run bun install --frozen-lockfile and commit."
+    );
+  }
+
+  if (problems.length > 0 || pinProblems.length > 0) process.exit(1);
 
   console.log(`✓ every version target is at ${expected}.`);
   process.exit(0);
@@ -331,6 +448,22 @@ rewriteCargoToml("packages/fuse-helper/Cargo.toml");
     if (version === null) {
       console.warn(`[warn] ${CARGO_LOCK} — no ${FUSE_CRATE} package entry found`);
     } else if (recordIfDifferent(CARGO_LOCK, raw, text)) {
+      if (!dryRun) writeFileSync(abs, text);
+    }
+  }
+}
+
+// bun.lock --------------------------------------------------------------
+{
+  const abs = resolve(repoRoot, BUN_LOCK);
+  if (!existsSync(abs)) {
+    console.warn(`[skip] ${BUN_LOCK}: not found`);
+  } else {
+    const raw = readFileSync(abs, "utf-8");
+    const { versions, text } = mapBunLockVersions(raw, newVersion);
+    if (versions.length === 0) {
+      console.warn(`[warn] ${BUN_LOCK}: no workspace version entries found`);
+    } else if (recordIfDifferent(BUN_LOCK, raw, text)) {
       if (!dryRun) writeFileSync(abs, text);
     }
   }

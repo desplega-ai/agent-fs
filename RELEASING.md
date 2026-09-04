@@ -70,6 +70,7 @@ Ordering inside `npm-publish.yml` is load-bearing: the FUSE sub-packages must re
 - the FUSE `optionalDependencies` pins in `packages/cli/package.json` (as `^{version}`)
 - `packages/fuse-helper/Cargo.toml` and the `agent-fs-fuse` entry in `Cargo.lock`
 - `.claude-plugin/plugin.json`
+- `bun.lock`: the `version` of every workspace entry and the FUSE `optionalDependencies` pins. Only those fields move; dependency resolutions are never touched.
 
 ```bash
 bun run scripts/sync-versions.ts 0.13.0            # rewrite them all
@@ -81,6 +82,8 @@ bun run scripts/sync-versions.ts --check           # verify, exit 1 on drift
 
 - **`ci.yml`, on every PR** — a partial bump (root moved, sub-packages left behind) turns the PR red.
 - **`auto-release.yml`, before tagging** — the real backstop.
+
+`--check` also enforces **bun pin parity**: `packageManager` in the root `package.json`, both `FROM oven/bun:` tags in `Dockerfile`, and every `bun-version:` in `.github/workflows/` must name the same exact bun version. Floating tags such as `oven/bun:1.4` are rejected. v0.13.4 is the reason: CI ran the pinned 1.4.0 and passed, the image build resolved the floating tag to 1.4.1, which refuses `--frozen-lockfile` on a lagging `bun.lock`, and the Docker and Fly publishes failed after the tag existed. Bump all three places together.
 
 `live/` and `landing/` are deliberately excluded — they're deployed by Vercel and carry their own versions.
 
@@ -118,6 +121,8 @@ gh workflow run docker-publish.yml -f tag=v0.13.0
 ```
 
 Safe to re-run: every publish step checks the registry first and skips versions already there.
+
+If the publish failed because the tagged commit itself is broken (for example `bun install --frozen-lockfile` rejects the committed `bun.lock`), re-dispatching cannot help: the tag's content is fixed. Fix it on `main` and cut the next patch version. Never move or delete a released tag.
 
 ### Publishing from a laptop
 

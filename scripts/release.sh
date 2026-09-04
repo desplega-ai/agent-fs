@@ -27,6 +27,11 @@ fi
 bun run scripts/sync-versions.ts "$VERSION"
 bun run scripts/sync-openapi.ts
 
+# The same gate the Docker build runs. sync-versions.ts rewrote the bun.lock
+# workspace versions above; any other lockfile drift fails here instead of in
+# docker-publish, after the tag already exists and cannot be fixed.
+bun install --frozen-lockfile
+
 # Belt and braces — the same gate CI enforces, run before anything is pushed.
 bun run scripts/sync-versions.ts --check
 

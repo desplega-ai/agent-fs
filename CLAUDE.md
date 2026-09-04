@@ -27,6 +27,8 @@ Short version: releases are automatic. A version change landing on `main` trigge
 
 Never bump a version by hand-editing `package.json` — `scripts/sync-versions.ts` owns every place the version appears, and CI fails a partial bump.
 
+Two more invariants that `sync-versions.ts --check` enforces on every PR and before every tag (details in [RELEASING.md § Version targets](./RELEASING.md#version-targets)): `bun.lock` workspace versions move with the release version, and the bun version is pinned to the same exact number in `package.json` `packageManager`, both `Dockerfile` `FROM oven/bun:` tags, and every workflow `bun-version:`. Never use a floating `oven/bun:1.4` tag. Bump the three places together, and run `bun install --frozen-lockfile` after any dependency or version change so the lockfile is committed with it.
+
 ## Release Checklist (applies to plans, research, and Plan mode)
 
 When making changes to core ops, CLI commands, or MCP tools, always check:
