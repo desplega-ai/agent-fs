@@ -22,7 +22,7 @@ export function fileRoutes(
   // Streams raw file bytes with appropriate Content-Type header plus the
   // ETag / X-Agent-FS-* headers the FUSE mount needs to drive its
   // open-time conditional GET cache.
-  router.get("/:orgId/drives/:driveId/files/:filePath{.+}/raw", async (c) => {
+  router.get("/:orgId/drives/:driveId/files/*", async (c) => {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
     const driveIdParam = c.req.param("driveId");
@@ -104,7 +104,7 @@ export function fileRoutes(
   // op) and drives versioning, FTS5 indexing and embedding scheduling through
   // the existing pipeline. GET /raw above stays viewer-accessible. The body
   // is buffered up to Hono's 50 MB body limit — no true streaming in v1.
-  router.put("/:orgId/drives/:driveId/files/:filePath{.+}/raw", async (c) => {
+  router.put("/:orgId/drives/:driveId/files/*", async (c) => {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
     const driveIdParam = c.req.param("driveId");

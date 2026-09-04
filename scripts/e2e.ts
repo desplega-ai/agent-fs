@@ -997,6 +997,19 @@ async function runStandardTests(daemonUrl: string) {
     assert(cat.content, "Hello, agent-fs!");
   });
 
+  await test("download returns exact bytes for a deeply nested path", () => {
+    const content = "name,company\nAda,Analytical Engines\n";
+    const fixDir = mkdtempSync(join(tmpdir(), "agent-fs-e2e-download-"));
+    const sourcePath = join(fixDir, "source.csv");
+    const outputPath = join(fixDir, "queue-ceos.csv");
+    writeFileSync(sourcePath, content);
+
+    runJson(`write /docs/gtm/outreach-queue/queue-ceos.csv --file ${sourcePath}`);
+    run(`download /docs/gtm/outreach-queue/queue-ceos.csv -o ${outputPath}`);
+
+    assert(readFileSync(outputPath, "utf-8"), content);
+  });
+
   // -- cat truncation regressions (issue #25) --
   //
   // Bug 1: `cat` capped output at 200 lines with no indication, even when

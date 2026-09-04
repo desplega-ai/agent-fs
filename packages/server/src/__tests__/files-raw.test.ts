@@ -82,6 +82,35 @@ describe("GET /raw — head metadata headers", () => {
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
     expect(getRes.headers.get("Last-Modified")).toBeTruthy();
   });
+
+  test("returns bytes for a deeply nested path", async () => {
+    const path = "/docs/gtm/outreach-queue/queue-ceos.csv";
+    const content = "name,company\nAda,Analytical Engines\n";
+    const writeRes = await authedFetch(`/orgs/${orgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op: "write", path, content }),
+    });
+    expect(writeRes.status).toBe(200);
+
+    const getRes = await authedFetch(
+      `/orgs/${orgId}/drives/${driveId}/files/docs/gtm/outreach-queue/queue-ceos.csv/raw`
+    );
+    expect(getRes.status).toBe(200);
+    expect(await getRes.text()).toBe(content);
+  });
+
+  test("returns structured NOT_FOUND for a deeply nested missing path", async () => {
+    const getRes = await authedFetch(
+      `/orgs/${orgId}/drives/${driveId}/files/docs/gtm/outreach-queue/missing.csv/raw`
+    );
+    expect(getRes.status).toBe(404);
+    expect(getRes.headers.get("Content-Type")).toContain("application/json");
+    expect(await getRes.json()).toEqual({
+      error: "NOT_FOUND",
+      message: "File not found: /docs/gtm/outreach-queue/missing.csv",
+    });
+  });
 });
 
 describe("PUT /raw — binary write path", () => {

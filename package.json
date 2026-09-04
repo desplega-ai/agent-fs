@@ -1,6 +1,6 @@
 {
   "name": "agent-fs",
-  "version": "0.13.3",
+  "version": "0.13.4",
   "packageManager": "bun@1.4.0",
   "private": true,
   "workspaces": [
