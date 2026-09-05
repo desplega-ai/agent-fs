@@ -8,6 +8,8 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as sqliteVec from "sqlite-vec";
 import * as schema from "./db/schema.js";
 import { CREATE_TABLES_SQL, VIRTUAL_TABLE_SQL } from "./db/raw.js";
+import { applyConnectionPragmas } from "./db/index.js";
+import { ensureContentChunksIndexInline } from "./db/content-chunks-index.js";
 import { createUser } from "./identity/users.js";
 import { listUserOrgs } from "./identity/orgs.js";
 import { listDrives } from "./identity/drives.js";
@@ -41,8 +43,10 @@ export function createTestDb(): DB {
   sqliteVec.load(sqlite);
   sqlite.exec("PRAGMA journal_mode=WAL;");
   sqlite.exec("PRAGMA foreign_keys=ON;");
+  applyConnectionPragmas(sqlite);
   sqlite.exec(CREATE_TABLES_SQL);
   sqlite.exec(VIRTUAL_TABLE_SQL);
+  ensureContentChunksIndexInline(sqlite);
   return drizzle(sqlite, { schema });
 }
 

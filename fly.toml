@@ -31,7 +31,9 @@ primary_region = 'ams'
   [[http_service.checks]]
     interval = '30s'
     timeout = '5s'
-    grace_period = '10s'
+    # The daemon listens before any schema upgrade work, so a healthy boot
+    # answers within seconds; the margin covers slow volumes on small VMs.
+    grace_period = '120s'
     method = 'GET'
     path = '/health'
 
