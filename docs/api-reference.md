@@ -71,6 +71,17 @@ curl -X POST http://localhost:7433/mcp \
 
 In practice, use `agent-fs mcp` (stdio proxy) rather than calling `/mcp` directly. The proxy handles the MCP lifecycle (initialize, tools/list, tool calls) automatically.
 
+### `POST /orgs/{orgId}/drives/{driveId}/members`
+
+Grant an existing org member access to a drive. Drive admins and admins of the owning org may identify the member by `userId` or `email`; repeating the request updates the existing drive role.
+
+```bash
+curl -X POST http://localhost:7433/orgs/<orgId>/drives/<driveId>/members \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"agent@example.com","role":"editor"}'
+```
+
 ### `POST /orgs/{orgId}/ops`
 
 Dispatch any file operation. The `op` field determines which operation runs.
