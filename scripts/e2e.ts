@@ -2824,6 +2824,18 @@ async function runStandardTests(daemonUrl: string) {
     assert(driveIds.includes(rbacDriveId), false, "Expected user3 to NOT see non-member drive");
   });
 
+  await test("member invite --drive grants access to a non-default drive", () => {
+    const out = run(
+      `--org ${secondOrgId} --drive ${rbacDriveId} member invite user3@e2e.local --role editor`
+    );
+    assertIncludes(out, `Invited user3@e2e.local as editor to drive ${rbacDriveId}`);
+    const members = runJson(
+      `--org ${secondOrgId} --drive ${rbacDriveId} member list`
+    );
+    const user3 = members.find((m: any) => m.email === "user3@e2e.local");
+    assert(user3.role, "editor");
+  });
+
   await test("rbac: mcp member tool — cross-org driveId unprobeable", async () => {
     // user3's active org is their personal org; rbacDriveId belongs to the
     // second org. Drive-scoped member tools bind driveId to the active org
