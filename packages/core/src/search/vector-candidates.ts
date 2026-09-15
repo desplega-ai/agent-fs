@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Database } from "bun:sqlite";
 import { schema, type DB } from "../db/index.js";
 
@@ -54,30 +54,37 @@ export function findVectorCandidates(
 
     if (vectorRows.length === 0) break;
 
+    const matches = db
+      .select({
+        id: schema.contentChunks.id,
+        path: schema.contentChunks.filePath,
+        content: schema.contentChunks.content,
+        author: schema.files.author,
+        modifiedAt: schema.files.modifiedAt,
+      })
+      .from(schema.contentChunks)
+      .innerJoin(
+        schema.files,
+        and(
+          eq(schema.files.driveId, schema.contentChunks.driveId),
+          eq(schema.files.path, schema.contentChunks.filePath)
+        )
+      )
+      .where(
+        and(
+          inArray(
+            schema.contentChunks.id,
+            vectorRows.map((row) => row.chunk_id)
+          ),
+          eq(schema.contentChunks.driveId, driveId),
+          eq(schema.files.isDeleted, false)
+        )
+      )
+      .all();
+    const matchesById = new Map(matches.map((match) => [match.id, match]));
+
     for (const vectorRow of vectorRows) {
-      const match = db
-        .select({
-          path: schema.contentChunks.filePath,
-          content: schema.contentChunks.content,
-          author: schema.files.author,
-          modifiedAt: schema.files.modifiedAt,
-        })
-        .from(schema.contentChunks)
-        .innerJoin(
-          schema.files,
-          and(
-            eq(schema.files.driveId, schema.contentChunks.driveId),
-            eq(schema.files.path, schema.contentChunks.filePath)
-          )
-        )
-        .where(
-          and(
-            eq(schema.contentChunks.id, vectorRow.chunk_id),
-            eq(schema.contentChunks.driveId, driveId),
-            eq(schema.files.isDeleted, false)
-          )
-        )
-        .get();
+      const match = matchesById.get(vectorRow.chunk_id);
 
       if (!match || selectedPaths.has(match.path)) continue;
 
