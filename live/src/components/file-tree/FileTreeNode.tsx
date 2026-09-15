@@ -66,7 +66,8 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
   const { selectedFile, selectFile } = useBrowser()
   const fullPath = path ? `${path}/${entry.name}` : entry.name
   const isDir = entry.type === "directory"
-  const isSelected = selectedFile === fullPath
+  const selectedPath = selectedFile?.replace(/^\/+|\/+$/g, "") ?? null
+  const isSelected = selectedPath === fullPath
   const userExpanded = useExpanded(fullPath)
   const toggleExpanded = useToggleExpanded()
   // When the in-tree search filter is active, hide nodes outside the match
@@ -77,7 +78,6 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
   // Keep the selected file and its ancestor chain visible even when an old
   // in-tree search is still active (for example after opening a notification).
   // This preserves the promise that every file open reveals itself in Tree.
-  const selectedPath = selectedFile?.replace(/^\/+|\/+$/g, "") ?? null
   const isOnSelectedPath =
     selectedPath === fullPath || selectedPath?.startsWith(`${fullPath}/`) === true
   const visible = isPathVisible(fullPath) || isOnSelectedPath
