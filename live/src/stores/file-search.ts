@@ -1,5 +1,3 @@
-import { useSyncExternalStore } from "react"
-
 /**
  * In-tree filter store. When the user types into the sidebar's "Files" tab,
  * the SearchBar populates this store with the glob-search results. The
@@ -109,10 +107,6 @@ function getSnapshot(): FileSearchState {
   return snapshot
 }
 
-export function useFileSearch(): FileSearchState {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-}
-
 /** Filter is active only after a successful request. */
 export function isFilterActive(): boolean {
   return snapshot.status === "success" && snapshot.query.length > 0
@@ -145,5 +139,6 @@ export function hasMatchingDescendant(nodePath: string): boolean {
 }
 
 export const fileSearchStore = {
+  subscribe,
   getSnapshot,
 }

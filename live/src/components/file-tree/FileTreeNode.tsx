@@ -24,11 +24,11 @@ import {
   useSetFocusedPath,
 } from "@/stores/tree-expansion"
 import {
-  useFileSearch,
   isPathMatched,
   isPathVisible,
   hasMatchingDescendant,
 } from "@/stores/file-search"
+import { useFileSearch } from "@/hooks/use-file-search"
 import { toast } from "@/stores/toast"
 import { MiddleEllipsis } from "@/lib/middle-ellipsis"
 import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"

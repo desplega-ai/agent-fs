@@ -6,7 +6,7 @@ import { useBrowser } from "@/contexts/browser"
 import { FileTreeNode } from "./FileTreeNode"
 import { Button } from "@/components/ui/button"
 import { treeExpansionStore, useFocusedPath } from "@/stores/tree-expansion"
-import { useFileSearch } from "@/stores/file-search"
+import { useFileSearch } from "@/hooks/use-file-search"
 import { useSearchInput } from "@/contexts/search-input"
 import type { LsResult } from "@/api/types"
 

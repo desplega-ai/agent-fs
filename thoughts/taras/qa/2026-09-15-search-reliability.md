@@ -74,6 +74,13 @@ The fix normalizes the selected path before the selected-state comparison.
 Browser QA confirmed the badge after content-result activation.
 The Spec recheck passed.
 
+## CI dependency check
+
+The first CI run exposed a React import in the new store test.
+Root CI installs Bun packages without the separate Live dependencies.
+The store now stays dependency-free, and `hooks/use-file-search.ts` owns the React subscription.
+A reproduction without `node_modules` failed before this change and passed all four store tests after it.
+
 ## Limits
 
 - FUSE checks remain separate because this change does not modify FUSE.
