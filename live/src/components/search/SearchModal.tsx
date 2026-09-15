@@ -63,9 +63,10 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
     return () => clearTimeout(t)
   }, [query])
 
-  const hybridResult = useHybridSearch(searchType === "hybrid" ? debouncedQuery : "")
-  const ftsResult = useFtsSearch(searchType === "fulltext" ? debouncedQuery : "")
-  const semanticResult = useSemanticSearch(searchType === "semantic" ? debouncedQuery : "")
+  const searchQuery = debouncedQuery.trim() ? debouncedQuery : ""
+  const hybridResult = useHybridSearch(searchType === "hybrid" ? searchQuery : "")
+  const ftsResult = useFtsSearch(searchType === "fulltext" ? searchQuery : "")
+  const semanticResult = useSemanticSearch(searchType === "semantic" ? searchQuery : "")
 
   const activeSearch = (() => {
     switch (searchType) {

@@ -127,6 +127,9 @@ describe("scoped vector search", () => {
     addFile(db, { path: "/third.md", driveId, author: userId });
     addChunk(db, { path: "/third.md", driveId, distance: 0.3 });
 
+    const first = await vecSearch(ctx, { query: "semantic", limit: 1 });
+    expect(first.results.map((item) => item.path)).toEqual(["/nearest.md"]);
+
     const semantic = await vecSearch(ctx, { query: "semantic", limit: 2 });
     expect(semantic.results.map((item) => item.path)).toEqual([
       "/nearest.md",
