@@ -1,8 +1,6 @@
-import { eq, and } from "drizzle-orm";
-import { Database } from "bun:sqlite";
-import { schema } from "../db/index.js";
 import type { OpContext } from "./types.js";
 import { ftsQuery } from "../search/fts.js";
+import { findVectorCandidates } from "../search/vector-candidates.js";
 
 export interface SearchParams {
   query: string;
@@ -128,52 +126,15 @@ async function vectorSearch(
   const provider = ctx.embeddingProvider!;
   const queryEmbedding = await provider.embed(query);
   const queryVec = new Float32Array(queryEmbedding);
-  const raw = (ctx.db as any).$client as Database;
 
-  const vecResults = raw
-    .prepare(
-      `SELECT chunk_id, distance
-       FROM chunk_vectors
-       WHERE embedding MATCH ?
-       ORDER BY distance
-       LIMIT ?`
-    )
-    .all(queryVec, limit) as Array<{ chunk_id: number; distance: number }>;
-
-  const items: RankedItem[] = [];
-  const seenPaths = new Set<string>();
-
-  for (const vr of vecResults) {
-    const chunk = ctx.db
-      .select()
-      .from(schema.contentChunks)
-      .where(eq(schema.contentChunks.id, vr.chunk_id))
-      .get();
-
-    if (!chunk || chunk.driveId !== ctx.driveId) continue;
-    if (seenPaths.has(chunk.filePath)) continue;
-    seenPaths.add(chunk.filePath);
-
-    const file = ctx.db
-      .select()
-      .from(schema.files)
-      .where(
-        and(
-          eq(schema.files.path, chunk.filePath),
-          eq(schema.files.driveId, ctx.driveId)
-        )
-      )
-      .get();
-
-    items.push({
-      path: chunk.filePath,
-      snippet: chunk.content.slice(0, 200),
-      author: file?.author,
-      modifiedAt: file?.modifiedAt,
-    });
-  }
-
-  return items;
+  return findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit).map(
+    (candidate) => ({
+      path: candidate.path,
+      snippet: candidate.snippet,
+      author: candidate.author,
+      modifiedAt: candidate.modifiedAt,
+    })
+  );
 }
 
 function keywordSearch(
@@ -185,7 +146,7 @@ function keywordSearch(
   const ftsPattern = query
     .split(/\s+/)
     .filter(Boolean)
-    .map((term) => `"${term}"`)
+    .map((term) => `"${term.replaceAll('"', '""')}"`)
     .join(" OR ");
 
   if (!ftsPattern) return [];
