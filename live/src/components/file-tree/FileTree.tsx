@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { FolderOpen, SearchX } from "lucide-react"
+import { FolderOpen, Loader2, SearchX, TriangleAlert } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
 import { FileTreeNode } from "./FileTreeNode"
+import { Button } from "@/components/ui/button"
 import { treeExpansionStore, useFocusedPath } from "@/stores/tree-expansion"
-import { useFileSearch } from "@/stores/file-search"
+import { useFileSearch } from "@/hooks/use-file-search"
 import { useSearchInput } from "@/contexts/search-input"
 import type { LsResult } from "@/api/types"
 
@@ -17,7 +18,7 @@ function ancestorPaths(path: string): string[] {
 }
 
 export function FileTree() {
-  const { client, orgId, driveId } = useAuth()
+  const { client, orgId, driveId, driveName } = useAuth()
   const { selectedFile } = useBrowser()
   const queryClient = useQueryClient()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -214,7 +215,51 @@ export function FileTree() {
     )
   }
 
-  if (!data || data.entries.length === 0) {
+  const filterMatchesDrive = !filter.driveId || filter.driveId === driveId
+  const searchLoading =
+    filter.query.length > 0 &&
+    (filter.status === "loading" || !filterMatchesDrive)
+
+  if (searchLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <p className="text-sm font-medium">Searching files</p>
+        <p className="text-xs text-muted-foreground">
+          Checking every folder in {driveName ?? "this drive"}.
+        </p>
+      </div>
+    )
+  }
+
+  if (filter.status === "error" && filterMatchesDrive) {
+    const retry = () => {
+      void queryClient.refetchQueries({
+        queryKey: ["glob", orgId, driveId, filter.query],
+        exact: true,
+      })
+    }
+
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
+        <TriangleAlert className="size-7 text-destructive/70" strokeWidth={1.5} />
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-destructive">File search failed</p>
+          <p className="text-xs text-muted-foreground break-words">
+            {filter.error ?? "The file search request failed."}
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" onClick={retry}>
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
+  const searchComplete =
+    filter.status === "success" && filter.query.length > 0 && filterMatchesDrive
+
+  if ((!data || data.entries.length === 0) && !searchComplete) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
         <FolderOpen className="size-8 text-muted-foreground/60" strokeWidth={1.5} />
@@ -228,45 +273,59 @@ export function FileTree() {
     )
   }
 
-  const sorted = [...data.entries].sort((a, b) => {
+  const sorted = [...(data?.entries ?? [])].sort((a, b) => {
     if (a.type !== b.type) return a.type === "directory" ? -1 : 1
     return a.name.localeCompare(b.name)
   })
 
   const noFilterMatches =
-    filter.status === "loaded" &&
-    filter.query.length > 0 &&
-    filter.matchedPaths.length === 0 &&
-    !selectedFile
+    searchComplete && filter.matchedPaths.length === 0 && !selectedFile
+  const selectedPath = selectedFile?.replace(/^\/+|\/+$/g, "")
+  const selectedIsMatch = selectedPath
+    ? filter.matchedPaths.includes(selectedPath)
+    : false
 
   return (
-    <div
-      ref={containerRef}
-      className="py-1"
-      role="tree"
-      onKeyDown={handleKeyDown}
-    >
-      {noFilterMatches ? (
-        <div className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
-          <SearchX className="size-8 text-muted-foreground/60" strokeWidth={1.5} />
-          <div className="space-y-1">
-            <p className="text-sm font-medium">No matches</p>
-            <p className="text-xs text-muted-foreground break-all">
-              Nothing in this drive matches "{filter.query}".
-            </p>
-          </div>
+    <>
+      {searchComplete && (
+        <div className="border-b border-sidebar-border bg-sidebar-accent/30 px-3 py-2 text-xs text-muted-foreground">
+          <p>
+            {filter.matchedPaths.length} {filter.matchedPaths.length === 1 ? "match" : "matches"}
+            {" "}across every folder in {driveName ?? "this drive"}.
+          </p>
+          {selectedFile && !selectedIsMatch && (
+            <p className="mt-0.5">The open file remains visible below.</p>
+          )}
         </div>
-      ) : (
-        sorted.map((entry, idx) => (
-          <FileTreeNode
-            key={entry.name}
-            entry={entry}
-            path=""
-            depth={0}
-            isDefaultFocus={idx === 0}
-          />
-        ))
       )}
-    </div>
+      <div
+        ref={containerRef}
+        className="py-1"
+        role="tree"
+        onKeyDown={handleKeyDown}
+      >
+        {noFilterMatches ? (
+          <div className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
+            <SearchX className="size-8 text-muted-foreground/60" strokeWidth={1.5} />
+            <div className="space-y-1">
+              <p className="text-sm font-medium">No matches</p>
+              <p className="text-xs text-muted-foreground break-all">
+                Nothing in this drive matches "{filter.query}".
+              </p>
+            </div>
+          </div>
+        ) : (
+          sorted.map((entry, idx) => (
+            <FileTreeNode
+              key={entry.name}
+              entry={entry}
+              path=""
+              depth={0}
+              isDefaultFocus={idx === 0}
+            />
+          ))
+        )}
+      </div>
+    </>
   )
 }

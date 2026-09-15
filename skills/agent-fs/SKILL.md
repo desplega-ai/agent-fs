@@ -132,7 +132,7 @@ symlinks are unsupported and throw `EPERM`.
 | `ls` | `agent-fs ls [path]` | List directory contents (defaults to /) |
 | `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps) |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
-| `glob` | `agent-fs glob <pattern> [path]` | Find files by pattern (`*.md`, `**/*.md`) |
+| `glob` | `agent-fs glob <pattern> [--path <prefix>]` | Find files by pattern (`*.md`, `**/*.md`) across all storage pages |
 | `rm` | `agent-fs rm <path>` | Delete a file |
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
@@ -156,9 +156,9 @@ symlinks are unsupported and throw `EPERM`.
 | Command | Usage | Description |
 |---------|-------|-------------|
 | `grep` | `agent-fs grep <pattern> <path>` | Regex search in file content |
-| `fts` | `agent-fs fts <pattern> [path]` | Full-text search (FTS5) across all files |
+| `fts` | `agent-fs fts <pattern> [--path <prefix>]` | Full-text search with FTS5 query syntax in the active drive |
 | `search` | `agent-fs search <query> [--limit <n>]` | Hybrid search (semantic + keyword, best for general queries) |
-| `vec-search` | `agent-fs vec-search <query> [--limit <n>]` | Vector-only semantic search using embeddings |
+| `vec-search` | `agent-fs vec-search <query> [--limit <n>]` | Semantic search over distinct files in the active drive |
 | `recent` | `agent-fs recent [path] [--since <duration>] [--limit <n>]` | Recent activity (e.g., `--since 24h`) |
 | `reindex` | `agent-fs reindex [path]` | Re-index files with failed/missing embeddings |
 
@@ -167,6 +167,23 @@ symlinks are unsupported and throw `EPERM`.
 - `fts` — keyword search across all files (fast, FTS5-based)
 - `search` — general-purpose search combining keywords and meaning (recommended default)
 - `vec-search` — pure semantic search when you want conceptual matches only
+
+Search uses the active organization and drive. Check `org current` and `drive current`, or pass explicit `--org` and `--drive` flags.
+`glob`, `ls`, and `tree` read every S3 listing page. A drive with more than 1,000 objects remains searchable.
+`search` and `vec-search` select semantic candidates within the active drive and count distinct files toward the limit.
+Semantic results require embeddings. `vec-search` returns a hint when no provider exists, and `search` identifies keyword-only results.
+
+`fts` accepts raw FTS5 syntax. Quote punctuation-bearing terms with FTS double quotes inside shell single quotes:
+
+```bash
+agent-fs glob '**/*ai-tinkerers*'
+agent-fs glob '**/*ai-tinkerers*' --path thoughts/research
+agent-fs fts '"ai-tinkerers"'
+agent-fs fts 'ai AND tinkerers'
+```
+
+Double an embedded quote inside an FTS quoted term. Backslash escaping does not escape an FTS quote.
+Filename patterns are case-sensitive. Full-text matches indexed tokens, so neither mode corrects spelling errors.
 
 ### SQL Queries (DuckDB)
 

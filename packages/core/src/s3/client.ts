@@ -135,22 +135,49 @@ export class AgentS3Client implements StorageAdapter {
     prefix: string,
     options?: { delimiter?: string }
   ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
-    const result = await this.client.send(
-      new ListObjectsV2Command({
-        Bucket: this.bucket,
-        Prefix: prefix,
-        ...(options?.delimiter && { Delimiter: options.delimiter }),
-      })
-    );
-    return {
-      objects: (result.Contents ?? []).map((obj) => ({
-        key: obj.Key!,
-        size: obj.Size ?? 0,
-        lastModified: obj.LastModified ?? new Date(),
-        etag: obj.ETag,
-      })),
-      prefixes: (result.CommonPrefixes ?? []).map((p) => p.Prefix!),
-    };
+    const objects: S3Object[] = [];
+    const prefixes: string[] = [];
+    const seenPrefixes = new Set<string>();
+    const seenTokens = new Set<string>();
+    let continuationToken: string | undefined;
+
+    while (true) {
+      const result = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ...(options?.delimiter !== undefined && { Delimiter: options.delimiter }),
+          ...(continuationToken !== undefined && { ContinuationToken: continuationToken }),
+        })
+      );
+
+      objects.push(
+        ...(result.Contents ?? []).map((obj) => ({
+          key: obj.Key!,
+          size: obj.Size ?? 0,
+          lastModified: obj.LastModified ?? new Date(),
+          etag: obj.ETag,
+        }))
+      );
+      for (const { Prefix: commonPrefix } of result.CommonPrefixes ?? []) {
+        if (commonPrefix && !seenPrefixes.has(commonPrefix)) {
+          seenPrefixes.add(commonPrefix);
+          prefixes.push(commonPrefix);
+        }
+      }
+
+      if (!result.IsTruncated) return { objects, prefixes };
+
+      const nextToken = result.NextContinuationToken;
+      if (!nextToken) {
+        throw new Error("S3 returned a truncated listing without a continuation token");
+      }
+      if (seenTokens.has(nextToken)) {
+        throw new Error("S3 returned a repeating continuation token");
+      }
+      seenTokens.add(nextToken);
+      continuationToken = nextToken;
+    }
   }
 
   async headObject(key: string): Promise<HeadObjectResult> {

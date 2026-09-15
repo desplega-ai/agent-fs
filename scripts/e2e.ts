@@ -1251,6 +1251,37 @@ async function runStandardTests(daemonUrl: string) {
     assert(paths.includes("/hello.txt"), true, `Expected /hello.txt in glob, got ${JSON.stringify(paths)}`);
   });
 
+  if (localOnly) {
+    skipTest("glob and tree traverse S3 pages", "requires MinIO continuation tokens");
+  } else {
+    await test("glob and tree traverse S3 pages", async () => {
+      const { AgentS3Client } = await import("../packages/core/src/s3/client.js");
+      const storage = new AgentS3Client({
+        provider: "minio",
+        bucket: "agentfs",
+        region: "us-east-1",
+        endpoint: `http://localhost:${minioPort}`,
+        accessKeyId: "minioadmin",
+        secretAccessKey: "minioadmin",
+      });
+      // Seed storage directly to avoid indexing 1,000 padding files.
+      const prefix = `${personalOrgId}/drives/${personalDriveId}/00-search-padding/`;
+      for (let start = 0; start < 1000; start += 25) {
+        await Promise.all(Array.from({ length: 25 }, (_, offset) =>
+          storage.putObject(`${prefix}${String(start + offset).padStart(4, "0")}.txt`, "padding"),
+        ));
+      }
+      const target = "/zz-search/ai-tinkerers-page-two.md";
+      runJson(`write ${target} --content "AI Tinkerers pagination fixture"`);
+
+      const matches = runJson("glob '**/*ai-tinkerers*'").matches;
+      assert(matches.some((match: any) => match.path === target), true, "Root glob must find the file beyond page one");
+      const directory = runJson("tree /").tree.find((entry: any) => entry.name === "zz-search");
+      assert(directory?.children?.some((entry: any) => entry.name === "ai-tinkerers-page-two.md"), true,
+        "Recursive tree must include the file beyond page one");
+    });
+  }
+
   // -- reindex (must run before grep/fts to populate FTS index) --
 
   await test("reindex", () => {
@@ -1269,9 +1300,48 @@ async function runStandardTests(daemonUrl: string) {
   // -- fts --
 
   await test("fts", () => {
-    // Use a simple token — hyphens are FTS5 NOT operators
     const result = runJson("fts Hello");
     assert(result.matches.length > 0, true, "Expected fts matches");
+  });
+
+  await test("fts supports quoted hyphens and advanced expressions", () => {
+    runJson('write /search/ai-tinkerers.md --content "AI Tinkerers demo proposal"');
+    for (const pattern of ['"ai-tinkerers"', 'ai AND tinkerers']) {
+      const result = runJson(`fts '${pattern}'`);
+      assert(result.matches.some((match: any) => match.path === "/search/ai-tinkerers.md"), true,
+        `Expected the fixture for FTS pattern ${pattern}`);
+    }
+  });
+
+  await test("fts via MCP supports quoted hyphens and advanced expressions", async () => {
+    const init = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 1, method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26", capabilities: {},
+          clientInfo: { name: "e2e-search", version: "1.0.0" },
+        },
+      }),
+    });
+    assert(init.ok, true, "MCP search initialization failed");
+    for (const pattern of ['"ai-tinkerers"', 'ai AND tinkerers']) {
+      const response = await fetch(`${daemonUrl}/mcp`, {
+        method: "POST",
+        headers: mcpHeaders(apiKey),
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: 2, method: "tools/call",
+          params: { name: "fts", arguments: { pattern } },
+        }),
+      });
+      assert(response.ok, true, "MCP FTS request failed");
+      const body = await response.json() as any;
+      assert(body.result?.isError === true, false, "MCP FTS returned an operation error");
+      const result = JSON.parse(body.result.content[0].text);
+      assert(result.matches.some((match: any) => match.path === "/search/ai-tinkerers.md"), true,
+        `Expected the fixture for MCP FTS pattern ${pattern}`);
+    }
   });
 
   // -- vec-search --

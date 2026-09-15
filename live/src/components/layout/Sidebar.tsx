@@ -6,7 +6,7 @@ import { SearchBar } from "@/components/search/SearchBar"
 import { Button } from "@/components/ui/button"
 import { useBrowser } from "@/contexts/browser"
 import { cleanPath, parentOf } from "@/lib/paths"
-import { useFileSearch } from "@/stores/file-search"
+import { useFileSearch } from "@/hooks/use-file-search"
 
 type SidebarView = "tree" | "recent"
 
