@@ -42,6 +42,21 @@ agent-fs --help
 
 A last resort for when GitHub Actions itself is broken — see [Publishing from a laptop](./RELEASING.md#publishing-from-a-laptop) in RELEASING.md.
 
+## Live UI (Vercel)
+
+The `live/` app is deployed at `live.agent-fs.dev`. Plausible analytics is opt-in
+at build time. Only our hosted deployment sets the flag; self-hosted and local
+builds ship with no analytics script by default.
+
+| Environment variable | Default | Description |
+|----------------------|---------|-------------|
+| `VITE_PLAUSIBLE_ANALYTICS` | Off | Set to `1` or `true` (case-insensitive, whitespace trimmed) to inject the Plausible script and init snippet at build time. |
+| `VITE_PLAUSIBLE_SCRIPT_ID` | `4ExgxHDFIoeAnKsDUlJ1U` | Override the Plausible site script ID (the `pa-<id>.js` part). Whitespace is trimmed; empty values use the default. |
+
+To enable production analytics, set `VITE_PLAUSIBLE_ANALYTICS=1` in the Vercel
+project for `live` and rebuild/redeploy. Changing these variables requires a new
+build.
+
 ## Docker / GHCR
 
 Pre-built multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR on every release.
