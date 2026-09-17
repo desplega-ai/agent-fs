@@ -163,19 +163,24 @@ export function driveCommands(
     .command("invite")
     .argument("<email>", "User email to invite")
     .requiredOption("--role <role>", "Role: viewer, editor, or admin")
-    .description("Invite a user to the current org")
+    .description("Invite a user to the current org (or drive if --drive is set)")
     .addHelpText(
       "after",
-      "\nThis invites the user to the organization that owns the current drive. The user will have access to all drives in the org based on their role."
+      "\nUse global --drive <driveId> to grant an existing org member access to that drive. Without --drive, this invites the user to the org and its default drive."
     )
     .action(async (email: string, opts: { role: string }) => {
+      const driveId = cmd.parent?.opts().drive;
       try {
         const orgId = await getOrgId();
-        await client.post(`/orgs/${orgId}/members/invite`, {
+        const path = driveId
+          ? `/orgs/${orgId}/drives/${driveId}/members`
+          : `/orgs/${orgId}/members/invite`;
+        await client.post(path, {
           email,
           role: opts.role,
         });
-        console.log(`Invited ${email} as ${opts.role}`);
+        const scope = driveId ? ` to drive ${driveId}` : "";
+        console.log(`Invited ${email} as ${opts.role}${scope}`);
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
         process.exit(1);

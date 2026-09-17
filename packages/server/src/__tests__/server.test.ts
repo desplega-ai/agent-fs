@@ -256,6 +256,7 @@ describe("Multi-tenant RBAC", () => {
   let viewerKey: string;
   let editorKey: string;
   let outsiderKey: string;
+  let outsiderUserId: string;
   let ownerUserId: string;
   let viewerUserId: string;
   let editorUserId: string;
@@ -293,6 +294,7 @@ describe("Multi-tenant RBAC", () => {
 
     const outsider = await register("rbac-outsider@example.com");
     outsiderKey = outsider.apiKey;
+    outsiderUserId = outsider.userId;
     outsiderOrgId = outsider.orgId;
 
     const removable = await register("rbac-removable@example.com");
@@ -443,6 +445,14 @@ describe("Multi-tenant RBAC", () => {
     ).toBe(403);
     expect(
       (
+        await keyReq(viewerKey, `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members`, {
+          method: "POST",
+          body: JSON.stringify({ userId: editorUserId, role: "viewer" }),
+        })
+      ).status
+    ).toBe(403);
+    expect(
+      (
         await keyReq(editorKey, `/orgs/${tenantOrgId}/drives/${tenantDriveId}/members/${viewerUserId}`, {
           method: "PATCH",
           body: JSON.stringify({ role: "admin" }),
@@ -479,6 +489,44 @@ describe("Multi-tenant RBAC", () => {
       expect.objectContaining({ userId: ownerUserId, role: "admin" }),
     ]);
 
+    // Add an existing org member by email, then re-add by user id. The upsert
+    // changes the role without creating a duplicate membership.
+    const addRes = await keyReq(
+      ownerKey,
+      `/orgs/${tenantOrgId}/drives/${newDriveId}/members`,
+      {
+        method: "POST",
+        body: JSON.stringify({ email: "rbac-editor@example.com", role: "viewer" }),
+      }
+    );
+    expect(addRes.status).toBe(200);
+    const readdRes = await keyReq(
+      ownerKey,
+      `/orgs/${tenantOrgId}/drives/${newDriveId}/members`,
+      {
+        method: "POST",
+        body: JSON.stringify({ userId: editorUserId, role: "editor" }),
+      }
+    );
+    expect(readdRes.status).toBe(200);
+    const afterAdd = await (
+      await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives/${newDriveId}/members`)
+    ).json();
+    expect(
+      afterAdd.members.filter((m: any) => m.userId === editorUserId)
+    ).toEqual([expect.objectContaining({ role: "editor" })]);
+
+    // A user outside the owning org cannot be granted drive access.
+    const nonMemberRes = await keyReq(
+      ownerKey,
+      `/orgs/${tenantOrgId}/drives/${newDriveId}/members`,
+      {
+        method: "POST",
+        body: JSON.stringify({ userId: outsiderUserId, role: "viewer" }),
+      }
+    );
+    expect(nonMemberRes.status).toBe(400);
+
     // Org admin manages default-drive members (granted by invite)
     const patchRes = await keyReq(
       ownerKey,
@@ -509,6 +557,14 @@ describe("Multi-tenant RBAC", () => {
     // Org/drive mismatch is still a 404 even for an org admin
     expect(
       (await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives/${outsiderDriveId}/members`)).status
+    ).toBe(404);
+    expect(
+      (
+        await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives/${outsiderDriveId}/members`, {
+          method: "POST",
+          body: JSON.stringify({ userId: editorUserId, role: "viewer" }),
+        })
+      ).status
     ).toBe(404);
   });
 

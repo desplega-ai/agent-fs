@@ -131,7 +131,7 @@ Users have roles per-organization and per-drive:
 
 Key rules:
 
-- **Drive membership is explicit.** A drive is only visible and usable for users with a drive membership row. New drives grant the creator admin membership automatically; invite other users per drive (or rely on org-invite's default-drive grant).
+- **Drive membership is explicit.** A drive is only visible and usable for users with a drive membership row. New drives grant the creator admin membership automatically. Use `agent-fs --drive <driveId> member invite <email> --role <role>` to add an existing org member to another drive; an org invite grants access to the default drive only.
 - **Member management is admin-only.** Inviting, listing, updating, and removing org members requires org `admin`. Managing drive members requires drive `admin` or admin of the owning org. Creating drives in an org requires org `admin`.
 - **Write paths all enforce editor-or-better** — the JSON ops route, the binary `PUT /raw` route, and FUSE mounts share the same check. Viewers can read everywhere they're a member but cannot write through any surface.
 - **Org/drive IDs are bound.** A request that addresses a drive under the wrong org — or any org/drive the caller has no membership in — returns `404`, indistinguishable from a nonexistent ID.
