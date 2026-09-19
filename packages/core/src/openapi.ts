@@ -66,6 +66,11 @@ export function generateOpenAPISpec() {
                     properties: {
                       ok: { type: "boolean", const: true },
                       version: { type: "string" },
+                      upgrade: {
+                        type: "string",
+                        description:
+                          "Present while a one-time schema upgrade holds the write lock. Writes return 503 until it clears.",
+                      },
                     },
                     required: ["ok", "version"],
                   },

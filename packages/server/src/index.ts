@@ -1,22 +1,29 @@
 import {
   createDatabase,
   getConfig,
+  getDbPath,
   getHome,
   createStorageAdapter,
   createEmbeddingProviderFromEnv,
   prepareFtsMigration,
   runFtsMigration,
+  CONTENT_CHUNKS_INDEX_NAME,
+  hasContentChunksIndex,
+  buildContentChunksIndexInHelperProcess,
 } from "@/core";
 import type { Database } from "bun:sqlite";
 import type { EmbeddingProvider } from "@/core";
 import { join } from "node:path";
 import { createApp } from "./app.js";
 import { startIpcServer } from "./ipc/server.js";
+import { setUpgradeInProgress, clearUpgradeInProgress } from "./upgrade-gate.js";
 
 const config = getConfig();
 
-// Initialize database
-const db = createDatabase();
+// Initialize database. The content_chunks index is left unbuilt on a large
+// existing database so the build cannot block /health; it runs below, after
+// the listener is open.
+const db = createDatabase(undefined, { deferContentChunksIndex: true });
 const sqlite = (db as any).$client as Database;
 
 // Databases from before 0.13.1 carry the old full-text index layout. Swap the
@@ -65,10 +72,39 @@ const server = Bun.serve({
 
 console.log(`agent-fs daemon running on http://${server.hostname}:${server.port}`);
 
-if (ftsMigrationPending) {
-  runFtsMigration(sqlite, { log: (msg) => console.log(msg) }).catch((err) => {
-    console.error("search index migration failed (will resume on next start):", err);
-  });
+const startBackgroundMigrations = () => {
+  if (ftsMigrationPending) {
+    runFtsMigration(sqlite, { log: (msg) => console.log(msg) }).catch((err) => {
+      console.error("search index migration failed (will resume on next start):", err);
+    });
+  }
+};
+
+// A database from before 0.13.1 has no content_chunks index yet. Build it in
+// a helper process so this loop, and /health, stay responsive; gate HTTP
+// writes with 503 meanwhile. The FTS row copy waits for it so the two
+// write-heavy jobs do not fight over the write lock.
+if (!hasContentChunksIndex(sqlite)) {
+  setUpgradeInProgress(`${CONTENT_CHUNKS_INDEX_NAME} build`);
+  console.log(
+    `search index upgrade: building ${CONTENT_CHUNKS_INDEX_NAME} in a helper process; writes return 503 until it finishes`,
+  );
+  buildContentChunksIndexInHelperProcess(getDbPath())
+    .then(({ elapsedMs }) => {
+      console.log(`search index upgrade: ${CONTENT_CHUNKS_INDEX_NAME} built in ${elapsedMs}ms`);
+    })
+    .catch((err) => {
+      console.error(
+        `search index upgrade: ${CONTENT_CHUNKS_INDEX_NAME} build failed; writes resume on the slow path and the build retries on next start:`,
+        err,
+      );
+    })
+    .finally(() => {
+      clearUpgradeInProgress();
+      startBackgroundMigrations();
+    });
+} else {
+  startBackgroundMigrations();
 }
 
 // Event-loop lag watchdog. A synchronous operation that blocks the loop

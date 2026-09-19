@@ -123,11 +123,8 @@ CREATE TABLE IF NOT EXISTS content_chunks (
   token_count INTEGER NOT NULL
 );
 
--- Every write, rm, mv and the embedding job look chunks up by (drive, path).
--- Without this index each of those is a full scan of a table that holds a
--- copy of every indexed file.
-CREATE INDEX IF NOT EXISTS idx_content_chunks_drive_path
-  ON content_chunks(drive_id, file_path);
+-- idx_content_chunks_drive_path lives in content-chunks-index.ts: the daemon
+-- builds it after the listener opens so a large build cannot block /health.
 
 -- Content table behind the files_fts external-content index. FTS5 cannot use
 -- an equality constraint on a column (only MATCH and rowid), so keying the

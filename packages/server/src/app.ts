@@ -10,6 +10,8 @@ import { authMiddleware } from "./middleware/auth.js";
 import { handleError } from "./middleware/error.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { requestLogMiddleware } from "./middleware/request-log.js";
+import { upgradeGateMiddleware } from "./middleware/upgrade-gate.js";
+import { upgradeInProgress } from "./upgrade-gate.js";
 import { authRoutes } from "./routes/auth.js";
 import { opsRoutes } from "./routes/ops.js";
 import { orgRoutes } from "./routes/orgs.js";
@@ -29,6 +31,8 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   }
 
   app.use("*", requestLogMiddleware());
+  // Before bodyLimit and auth: a gated write costs nothing and is still logged.
+  app.use("*", upgradeGateMiddleware());
   app.use("*", bodyLimit({ maxSize: 50 * 1024 * 1024 }));
   app.use("*", authMiddleware(db));
 
@@ -44,7 +48,10 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   app.onError((err, c) => handleError(err, c));
 
   // Health check
-  app.get("/health", (c) => c.json({ ok: true, version: VERSION }));
+  app.get("/health", (c) => {
+    const upgrade = upgradeInProgress();
+    return c.json({ ok: true, version: VERSION, ...(upgrade ? { upgrade } : {}) });
+  });
 
   // MCP endpoint — per-request stateless transport
   app.all("/mcp", async (c) => {
