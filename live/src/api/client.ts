@@ -43,7 +43,7 @@ export interface PutRawOptions {
 }
 
 export class AgentFsClient {
-  private endpoint: string
+  readonly endpoint: string
   private apiKey: string
 
   constructor(opts: { endpoint: string; apiKey: string }) {
@@ -102,8 +102,8 @@ export class AgentFsClient {
     return res.json()
   }
 
-  async get<T>(path: string): Promise<T> {
-    return this.request<T>(path)
+  async get<T>(path: string, opts?: RequestInit): Promise<T> {
+    return this.request<T>(path, opts)
   }
 
   async post<T>(path: string, body: unknown): Promise<T> {
@@ -177,7 +177,7 @@ export class AgentFsClient {
    * (the server detects MIME from the extension), `If-None-Match: *` for
    * create-only writes, and a percent-encoded version message. Uses
    * `XMLHttpRequest` because `fetch` exposes no upload progress. Body limit
-   * is 50 MB on the server; callers should reject larger files before sending.
+   * is reported by /health; callers should reject larger files before sending.
    */
   putRaw(
     orgId: string,

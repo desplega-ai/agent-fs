@@ -1,6 +1,15 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
+export const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/** Shared by HTTP configuration and embedded raw writes; no config-file I/O. */
+export function getMaxUploadBytes(): number {
+  const raw = process.env.AGENT_FS_MAX_UPLOAD_BYTES?.trim();
+  const bytes = raw && /^[0-9]+$/.test(raw) ? Number(raw) : NaN;
+  return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : DEFAULT_MAX_UPLOAD_BYTES;
+}
+
 function resolveHome(): string {
   const home = process.env.AGENT_FS_HOME ?? join(process.env.HOME ?? "/tmp", ".agent-fs");
   // Expand ~ since env vars loaded by bun/.env don't do shell expansion
@@ -69,6 +78,8 @@ export interface AgentFSConfig {
     apiKey: string;
   };
   server: {
+    /** Effective env-only raw upload/body limit, in bytes. */
+    maxUploadBytes?: number;
     port: number;
     host: string;
     cors?: {
@@ -248,6 +259,8 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
     config.embedding.provider = env.EMBEDDING_PROVIDER as "local" | "openai" | "gemini";
   if (env.EMBEDDING_MODEL) config.embedding.model = env.EMBEDDING_MODEL;
   if (env.EMBEDDING_API_KEY) config.embedding.apiKey = env.EMBEDDING_API_KEY;
+
+  config.server.maxUploadBytes = getMaxUploadBytes();
 
   // Rate limit override
   if (env.AGENT_FS_RATE_LIMIT) {

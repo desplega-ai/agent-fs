@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { VERSION, getConfig } from "@/core";
+import { VERSION, getConfig, DEFAULT_MAX_UPLOAD_BYTES } from "@/core";
 import type { DB, StorageAdapter, EmbeddingProvider } from "@/core";
 import { createMcpServer } from "@/mcp/server.js";
 import type { AppEnv } from "./types.js";
@@ -20,6 +20,8 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   const app = new Hono<AppEnv>();
   const config = getConfig();
 
+  const maxUploadBytes = config.server.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+
   // CORS — configurable origins
   const origins = config.server?.cors?.origins ?? ["*"];
   if (origins.length === 1 && origins[0] === "*") {
@@ -29,7 +31,13 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   }
 
   app.use("*", requestLogMiddleware());
-  app.use("*", bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+  app.use("*", bodyLimit({
+    maxSize: maxUploadBytes,
+    onError: (c) => c.json({
+      error: "VALIDATION_ERROR",
+      message: `Request body exceeds the ${maxUploadBytes / 1024 / 1024}MB limit`,
+    }, 413),
+  }));
   app.use("*", authMiddleware(db));
 
   // Rate limiting (default 1200 rpm per API key, override via AGENT_FS_RATE_LIMIT) — skip /health
@@ -44,7 +52,7 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   app.onError((err, c) => handleError(err, c));
 
   // Health check
-  app.get("/health", (c) => c.json({ ok: true, version: VERSION }));
+  app.get("/health", (c) => c.json({ ok: true, version: VERSION, maxUploadBytes }));
 
   // MCP endpoint — per-request stateless transport
   app.all("/mcp", async (c) => {
