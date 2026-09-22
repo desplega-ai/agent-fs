@@ -8,7 +8,9 @@ interface PdfViewerProps {
 }
 
 export function PdfViewer({ path, className }: PdfViewerProps) {
-  const { url, error, isLoading } = useSignedUrl(path)
+  // The default signed URL carries `Content-Disposition: attachment`, which
+  // makes the browser download the PDF instead of rendering it in the frame.
+  const { url, error, isLoading } = useSignedUrl(path, "inline")
 
   if (error) {
     return (

@@ -1481,6 +1481,26 @@ async function runStandardTests(daemonUrl: string) {
     else assert(typeof body.expiresAt, "string");
   });
 
+  // `disposition` is accepted on every backend; only a presigned URL can
+  // actually carry it (the local-FS app link has no response headers to set).
+  await test("signed-url via API accepts disposition=inline", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "signed-url", path: "/hello.txt", disposition: "inline" }),
+    });
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const body = await res.json() as any;
+    assert(typeof body.url, "string", "Expected url in response");
+    assert(body.kind, localOnly ? "app" : "presigned");
+    if (!localOnly) {
+      assertIncludes(body.url, "response-content-disposition=inline", "Expected inline disposition in presigned URL");
+    }
+  });
+
   await test("signed-url via API — 404 for missing file", async () => {
     const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
       method: "POST",
@@ -1563,6 +1583,8 @@ async function runStandardTests(daemonUrl: string) {
 
   if (localOnly) {
     skipTest("signed-url serves correct Content-Type for PDF", "requires a public MinIO presigned URL");
+    skipTest("signed-url defaults to an attachment disposition", "requires a public MinIO presigned URL");
+    skipTest("signed-url --inline serves an inline disposition", "requires a public MinIO presigned URL");
     skipTest("signed-url serves correct Content-Type for PNG", "requires a public MinIO presigned URL");
   } else {
     await test("signed-url serves correct Content-Type for PDF", async () => {
@@ -1570,6 +1592,31 @@ async function runStandardTests(daemonUrl: string) {
       // Use GET (not HEAD) — MinIO presigned URLs are method-specific
       const res = await fetch(result.url);
       assert(res.ok, true, `Expected 200, got ${res.status}`);
+      const ct = res.headers.get("content-type");
+      assert(ct, "application/pdf", `Expected application/pdf, got ${ct}`);
+    });
+
+    // The default keeps download links downloading: `<a download>` is
+    // ignored cross-origin, so the header is what makes the browser save.
+    await test("signed-url defaults to an attachment disposition", async () => {
+      const result = runJson("signed-url /mime-test.pdf");
+      const res = await fetch(result.url);
+      assert(res.ok, true, `Expected 200, got ${res.status}`);
+      const cd = res.headers.get("content-disposition") ?? "";
+      assert(cd.startsWith("attachment;"), true, `Expected attachment disposition, got ${cd}`);
+      assertIncludes(cd, "mime-test.pdf", "Expected the filename in Content-Disposition");
+    });
+
+    // The Live PDF viewer loads the signed URL in an <iframe>; an attachment
+    // disposition there makes the browser download instead of render.
+    await test("signed-url --inline serves an inline disposition", async () => {
+      const result = runJson("signed-url /mime-test.pdf --inline");
+      assert(result.kind, "presigned");
+      const res = await fetch(result.url);
+      assert(res.ok, true, `Expected 200, got ${res.status}`);
+      const cd = res.headers.get("content-disposition") ?? "";
+      assert(cd.startsWith("inline;"), true, `Expected inline disposition, got ${cd}`);
+      assertIncludes(cd, "mime-test.pdf", "Expected the filename in Content-Disposition");
       const ct = res.headers.get("content-type");
       assert(ct, "application/pdf", `Expected application/pdf, got ${ct}`);
     });
