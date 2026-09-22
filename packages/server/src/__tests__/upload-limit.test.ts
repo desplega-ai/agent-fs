@@ -40,6 +40,51 @@ describe("configured raw upload limits", () => {
     expect(rejected.status).toBe(413);
   });
 
+  test("raising the raw cap keeps non-raw requests at the default cap", async () => {
+    process.env.AGENT_FS_MAX_UPLOAD_BYTES = String(100 * MiB);
+    const { db, s3, orgId, driveId } = createTestContext();
+    const app = createApp(db, s3);
+    for (const [method, path] of [
+      ["POST", "/auth/register"],
+      ["PUT", "/auth/register"],
+      ["POST", `/orgs/${orgId}/drives/${driveId}/files/file.bin/raw`],
+      ["PUT", `/orgs/${orgId}/drives/${driveId}/files/file.bin`],
+    ]) {
+      const result = await app.request(path, {
+        method,
+        headers: { "Content-Length": String(50 * MiB + 1) },
+        body: "x",
+      });
+      expect(result.status).toBe(413);
+      expect((await result.json()).message).toBe("Request body exceeds the 50MB limit");
+    }
+    const streamed = await app.request("/auth/register", {
+      method: "POST",
+      body: new ReadableStream({ start(controller) {
+        controller.enqueue(new Uint8Array(50 * MiB + 1));
+        controller.close();
+      } }),
+    });
+    expect(streamed.status).toBe(413);
+  });
+
+  test("served health OpenAPI schema includes the upload limit", async () => {
+    const { db, s3, apiKey } = createTestContext();
+    const app = createApp(db, s3);
+    const response = await app.request("/docs/openapi.json", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    expect(response.status).toBe(200);
+    const spec = await response.json();
+    const schema = spec.paths["/health"].get.responses["200"].content["application/json"].schema;
+    expect(schema.properties.maxUploadBytes).toEqual({
+      type: "integer",
+      minimum: 1,
+      description: "Maximum raw upload size in bytes",
+    });
+    expect(schema.required).toContain("maxUploadBytes");
+  });
+
   test("HTTP counts streamed bytes without Content-Length at a lowered limit", async () => {
     process.env.AGENT_FS_MAX_UPLOAD_BYTES = "4";
     const { db, s3, apiKey, orgId, driveId } = createTestContext();

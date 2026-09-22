@@ -31,13 +31,19 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   }
 
   app.use("*", requestLogMiddleware());
-  app.use("*", bodyLimit({
-    maxSize: maxUploadBytes,
-    onError: (c) => c.json({
-      error: "VALIDATION_ERROR",
-      message: `Request body exceeds the ${maxUploadBytes / 1024 / 1024}MB limit`,
-    }, 413),
-  }));
+  app.use("*", (c, next) => {
+    // Only raw PUTs need the configurable cap; other routes keep the default.
+    const isRawUpload = c.req.method === "PUT"
+      && /^\/orgs\/[^/]+\/drives\/[^/]+\/files\/.+\/raw$/.test(c.req.path);
+    const maxSize = isRawUpload ? maxUploadBytes : DEFAULT_MAX_UPLOAD_BYTES;
+    return bodyLimit({
+      maxSize,
+      onError: (c) => c.json({
+        error: "VALIDATION_ERROR",
+        message: `Request body exceeds the ${maxSize / 1024 / 1024}MB limit`,
+      }, 413),
+    })(c, next);
+  });
   app.use("*", authMiddleware(db));
 
   // Rate limiting (default 1200 rpm per API key, override via AGENT_FS_RATE_LIMIT) — skip /health

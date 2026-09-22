@@ -66,8 +66,13 @@ export function generateOpenAPISpec() {
                     properties: {
                       ok: { type: "boolean", const: true },
                       version: { type: "string" },
+                      maxUploadBytes: {
+                        type: "integer",
+                        minimum: 1,
+                        description: "Maximum raw upload size in bytes",
+                      },
                     },
-                    required: ["ok", "version"],
+                    required: ["ok", "version", "maxUploadBytes"],
                   },
                 },
               },

@@ -38,11 +38,17 @@
                     },
                     "version": {
                       "type": "string"
+                    },
+                    "maxUploadBytes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Maximum raw upload size in bytes"
                     }
                   },
                   "required": [
                     "ok",
-                    "version"
+                    "version",
+                    "maxUploadBytes"
                   ]
                 }
               }
