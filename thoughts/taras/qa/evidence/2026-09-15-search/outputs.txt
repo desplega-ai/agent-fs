@@ -1,0 +1,40 @@
+repro-fts.ts
+{"op":"fts","pattern":"ai-tinkerers","error":"no such column: tinkerers"}
+{"op":"fts","pattern":"\"ai-tinkerers\"","count":1,"paths":["/thoughts/16990304-76e4-4017-b991-f3e37b34cf73/research/2026-09-15-ai-tinkerers-demo-proposal.md"]}
+{"op":"fts","pattern":"ai","count":1,"paths":["/thoughts/16990304-76e4-4017-b991-f3e37b34cf73/research/2026-09-15-ai-tinkerers-demo-proposal.md"]}
+{"op":"fts","pattern":"tinkerers","count":1,"paths":["/thoughts/16990304-76e4-4017-b991-f3e37b34cf73/research/2026-09-15-ai-tinkerers-demo-proposal.md"]}
+{"op":"fts","pattern":"ai AND tinkerers","count":1,"paths":["/thoughts/16990304-76e4-4017-b991-f3e37b34cf73/research/2026-09-15-ai-tinkerers-demo-proposal.md"]}
+{"op":"search","query":"ai-tinkerers","count":1,"paths":["/thoughts/16990304-76e4-4017-b991-f3e37b34cf73/research/2026-09-15-ai-tinkerers-demo-proposal.md"]}
+
+repro-glob-pagination.ts
+{"requestedTokens":[null],"globMatches":0}
+
+repro-vector-scope.ts
+{"limit":1,"vectorPaths":[],"hybridPaths":[]}
+{"limit":2,"vectorPaths":["/wanted.md"],"hybridPaths":["/wanted.md"]}
+
+repro-vector-sql-scope.ts
+{"rows":[{"chunk_id":3,"distance":1}]}
+
+repro-vector-duplicates.ts
+{"requestedLimit":2,"paths":["/dominant.md"]}
+
+repro-vector-distinct-loop.ts
+{"remaining":3,"candidates":3,"paths":["/dominant.md"]}
+{"remaining":2,"candidates":2,"paths":["/dominant.md","/second.md","/third.md"]}
+
+repro-vector-k-limit.ts
+{"k":4096,"returned":4096}
+{"k":5000,"error":"k value in knn query too large, provided 5000 and the limit is 4096"}
+
+repro-reindex.ts
+{"before":0,"reindex":{"reindexed":0,"failed":0,"skipped":0},"after":0}
+
+Sanitized production evidence from version 0.13.5
+Root glob **/* returned exactly 1000 objects. The target glob returned zero objects.
+The directory-scoped glob returned the target and its related recon file.
+Raw FTS ai-tinkerers failed with no such column: tinkerers.
+Quoted FTS returned eight results, including the target.
+Hybrid search returned ten results, including the target at rank four.
+Vector search returned ten results, including the target at rank nine.
+Stat reported text/markdown, version 1, and embeddingStatus indexed for the target.
