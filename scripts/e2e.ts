@@ -1282,6 +1282,12 @@ async function runStandardTests(daemonUrl: string) {
     });
   }
 
+  await test("profile CLI get/set", () => {
+    const saved = runJson('profile set --name "E2E Agent"');
+    assert(saved.displayName, "E2E Agent");
+    assert(runJson("profile get").displayName, "E2E Agent");
+  });
+
   // -- reindex (must run before grep/fts to populate FTS index) --
 
   await test("reindex", () => {

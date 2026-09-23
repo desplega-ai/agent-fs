@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import {
   createUser,
+  getProfile,
+  updateProfile,
   listUserOrgs,
   resolveContext,
   resetApiKey,
@@ -42,6 +44,10 @@ export function authRoutes(db: DB) {
     }
   });
 
+  router.get("/profile", (c) => c.json(getProfile(db, c.get("user").id)));
+  router.patch("/profile", async (c) =>
+    c.json(updateProfile(db, c.get("user").id, await c.req.json())));
+
   router.get("/me", (c) => {
     const user = c.get("user");
 
@@ -50,6 +56,7 @@ export function authRoutes(db: DB) {
       return c.json({
         userId: user.id,
         email: user.email,
+        displayName: getProfile(db, user.id).displayName,
         defaultOrgId: resolved.orgId,
         defaultDriveId: resolved.driveId,
       });
@@ -58,6 +65,7 @@ export function authRoutes(db: DB) {
       return c.json({
         userId: user.id,
         email: user.email,
+        displayName: getProfile(db, user.id).displayName,
         defaultOrgId: null,
         defaultDriveId: null,
       });

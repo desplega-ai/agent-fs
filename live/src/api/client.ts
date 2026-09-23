@@ -119,6 +119,10 @@ export class AgentFsClient {
     return this.post<T>(`/orgs/${orgId}/ops`, body)
   }
 
+  async updateProfile(displayName: string | null): Promise<{ userId: string; email: string; displayName: string | null }> {
+    return this.request("/auth/profile", { method: "PATCH", body: JSON.stringify({ displayName }) })
+  }
+
   async getMe(): Promise<MeResponse> {
     return this.get<MeResponse>("/auth/me")
   }
