@@ -471,3 +471,13 @@ fusermount3 -u ~/mnt
 ```
 
 See `docs/mounting/` for per-environment guides (sprite, E2B, Hetzner).
+
+## Own profile
+
+`agent-fs profile get` reads your profile. `agent-fs profile set --name "Taras"`
+sets your display name. Names are trimmed, 1–100 characters, and shown to anyone
+who can read your comments. Only your authenticated profile can be edited.
+HTTP: `GET /auth/profile`, `PATCH /auth/profile` with `{ "displayName": "Taras" }`
+(or `null` to clear). MCP: `profile-get`, `profile-set` with `displayName`.
+The web account menu has **Edit profile**. Comment responses include
+`authorDisplayName` when set; emails and member roles remain admin-only.

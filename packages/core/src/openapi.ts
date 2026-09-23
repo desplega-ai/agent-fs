@@ -1,5 +1,6 @@
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { getRegisteredOps, getOpDefinition } from "./ops/index.js";
+import { profileUpdateSchema } from "./identity/users.js";
 import { VERSION } from "./version.js";
 
 export function generateOpenAPISpec() {
@@ -138,6 +139,35 @@ export function generateOpenAPISpec() {
                 },
               },
             },
+          },
+        },
+      },
+      "/auth/profile": {
+        get: {
+          summary: "Get your own profile",
+          operationId: "getProfile",
+          tags: ["Auth"],
+          responses: {
+            "200": { description: "Authenticated user's profile", content: {
+              "application/json": { schema: { type: "object", required: ["userId", "email", "displayName"], properties: {
+                userId: { type: "string" }, email: { type: "string" }, displayName: { type: ["string", "null"] },
+              } } },
+            } },
+            "401": { description: "Unauthorized" },
+          },
+        },
+        patch: {
+          summary: "Update your own display name",
+          description: "Names are trimmed and limited to 1–100 characters. Send null to clear. No target user ID is accepted.",
+          operationId: "updateProfile",
+          tags: ["Auth"],
+          requestBody: { required: true, content: {
+            "application/json": { schema: zodToJsonSchema(profileUpdateSchema, { target: "openApi3" }) },
+          } },
+          responses: {
+            "200": { description: "Updated profile (same shape as GET /auth/profile)" },
+            "400": { description: "Invalid profile fields" },
+            "401": { description: "Unauthorized" },
           },
         },
       },

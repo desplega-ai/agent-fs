@@ -86,6 +86,9 @@ export type {
 } from "./ops/types.js";
 export {
   createUser,
+  getProfile,
+  updateProfile,
+  profileUpdateSchema,
   getUserByApiKey,
   getUserByEmail,
   resetApiKey,

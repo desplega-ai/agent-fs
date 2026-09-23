@@ -97,6 +97,7 @@ export interface CommentEntry {
   quotedContent?: string
   body: string
   author: string
+  authorDisplayName?: string
   resolved: boolean
   resolvedBy?: string
   resolvedAt?: string
@@ -127,6 +128,7 @@ export interface CommentAddResult {
   lineStart?: number
   lineEnd?: number
   author: string
+  authorDisplayName?: string
   createdAt: string
 }
 
@@ -272,6 +274,7 @@ export interface OrgMembersResult {
 }
 
 export interface MeResponse {
+  displayName?: string | null
   userId: string
   email: string
   defaultOrgId: string | null

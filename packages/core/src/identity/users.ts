@@ -2,7 +2,8 @@ import { eq } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { createOrg } from "./orgs.js";
-import { NotFoundError } from "../errors.js";
+import { z } from "zod";
+import { ValidationError, NotFoundError } from "../errors.js";
 
 function hashApiKey(key: string): string {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -144,4 +145,24 @@ export function getUserByEmail(
 
   if (!user) return null;
   return { id: user.id, email: user.email };
+}
+
+// Shared validation for HTTP and MCP. No target user ID is accepted from input.
+export const profileUpdateSchema = z.object({
+  displayName: z.string().trim().min(1).max(100).nullable(),
+}).strict();
+
+export function getProfile(db: DB, userId: string) {
+  const user = db.select({ userId: schema.users.id, email: schema.users.email,
+    displayName: schema.users.displayName }).from(schema.users)
+    .where(eq(schema.users.id, userId)).get();
+  if (!user) throw new NotFoundError("User not found");
+  return user;
+}
+
+export function updateProfile(db: DB, userId: string, input: unknown) {
+  const parsed = profileUpdateSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError("displayName must be 1–100 characters or null; no other fields are allowed");
+  db.update(schema.users).set(parsed.data).where(eq(schema.users.id, userId)).run();
+  return getProfile(db, userId);
 }
