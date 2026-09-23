@@ -6,6 +6,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 import { toast } from "@/stores/toast"
 
 export function CodeBlock(props: HTMLAttributes<HTMLPreElement>) {
@@ -28,8 +29,8 @@ export function CodeBlock(props: HTMLAttributes<HTMLPreElement>) {
   }, [])
 
   return (
-    <div className="group relative">
-      <pre ref={ref} {...props} />
+    <div className="group relative min-w-0 max-w-full">
+      <pre ref={ref} {...props} className={cn("max-w-full overflow-x-auto", props.className)} />
       <Tooltip>
         <TooltipTrigger
           render={

@@ -41,6 +41,13 @@ function extractMermaidCode(children: ReactNode): string | null {
 }
 
 const markdownComponents: Components = {
+  table({ node: _node, ...props }) {
+    return (
+      <div className="max-w-full overflow-x-auto">
+        <table {...props} />
+      </div>
+    )
+  },
   pre({ node: _node, ...props }) {
     const code = extractMermaidCode(props.children)
     if (code !== null) return <MermaidDiagram code={code} />
@@ -508,7 +515,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
       <div
         ref={contentRef}
         data-markdown-scroll
-        className="flex-1 overflow-auto px-6 py-8 lg:px-12"
+        className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-8 lg:px-12"
         onMouseUp={handleMouseUp}
       >
         <div
