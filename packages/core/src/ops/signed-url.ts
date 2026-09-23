@@ -5,9 +5,18 @@ import { normalizePath } from "./paths.js";
 import { NotFoundError, UnsupportedOperation } from "../errors.js";
 import { detectMimeType, encodeRFC5987ValueChars, withUtf8Charset } from "./mime.js";
 
+/**
+ * How the presigned response asks the browser to handle the bytes.
+ * `attachment` (default) forces a download with the real filename.
+ * `inline` lets the browser render the file (a PDF in an <iframe>, an image
+ * in a tab) while still carrying the filename for a later "Save as".
+ */
+export type SignedUrlDisposition = "inline" | "attachment";
+
 export interface SignedUrlParams {
   path: string;
   expiresIn?: number;
+  disposition?: SignedUrlDisposition;
 }
 
 export interface SignedUrlResult {
@@ -67,11 +76,12 @@ export async function signedUrl(
 
   const contentType = withUtf8Charset(detectMimeType(normalizedPath));
   const filename = normalizedPath.split("/").pop() ?? "download";
+  const disposition = params.disposition ?? "attachment";
   const url = await ctx.s3.getPresignedUrl(
     key,
     expiresIn,
     contentType !== "application/octet-stream" ? contentType : undefined,
-    `attachment; filename*=UTF-8''${encodeRFC5987ValueChars(filename)}`,
+    `${disposition}; filename*=UTF-8''${encodeRFC5987ValueChars(filename)}`,
   );
 
   return {

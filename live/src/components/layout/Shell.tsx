@@ -42,9 +42,9 @@ function focusFirstTreeRow() {
   requestAnimationFrame(tryFocus)
 }
 
-/** Click the VISIBLE element matching `selector`. The TopBar (and its
- *  switchers) is rendered for both the desktop and mobile layouts; the hidden
- *  one lives in a `display:none` subtree, so its node has a null offsetParent. */
+/** Click the VISIBLE element matching `selector`. Guards against a node
+ *  living in a `display:none` subtree (null offsetParent), e.g. a switcher
+ *  inside the closed mobile drawer. */
 function clickVisible(selector: string) {
   const el = Array.from(document.querySelectorAll<HTMLElement>(selector)).find(
     (node) => node.offsetParent !== null,
@@ -152,12 +152,13 @@ function ShellInner({ sidebar, children }: ShellProps) {
         </SheetContent>
       </Sheet>
 
-      {/* Desktop: fixed-px sidebar + flex-1 main. Drop ResizablePanelGroup
-          for the outer shell — v4's percentage layout was producing tiny
-          sidebars on wide viewports. The sidebar uses an explicit pixel
-          width (persisted to liveui:tree) and is dragged via a custom
-          handle below. */}
-      <div className="hidden lg:flex flex-1 min-w-0">
+      {/* Desktop sidebar: fixed-px, persisted to liveui:tree, dragged via
+          the custom handle. Drops ResizablePanelGroup — v4's percentage
+          layout produced tiny sidebars on wide viewports. Only the sidebar
+          differs by breakpoint (this rail vs the Sheet above); the top bar,
+          breadcrumb, and page content below mount exactly once, so a page
+          never fetches or renders twice for one navigation. */}
+      <div className="hidden lg:flex shrink-0 h-full">
         {tree.open ? (
           <>
             <aside
@@ -175,23 +176,18 @@ function ShellInner({ sidebar, children }: ShellProps) {
         ) : (
           <SidebarCollapsedRail onOpen={() => tree.setOpen(true)} />
         )}
-        <div className="flex flex-1 flex-col min-w-0">
-          <TopBar />
-          <PathBreadcrumb />
-          <main className="flex-1 overflow-hidden">{children}</main>
-        </div>
       </div>
 
-      {/* Mobile single-column */}
-      <div className="lg:hidden flex flex-1 flex-col min-w-0">
+      <div className="flex flex-1 flex-col min-w-0">
         <TopBar
           leading={
+            // Mobile-only drawer opener; desktop has the rail instead.
             <Tooltip>
               <TooltipTrigger
                 render={
                   <button
                     onClick={() => setMobileOpen(true)}
-                    className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md text-muted-foreground hover:bg-accent transition-colors"
+                    className="lg:hidden inline-flex items-center justify-center min-h-[44px] min-w-[44px] rounded-md text-muted-foreground hover:bg-accent transition-colors"
                     aria-label="Open sidebar"
                   >
                     <Menu className="h-4 w-4" />

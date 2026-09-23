@@ -26,6 +26,10 @@ function applyParamMapping(params: Record<string, any>): Record<string, any> {
     mapped.expiresIn = mapped["expires-in"];
     delete mapped["expires-in"];
   }
+  if (mapped.inline !== undefined) {
+    if (mapped.inline) mapped.disposition = "inline";
+    delete mapped.inline;
+  }
 
   return mapped;
 }
@@ -73,5 +77,19 @@ describe("CLI param mapping", () => {
     expect(result.expiresIn).toBe("3600");
     expect(result["expires-in"]).toBeUndefined();
     expect(result.path).toBe("/test.txt");
+  });
+
+  test("maps --inline to disposition=inline for signed-url", () => {
+    const result = applyParamMapping({ path: "/deck.pdf", inline: true });
+
+    expect(result.disposition).toBe("inline");
+    expect(result.inline).toBeUndefined();
+  });
+
+  test("omits disposition when --inline is not set", () => {
+    const result = applyParamMapping({ path: "/deck.pdf" });
+
+    expect(result.disposition).toBeUndefined();
+    expect(result.inline).toBeUndefined();
   });
 });

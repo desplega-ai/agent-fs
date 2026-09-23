@@ -85,13 +85,19 @@ export function MainWithComments({
     return <div className="h-full">{children}</div>
   }
 
+  // The main content mounts exactly once. Only the comments surface differs
+  // by breakpoint: a resizable rail on desktop, a floating toggle + Sheet on
+  // mobile. Mounting `children` per breakpoint (with the other hidden via
+  // CSS) would double every viewer's data fetch and, for the PDF iframe,
+  // trigger two navigations for one click.
   return (
     <div className="flex h-full">
-      {/* Desktop: fixed-px comments rail + flex-1 main, dragged via custom
-          handle. Drops the ResizablePanelGroup which produced unreliable
-          widths on wide viewports. */}
-      <div className="hidden lg:flex flex-1 min-w-0">
-        <div className="flex-1 min-w-0 overflow-hidden">{children}</div>
+      <div className="flex-1 min-w-0 overflow-hidden">{children}</div>
+
+      {/* Desktop: fixed-px comments rail dragged via custom handle. Drops
+          the ResizablePanelGroup which produced unreliable widths on wide
+          viewports. */}
+      <div className="hidden lg:flex shrink-0 h-full">
         {comments.open ? (
           <>
             <CommentsDragHandle
@@ -116,17 +122,15 @@ export function MainWithComments({
         )}
       </div>
 
-      {/* Mobile / tablet: full-width content + floating toggle + Sheet drawer */}
-      <div className="lg:hidden flex flex-1 min-w-0">
-        <div className="flex-1 min-w-0">{children}</div>
-        <MobileCommentToggle
-          path={filePath}
-          open={mobileOpen}
-          onToggle={() => setMobileOpen((v) => !v)}
-          onOpenChange={setMobileOpen}
-          onCommentClick={onCommentClick}
-        />
-      </div>
+      {/* Mobile / tablet: floating toggle + Sheet drawer (both position
+          themselves; nothing here takes flex space). */}
+      <MobileCommentToggle
+        path={filePath}
+        open={mobileOpen}
+        onToggle={() => setMobileOpen((v) => !v)}
+        onOpenChange={setMobileOpen}
+        onCommentClick={onCommentClick}
+      />
     </div>
   )
 }
