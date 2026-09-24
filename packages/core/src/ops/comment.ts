@@ -1,4 +1,4 @@
-import { eq, and, sql, desc, ne } from "drizzle-orm";
+import { eq, and, sql, desc, ne, inArray } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type {
   OpContext,
@@ -130,6 +130,17 @@ function toCommentEntry(row: any): CommentEntry {
   };
 }
 
+// Only display names leave this lookup. Membership roles and emails remain private.
+function addAuthorNames<T extends { author: string; authorDisplayName?: string }>(ctx: OpContext, entries: T[]): T[] {
+  const ids = [...new Set(entries.map((entry) => entry.author))];
+  if (!ids.length) return entries;
+  const users = ctx.db.select({ id: schema.users.id, displayName: schema.users.displayName })
+    .from(schema.users).where(inArray(schema.users.id, ids)).all();
+  const names = new Map(users.map((user) => [user.id, user.displayName]));
+  for (const entry of entries) entry.authorDisplayName = names.get(entry.author) ?? undefined;
+  return entries;
+}
+
 // --- Handlers ---
 
 export async function commentAdd(
@@ -217,7 +228,7 @@ export async function commentAdd(
     createdAt: now,
   });
 
-  return {
+  return addAuthorNames(ctx, [{
     id,
     path,
     body: params.body,
@@ -226,7 +237,7 @@ export async function commentAdd(
     lineEnd: params.lineEnd,
     author: ctx.userId,
     createdAt: now,
-  };
+  }])[0];
 }
 
 export async function commentList(
@@ -294,6 +305,7 @@ export async function commentList(
     };
   });
 
+  addAuthorNames(ctx, comments.flatMap((comment) => [comment, ...comment.replies]));
   return { comments };
 }
 
@@ -345,6 +357,7 @@ export async function commentGet(
 
   const replies = replyRows.map((r) => toCommentEntry({ ...r, replyCount: 0 }));
 
+  addAuthorNames(ctx, [comment, ...replies]);
   return { comment, replies };
 }
 

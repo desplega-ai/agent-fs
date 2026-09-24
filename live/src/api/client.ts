@@ -11,6 +11,9 @@ import type {
   WriteResult,
 } from "./types"
 
+/** Mirrors the `disposition` param of the core `signed-url` op. */
+export type SignedUrlDisposition = "inline" | "attachment"
+
 export interface ApiError {
   error: string
   message: string
@@ -119,6 +122,10 @@ export class AgentFsClient {
     return this.post<T>(`/orgs/${orgId}/ops`, body)
   }
 
+  async updateProfile(displayName: string | null): Promise<{ userId: string; email: string; displayName: string | null }> {
+    return this.request("/auth/profile", { method: "PATCH", body: JSON.stringify({ displayName }) })
+  }
+
   async getMe(): Promise<MeResponse> {
     return this.get<MeResponse>("/auth/me")
   }
@@ -135,15 +142,21 @@ export class AgentFsClient {
     return this.get<OrgMembersResult>(`/orgs/${orgId}/members`)
   }
 
+  /**
+   * Mint a signed URL for `path`. The server defaults `disposition` to
+   * `attachment` (forces a download); pass `inline` for URLs that will be
+   * rendered by the browser, such as a PDF in an <iframe>.
+   */
   async getSignedUrl(
     orgId: string,
     driveId: string,
     path: string,
+    options?: { disposition?: SignedUrlDisposition },
   ): Promise<{ url: string; expiresAt: string; expiresIn?: number; kind?: "presigned" | "app" }> {
     return this.callOp<{ url: string; expiresAt: string; expiresIn?: number; kind?: "presigned" | "app" }>(
       orgId,
       "signed-url",
-      { path },
+      options?.disposition ? { path, disposition: options.disposition } : { path },
       driveId,
     )
   }

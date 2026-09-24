@@ -11,6 +11,7 @@ import {
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
+  displayName: text("display_name"),
   apiKeyHash: text("api_key_hash").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });

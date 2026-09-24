@@ -46,7 +46,7 @@ describe("MCP tool registration", () => {
     registerIdentityTools(mockServer as any, { db, getContext });
 
     expect(names.sort()).toEqual(
-      ["member-invite", "member-list", "member-remove", "member-update-role", "whoami"].sort()
+      ["member-invite", "member-list", "member-remove", "member-update-role", "whoami", "profile-get", "profile-set"].sort()
     );
   });
 });

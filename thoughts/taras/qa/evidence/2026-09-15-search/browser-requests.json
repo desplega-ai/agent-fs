@@ -1,0 +1,124 @@
+[
+  {
+    "request": {
+      "driveId": "2faf73ba-4eee-4472-8b3b-359c4ed6bfbb",
+      "op": "search",
+      "query": "ai-tinkerers"
+    },
+    "result": {
+      "count": 10,
+      "paths": [
+        "thoughts/16990304-76e4-4017-b991-f3e37b34cf73/research/2026-09-15-ai-tinkerers-bcn-demo-night-recon.md",
+        "/thoughts/c06cca59-187e-4aa6-8472-8ac6caf177af/research/2026-09-15-demo-night-stage-inventory.md",
+        "thoughts/c06cca59-187e-4aa6-8472-8ac6caf177af/research/2026-09-15-demo-night-stage-inventory.md",
+        "/thoughts/16990304-76e4-4017-b991-f3e37b34cf73/research/2026-09-15-ai-tinkerers-demo-proposal.md",
+        "/tasks/48741317-28ba-471c-bbe5-e4df86d99a0d/slack-F0C1KSL6RPH-Untitled",
+        "/misc/d454d1a5-4df9-49bd-8a89-e58d6a657dc3/2026-09-15-eze-supplied-lukasz-10-post-options.md",
+        "/misc/38d36438-58a0-45b5-8602-a5d52b07c2f1/stargazer-stars/coordinated_temporal_pairs.csv",
+        "/misc/38d36438-58a0-45b5-8602-a5d52b07c2f1/stargazer-stars/coordinated_repo_bursts.csv",
+        "/misc/d454d1a5-4df9-49bd-8a89-e58d6a657dc3/vienna-sept-4-shortlist-v3-agent-swarm-2026-08-22.md",
+        "misc/d454d1a5-4df9-49bd-8a89-e58d6a657dc3/star-intent-batch-2026-08-20/contacts_155_alltime_dedup.csv"
+      ]
+    },
+    "status": 200,
+    "url": "https://agent-fs-taras.fly.dev/orgs/648a5f3c-35c8-4f11-8673-b89de52cd6bd/ops"
+  },
+  {
+    "request": {
+      "driveId": "2faf73ba-4eee-4472-8b3b-359c4ed6bfbb",
+      "op": "fts",
+      "pattern": "ai-tinkerers"
+    },
+    "result": {
+      "error": "INTERNAL_ERROR",
+      "message": "no such column: tinkerers"
+    },
+    "status": 400,
+    "url": "https://agent-fs-taras.fly.dev/orgs/648a5f3c-35c8-4f11-8673-b89de52cd6bd/ops"
+  },
+  {
+    "request": {
+      "driveId": "2faf73ba-4eee-4472-8b3b-359c4ed6bfbb",
+      "op": "vec-search",
+      "query": "ai-tinkerers"
+    },
+    "result": {
+      "count": 10,
+      "paths": [
+        "/thoughts/c06cca59-187e-4aa6-8472-8ac6caf177af/research/2026-09-15-demo-night-stage-inventory.md",
+        "thoughts/c06cca59-187e-4aa6-8472-8ac6caf177af/research/2026-09-15-demo-night-stage-inventory.md",
+        "thoughts/16990304-76e4-4017-b991-f3e37b34cf73/research/2026-09-15-ai-tinkerers-bcn-demo-night-recon.md",
+        "/misc/38d36438-58a0-45b5-8602-a5d52b07c2f1/stargazer-stars/coordinated_temporal_pairs.csv",
+        "/misc/38d36438-58a0-45b5-8602-a5d52b07c2f1/stargazer-stars/coordinated_repo_bursts.csv",
+        "misc/d454d1a5-4df9-49bd-8a89-e58d6a657dc3/star-intent-batch-2026-08-20/contacts_155_alltime_dedup.csv",
+        "/misc/16990304-76e4-4017-b991-f3e37b34cf73/company-engineer-stars-2026-08-20/contacts_qualified_alltime.csv",
+        "misc/16990304-76e4-4017-b991-f3e37b34cf73/company-engineer-stars-2026-08-20/contacts_qualified_alltime.csv",
+        "/thoughts/16990304-76e4-4017-b991-f3e37b34cf73/research/2026-09-15-ai-tinkerers-demo-proposal.md",
+        "/tasks/aeffeba9-4161-4893-be09-9513bbca0586/Superdark Factory.md"
+      ]
+    },
+    "status": 200,
+    "url": "https://agent-fs-taras.fly.dev/orgs/648a5f3c-35c8-4f11-8673-b89de52cd6bd/ops"
+  },
+  {
+    "request": {
+      "driveId": "2faf73ba-4eee-4472-8b3b-359c4ed6bfbb",
+      "op": "vec-search",
+      "query": "ai thinkerers"
+    },
+    "result": {
+      "count": 10,
+      "paths": [
+        "/tasks/aeffeba9-4161-4893-be09-9513bbca0586/Superdark Factory.md",
+        "docs/claude-mythos-preview-system-card-2026-04-07.txt",
+        "/misc/research/kimi-deepseek-voice-control-2026-08-25.md",
+        "/thoughts/d454d1a5-4df9-49bd-8a89-e58d6a657dc3/research/2026-06-01-viral-tool-litmus-redesign-v2.md",
+        "thoughts/d454d1a5-4df9-49bd-8a89-e58d6a657dc3/research/2026-05-04-swarm-competitive-analysis.md",
+        "/misc/38d36438-58a0-45b5-8602-a5d52b07c2f1/code-maat/agent-swarm/2026-06-23/entity-ownership.csv",
+        "misc/d454d1a5-4df9-49bd-8a89-e58d6a657dc3/eze-reddit-comment-corpus-2026-07-08.txt",
+        "/misc/38d36438-58a0-45b5-8602-a5d52b07c2f1/code-maat/agent-swarm/2026-06-23/entity-churn.csv",
+        "/research/38d36438-58a0-45b5-8602-a5d52b07c2f1/2026-06-11-token-burn-aggregates.json",
+        "/thoughts/38d36438-58a0-45b5-8602-a5d52b07c2f1/research/2026-06-11-token-burn-aggregates.json"
+      ]
+    },
+    "status": 200,
+    "url": "https://agent-fs-taras.fly.dev/orgs/648a5f3c-35c8-4f11-8673-b89de52cd6bd/ops"
+  },
+  {
+    "request": {
+      "driveId": "2faf73ba-4eee-4472-8b3b-359c4ed6bfbb",
+      "op": "fts",
+      "pattern": "ai thinkerers"
+    },
+    "result": {
+      "count": 0,
+      "paths": []
+    },
+    "status": 200,
+    "url": "https://agent-fs-taras.fly.dev/orgs/648a5f3c-35c8-4f11-8673-b89de52cd6bd/ops"
+  },
+  {
+    "request": {
+      "driveId": "2faf73ba-4eee-4472-8b3b-359c4ed6bfbb",
+      "op": "search",
+      "query": "ai thinkerers"
+    },
+    "result": {
+      "count": 10,
+      "paths": [
+        "/tasks/aeffeba9-4161-4893-be09-9513bbca0586/Superdark Factory.md",
+        "/thoughts/202b1a2e-6e90-4748-b7f6-74a4b5fa5e22/research/2026-09-15-f5bot-gold-config.md",
+        "docs/claude-mythos-preview-system-card-2026-04-07.txt",
+        "/thoughts/38d36438-58a0-45b5-8602-a5d52b07c2f1/research/2026-09-10-agent-swarm-releases.md",
+        "/misc/research/kimi-deepseek-voice-control-2026-08-25.md",
+        "thoughts/38d36438-58a0-45b5-8602-a5d52b07c2f1/research/2026-09-10-agent-swarm-releases.md",
+        "/thoughts/d454d1a5-4df9-49bd-8a89-e58d6a657dc3/research/2026-06-01-viral-tool-litmus-redesign-v2.md",
+        "/misc/38d36438-58a0-45b5-8602-a5d52b07c2f1/code-maat/agent-swarm/2026-07-05/entity-ownership.csv",
+        "thoughts/d454d1a5-4df9-49bd-8a89-e58d6a657dc3/research/2026-05-04-swarm-competitive-analysis.md",
+        "/misc/38d36438-58a0-45b5-8602-a5d52b07c2f1/code-maat/agent-swarm/2026-07-05/entity-effort.csv"
+      ]
+    },
+    "status": 200,
+    "url": "https://agent-fs-taras.fly.dev/orgs/648a5f3c-35c8-4f11-8673-b89de52cd6bd/ops"
+  }
+]

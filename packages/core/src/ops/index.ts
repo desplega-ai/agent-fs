@@ -242,11 +242,12 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "signed-url": {
-    description: "Generate a temporary presigned URL for direct file download. Default expiry is 24 hours (86400 seconds). The URL requires no authentication. Returns { url, path, expiresIn, expiresAt }.",
+    description: "Generate a temporary presigned URL for direct file download. Default expiry is 24 hours (86400 seconds). The URL requires no authentication. Set disposition to \"inline\" when the URL will be rendered in the browser (PDF in an iframe, image in a tab); the default \"attachment\" forces a download. Returns { url, path, expiresIn, expiresAt, kind }.",
     handler: signedUrl,
     schema: z.object({
       path: z.string(),
       expiresIn: z.number().int().min(60).max(604800).optional(),
+      disposition: z.enum(["inline", "attachment"]).optional(),
     }),
   },
   "comment-add": {
