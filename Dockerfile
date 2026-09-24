@@ -37,7 +37,9 @@ LABEL org.opencontainers.image.source="https://github.com/desplega-ai/agent-fs"
 ENV AGENT_FS_HOME=/data
 EXPOSE 7433
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+# start-period: the daemon listens before any schema upgrade work; the margin
+# covers slow volumes.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
   CMD curl -f http://localhost:7433/health || exit 1
 
 CMD ["bun", "run", "packages/cli/dist/cli.js", "server"]

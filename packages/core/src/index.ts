@@ -1,5 +1,10 @@
 export { createDatabase, schema } from "./db/index.js";
-export type { DB } from "./db/index.js";
+export type { DB, CreateDatabaseOptions } from "./db/index.js";
+export {
+  CONTENT_CHUNKS_INDEX_NAME,
+  hasContentChunksIndex,
+  buildContentChunksIndexInHelperProcess,
+} from "./db/content-chunks-index.js";
 export {
   prepareFtsMigration,
   runFtsMigration,
