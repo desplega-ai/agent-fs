@@ -10,6 +10,7 @@ import {
 import { detectMimeType } from "./mime.js";
 import { ValidationError } from "../errors.js";
 import { requireDriveRole } from "../identity/rbac.js";
+import { recordOp } from "../telemetry.js";
 import { indexBytesForSearch, indexTextForSearch } from "./search-index.js";
 
 /** Max file size: 10 MB. Protects SQLite FTS indexing and embedding costs. */
@@ -47,7 +48,9 @@ export async function writeRaw(
     driveId: ctx.driveId,
     requiredRole: "editor",
   });
-  return writeInternal(ctx, params, { maxSize: getMaxUploadBytes() });
+  const result = await writeInternal(ctx, params, { maxSize: getMaxUploadBytes() });
+  recordOp("write-raw");
+  return result;
 }
 
 async function writeInternal(

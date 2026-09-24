@@ -18,6 +18,10 @@ import { createServer } from "node:net";
 // CLI args
 // ---------------------------------------------------------------------------
 
+// Never send test traffic to the telemetry proxy. Every daemon this script
+// spawns inherits process.env; the Docker FUSE container sets it separately.
+process.env.ANONYMIZED_TELEMETRY = "false";
+
 const rawArgs = process.argv.slice(2);
 const positional = rawArgs.filter((a) => !a.startsWith("--"));
 const flags = new Set(rawArgs.filter((a) => a.startsWith("--")));
@@ -825,6 +829,7 @@ async function setupFuse(): Promise<boolean> {
     `S3_SECRET_ACCESS_KEY=minioadmin`,
     `S3_REGION=us-east-1`,
     `S3_PROVIDER=minio`,
+    `ANONYMIZED_TELEMETRY=false`,
   ].map((v) => `export ${v}`).join("; ");
 
   // Persist for all later `runFuseCmd` calls via a sourced profile fragment.

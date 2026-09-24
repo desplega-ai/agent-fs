@@ -57,6 +57,10 @@ To enable production analytics, set `VITE_PLAUSIBLE_ANALYTICS=1` in the Vercel
 project for `live` and rebuild/redeploy. Changing these variables requires a new
 build.
 
+Separately, production builds of `live` send one anonymous `live.session_started`
+telemetry event per browser session (see [docs/telemetry.md](./docs/telemetry.md)).
+Build with `VITE_ANONYMIZED_TELEMETRY=false` to remove it.
+
 ## Docker / GHCR
 
 Pre-built multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR on every release.
@@ -171,6 +175,9 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `EMBEDDING_PROVIDER` | `embedding.provider` | `local` | `local`, `openai`, or `gemini` |
 | `EMBEDDING_MODEL` | `embedding.model` | — | Model name for the chosen provider |
 | `EMBEDDING_API_KEY` | `embedding.apiKey` | — | API key for `openai` or `gemini` providers |
+| `ANONYMIZED_TELEMETRY` | _(env only)_ | `true` | Set to `false` to stop anonymous usage events. See [docs/telemetry.md](./docs/telemetry.md). |
+| `DO_NOT_TRACK` | _(env only)_ | _(unset)_ | Any value except empty, `0`, `false`, `no`, or `off` also stops telemetry. |
+| `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
 
 When both `AWS_*` and `S3_*` variants are set, the `AWS_*` variant takes precedence (Tigris injects `AWS_*` automatically).
 

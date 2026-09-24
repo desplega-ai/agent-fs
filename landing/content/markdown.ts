@@ -104,6 +104,7 @@ fully self-hostable.
 
 - API reference: https://agent-fs.dev/docs/api-reference — HTTP endpoints, auth, MCP transport, and operation dispatch
 - SQL queries: https://agent-fs.dev/docs/sql — query CSV, Parquet, Excel, JSON, and SQLite documents with DuckDB
+- Telemetry: https://agent-fs.dev/docs/telemetry: what anonymous usage data agent-fs sends, and how to turn it off
 - OpenAPI spec: https://agent-fs.dev/docs/openapi.json
 
 ### Mounting (FUSE)

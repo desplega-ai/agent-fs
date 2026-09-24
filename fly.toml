@@ -12,6 +12,7 @@ primary_region = 'ams'
 [env]
   AGENT_FS_HOME = '/data'
   SERVER_HOST = '0.0.0.0'
+  AGENT_FS_CLOUD = 'true'
 
 [[mounts]]
   source = 'agent_fs_data'

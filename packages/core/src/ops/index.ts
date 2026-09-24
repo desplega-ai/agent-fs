@@ -25,6 +25,7 @@ import { glob } from "./glob.js";
 import { sql } from "./sql.js";
 import { signedUrl } from "./signed-url.js";
 import { buildAppUrl } from "./urls.js";
+import { recordOp } from "../telemetry.js";
 import {
   commentAdd,
   commentList,
@@ -346,6 +347,7 @@ export async function dispatchOp(
 
   const validated = op.schema.parse(params);
   const result = await op.handler(ctx, validated);
+  recordOp(opName);
 
   // Enrich results with appUrl when available
   if (ctx.appUrl && result && typeof result === "object") {
