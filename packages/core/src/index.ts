@@ -17,6 +17,7 @@ export {
   getHome,
 } from "./config.js";
 export { isLocalStorageConfig } from "./config.js";
+export { startServerTelemetry } from "./telemetry.js";
 export type {
   AgentFSConfig,
   AgentFSStorageConfig,

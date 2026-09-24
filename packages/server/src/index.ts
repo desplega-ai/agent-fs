@@ -7,6 +7,7 @@ import {
   createEmbeddingProviderFromEnv,
   prepareFtsMigration,
   runFtsMigration,
+  startServerTelemetry,
 } from "@/core";
 import type { Database } from "bun:sqlite";
 import type { EmbeddingProvider } from "@/core";
@@ -73,6 +74,10 @@ if (ftsMigrationPending) {
   });
 }
 
+// Anonymized telemetry: `server.started` now, `server.heartbeat` every 24h.
+// Opt out with ANONYMIZED_TELEMETRY=false or DO_NOT_TRACK=1 (docs/telemetry.md).
+const stopTelemetry = startServerTelemetry(sqlite);
+
 // Event-loop lag watchdog. A synchronous operation that blocks the loop
 // (the prod wedge: /health dead for minutes while the process sits at
 // ~7% CPU) delays this timer along with everything else — when the loop
@@ -119,6 +124,7 @@ try {
 // Graceful shutdown
 function shutdown() {
   console.log("Shutting down...");
+  stopTelemetry();
   server.stop();
   if (ipcServer) ipcServer.stop();
   process.exit(0);

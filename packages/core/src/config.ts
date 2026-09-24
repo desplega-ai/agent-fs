@@ -101,6 +101,10 @@ export interface AgentFSConfig {
   apiKey?: string;
   defaultOrg?: string;
   defaultDrive?: string;
+  telemetry?: {
+    /** Anonymous install ID, minted by the server on first boot. */
+    installId?: string;
+  };
 }
 
 const DEFAULT_CONFIG: AgentFSConfig = {

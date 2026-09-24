@@ -258,6 +258,7 @@ async function setup(): Promise<void> {
     env: {
       ...process.env,
       AGENT_FS_HOME: testDir,
+      ANONYMIZED_TELEMETRY: "false",
       S3_ENDPOINT: `http://localhost:${minioPort}`,
       S3_BUCKET: "agentfs",
       S3_ACCESS_KEY_ID: "minioadmin",

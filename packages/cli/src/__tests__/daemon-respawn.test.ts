@@ -93,6 +93,7 @@ describe("daemon start respawn", () => {
       const env = {
         ...process.env,
         AGENT_FS_HOME: agentFsHome,
+        ANONYMIZED_TELEMETRY: "false",
       };
 
       const result = spawnSync(process.execPath, [cliPath, "daemon", "start"], {
