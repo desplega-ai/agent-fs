@@ -1,6 +1,7 @@
 import {
   createDatabase,
   getConfig,
+  DEFAULT_MAX_UPLOAD_BYTES,
   getHome,
   createStorageAdapter,
   createEmbeddingProviderFromEnv,
@@ -59,6 +60,7 @@ const app = createApp(db, s3, embeddingProvider);
 // Start server
 const server = Bun.serve({
   fetch: app.fetch,
+  maxRequestBodySize: config.server.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
   port: config.server.port,
   hostname: config.server.host,
 });

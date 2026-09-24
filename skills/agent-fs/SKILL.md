@@ -475,6 +475,14 @@ fusermount3 -u ~/mnt
 
 See `docs/mounting/` for per-environment guides (sprite, E2B, Hetzner).
 
+### Upload limit configuration
+
+Raw HTTP uploads default to 50 MiB. Set `AGENT_FS_MAX_UPLOAD_BYTES` on the server
+(e.g. `104857600` for 100 MiB) and restart the daemon to change the limit. Invalid
+values fall back to 50 MiB. The web UI discovers the limit from `/health`.
+JSON/MCP `write` stays at 10 MiB. FUSE retains a 64 MiB encoded IPC frame ceiling
+including protocol overhead; use HTTP raw uploads for larger files.
+
 ## Own profile
 
 `agent-fs profile get` reads your profile. `agent-fs profile set --name "Taras"`

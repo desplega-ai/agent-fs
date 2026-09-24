@@ -3,10 +3,9 @@ import type { QueryClient } from "@tanstack/react-query"
 import { isConflictError, type AgentFsClient } from "@/api/client"
 import { invalidateForPath } from "@/lib/listing-cache"
 import { cleanPath, joinPath } from "@/lib/paths"
+import { healthQueryOptions, uploadLimitBytes } from "@/lib/upload-limit"
 import { toast } from "./toast"
 
-/** Server body limit for `PUT .../raw` (Hono `bodyLimit` and `MAX_RAW_FILE_SIZE`). */
-export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 export const MAX_CONCURRENT_UPLOADS = 3
 
 export type UploadStatus =
@@ -105,10 +104,13 @@ class UploadStore {
     this.emit()
   }
 
-  enqueue(scope: UploadScope, folder: string, inputs: UploadInput[]) {
-    const limitMb = MAX_UPLOAD_BYTES / 1024 / 1024
+  async enqueue(scope: UploadScope, folder: string, inputs: UploadInput[]) {
+    // Await discovery so a drop before /health resolves uses the server limit.
+    const health = await scope.queryClient.fetchQuery(healthQueryOptions(scope.client)).catch(() => undefined)
+    const maxUploadBytes = uploadLimitBytes(health)
+    const limitMb = maxUploadBytes / 1024 / 1024
     const next: UploadItem[] = inputs.map(({ file, relativePath }) => {
-      const tooBig = file.size > MAX_UPLOAD_BYTES
+      const tooBig = file.size > maxUploadBytes
       return {
         id: nextId++,
         path: joinPath(folder, relativePath),

@@ -103,7 +103,7 @@ export function fileRoutes(
   // drive RBAC (viewers get 403 PERMISSION_DENIED, matching the JSON `write`
   // op) and drives versioning, FTS5 indexing and embedding scheduling through
   // the existing pipeline. GET /raw above stays viewer-accessible. The body
-  // is buffered up to Hono's 50 MB body limit — no true streaming in v1.
+  // is buffered up to the configured HTTP body limit — no true streaming in v1.
   router.put("/:orgId/drives/:driveId/files/*", async (c) => {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
@@ -185,7 +185,7 @@ export function fileRoutes(
       }
     }
 
-    // Read body. Hono's bodyLimit middleware already caps this at 50 MB.
+    // Read body. Hono's bodyLimit middleware already enforces the configured upload limit.
     const arrayBuffer = await c.req.arrayBuffer();
     const bytes = new Uint8Array(arrayBuffer);
 

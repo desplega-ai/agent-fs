@@ -138,7 +138,7 @@ agent-fs exposes operational signal at well-known paths so agents can self-diagn
 | Writes on a drive where you're a `viewer` | No (`EACCES`) | All FUSE writes require the `editor` role or better — see below |
 | `chmod`, `chown` | No (`ENOSYS` / no-op) | agent-fs has no POSIX permissions model |
 | `flock`, `fcntl` locks | No (`ENOSYS`) | Use `--expected-version` for optimistic concurrency |
-| Streaming large files (>50 MB) | Partial | The 50 MB Hono body limit caps a single PUT; streaming-into-S3 is v1.x |
+| Streaming large files (>50 MB) | Partial | HTTP/raw writes default to 50 MiB, configurable via `AGENT_FS_MAX_UPLOAD_BYTES`. FUSE still caps encoded IPC frames at 64 MiB (file bytes plus protocol overhead); use HTTP for larger files. Streaming-into-S3 is v1.x |
 | Extended attributes (`xattr`) | No | Read-only xattr window is v1.1 (`user.agent-fs.{version, content-hash, ...}`) |
 
 ### Write permissions

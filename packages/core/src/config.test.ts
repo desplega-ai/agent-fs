@@ -29,6 +29,7 @@ const OVERRIDE_ENV_VARS = [
   "S3_PROVIDER",
   "AGENT_FS_STORAGE_PROVIDER",
   "AGENT_FS_LOCAL_ROOT",
+  "AGENT_FS_MAX_UPLOAD_BYTES",
   "SERVER_PORT",
   "SERVER_HOST",
   "EMBEDDING_PROVIDER",
@@ -462,5 +463,38 @@ describe("Local-FS storage variant", () => {
     expect((config.s3 as S3StorageConfig).secretAccessKey).toBe("sk");
     // Seeded S3 defaults remain for fields env didn't override.
     expect((config.s3 as S3StorageConfig).region).toBe("us-east-1");
+  });
+});
+
+describe("Upload size environment configuration", () => {
+  let cleanup: () => void;
+  let saved: string | undefined;
+  beforeEach(() => {
+    saved = process.env.AGENT_FS_MAX_UPLOAD_BYTES;
+    ({ cleanup } = createTestConfigDir());
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env.AGENT_FS_MAX_UPLOAD_BYTES;
+    else process.env.AGENT_FS_MAX_UPLOAD_BYTES = saved;
+    cleanup();
+  });
+  test("unset uses exactly 50 MiB on new and existing config", () => {
+    delete process.env.AGENT_FS_MAX_UPLOAD_BYTES;
+    expect(getConfig().server.maxUploadBytes).toBe(52428800);
+    expect(getConfig().server.maxUploadBytes).toBe(52428800);
+  });
+  test.each(["104857600", "1", " 209715200 "])("accepts positive integer bytes: %s", (value) => {
+    process.env.AGENT_FS_MAX_UPLOAD_BYTES = value;
+    expect(getConfig().server.maxUploadBytes).toBe(Number(value));
+  });
+  test.each(["", "nope", "100MB", "1.5", "0", "-1", "1e8", "Infinity", "9007199254740992"])("invalid value falls back: %s", (value) => {
+    process.env.AGENT_FS_MAX_UPLOAD_BYTES = value;
+    expect(getConfig().server.maxUploadBytes).toBe(52428800);
+  });
+  test("persisted effective limit does not outlive the env override", () => {
+    process.env.AGENT_FS_MAX_UPLOAD_BYTES = "104857600";
+    setConfigValue("server.port", 7433);
+    delete process.env.AGENT_FS_MAX_UPLOAD_BYTES;
+    expect(getConfig().server.maxUploadBytes).toBe(52428800);
   });
 });
