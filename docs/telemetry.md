@@ -11,13 +11,13 @@ Only the agent-fs server (the local daemon or a hosted server) sends events. The
 | Event | When | Properties |
 |-------|------|------------|
 | `server.started` | Each time the server starts | Counts of `users`, `orgs`, `drives`, and `files`. `storage_provider` (`minio`, `s3`, `r2`, `tigris`, `local`, or `other`). `embedding_provider` (`local`, `openai`, `gemini`, or `other`). `os`, `arch`. |
-| `server.heartbeat` | Every 24 hours while the server runs | The same properties as `server.started`, plus the number of successful operations since the last heartbeat: `ops_total` and one `ops_<name>` count per operation (for example `ops_write`, `ops_search`). |
+| `server.heartbeat` | Every 24 hours while the server runs | The same properties as `server.started`, plus the number of successful operations since the last heartbeat: `ops_total` and one `ops_<name>` count per operation (for example `ops_write`, `ops_search`). On graceful shutdown (SIGTERM/SIGINT) the server sends one more `server.heartbeat` with `shutdown: true` if any operations were counted since the last one, so restarts do not drop counts. The shutdown send waits at most 1.5 seconds. |
 
 Every event also carries `version` (the agent-fs version) and `is_cloud` (`true` only on servers that the agent-fs team hosts). Event metadata holds only `transport`, `schema_version`, `environment` (`production`, or `test` under test runners), and `is_cloud`. Set `DESPLEGA_TELEMETRY_ENV` to override `environment`.
 
 ## What the live UI sends
 
-The web UI at `live.agent-fs.dev` sends one `live.session_started` event per browser session. It carries a random browser ID and `is_cloud`. Nothing else.
+The web UI at `live.agent-fs.dev` sends one `live.session_started` event per browser session. It carries a random browser ID, `is_cloud`, `version` (the agent-fs release the UI was built from), and `entry_route`: the route template the session opened on, such as `/file/~/:orgId/:driveId/*`. The concrete path, file names, org and drive IDs, and emails are never sent. Nothing else.
 
 ## How the data stays anonymous
 

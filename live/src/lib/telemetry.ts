@@ -2,8 +2,10 @@
  * Anonymized usage telemetry for the live UI: one `live.session_started`
  * event per browser session, sent to the Desplega telemetry proxy.
  *
- * The event carries a random browser ID and one boolean. No paths, file
- * content, emails, API keys, or server URLs. Disabled in dev builds, when
+ * The event carries a random browser ID, `is_cloud`, the app version, and
+ * the entry route TEMPLATE (e.g. `/file/~/:orgId/:driveId/*`). Never the
+ * concrete path: no file names, drive or org IDs, emails, API keys, or
+ * server URLs. Disabled in dev builds, when
  * built with VITE_ANONYMIZED_TELEMETRY=false, or when the browser sends
  * Do Not Track. See docs/telemetry.md.
  */
@@ -16,6 +18,8 @@ export interface TelemetryDeps {
   enabled: boolean
   doNotTrack: string | null | undefined
   hostname: string
+  pathname: string
+  version: string
   local: Pick<Storage, "getItem" | "setItem">
   session: Pick<Storage, "getItem" | "setItem">
   fetch: typeof fetch
@@ -28,6 +32,8 @@ function defaultDeps(): TelemetryDeps {
       !["false", "0"].includes(String(import.meta.env.VITE_ANONYMIZED_TELEMETRY ?? "").trim().toLowerCase()),
     doNotTrack: navigator.doNotTrack,
     hostname: location.hostname,
+    pathname: location.pathname,
+    version: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "unknown",
     local: localStorage,
     session: sessionStorage,
     fetch: window.fetch.bind(window),
@@ -36,6 +42,25 @@ function defaultDeps(): TelemetryDeps {
 
 function randomHex(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 16)
+}
+
+/** Route templates from App.tsx. Keep in sync when routes change. */
+const ROUTE_TEMPLATES: [RegExp, string][] = [
+  [/^\/credentials\/?$/, "/credentials"],
+  [/^\/files\/?$/, "/files"],
+  [/^\/orgs\/[^/]+\/files(\/.*)?$/, "/orgs/:orgId/files/*"],
+  [/^\/file\/~\/[^/]+\/[^/]+(\/.*)?$/, "/file/~/:orgId/:driveId/*"],
+  [/^\/detail\/~\/[^/]+\/[^/]+(\/.*)?$/, "/detail/~/:orgId/:driveId/*"],
+  [/^\/sql\/~\/[^/]+\/[^/]+\/?$/, "/sql/~/:orgId/:driveId"],
+  [/^\/?$/, "/"],
+]
+
+/** Map a concrete path to its route template; unknown paths become "other". */
+export function routeTemplate(pathname: string): string {
+  for (const [pattern, template] of ROUTE_TEMPLATES) {
+    if (pattern.test(pathname)) return template
+  }
+  return "other"
 }
 
 /** Fire-and-forget. Never throws. */
@@ -63,7 +88,11 @@ export function trackSessionStart(deps: TelemetryDeps = defaultDeps()): void {
           source: "live",
           actor_mode: "anonymous",
           actor_anonymous_id: id,
-          properties: { is_cloud: isCloud },
+          properties: {
+            is_cloud: isCloud,
+            version: deps.version,
+            entry_route: routeTemplate(deps.pathname),
+          },
           metadata: { transport: "https", schema_version: 1, environment: "production", is_cloud: isCloud },
         }),
         keepalive: true,

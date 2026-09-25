@@ -2,7 +2,8 @@
  * Anonymized usage telemetry, sent to the Desplega telemetry proxy.
  *
  * Only the API server sends events: `server.started` at boot and
- * `server.heartbeat` every 24h with aggregate counts. No file paths, file
+ * `server.heartbeat` every 24h with aggregate counts, plus a final
+ * `server.heartbeat` on graceful shutdown so a restart never drops counts. No file paths, file
  * content, names, emails, hostnames, or keys ever leave the process.
  *
  * Opt out with `ANONYMIZED_TELEMETRY=false` or `DO_NOT_TRACK=1`.
@@ -18,6 +19,8 @@ const TELEMETRY_ENDPOINT = "https://proxy.desplega.sh/v1/events";
 const PRODUCT = "agent-fs";
 const TIMEOUT_MS = 5_000;
 const HEARTBEAT_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** Upper bound on how long a shutdown waits for the final heartbeat. */
+export const SHUTDOWN_FLUSH_TIMEOUT_MS = 1_500;
 
 const FALSY = new Set(["false", "0", "no", "off"]);
 const KNOWN_STORAGE_PROVIDERS = new Set(["minio", "s3", "r2", "tigris", "local"]);
@@ -74,6 +77,10 @@ export function recordOp(name: string): void {
   opCounts.set(name, (opCounts.get(name) ?? 0) + 1);
 }
 
+export function hasPendingOps(): boolean {
+  return opCounts.size > 0;
+}
+
 export function drainOpCounts(): Props {
   const counts: Props = {};
   let total = 0;
@@ -86,9 +93,17 @@ export function drainOpCounts(): Props {
   return counts;
 }
 
-/** Fire-and-forget. Never throws, never blocks. */
-export function track(installId: string, event: string, properties: Props = {}): void {
-  if (!isTelemetryEnabled()) return;
+/**
+ * Fire-and-forget. Never throws, never blocks. The returned promise settles
+ * when the request finishes or times out; callers may ignore it.
+ */
+export function track(
+  installId: string,
+  event: string,
+  properties: Props = {},
+  timeoutMs: number = TIMEOUT_MS,
+): Promise<void> {
+  if (!isTelemetryEnabled()) return Promise.resolve();
   try {
     const payload = {
       product: PRODUCT,
@@ -110,14 +125,18 @@ export function track(installId: string, event: string, properties: Props = {}):
         is_cloud: isCloud(),
       },
     };
-    fetch(TELEMETRY_ENDPOINT, {
+    return fetch(TELEMETRY_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    }).catch(() => {});
+      signal: AbortSignal.timeout(timeoutMs),
+    }).then(
+      () => {},
+      () => {},
+    );
   } catch {
     // Never throw
+    return Promise.resolve();
   }
 }
 
@@ -149,15 +168,19 @@ export function collectServerStats(sqlite: Database): Props {
 
 /**
  * Send `server.started` now and `server.heartbeat` every 24h.
- * Returns a stop function. A no-op when telemetry is disabled at boot.
+ * Returns a stop function. Stopping flushes ops counted since the last
+ * heartbeat as a final `server.heartbeat` with `shutdown: true`; the returned
+ * promise settles within SHUTDOWN_FLUSH_TIMEOUT_MS. A no-op when telemetry
+ * is disabled at boot.
  */
-export function startServerTelemetry(sqlite: Database): () => void {
-  if (!isTelemetryEnabled()) return () => {};
+export function startServerTelemetry(sqlite: Database): () => Promise<void> {
+  const noop = () => Promise.resolve();
+  if (!isTelemetryEnabled()) return noop;
   let installId: string;
   try {
     installId = getOrCreateInstallId();
   } catch {
-    return () => {};
+    return noop;
   }
 
   const safeStats = (): Props => {
@@ -173,5 +196,21 @@ export function startServerTelemetry(sqlite: Database): () => void {
     track(installId, "server.heartbeat", { ...safeStats(), ...drainOpCounts() });
   }, HEARTBEAT_INTERVAL_MS);
   timer.unref();
-  return () => clearInterval(timer);
+
+  let stopped = false;
+  return () => {
+    if (stopped) return Promise.resolve();
+    stopped = true;
+    clearInterval(timer);
+    if (!hasPendingOps()) return Promise.resolve();
+    const flush = track(
+      installId,
+      "server.heartbeat",
+      { ...safeStats(), ...drainOpCounts(), shutdown: true },
+      SHUTDOWN_FLUSH_TIMEOUT_MS,
+    );
+    // Hard cap in case fetch ignores the abort signal.
+    const cap = new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_FLUSH_TIMEOUT_MS).unref());
+    return Promise.race([flush, cap]);
+  };
 }

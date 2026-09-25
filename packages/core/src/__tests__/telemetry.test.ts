@@ -8,6 +8,7 @@ import {
   drainOpCounts,
   track,
   startServerTelemetry,
+  SHUTDOWN_FLUSH_TIMEOUT_MS,
 } from "../telemetry.js";
 import { getConfig, getConfigPath } from "../config.js";
 import { createTestConfigDir, createTestDb } from "../test-utils.js";
@@ -156,5 +157,46 @@ describe("startServerTelemetry", () => {
     startServerTelemetry(sqliteOf())();
     expect(calls).toHaveLength(0);
     expect(getConfig().telemetry?.installId).toBeUndefined();
+  });
+
+  test("stop flushes pending ops as a final shutdown heartbeat", async () => {
+    const stop = startServerTelemetry(sqliteOf());
+    recordOp("write");
+    recordOp("write");
+    await stop();
+
+    expect(calls.map((c) => c.body.event)).toEqual(["server.started", "server.heartbeat"]);
+    const props = calls[1].body.properties;
+    expect(props.shutdown).toBe(true);
+    expect(props.ops_write).toBe(2);
+    expect(props.ops_total).toBe(2);
+    expect(drainOpCounts()).toEqual({ ops_total: 0 });
+
+    await stop();
+    expect(calls).toHaveLength(2);
+  });
+
+  test("stop sends nothing extra when no ops were counted", async () => {
+    const stop = startServerTelemetry(sqliteOf());
+    await stop();
+    expect(calls.map((c) => c.body.event)).toEqual(["server.started"]);
+  });
+
+  test("stop is bounded when the endpoint hangs", async () => {
+    globalThis.fetch = (() => new Promise(() => {})) as unknown as typeof fetch;
+    const stop = startServerTelemetry(sqliteOf());
+    recordOp("read");
+    const t0 = Date.now();
+    await stop();
+    expect(Date.now() - t0).toBeLessThan(SHUTDOWN_FLUSH_TIMEOUT_MS + 500);
+  });
+
+  test("disabled: stop flushes nothing", async () => {
+    process.env.ANONYMIZED_TELEMETRY = "false";
+    const stop = startServerTelemetry(sqliteOf());
+    recordOp("write");
+    await stop();
+    expect(calls).toHaveLength(0);
+    drainOpCounts();
   });
 });
