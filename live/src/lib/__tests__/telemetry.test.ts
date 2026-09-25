@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { trackSessionStart, type TelemetryDeps } from "../telemetry"
+import { routeTemplate, trackSessionStart, type TelemetryDeps } from "../telemetry"
 
 function memoryStorage() {
   const map = new Map<string, string>()
@@ -12,6 +12,8 @@ function deps(overrides: Partial<TelemetryDeps> = {}) {
     enabled: true,
     doNotTrack: null,
     hostname: "live.agent-fs.dev",
+    pathname: "/file/~/org_123/drive_456/secret/report.pdf",
+    version: "0.13.9",
     local: memoryStorage(),
     session: memoryStorage(),
     fetch: (async (_url: string, init: RequestInit) => {
@@ -33,7 +35,15 @@ describe("live telemetry", () => {
     expect(bodies[0].event).toBe("live.session_started")
     expect(bodies[0].actor_mode).toBe("anonymous")
     expect(bodies[0].actor_anonymous_id).toMatch(/^browser_[0-9a-f]{16}$/)
-    expect(bodies[0].properties).toEqual({ is_cloud: true })
+    expect(bodies[0].properties).toEqual({
+      is_cloud: true,
+      version: "0.13.9",
+      entry_route: "/file/~/:orgId/:driveId/*",
+    })
+    const raw = JSON.stringify(bodies[0])
+    expect(raw).not.toContain("org_123")
+    expect(raw).not.toContain("drive_456")
+    expect(raw).not.toContain("report.pdf")
   })
 
   test("reuses the browser ID across sessions", () => {
@@ -58,5 +68,16 @@ describe("live telemetry", () => {
     trackSessionStart(dnt.d)
     expect(off.bodies).toHaveLength(0)
     expect(dnt.bodies).toHaveLength(0)
+  })
+
+  test("maps concrete paths to route templates only", () => {
+    expect(routeTemplate("/")).toBe("/")
+    expect(routeTemplate("/files")).toBe("/files")
+    expect(routeTemplate("/credentials")).toBe("/credentials")
+    expect(routeTemplate("/orgs/o1/files/a/b")).toBe("/orgs/:orgId/files/*")
+    expect(routeTemplate("/file/~/o1/d1/a/b.md")).toBe("/file/~/:orgId/:driveId/*")
+    expect(routeTemplate("/detail/~/o1/d1/x")).toBe("/detail/~/:orgId/:driveId/*")
+    expect(routeTemplate("/sql/~/o1/d1")).toBe("/sql/~/:orgId/:driveId")
+    expect(routeTemplate("/someone@example.com/private")).toBe("other")
   })
 })

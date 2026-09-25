@@ -1,3 +1,4 @@
+import { readFileSync } from "fs"
 import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
@@ -37,7 +38,15 @@ function plausibleAnalytics(): Plugin {
   }
 }
 
+/** agent-fs release version (root package.json), sent with live telemetry. */
+const APP_VERSION: string = JSON.parse(
+  readFileSync(path.resolve(__dirname, "../package.json"), "utf-8"),
+).version
+
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+  },
   plugins: [react(), tailwindcss(), plausibleAnalytics()],
   resolve: {
     alias: {

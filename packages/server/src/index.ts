@@ -74,7 +74,8 @@ if (ftsMigrationPending) {
   });
 }
 
-// Anonymized telemetry: `server.started` now, `server.heartbeat` every 24h.
+// Anonymized telemetry: `server.started` now, `server.heartbeat` every 24h
+// and once more on graceful shutdown.
 // Opt out with ANONYMIZED_TELEMETRY=false or DO_NOT_TRACK=1 (docs/telemetry.md).
 const stopTelemetry = startServerTelemetry(sqlite);
 
@@ -122,11 +123,15 @@ try {
 }
 
 // Graceful shutdown
-function shutdown() {
+// The final telemetry flush is bounded (~1.5s) so shutdown never hangs on it.
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log("Shutting down...");
-  stopTelemetry();
   server.stop();
   if (ipcServer) ipcServer.stop();
+  await stopTelemetry().catch(() => {});
   process.exit(0);
 }
 
