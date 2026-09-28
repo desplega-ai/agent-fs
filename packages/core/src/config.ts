@@ -128,7 +128,7 @@ const DEFAULT_CONFIG: AgentFSConfig = {
       origins: ["*"],
     },
     rateLimit: {
-      requestsPerMinute: 1200,
+      requestsPerMinute: 3000,
     },
   },
   auth: {
@@ -268,7 +268,7 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
 
   // Rate limit override
   if (env.AGENT_FS_RATE_LIMIT) {
-    if (!config.server.rateLimit) config.server.rateLimit = { requestsPerMinute: 1200 };
+    if (!config.server.rateLimit) config.server.rateLimit = { requestsPerMinute: 3000 };
     config.server.rateLimit.requestsPerMinute = parseInt(env.AGENT_FS_RATE_LIMIT, 10);
   }
 

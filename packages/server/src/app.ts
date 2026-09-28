@@ -46,8 +46,8 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   });
   app.use("*", authMiddleware(db));
 
-  // Rate limiting (default 1200 rpm per API key, override via AGENT_FS_RATE_LIMIT) — skip /health
-  const rpm = config.server?.rateLimit?.requestsPerMinute ?? 1200;
+  // Rate limiting (default 3000 rpm per API key, override via AGENT_FS_RATE_LIMIT) — skip /health
+  const rpm = config.server?.rateLimit?.requestsPerMinute ?? 3000;
   if (rpm > 0) {
     app.use("/orgs/*", rateLimitMiddleware(rpm));
     app.use("/auth/*", rateLimitMiddleware(rpm));

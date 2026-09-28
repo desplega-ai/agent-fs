@@ -164,7 +164,7 @@ HTTP client (CLI / MCP / future FUSE daemon)
 [ packages/server/src/app.ts ]
    |  bodyLimit 50MB                     (app.ts:30)
    |  authMiddleware                     (middleware/auth.ts:8) -> c.set("user", {id,email}) from apiKeyHash
-   |  rateLimitMiddleware (1200 rpm)     (app.ts:35)
+   |  rateLimitMiddleware (3000 rpm)     (app.ts:35)
    v
 [ packages/server/src/routes/ops.ts:9 ]
    |  body = await c.req.json()          (full buffer in memory)
