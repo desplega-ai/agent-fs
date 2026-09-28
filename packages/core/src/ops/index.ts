@@ -24,6 +24,7 @@ import { tree } from "./tree.js";
 import { glob } from "./glob.js";
 import { sql } from "./sql.js";
 import { signedUrl } from "./signed-url.js";
+import { shareCreate, shareRevoke } from "./share.js";
 import { buildAppUrl } from "./urls.js";
 import { recordOp } from "../telemetry.js";
 import {
@@ -251,6 +252,24 @@ const opRegistry: Record<string, OpDefinition> = {
       disposition: z.enum(["inline", "attachment"]).optional(),
     }),
   },
+  "share-create": {
+    description: "Create a public share link for a file: an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video) and a Download button. Default expiry is 24 hours (max 7 days); set maxViews to limit how often the page can be opened (maxViews=1 is a one-off link). Anyone with the link can open it, so share deliberately. Returns { id, url, sharePath, path, expiresIn, expiresAt, maxViews }. The link is shown only once; keep the id to revoke it.",
+    handler: shareCreate,
+    schema: z.object({
+      path: z.string(),
+      expiresIn: z.number().int().min(60).max(604800).optional(),
+      maxViews: z.number().int().min(1).max(1000000).optional(),
+    }),
+  },
+  "share-revoke": {
+    description: "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share URL), or path (revokes every link to that file). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
+    handler: shareRevoke,
+    schema: z.object({
+      id: z.string().optional(),
+      token: z.string().optional(),
+      path: z.string().optional(),
+    }),
+  },
   "comment-add": {
     description: "Add a comment to a file. Supports line ranges and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
     handler: commentAdd,
@@ -370,5 +389,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead };
+export { write, writeRaw, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead };
 export type * from "./types.js";

@@ -293,6 +293,22 @@ function formatSignedUrl(result: any): string {
   return out;
 }
 
+function formatShareCreate(result: any): string {
+  const views = result.maxViews === null || result.maxViews === undefined
+    ? "unlimited"
+    : result.maxViews === 1 ? "one-off (1 view)" : `up to ${result.maxViews}`;
+  let out = `${result.url}\n\nExpires: ${formatDate(result.expiresAt)} (${result.expiresIn}s)\nViews:   ${views}`;
+  out += `\nID:      ${result.id}  (revoke: agent-fs share-revoke ${result.id})`;
+  if (result.appUrl) out += `\nApp:     ${result.appUrl}`;
+  return out;
+}
+
+function formatShareRevoke(result: any): string {
+  return result.revoked === 0
+    ? "No active share links to revoke (already revoked)."
+    : `Revoked ${result.revoked} share link${result.revoked === 1 ? "" : "s"}.`;
+}
+
 // --- Formatter registry ---
 
 const formatters: Record<string, (result: any) => string> = {
@@ -319,6 +335,8 @@ const formatters: Record<string, (result: any) => string> = {
   reindex: formatReindex,
   sql: formatSql,
   "signed-url": formatSignedUrl,
+  "share-create": formatShareCreate,
+  "share-revoke": formatShareRevoke,
 };
 
 function formatResult(opName: string, result: any): string {

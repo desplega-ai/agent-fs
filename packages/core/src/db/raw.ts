@@ -114,6 +114,28 @@ CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
 CREATE INDEX IF NOT EXISTS idx_events_notification_inbox
   ON events(org_id, type, target, status, created_at DESC);
 
+-- Public share links (/share/:token). Only the SHA-256 of the token is
+-- stored, so a database read cannot be turned back into a working link. There
+-- are deliberately no foreign keys: a share must never block deleting a user,
+-- drive or org, and a dangling share just resolves to "file unavailable".
+CREATE TABLE IF NOT EXISTS shares (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  drive_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  max_views INTEGER,
+  views INTEGER NOT NULL DEFAULT 0,
+  last_viewed_at INTEGER,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  revoked_at INTEGER
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS shares_token_hash_uq ON shares(token_hash);
+CREATE INDEX IF NOT EXISTS idx_shares_drive_path ON shares(drive_id, path);
+
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT NOT NULL,

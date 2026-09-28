@@ -28,6 +28,8 @@ const OP_ROLES: Record<string, Role> = {
   glob: "viewer",
   sql: "viewer",
   "signed-url": "viewer",
+  "share-create": "viewer",
+  "share-revoke": "viewer",
   write: "editor",
   edit: "editor",
   append: "editor",

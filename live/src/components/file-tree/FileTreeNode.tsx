@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Download,
   Link as LinkIcon,
+  Share2,
   FolderOpen as OpenIcon,
   FilePlus,
   FolderPlus,
@@ -34,6 +35,8 @@ import { MiddleEllipsis } from "@/lib/middle-ellipsis"
 import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"
 import { glyphFor } from "@/lib/file-glyphs"
 import { downloadFile } from "@/lib/download"
+import { copyShareLink, supportsShareLinks } from "@/lib/share-link"
+import { healthQueryOptions } from "@/lib/upload-limit"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import {
   ContextMenu,
@@ -64,6 +67,7 @@ interface FileTreeNodeProps {
 export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: FileTreeNodeProps) {
   const { client, orgId, driveId } = useAuth()
   const { selectedFile, selectFile } = useBrowser()
+  const { data: health } = useQuery(healthQueryOptions(client))
   const fullPath = path ? `${path}/${entry.name}` : entry.name
   const isDir = entry.type === "directory"
   const selectedPath = selectedFile?.replace(/^\/+|\/+$/g, "") ?? null
@@ -153,6 +157,11 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
   const handleDownload = () => {
     if (!canDownload) return
     void downloadFile(client, orgId!, driveId!, fullPath, entry.name)
+  }
+
+  const canShareLink = !isDir && !!orgId && !!driveId && supportsShareLinks(health)
+  const handleCopyShareLink = () => {
+    if (canShareLink) void copyShareLink(client, orgId!, driveId!, fullPath)
   }
 
   const glyph = !isDir ? glyphFor(fullPath) : null
@@ -248,6 +257,12 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
             <LinkIcon className="h-4 w-4" />
             Copy link
           </ContextMenuItem>
+          {canShareLink && (
+            <ContextMenuItem onClick={handleCopyShareLink}>
+              <Share2 className="h-4 w-4" />
+              Copy share link
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onClick={handleDownload} disabled={!canDownload}>
             <Download className="h-4 w-4" />
             Download
