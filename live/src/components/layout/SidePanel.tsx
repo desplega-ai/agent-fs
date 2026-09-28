@@ -18,7 +18,7 @@ interface SidePanelProps {
   path: string
   outline: OutlineItem[]
   showCommentsHeader?: boolean
-  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
+  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string, commentId?: string) => void
   /** Renders a collapse button in the header. */
   onCollapse?: () => void
 }

@@ -7,6 +7,7 @@ import type {
   CommentUpdateResult,
   CommentDeleteResult,
   CommentResolveResult,
+  CommentQuote,
 } from "@/api/types"
 
 export function useComments(path: string | null) {
@@ -59,6 +60,7 @@ export function useAddComment() {
       lineStart?: number
       lineEnd?: number
       quotedContent?: string
+      quote?: CommentQuote
     }) => client.callOp<CommentAddResult>(orgId!, "comment-add", params, driveId),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["comments", orgId, driveId, vars.path] })

@@ -197,7 +197,7 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `comment add` | `agent-fs comment add <path> --body <text> [--line-start <n>] [--line-end <n>]` | Add a comment to a file |
+| `comment add` | `agent-fs comment add <path> --body <text> [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits; prefix/suffix pick the right occurrence when the text repeats |
 | `comment reply` | `agent-fs comment reply <comment-id> --body <text>` | Reply to a comment |
 | `comment list` | `agent-fs comment list [path]` | List comments (with inline replies) |
 | `comment get` | `agent-fs comment get <id>` | Get a comment with its replies |
@@ -340,6 +340,9 @@ agent-fs revert docs/spec.md --version 2
 ```bash
 # Add a comment to a file
 agent-fs comment add docs/spec.md --body "Needs more detail on auth"
+
+# Anchor a comment to exact text (survives edits above it; the MCP/API param is quote: { exact, prefix, suffix })
+agent-fs comment add docs/spec.md --body "Which provider?" --quote "OAuth login" --quote-suffix " flow"
 
 # Reply to a comment
 agent-fs comment reply <comment-id> --body "Added in v3"

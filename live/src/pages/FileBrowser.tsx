@@ -7,7 +7,7 @@ import { UploadPanel } from "@/components/file-mutations/UploadPanel"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import type { OutlineItem } from "@/lib/outline"
 
-export type ScrollToCommentCallback = (opts: { lineStart?: number; quotedContent?: string }) => void
+export type ScrollToCommentCallback = (opts: { lineStart?: number; quotedContent?: string; commentId?: string }) => void
 
 export function FileBrowserPage() {
   const { selectedFile } = useBrowser()
@@ -26,8 +26,8 @@ export function FileBrowserPage() {
     return name || "Files"
   }, [selectedFile]))
 
-  const handleCommentClick = useCallback((lineStart?: number, _lineEnd?: number, quotedContent?: string) => {
-    scrollToCommentRef.current?.({ lineStart, quotedContent })
+  const handleCommentClick = useCallback((lineStart?: number, _lineEnd?: number, quotedContent?: string, commentId?: string) => {
+    scrollToCommentRef.current?.({ lineStart, quotedContent, commentId })
   }, [])
 
   // A trailing slash on the URL splat indicates folder mode. When the splat is

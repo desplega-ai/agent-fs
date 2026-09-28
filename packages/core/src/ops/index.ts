@@ -140,7 +140,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   diff: {
-    description: "Show the diff between two versions of a file. Specify v1 and v2 version numbers. Returns { changes } as add/remove/context hunks.",
+    description: "Show the diff between two versions of a file. Specify v1 and v2 version numbers. Returns { changes } as add/remove/context hunks; when file content was diffed each change carries oldLine/newLine.",
     handler: diff,
     schema: z.object({
       path: z.string(),
@@ -252,7 +252,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-add": {
-    description: "Add a comment to a file. Supports line ranges and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
+    description: "Add a comment to a file. Supports line ranges, a text-quote anchor ({ exact, prefix, suffix }), and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
     handler: commentAdd,
     schema: z.object({
       path: z.string().optional(),
@@ -261,6 +261,14 @@ const opRegistry: Record<string, OpDefinition> = {
       lineStart: z.number().int().optional(),
       lineEnd: z.number().int().optional(),
       quotedContent: z.string().optional(),
+      quote: z
+        .object({
+          exact: z.string(),
+          prefix: z.string().optional(),
+          suffix: z.string().optional(),
+        })
+        .optional()
+        .describe("Text-quote anchor: the exact selected text plus ~32 chars of context before (prefix) and after (suffix). Lets viewers re-find the selection after the file is edited."),
     }),
   },
   "comment-list": {

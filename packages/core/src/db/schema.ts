@@ -142,6 +142,12 @@ export const comments = sqliteTable("comments", {
   lineStart: integer("line_start"),
   lineEnd: integer("line_end"),
   quotedContent: text("quoted_content"),
+  // Text-quote anchor (exact selection + surrounding context). Nullable:
+  // comments created before these columns, or by clients that don't send a
+  // quote, fall back to lineStart/lineEnd + quotedContent.
+  quoteExact: text("quote_exact"),
+  quotePrefix: text("quote_prefix"),
+  quoteSuffix: text("quote_suffix"),
   fileVersionId: integer("file_version_id"),
   body: text("body").notNull(),
   author: text("author")

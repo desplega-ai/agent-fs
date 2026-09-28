@@ -1385,6 +1385,17 @@ async function runStandardTests(daemonUrl: string) {
     assert(resolve.resolved, true, "Expected comment to be resolved");
   });
 
+  await test("comment add --quote stores a text-quote anchor", () => {
+    const add = JSON.parse(run('comment add /hello.txt --body "Anchored" --quote "hello" --quote-suffix " world"'));
+    assert(add.quote?.exact, "hello");
+    assert(add.quote?.suffix, " world");
+
+    const list = JSON.parse(run("comment list /hello.txt"));
+    const found = list.comments.find((c: any) => c.id === add.id);
+    assert(found?.quote?.exact, "hello", "Expected the quote anchor in comment list");
+    assert(typeof found?.fileVersion, "number", "Expected the anchor version number in comment list");
+  });
+
   // -- recent --
 
   await test("recent", () => {

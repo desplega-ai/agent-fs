@@ -25,7 +25,7 @@ interface MainWithCommentsProps {
   /** Path of the currently selected file. When null, the comments rail is hidden. */
   filePath: string | null
   /** Optional callback fired when a comment is clicked (line/quote). */
-  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
+  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string, commentId?: string) => void
   /** Whether the comment sidebar should render its own header. */
   showCommentsHeader?: boolean
   /**
@@ -218,7 +218,7 @@ function MobileCommentToggle({
   open: boolean
   onToggle: () => void
   onOpenChange: (open: boolean) => void
-  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
+  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string, commentId?: string) => void
 }) {
   const { data: commentsData } = useComments(path)
   const commentCount = commentsData?.comments.length ?? 0

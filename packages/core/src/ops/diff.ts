@@ -67,12 +67,20 @@ export async function diff(
 
       const changes: DiffChange[] = [];
       for (const hunk of patch.hunks) {
+        let oldLine = hunk.oldStart;
+        let newLine = hunk.newStart;
         for (const line of hunk.lines) {
-          const type =
-            line.startsWith("+") ? "add" :
-            line.startsWith("-") ? "remove" :
-            "context";
-          changes.push({ type, content: line.slice(1) });
+          if (line.startsWith("\\")) {
+            // "\ No newline at end of file" marker: not a content line, so no
+            // line numbers (kept in `changes` as before).
+            changes.push({ type: "context", content: line.slice(1) });
+          } else if (line.startsWith("+")) {
+            changes.push({ type: "add", content: line.slice(1), newLine: newLine++ });
+          } else if (line.startsWith("-")) {
+            changes.push({ type: "remove", content: line.slice(1), oldLine: oldLine++ });
+          } else {
+            changes.push({ type: "context", content: line.slice(1), oldLine: oldLine++, newLine: newLine++ });
+          }
         }
       }
 
