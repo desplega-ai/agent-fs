@@ -15,6 +15,7 @@ import { useSemanticSearch } from "@/hooks/use-semantic-search"
 import { useHybridSearch } from "@/hooks/use-hybrid-search"
 import { glyphFor } from "@/lib/file-glyphs"
 import { cn } from "@/lib/utils"
+import { describeRequestError } from "@/lib/request-errors"
 import type { SearchType } from "./SearchModeToggle"
 
 interface ResultItem {
@@ -368,7 +369,7 @@ function SearchHint({ hint }: { hint: string }) {
 }
 
 function SearchError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
-  const message = error instanceof Error ? error.message : "The search request failed."
+  const message = describeRequestError(error, "The search request failed.")
 
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-4 py-12 text-center">
