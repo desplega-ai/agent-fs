@@ -1,3 +1,5 @@
+import { useState } from "react"
+import { ProfileDialog } from "./ProfileDialog"
 import { useNavigate } from "react-router"
 import { ChevronDown, Plus, Check, User } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
@@ -14,15 +16,17 @@ import { toast } from "@/stores/toast"
 
 export function AccountSwitcher() {
   const { credential, switchAccount, user } = useAuth()
+  const [editingProfile, setEditingProfile] = useState(false)
   const navigate = useNavigate()
   const allCredentials = getCredentials()
 
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger>
         <Button variant="ghost" size="xs" className="gap-1 text-foreground max-w-[10rem]">
           <User className="size-3.5 text-muted-foreground" />
-          <span className="font-medium truncate">{credential.name}</span>
+          <span className="font-medium truncate">{user?.displayName || credential.name}</span>
           <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
@@ -34,6 +38,7 @@ export function AccountSwitcher() {
             <DropdownMenuSeparator />
           </>
         )}
+        <DropdownMenuItem onClick={() => setEditingProfile(true)}>Edit profile</DropdownMenuItem>
         {allCredentials.map((cred) => (
           <DropdownMenuItem
             key={cred.id}
@@ -58,5 +63,7 @@ export function AccountSwitcher() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    {editingProfile && <ProfileDialog key={credential.id} onClose={() => setEditingProfile(false)} />}
+    </>
   )
 }

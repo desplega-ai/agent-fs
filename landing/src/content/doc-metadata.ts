@@ -36,6 +36,13 @@ export const DOC_METADATA: DocMetadata[] = [
     sourcePath: "docs/sql.md",
   },
   {
+    slug: "telemetry",
+    title: "Telemetry",
+    summary: "What anonymous usage data agent-fs sends, and how to turn it off.",
+    section: "Reference",
+    sourcePath: "docs/telemetry.md",
+  },
+  {
     slug: "fuse-mount",
     title: "FUSE Mount",
     summary: "Mount an agent-fs drive as a Linux filesystem with open-to-close consistency.",

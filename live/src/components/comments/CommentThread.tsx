@@ -31,8 +31,8 @@ function avatarColor(id: string): string {
   return `oklch(0.65 0.15 ${hue})`
 }
 
-function Avatar({ userId }: { userId: string }) {
-  const { display } = useDisplayName(userId)
+function Avatar({ userId, displayName }: { userId: string; displayName?: string }) {
+  const { display } = useDisplayName(userId, displayName)
   const initial = display.charAt(0).toUpperCase()
   return (
     <div
@@ -81,8 +81,8 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
         {/* Header */}
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-1.5 min-w-0">
-            <Avatar userId={comment.author} />
-            <UserName userId={comment.author} />
+            <Avatar userId={comment.author} displayName={comment.authorDisplayName} />
+            <UserName userId={comment.author} displayName={comment.authorDisplayName} />
             <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(comment.createdAt)}</span>
             {isGeneralComment && (
               <span className="text-[10px] text-muted-foreground/60 shrink-0">general</span>
@@ -239,8 +239,8 @@ function ReplyItem({ reply, path, currentUserId }: { reply: CommentEntry; path: 
     <div className="border-b border-border last:border-b-0 px-3 py-2">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 min-w-0">
-          <Avatar userId={reply.author} />
-          <UserName userId={reply.author} />
+          <Avatar userId={reply.author} displayName={reply.authorDisplayName} />
+          <UserName userId={reply.author} displayName={reply.authorDisplayName} />
           <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(reply.createdAt)}</span>
         </div>
         {isOwn && (

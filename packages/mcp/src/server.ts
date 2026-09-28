@@ -3,6 +3,9 @@ import { z } from "zod";
 import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type { ServerRequest, ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import {
+  getProfile,
+  updateProfile,
+  profileUpdateSchema,
   resolveContext,
   dispatchOp,
   listUserOrgs,
@@ -155,6 +158,19 @@ export function registerIdentityTools(
     return {
       content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
     };
+  });
+
+  server.tool("profile-get", "Get your own profile.", {}, async (_params, extra) => {
+    const result = getProfile(db, getContext(extra).userId);
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+  });
+  server.tool("profile-set", "Update your own display name (null clears it).", profileUpdateSchema.shape, async (params, extra) => {
+    try {
+      const result = updateProfile(db, getContext(extra).userId, params);
+      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    } catch (err) {
+      return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ error: (err as Error).message }) }] };
+    }
   });
 
   // --- Member management tools ---

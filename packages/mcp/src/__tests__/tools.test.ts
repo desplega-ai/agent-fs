@@ -198,7 +198,7 @@ describe("member tool RBAC", () => {
   test("registers whoami and all member tools", () => {
     const h = createIdentityHarness();
     expect([...h.handlers.keys()].sort()).toEqual(
-      ["member-invite", "member-list", "member-remove", "member-update-role", "whoami"].sort()
+      ["member-invite", "member-list", "member-remove", "member-update-role", "whoami", "profile-get", "profile-set"].sort()
     );
   });
 
@@ -437,5 +437,16 @@ describe("Schema conversion", () => {
         expect(typeof shape).toBe("object");
       }
     }
+  });
+});
+
+describe("profile tools", () => {
+  test("get/set stay scoped to the authenticated user", async () => {
+    const { call, editor, admin } = createIdentityHarness();
+    const updated = await call("profile-set", { displayName: "Editor" }, editor);
+    expect(updated.body.displayName).toBe("Editor");
+    expect((await call("profile-get", {}, editor)).body.displayName).toBe("Editor");
+    expect((await call("profile-get", {}, admin)).body.displayName).toBeNull();
+    expect((await call("profile-set", { displayName: "Hijack", userId: admin.id }, editor)).result.isError).toBe(true);
   });
 });

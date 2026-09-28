@@ -56,7 +56,14 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "reindex", args: [], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
   { name: "tree", args: [{ name: "path", required: false }], options: [{ flag: "--depth <n>", description: "Max recursion depth" }] },
   { name: "glob", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
-  { name: "signed-url", args: [{ name: "path", required: true }], options: [{ flag: "--expires-in <seconds>", description: "Expiry in seconds (default: 86400 = 24h)" }] },
+  {
+    name: "signed-url",
+    args: [{ name: "path", required: true }],
+    options: [
+      { flag: "--expires-in <seconds>", description: "Expiry in seconds (default: 86400 = 24h)" },
+      { flag: "--inline", description: "Ask the browser to render the file instead of downloading it (Content-Disposition: inline)" },
+    ],
+  },
 ];
 
 export function registerOpCommands(
@@ -151,6 +158,11 @@ export function registerOpCommands(
       if (params["expires-in"] !== undefined) {
         params.expiresIn = params["expires-in"];
         delete params["expires-in"];
+      }
+      // `--inline` is a boolean flag; the op takes an explicit disposition.
+      if (params.inline !== undefined) {
+        if (params.inline) params.disposition = "inline";
+        delete params.inline;
       }
 
       for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth", "expiresIn"]) {

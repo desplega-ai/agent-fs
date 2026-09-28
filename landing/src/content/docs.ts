@@ -9,6 +9,7 @@ import mountingE2b from "../../../docs/mounting/e2b.md?raw"
 import mountingHetzner from "../../../docs/mounting/hetzner.md?raw"
 import mountingSprite from "../../../docs/mounting/sprite.md?raw"
 import sqlQueries from "../../../docs/sql.md?raw"
+import telemetry from "../../../docs/telemetry.md?raw"
 import { DOC_METADATA, DOC_SECTIONS, getDocMetadataBySlug, type DocMetadata } from "./doc-metadata"
 
 export type DocEntry = DocMetadata & {
@@ -20,6 +21,7 @@ const MARKDOWN_BY_SLUG: Record<string, string> = {
   "mcp-setup": mcpSetup,
   deployment,
   sql: sqlQueries,
+  telemetry,
   "fuse-mount": fuseMount,
   "fuse-compat": fuseCompat,
   "fuse-troubleshooting": fuseTroubleshooting,

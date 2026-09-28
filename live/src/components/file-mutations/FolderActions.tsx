@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { FilePlus, FolderPlus, FolderUp, Plus, Upload } from "lucide-react"
+import { useHealth } from "@/hooks/use-health"
+import { uploadLimitBytes } from "@/lib/upload-limit"
 import { useAuth } from "@/contexts/auth"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -11,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { MAX_UPLOAD_BYTES, toUploadInputs, uploadStore } from "@/stores/upload"
+import { toUploadInputs, uploadStore } from "@/stores/upload"
 import { NewEntryDialog, type NewEntryKind } from "./NewEntryDialog"
 
 interface FolderActionsProps {
@@ -21,8 +23,6 @@ interface FolderActionsProps {
   className?: string
 }
 
-const UPLOAD_LIMIT_LABEL = `${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
-
 /**
  * Two icon dropdowns, "New" (file or folder) and "Upload" (files or folder),
  * bound to one target folder. Used in the folder view header and the sidebar
@@ -30,6 +30,8 @@ const UPLOAD_LIMIT_LABEL = `${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
  */
 export function FolderActions({ folder, size = "icon-sm", className }: FolderActionsProps) {
   const { client, orgId, driveId } = useAuth()
+  const { data: health } = useHealth()
+  const uploadLimitLabel = `${uploadLimitBytes(health) / 1024 / 1024} MB`
   const queryClient = useQueryClient()
   const [dialog, setDialog] = useState<NewEntryKind | null>(null)
   const filesInputRef = useRef<HTMLInputElement>(null)
@@ -44,7 +46,7 @@ export function FolderActions({ folder, size = "icon-sm", className }: FolderAct
 
   const enqueue = (files: FileList | null) => {
     if (!orgId || !driveId || !files || files.length === 0) return
-    uploadStore.enqueue({ client, orgId, driveId, queryClient }, folder, toUploadInputs(Array.from(files)))
+    void uploadStore.enqueue({ client, orgId, driveId, queryClient }, folder, toUploadInputs(Array.from(files)))
   }
 
   return (
@@ -126,7 +128,7 @@ export function FolderActions({ folder, size = "icon-sm", className }: FolderAct
           >
             <Upload />
           </TooltipTrigger>
-          <TooltipContent>Upload to {where} (up to {UPLOAD_LIMIT_LABEL} per file)</TooltipContent>
+          <TooltipContent>Upload to {where} (up to {uploadLimitLabel} per file)</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-auto min-w-40">
           <DropdownMenuItem onClick={() => filesInputRef.current?.click()}>

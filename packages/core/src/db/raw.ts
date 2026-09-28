@@ -5,6 +5,7 @@ export const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
+  display_name TEXT,
   api_key_hash TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );

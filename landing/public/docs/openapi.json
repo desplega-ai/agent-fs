@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.10.0",
+    "version": "0.13.7",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -38,11 +38,17 @@
                     },
                     "version": {
                       "type": "string"
+                    },
+                    "maxUploadBytes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "Maximum raw upload size in bytes"
                     }
                   },
                   "required": [
                     "ok",
-                    "version"
+                    "version",
+                    "maxUploadBytes"
                   ]
                 }
               }
@@ -150,6 +156,134 @@
         }
       }
     },
+    "/auth/reset-key": {
+      "post": {
+        "summary": "Reset your own API key",
+        "description": "Rotates the caller's API key. The old key stops working immediately. Records an api_key_reset audit event.",
+        "operationId": "resetApiKey",
+        "tags": [
+          "Auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "API key reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "apiKey": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "apiKey"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/members/{userId}/reset-key": {
+      "post": {
+        "summary": "Reset a member's API key (org admin only)",
+        "description": "Org admins can rotate a member's API key on their behalf, e.g. to recover a locked-out user. The old key stops working immediately. Records an api_key_reset audit event with the admin as actor.",
+        "operationId": "resetMemberApiKey",
+        "tags": [
+          "Auth"
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization ID"
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID of the member whose key to reset"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Member's API key reset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "apiKey": {
+                      "type": "string"
+                    },
+                    "userId": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "apiKey",
+                    "userId",
+                    "email"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller is not an org admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Org not found, or userId is not a member of the org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orgs/{orgId}/ops": {
       "post": {
         "summary": "Dispatch a file operation",
@@ -211,7 +345,7 @@
                   {
                     "type": "object",
                     "title": "cat",
-                    "description": "Read file content with optional pagination via offset/limit. Returns { content, totalLines, truncated }.",
+                    "description": "Read file content with optional pagination via offset/limit; defaults to the first 200 lines when limit is omitted. Returns { content, totalLines, truncated } — always check `truncated` before trusting a row/line count. For a complete, byte-exact read (e.g. before parsing as CSV/JSON), use `download` instead.",
                     "required": [
                       "op",
                       "path"
@@ -1033,6 +1167,70 @@
                       },
                       "resolved": {
                         "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "comment-notification-list",
+                    "description": "List comment notifications for the current user in the active drive. Returns { notifications, unreadCount }.",
+                    "required": [
+                      "op"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "comment-notification-list"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "unreadOnly": {
+                        "type": "boolean"
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                      },
+                      "offset": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "comment-notification-read",
+                    "description": "Mark selected comment notification IDs, or all comment notifications in the active drive, as read. Returns { markedRead }.",
+                    "required": [
+                      "op"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "comment-notification-read"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "ids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1,
+                        "maxItems": 100
+                      },
+                      "all": {
+                        "type": "boolean",
+                        "enum": [
+                          true
+                        ]
                       }
                     },
                     "additionalProperties": false

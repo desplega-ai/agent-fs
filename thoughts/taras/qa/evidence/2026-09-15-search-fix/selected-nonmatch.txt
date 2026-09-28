@@ -1,0 +1,91 @@
+- generic [ref=e1] clickable [onclick]
+  - complementary
+    - generic
+      - generic
+        - textbox "Search..." [ref=e25]: no-such-file
+          - StaticText "no-such-file"
+        - button "Clear search" [ref=e26]
+      - button "Collapse sidebar" [ref=e14]
+      - button "Files ↵" [ref=e15]
+        - StaticText "Files"
+        - StaticText "↵"
+      - button "Search ⌘ ↵" [ref=e16]
+        - StaticText "Search"
+        - StaticText "⌘"
+        - StaticText "↵"
+      - button "Exit search" [ref=e17]
+      - tablist "File navigation"
+        - tab "Tree" [selected, ref=e27]
+        - tab "Recent" [disabled, ref=e28]
+      - button "New in research" [expanded=false, ref=e18]
+      - button "Upload to research" [expanded=false, ref=e19]
+      - tabpanel "Tree"
+        - paragraph
+          - StaticText "0 matches across every folder in default."
+        - paragraph
+          - StaticText "The open file remains visible below."
+        - tree
+          - button "research" [ref=e32]
+            - generic [ref=e34] clickable [cursor:pointer, onclick]
+              - StaticText "research"
+          - button "2026-09-15-ai-tinkerers-demo-proposal.md Open, not a match" [ref=e33]
+            - generic [ref=e35] clickable [cursor:pointer, onclick]
+              - StaticText "2026-09-15-ai-tinkerers-demo-proposal.md"
+              - StaticText "Open, not a match"
+  - separator
+  - banner
+    - generic [ref=e3] clickable [onclick]
+      - StaticText "DEV"
+    - generic [ref=e4] clickable [onclick]
+      - StaticText "search-qa"
+      - StaticText "("
+      - StaticText "1"
+      - StaticText ")"
+    - generic [ref=e5] clickable [onclick]
+      - StaticText "default"
+      - StaticText "("
+      - StaticText "1"
+      - StaticText ")"
+    - button "Comment notifications" [expanded=false, ref=e6]
+    - button "v0.13.5" [ref=e7]
+      - StaticText "v"
+      - StaticText "0.13.5"
+    - button "Keyboard shortcuts" [ref=e8]
+    - button "Theme: System" [ref=e9]
+    - button "api-ea94" [expanded=false, ref=e10]
+      - button "api-ea94" [ref=e20]
+        - StaticText "api-ea94"
+  - navigation "Path" [ref=e2]
+    - button "Drive root" [ref=e11]
+      - StaticText "/"
+    - button "research" [ref=e12]
+    - generic [ref=e13] clickable [onclick]
+      - StaticText "2026-09-15-ai-tinkerers-demo-proposal.md"
+  - main
+    - StaticText "2026-09-15-ai-tinkerers-demo-proposal.md"
+    - button "Copy path" [ref=e21]
+    - button "Copy link" [ref=e22]
+    - button "Download" [ref=e23]
+    - button "Open full page" [ref=e24]
+    - paragraph
+      - StaticText "Content preview not available"
+    - paragraph
+      - StaticText "research/2026-09-15-ai-tinkerers-demo-proposal.md"
+    - paragraph
+      - StaticText "Size: 92 B"
+    - paragraph
+      - StaticText "Type: text/markdown"
+    - paragraph
+      - StaticText "Author: "
+      - button "unknown" [ref=e29]
+    - paragraph
+      - StaticText "Modified: 15/09/2026"
+    - separator
+    - complementary
+      - StaticText "Comments"
+      - button "Add comment" [ref=e30]
+      - button "Collapse comments" [ref=e31]
+      - paragraph
+        - StaticText "No comments yet"
+      - paragraph
+        - StaticText "Select text to add an inline comment, or use + for a general comment."

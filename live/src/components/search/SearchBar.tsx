@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import { Search, X, PanelLeftClose } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -11,11 +11,13 @@ import {
 import { SearchModeToggle, type SearchTab } from "./SearchModeToggle"
 import { SearchModal } from "./SearchModal"
 import { useGlobSearch } from "@/hooks/use-glob-search"
+import { useAuth } from "@/contexts/auth"
 import { useSearchInput } from "@/contexts/search-input"
 import { uiChromeStore } from "@/stores/ui-chrome"
 import {
   setSearchLoading,
   setSearchResults,
+  setSearchError,
   clearSearchFilter,
 } from "@/stores/file-search"
 
@@ -28,6 +30,7 @@ export function SearchBar() {
   const [modalQuery, setModalQuery] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
   const { register } = useSearchInput()
+  const { driveId } = useAuth()
 
   // Register the input ref so the global keyboard shortcut hook can focus it
   // via cmd+k / `/`. The cmd+k listener itself lives in the central registry.
@@ -45,22 +48,53 @@ export function SearchBar() {
   // Glob search drives the in-tree filter for the Files tab.
   const globResult = useGlobSearch(tab === "files" ? debouncedQuery : "")
 
-  // Files tab: populate the in-tree filter so the existing FileTree filters
-  // in place rather than showing a separate flat results pane. While the
-  // glob query is in-flight we mark the filter as `loading` (no filtering)
-  // so the user keeps seeing the tree instead of a flash of blank.
-  useEffect(() => {
-    if (tab !== "files" || !debouncedQuery) {
+  // Hide stale results as soon as the query or drive changes. The debounced
+  // request effect below replaces this state with its exact outcome.
+  useLayoutEffect(() => {
+    if (tab !== "files" || !query) {
       clearSearchFilter()
       return
     }
-    if (globResult.isFetching && !globResult.data) {
-      setSearchLoading(debouncedQuery)
+    setSearchLoading(query, driveId)
+  }, [tab, query, driveId])
+
+  // Files tab: populate the in-tree filter from the active drive-wide glob.
+  useEffect(() => {
+    if (
+      tab !== "files" ||
+      !debouncedQuery ||
+      debouncedQuery !== query ||
+      !driveId
+    ) {
       return
     }
-    const matches = (globResult.data?.matches ?? []).map((m) => m.path)
-    setSearchResults(debouncedQuery, matches)
-  }, [tab, debouncedQuery, globResult.data, globResult.isFetching])
+    if (globResult.isFetching) {
+      setSearchLoading(debouncedQuery, driveId)
+      return
+    }
+    if (globResult.isError) {
+      const message =
+        globResult.error instanceof Error
+          ? globResult.error.message
+          : "The file search request failed."
+      setSearchError(debouncedQuery, driveId, message)
+      return
+    }
+    if (globResult.isSuccess) {
+      const matches = globResult.data.matches.map((m) => m.path)
+      setSearchResults(debouncedQuery, driveId, matches)
+    }
+  }, [
+    tab,
+    query,
+    debouncedQuery,
+    driveId,
+    globResult.data,
+    globResult.error,
+    globResult.isError,
+    globResult.isFetching,
+    globResult.isSuccess,
+  ])
 
   // Always clear the filter on unmount so the tree returns to normal.
   useEffect(() => {

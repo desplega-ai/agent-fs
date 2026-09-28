@@ -42,6 +42,25 @@ agent-fs --help
 
 A last resort for when GitHub Actions itself is broken — see [Publishing from a laptop](./RELEASING.md#publishing-from-a-laptop) in RELEASING.md.
 
+## Live UI (Vercel)
+
+The `live/` app is deployed at `live.agent-fs.dev`. Plausible analytics is opt-in
+at build time. Only our hosted deployment sets the flag; self-hosted and local
+builds ship with no analytics script by default.
+
+| Environment variable | Default | Description |
+|----------------------|---------|-------------|
+| `VITE_PLAUSIBLE_ANALYTICS` | Off | Set to `1` or `true` (case-insensitive, whitespace trimmed) to inject the Plausible script and init snippet at build time. |
+| `VITE_PLAUSIBLE_SCRIPT_ID` | `4ExgxHDFIoeAnKsDUlJ1U` | Override the Plausible site script ID (the `pa-<id>.js` part). Whitespace is trimmed; empty values use the default. |
+
+To enable production analytics, set `VITE_PLAUSIBLE_ANALYTICS=1` in the Vercel
+project for `live` and rebuild/redeploy. Changing these variables requires a new
+build.
+
+Separately, production builds of `live` send one anonymous `live.session_started`
+telemetry event per browser session (see [docs/telemetry.md](./docs/telemetry.md)).
+Build with `VITE_ANONYMIZED_TELEMETRY=false` to remove it.
+
 ## Docker / GHCR
 
 Pre-built multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR on every release.
@@ -142,6 +161,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 
 | Env Var | Config Path | Default | Notes |
 |---------|------------|---------|-------|
+| `AGENT_FS_MAX_UPLOAD_BYTES` | — | `52428800` (50 MiB) | Raw upload and HTTP body limit in bytes; positive safe integer, invalid values use the default. Restart the daemon after changing. |
 | `AGENT_FS_HOME` | — | `~/.agent-fs` | Data directory (SQLite DB, logs, pid file) |
 | `AWS_ENDPOINT_URL_S3` / `S3_ENDPOINT` | `s3.endpoint` | `http://localhost:9000` | Tigris auto-injects `AWS_ENDPOINT_URL_S3` |
 | `AWS_ACCESS_KEY_ID` / `S3_ACCESS_KEY_ID` | `s3.accessKeyId` | — | Tigris auto-injects `AWS_ACCESS_KEY_ID` |
@@ -155,8 +175,26 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `EMBEDDING_PROVIDER` | `embedding.provider` | `local` | `local`, `openai`, or `gemini` |
 | `EMBEDDING_MODEL` | `embedding.model` | — | Model name for the chosen provider |
 | `EMBEDDING_API_KEY` | `embedding.apiKey` | — | API key for `openai` or `gemini` providers |
+| `ANONYMIZED_TELEMETRY` | _(env only)_ | `true` | Set to `false` to stop anonymous usage events. See [docs/telemetry.md](./docs/telemetry.md). |
+| `DO_NOT_TRACK` | _(env only)_ | _(unset)_ | Any value except empty, `0`, `false`, `no`, or `off` also stops telemetry. |
+| `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
 
 When both `AWS_*` and `S3_*` variants are set, the `AWS_*` variant takes precedence (Tigris injects `AWS_*` automatically).
+
+### Upload size
+
+Set `AGENT_FS_MAX_UPLOAD_BYTES=104857600` on the server to allow 100 MiB raw
+uploads, then restart the daemon. The HTTP server and embedded `writeRaw` use
+this env-only setting; `/health` reports `maxUploadBytes` and the web UI fetches
+it at runtime (50 MiB fallback for older/unreachable servers). No UI rebuild is
+needed. JSON/MCP `write` remains capped at 10 MiB for indexing costs.
+
+FUSE retains its separate **64 MiB encoded IPC frame** cap in both the daemon
+and Rust helper. Protocol overhead means the usable file size is below 64 MiB;
+raising the upload setting does not raise that cap. Use HTTP raw uploads for
+larger files. Uploads are buffered in memory, so provision memory for the chosen
+limit and concurrent uploads, and align any reverse-proxy request limits.
+
 
 ## LiteFS Upgrade Path
 

@@ -18,6 +18,10 @@ import { createServer } from "node:net";
 // CLI args
 // ---------------------------------------------------------------------------
 
+// Never send test traffic to the telemetry proxy. Every daemon this script
+// spawns inherits process.env; the Docker FUSE container sets it separately.
+process.env.ANONYMIZED_TELEMETRY = "false";
+
 const rawArgs = process.argv.slice(2);
 const positional = rawArgs.filter((a) => !a.startsWith("--"));
 const flags = new Set(rawArgs.filter((a) => a.startsWith("--")));
@@ -825,6 +829,7 @@ async function setupFuse(): Promise<boolean> {
     `S3_SECRET_ACCESS_KEY=minioadmin`,
     `S3_REGION=us-east-1`,
     `S3_PROVIDER=minio`,
+    `ANONYMIZED_TELEMETRY=false`,
   ].map((v) => `export ${v}`).join("; ");
 
   // Persist for all later `runFuseCmd` calls via a sourced profile fragment.
@@ -1251,6 +1256,43 @@ async function runStandardTests(daemonUrl: string) {
     assert(paths.includes("/hello.txt"), true, `Expected /hello.txt in glob, got ${JSON.stringify(paths)}`);
   });
 
+  if (localOnly) {
+    skipTest("glob and tree traverse S3 pages", "requires MinIO continuation tokens");
+  } else {
+    await test("glob and tree traverse S3 pages", async () => {
+      const { AgentS3Client } = await import("../packages/core/src/s3/client.js");
+      const storage = new AgentS3Client({
+        provider: "minio",
+        bucket: "agentfs",
+        region: "us-east-1",
+        endpoint: `http://localhost:${minioPort}`,
+        accessKeyId: "minioadmin",
+        secretAccessKey: "minioadmin",
+      });
+      // Seed storage directly to avoid indexing 1,000 padding files.
+      const prefix = `${personalOrgId}/drives/${personalDriveId}/00-search-padding/`;
+      for (let start = 0; start < 1000; start += 25) {
+        await Promise.all(Array.from({ length: 25 }, (_, offset) =>
+          storage.putObject(`${prefix}${String(start + offset).padStart(4, "0")}.txt`, "padding"),
+        ));
+      }
+      const target = "/zz-search/ai-tinkerers-page-two.md";
+      runJson(`write ${target} --content "AI Tinkerers pagination fixture"`);
+
+      const matches = runJson("glob '**/*ai-tinkerers*'").matches;
+      assert(matches.some((match: any) => match.path === target), true, "Root glob must find the file beyond page one");
+      const directory = runJson("tree /").tree.find((entry: any) => entry.name === "zz-search");
+      assert(directory?.children?.some((entry: any) => entry.name === "ai-tinkerers-page-two.md"), true,
+        "Recursive tree must include the file beyond page one");
+    });
+  }
+
+  await test("profile CLI get/set", () => {
+    const saved = runJson('profile set --name "E2E Agent"');
+    assert(saved.displayName, "E2E Agent");
+    assert(runJson("profile get").displayName, "E2E Agent");
+  });
+
   // -- reindex (must run before grep/fts to populate FTS index) --
 
   await test("reindex", () => {
@@ -1269,9 +1311,48 @@ async function runStandardTests(daemonUrl: string) {
   // -- fts --
 
   await test("fts", () => {
-    // Use a simple token — hyphens are FTS5 NOT operators
     const result = runJson("fts Hello");
     assert(result.matches.length > 0, true, "Expected fts matches");
+  });
+
+  await test("fts supports quoted hyphens and advanced expressions", () => {
+    runJson('write /search/ai-tinkerers.md --content "AI Tinkerers demo proposal"');
+    for (const pattern of ['"ai-tinkerers"', 'ai AND tinkerers']) {
+      const result = runJson(`fts '${pattern}'`);
+      assert(result.matches.some((match: any) => match.path === "/search/ai-tinkerers.md"), true,
+        `Expected the fixture for FTS pattern ${pattern}`);
+    }
+  });
+
+  await test("fts via MCP supports quoted hyphens and advanced expressions", async () => {
+    const init = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 1, method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26", capabilities: {},
+          clientInfo: { name: "e2e-search", version: "1.0.0" },
+        },
+      }),
+    });
+    assert(init.ok, true, "MCP search initialization failed");
+    for (const pattern of ['"ai-tinkerers"', 'ai AND tinkerers']) {
+      const response = await fetch(`${daemonUrl}/mcp`, {
+        method: "POST",
+        headers: mcpHeaders(apiKey),
+        body: JSON.stringify({
+          jsonrpc: "2.0", id: 2, method: "tools/call",
+          params: { name: "fts", arguments: { pattern } },
+        }),
+      });
+      assert(response.ok, true, "MCP FTS request failed");
+      const body = await response.json() as any;
+      assert(body.result?.isError === true, false, "MCP FTS returned an operation error");
+      const result = JSON.parse(body.result.content[0].text);
+      assert(result.matches.some((match: any) => match.path === "/search/ai-tinkerers.md"), true,
+        `Expected the fixture for MCP FTS pattern ${pattern}`);
+    }
   });
 
   // -- vec-search --
@@ -1411,6 +1492,26 @@ async function runStandardTests(daemonUrl: string) {
     else assert(typeof body.expiresAt, "string");
   });
 
+  // `disposition` is accepted on every backend; only a presigned URL can
+  // actually carry it (the local-FS app link has no response headers to set).
+  await test("signed-url via API accepts disposition=inline", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "signed-url", path: "/hello.txt", disposition: "inline" }),
+    });
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const body = await res.json() as any;
+    assert(typeof body.url, "string", "Expected url in response");
+    assert(body.kind, localOnly ? "app" : "presigned");
+    if (!localOnly) {
+      assertIncludes(body.url, "response-content-disposition=inline", "Expected inline disposition in presigned URL");
+    }
+  });
+
   await test("signed-url via API — 404 for missing file", async () => {
     const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
       method: "POST",
@@ -1493,6 +1594,8 @@ async function runStandardTests(daemonUrl: string) {
 
   if (localOnly) {
     skipTest("signed-url serves correct Content-Type for PDF", "requires a public MinIO presigned URL");
+    skipTest("signed-url defaults to an attachment disposition", "requires a public MinIO presigned URL");
+    skipTest("signed-url --inline serves an inline disposition", "requires a public MinIO presigned URL");
     skipTest("signed-url serves correct Content-Type for PNG", "requires a public MinIO presigned URL");
   } else {
     await test("signed-url serves correct Content-Type for PDF", async () => {
@@ -1500,6 +1603,31 @@ async function runStandardTests(daemonUrl: string) {
       // Use GET (not HEAD) — MinIO presigned URLs are method-specific
       const res = await fetch(result.url);
       assert(res.ok, true, `Expected 200, got ${res.status}`);
+      const ct = res.headers.get("content-type");
+      assert(ct, "application/pdf", `Expected application/pdf, got ${ct}`);
+    });
+
+    // The default keeps download links downloading: `<a download>` is
+    // ignored cross-origin, so the header is what makes the browser save.
+    await test("signed-url defaults to an attachment disposition", async () => {
+      const result = runJson("signed-url /mime-test.pdf");
+      const res = await fetch(result.url);
+      assert(res.ok, true, `Expected 200, got ${res.status}`);
+      const cd = res.headers.get("content-disposition") ?? "";
+      assert(cd.startsWith("attachment;"), true, `Expected attachment disposition, got ${cd}`);
+      assertIncludes(cd, "mime-test.pdf", "Expected the filename in Content-Disposition");
+    });
+
+    // The Live PDF viewer loads the signed URL in an <iframe>; an attachment
+    // disposition there makes the browser download instead of render.
+    await test("signed-url --inline serves an inline disposition", async () => {
+      const result = runJson("signed-url /mime-test.pdf --inline");
+      assert(result.kind, "presigned");
+      const res = await fetch(result.url);
+      assert(res.ok, true, `Expected 200, got ${res.status}`);
+      const cd = res.headers.get("content-disposition") ?? "";
+      assert(cd.startsWith("inline;"), true, `Expected inline disposition, got ${cd}`);
+      assertIncludes(cd, "mime-test.pdf", "Expected the filename in Content-Disposition");
       const ct = res.headers.get("content-type");
       assert(ct, "application/pdf", `Expected application/pdf, got ${ct}`);
     });

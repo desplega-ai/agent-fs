@@ -169,6 +169,14 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for Docker, BYOK storage, and manual setup 
 
 **[live.agent-fs.dev](https://live.agent-fs.dev)** — A stateless browser UI (local storage only) for inspecting any agent-fs deployment. Point it at your server URL to browse files and search content — nothing is stored server-side.
 
+Search covers the selected drive. Files matches filename patterns across all directories.
+Full-text treats input as literal terms, so `ai-tinkerers` needs no query-language quoting in the UI.
+Hybrid combines keywords and meaning. Semantic requires an embedding provider.
+The UI distinguishes request errors, provider hints, and successful searches with no matches.
+An open file outside the results carries a separate label.
+
+The CLI and MCP `fts` operation retain raw FTS5 syntax. Use `agent-fs fts '"ai-tinkerers"'` for a punctuation-bearing term.
+
 ## Contributing
 
 We welcome contributions! Whether it's bug reports, feature requests, docs improvements, or code — all are welcome.

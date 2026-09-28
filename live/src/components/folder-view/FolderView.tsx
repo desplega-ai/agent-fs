@@ -3,11 +3,13 @@ import { useNavigate } from "react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useDropzone } from "react-dropzone"
 import { FolderOpen, FilePlus, Upload } from "lucide-react"
+import { useHealth } from "@/hooks/use-health"
+import { uploadLimitBytes } from "@/lib/upload-limit"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
 import { Spinner } from "@/components/ui/spinner"
 import { FolderActions } from "@/components/file-mutations/FolderActions"
-import { MAX_UPLOAD_BYTES, toUploadInputs, uploadStore } from "@/stores/upload"
+import { toUploadInputs, uploadStore } from "@/stores/upload"
 import { cleanPath } from "@/lib/paths"
 import { ListView } from "./ListView"
 import { GridView } from "./GridView"
@@ -23,8 +25,6 @@ interface FolderViewProps {
   path: string
 }
 
-const UPLOAD_LIMIT_LABEL = `${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
-
 /**
  * Renders the contents of a folder when no file is selected. Toggleable
  * between list and grid views (persisted to `liveui:browser:view`).
@@ -37,6 +37,8 @@ const UPLOAD_LIMIT_LABEL = `${MAX_UPLOAD_BYTES / 1024 / 1024} MB`
  */
 export function FolderView({ path }: FolderViewProps) {
   const { client, orgId, driveId } = useAuth()
+  const { data: health } = useHealth()
+  const uploadLimitLabel = `${uploadLimitBytes(health) / 1024 / 1024} MB`
   const { selectFile, setSelectedFile } = useBrowser()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -79,7 +81,7 @@ export function FolderView({ path }: FolderViewProps) {
   const enqueueFiles = useCallback(
     (files: File[]) => {
       if (!orgId || !driveId || files.length === 0) return
-      uploadStore.enqueue({ client, orgId, driveId, queryClient }, currentPath, toUploadInputs(files))
+      void uploadStore.enqueue({ client, orgId, driveId, queryClient }, currentPath, toUploadInputs(files))
     },
     [client, orgId, driveId, queryClient, currentPath],
   )
@@ -147,7 +149,7 @@ export function FolderView({ path }: FolderViewProps) {
                 {currentPath ? "This folder is empty" : "This drive is empty"}
               </p>
               <p className="text-xs text-muted-foreground">
-                Create a file, or drop files here to upload (up to {UPLOAD_LIMIT_LABEL} each).
+                Create a file, or drop files here to upload (up to {uploadLimitLabel} each).
               </p>
             </div>
           </div>
@@ -180,7 +182,7 @@ export function FolderView({ path }: FolderViewProps) {
               Drop to upload into {currentPath || "the drive root"}
             </p>
             <p className="text-xs text-muted-foreground">
-              Folders keep their structure. Files over {UPLOAD_LIMIT_LABEL} are skipped.
+              Folders keep their structure. Files over {uploadLimitLabel} are skipped.
             </p>
           </div>
         </div>

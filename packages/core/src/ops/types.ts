@@ -232,6 +232,7 @@ export interface CommentAddResult {
   lineStart?: number;
   lineEnd?: number;
   author: string;
+  authorDisplayName?: string;
   createdAt: Date;
 }
 
@@ -253,6 +254,7 @@ export interface CommentEntry {
   quotedContent?: string;
   body: string;
   author: string;
+  authorDisplayName?: string;
   resolved: boolean;
   resolvedBy?: string;
   resolvedAt?: Date;

@@ -11,6 +11,9 @@ import type {
   WriteResult,
 } from "./types"
 
+/** Mirrors the `disposition` param of the core `signed-url` op. */
+export type SignedUrlDisposition = "inline" | "attachment"
+
 export interface ApiError {
   error: string
   message: string
@@ -43,7 +46,7 @@ export interface PutRawOptions {
 }
 
 export class AgentFsClient {
-  private endpoint: string
+  readonly endpoint: string
   private apiKey: string
 
   constructor(opts: { endpoint: string; apiKey: string }) {
@@ -102,8 +105,8 @@ export class AgentFsClient {
     return res.json()
   }
 
-  async get<T>(path: string): Promise<T> {
-    return this.request<T>(path)
+  async get<T>(path: string, opts?: RequestInit): Promise<T> {
+    return this.request<T>(path, opts)
   }
 
   async post<T>(path: string, body: unknown): Promise<T> {
@@ -117,6 +120,10 @@ export class AgentFsClient {
     const body: Record<string, unknown> = { op, ...params }
     if (driveId) body.driveId = driveId
     return this.post<T>(`/orgs/${orgId}/ops`, body)
+  }
+
+  async updateProfile(displayName: string | null): Promise<{ userId: string; email: string; displayName: string | null }> {
+    return this.request("/auth/profile", { method: "PATCH", body: JSON.stringify({ displayName }) })
   }
 
   async getMe(): Promise<MeResponse> {
@@ -135,15 +142,21 @@ export class AgentFsClient {
     return this.get<OrgMembersResult>(`/orgs/${orgId}/members`)
   }
 
+  /**
+   * Mint a signed URL for `path`. The server defaults `disposition` to
+   * `attachment` (forces a download); pass `inline` for URLs that will be
+   * rendered by the browser, such as a PDF in an <iframe>.
+   */
   async getSignedUrl(
     orgId: string,
     driveId: string,
     path: string,
+    options?: { disposition?: SignedUrlDisposition },
   ): Promise<{ url: string; expiresAt: string; expiresIn?: number; kind?: "presigned" | "app" }> {
     return this.callOp<{ url: string; expiresAt: string; expiresIn?: number; kind?: "presigned" | "app" }>(
       orgId,
       "signed-url",
-      { path },
+      options?.disposition ? { path, disposition: options.disposition } : { path },
       driveId,
     )
   }
@@ -177,7 +190,7 @@ export class AgentFsClient {
    * (the server detects MIME from the extension), `If-None-Match: *` for
    * create-only writes, and a percent-encoded version message. Uses
    * `XMLHttpRequest` because `fetch` exposes no upload progress. Body limit
-   * is 50 MB on the server; callers should reject larger files before sending.
+   * is reported by /health; callers should reject larger files before sending.
    */
   putRaw(
     orgId: string,

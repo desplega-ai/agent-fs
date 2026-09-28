@@ -15,6 +15,7 @@ export function useOrgMembers() {
 
 export function useUserResolver(): (userId: string) => string | null {
   const { data } = useOrgMembers()
+  const { user } = useAuth()
 
   const map = useMemo(() => {
     if (!data?.members) return {}
@@ -24,5 +25,5 @@ export function useUserResolver(): (userId: string) => string | null {
     }, {})
   }, [data?.members])
 
-  return (userId: string) => map[userId] ?? null
+  return (userId: string) => map[userId] ?? (userId === user?.userId ? user.email : null)
 }

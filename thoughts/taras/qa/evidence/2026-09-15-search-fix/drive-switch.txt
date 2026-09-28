@@ -1,0 +1,72 @@
+- generic [ref=e1] clickable [onclick]
+  - complementary
+    - generic
+      - generic
+        - textbox "Search..." [ref=e20]: ai-tinkerers
+          - StaticText "ai-tinkerers"
+        - button "Clear search" [ref=e21]
+      - button "Collapse sidebar" [ref=e12]
+      - button "Files ↵" [ref=e13]
+        - StaticText "Files"
+        - StaticText "↵"
+      - button "Search ⌘ ↵" [ref=e14]
+        - StaticText "Search"
+        - StaticText "⌘"
+        - StaticText "↵"
+      - button "Exit search" [ref=e15]
+      - tablist "File navigation"
+        - tab "Tree" [selected, ref=e22]
+        - tab "Recent" [disabled, ref=e23]
+      - button "New in drive root" [expanded=false, ref=e16]
+      - button "Upload to drive root" [expanded=false, ref=e17]
+      - tabpanel "Tree"
+        - paragraph
+          - StaticText "0 matches across every folder in Other QA drive."
+        - tree
+          - paragraph
+            - StaticText "No matches"
+          - paragraph
+            - StaticText "Nothing in this drive matches \"ai-tinkerers\"."
+  - separator
+  - banner
+    - generic [ref=e3] clickable [onclick]
+      - StaticText "DEV"
+    - generic [ref=e4] clickable [onclick]
+      - StaticText "search-qa"
+      - StaticText "("
+      - StaticText "1"
+      - StaticText ")"
+    - button "Other QA drive (2)" [expanded=false, ref=e5]
+      - StaticText "Other QA drive"
+      - StaticText "("
+      - StaticText "2"
+      - StaticText ")"
+    - button "Comment notifications" [expanded=false, ref=e6]
+    - button "v0.13.5" [ref=e7]
+      - StaticText "v"
+      - StaticText "0.13.5"
+    - button "Keyboard shortcuts" [ref=e8]
+    - button "Theme: System" [ref=e9]
+    - button "api-ea94" [expanded=false, ref=e10]
+      - button "api-ea94" [ref=e18]
+        - StaticText "api-ea94"
+  - navigation "Path" [ref=e2]
+    - button "Drive root" [ref=e11]
+      - StaticText "/"
+  - main
+    - region "Folder drive root" [ref=e19] clickable [onclick]
+      - StaticText "Drive root"
+      - StaticText "("
+      - StaticText "0"
+      - StaticText " "
+      - StaticText "items"
+      - StaticText ")"
+      - button "New in drive root" [expanded=false, ref=e24]
+      - button "Upload to drive root" [expanded=false, ref=e25]
+      - group "Folder view mode"
+        - button "List view" [ref=e26]
+        - button "Grid view" [ref=e27]
+      - paragraph
+        - StaticText "This drive is empty"
+      - paragraph
+        - StaticText "Create a file, or drop files here to upload (up to 50 MB each)."

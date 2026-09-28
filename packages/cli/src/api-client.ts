@@ -85,7 +85,7 @@ export class ApiClient {
    * Binary upload to `PUT /orgs/:orgId/drives/:driveId/files/<path>/raw`.
    *
    * Bypasses the JSON op path so the body can exceed the 10 MB JSON cap (up
-   * to Hono's 50 MB body limit). Used by the FUSE helper's close-time PUT
+   * to the configured HTTP body limit). Used by the FUSE helper's close-time PUT
    * (mediated by the daemon's IPC handler in-process) and by tests.
    */
   async putRaw(

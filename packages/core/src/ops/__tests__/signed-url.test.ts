@@ -38,6 +38,17 @@ describe("signed-url op", () => {
     expect(() => opDef.schema.parse({ expiresIn: 3600 })).toThrow();
   });
 
+  test("schema accepts an explicit disposition", () => {
+    expect(opDef.schema.parse({ path: "/f", disposition: "inline" }))
+      .toEqual({ path: "/f", disposition: "inline" });
+    expect(opDef.schema.parse({ path: "/f", disposition: "attachment" }))
+      .toEqual({ path: "/f", disposition: "attachment" });
+  });
+
+  test("schema rejects an unknown disposition", () => {
+    expect(() => opDef.schema.parse({ path: "/f", disposition: "bogus" })).toThrow();
+  });
+
   test("schema accepts boundary values", () => {
     expect(opDef.schema.parse({ path: "/f", expiresIn: 60 })).toEqual({ path: "/f", expiresIn: 60 });
     expect(opDef.schema.parse({ path: "/f", expiresIn: 604800 })).toEqual({ path: "/f", expiresIn: 604800 });
@@ -67,6 +78,21 @@ describe("signed-url op", () => {
 
     expect(new URL(result.url).searchParams.get("cd"))
       .toBe("attachment; filename*=UTF-8''O%27Reilly%20%28draft%29%2A.md");
+  });
+
+  // The Live PDF viewer loads the URL in an <iframe>; only an inline
+  // disposition lets the browser render it instead of downloading.
+  test("disposition=inline is forwarded to the presigned URL with the filename", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/deck.pdf", content: "%PDF-1.4" });
+
+    const result = (await dispatchOp(ctx, "signed-url", {
+      path: "/deck.pdf",
+      disposition: "inline",
+    })) as { url: string };
+
+    expect(new URL(result.url).searchParams.get("cd"))
+      .toBe("inline; filename*=UTF-8''deck.pdf");
   });
 
   test("presigned URL for a binary file has no charset", async () => {

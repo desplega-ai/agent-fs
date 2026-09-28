@@ -11,6 +11,11 @@ import { Database } from "bun:sqlite";
  * daemon restarts and fresh installs. Never destructive.
  */
 export function runMigrations(sqlite: Database): void {
+  const userCols = sqlite.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+  if (!userCols.some((c) => c.name === "display_name")) {
+    sqlite.exec("ALTER TABLE users ADD COLUMN display_name TEXT");
+  }
+
   // Migration 1: add file_versions.content_hash column (Phase 1 of FUSE mount).
   //
   // CREATE_TABLES_SQL already declares `content_hash TEXT` on fresh DBs, so

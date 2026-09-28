@@ -1,5 +1,8 @@
 export {
   createUser,
+  getProfile,
+  updateProfile,
+  profileUpdateSchema,
   getUserByApiKey,
   getUserByEmail,
   resetApiKey,

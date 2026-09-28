@@ -1,9 +1,13 @@
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/contexts/auth"
-import type { AgentFsClient } from "@/api/client"
+import type { AgentFsClient, SignedUrlDisposition } from "@/api/client"
 import { driveImageCache, type DriveImageResolution, type DriveImageCacheEntry } from "@/lib/drive-image-cache"
 
-export function useSignedUrl(path: string | null) {
+/**
+ * @param disposition `inline` for URLs the browser must render (PDF iframe);
+ *   omitted for download links, which keep the server's `attachment` default.
+ */
+export function useSignedUrl(path: string | null, disposition?: SignedUrlDisposition) {
   const { client, orgId, driveId } = useAuth()
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -19,7 +23,7 @@ export function useSignedUrl(path: string | null) {
     setIsLoading(true)
     setError(null)
 
-    client.getSignedUrl(orgId, driveId, path).then((result) => {
+    client.getSignedUrl(orgId, driveId, path, { disposition }).then((result) => {
       if (!cancelled) {
         setUrl(result.url)
         setIsLoading(false)
@@ -32,7 +36,7 @@ export function useSignedUrl(path: string | null) {
     })
 
     return () => { cancelled = true }
-  }, [path, orgId, driveId, client])
+  }, [path, orgId, driveId, client, disposition])
 
   return { url, error, isLoading }
 }

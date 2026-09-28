@@ -14,13 +14,14 @@ function formatDisplay(author: string): string {
 
 interface UserNameProps {
   userId: string
+  displayName?: string
   className?: string
 }
 
-export function UserName({ userId, className }: UserNameProps) {
+export function UserName({ userId, displayName, className }: UserNameProps) {
   const resolve = useUserResolver()
   const email = resolve(userId)
-  const display = formatDisplay(email ?? userId)
+  const display = displayName || formatDisplay(email ?? userId)
 
   return (
     <Tooltip>
@@ -47,9 +48,9 @@ export function UserName({ userId, className }: UserNameProps) {
   )
 }
 
-export function useDisplayName(userId: string): { display: string; email: string | null } {
+export function useDisplayName(userId: string, displayName?: string): { display: string; email: string | null } {
   const resolve = useUserResolver()
   const email = resolve(userId)
-  const display = formatDisplay(email ?? userId)
+  const display = displayName || formatDisplay(email ?? userId)
   return { display, email }
 }

@@ -132,11 +132,11 @@ symlinks are unsupported and throw `EPERM`.
 | `ls` | `agent-fs ls [path]` | List directory contents (defaults to /) |
 | `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps) |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
-| `glob` | `agent-fs glob <pattern> [path]` | Find files by pattern (`*.md`, `**/*.md`) |
+| `glob` | `agent-fs glob <pattern> [--path <prefix>]` | Find files by pattern (`*.md`, `**/*.md`) across all storage pages |
 | `rm` | `agent-fs rm <path>` | Delete a file |
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
-| `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>]` | Generate a download URL. On S3/MinIO: a presigned URL (default 24h, max 7 days, `kind: "presigned"`). On local-FS: an authenticated in-app link (`kind: "app"`, requires sign-in, non-expiring). |
+| `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>] [--inline]` | Generate a download URL. On S3/MinIO: a presigned URL (default 24h, max 7 days, `kind: "presigned"`). On local-FS: an authenticated in-app link (`kind: "app"`, requires sign-in, non-expiring). By default the URL forces a download; `--inline` makes the browser render the file instead (PDF, image). |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
 
 `cat` is a paginated viewer, not a raw file reader: without `--limit`, it defaults to the first 200 lines at a TTY, but returns the **whole file** when stdout is piped or redirected (a pipe/redirect almost always means "give me everything"). Any time `cat` returns fewer lines than requested, a `truncated: showing N of M lines (use --limit)` note goes to **stderr** — never stdout, so it never corrupts piped/redirected output. The default (non-`--raw`, TTY) view also prefixes each line with a line number for readability; that prefix is **not** part of the stored bytes. For a complete, byte-exact read — required before parsing as CSV/JSON, or any time line numbers or a partial read would corrupt the data — use `agent-fs cat <path> --raw` or, better, `agent-fs download <path> -o <file>`.
@@ -156,9 +156,9 @@ symlinks are unsupported and throw `EPERM`.
 | Command | Usage | Description |
 |---------|-------|-------------|
 | `grep` | `agent-fs grep <pattern> <path>` | Regex search in file content |
-| `fts` | `agent-fs fts <pattern> [path]` | Full-text search (FTS5) across all files |
+| `fts` | `agent-fs fts <pattern> [--path <prefix>]` | Full-text search with FTS5 query syntax in the active drive |
 | `search` | `agent-fs search <query> [--limit <n>]` | Hybrid search (semantic + keyword, best for general queries) |
-| `vec-search` | `agent-fs vec-search <query> [--limit <n>]` | Vector-only semantic search using embeddings |
+| `vec-search` | `agent-fs vec-search <query> [--limit <n>]` | Semantic search over distinct files in the active drive |
 | `recent` | `agent-fs recent [path] [--since <duration>] [--limit <n>]` | Recent activity (e.g., `--since 24h`) |
 | `reindex` | `agent-fs reindex [path]` | Re-index files with failed/missing embeddings |
 
@@ -167,6 +167,23 @@ symlinks are unsupported and throw `EPERM`.
 - `fts` — keyword search across all files (fast, FTS5-based)
 - `search` — general-purpose search combining keywords and meaning (recommended default)
 - `vec-search` — pure semantic search when you want conceptual matches only
+
+Search uses the active organization and drive. Check `org current` and `drive current`, or pass explicit `--org` and `--drive` flags.
+`glob`, `ls`, and `tree` read every S3 listing page. A drive with more than 1,000 objects remains searchable.
+`search` and `vec-search` select semantic candidates within the active drive and count distinct files toward the limit.
+Semantic results require embeddings. `vec-search` returns a hint when no provider exists, and `search` identifies keyword-only results.
+
+`fts` accepts raw FTS5 syntax. Quote punctuation-bearing terms with FTS double quotes inside shell single quotes:
+
+```bash
+agent-fs glob '**/*ai-tinkerers*'
+agent-fs glob '**/*ai-tinkerers*' --path thoughts/research
+agent-fs fts '"ai-tinkerers"'
+agent-fs fts 'ai AND tinkerers'
+```
+
+Double an embedded quote inside an FTS quoted term. Backslash escaping does not escape an FTS quote.
+Filename patterns are case-sensitive. Full-text matches indexed tokens, so neither mode corrects spelling errors.
 
 ### SQL Queries (DuckDB)
 
@@ -401,12 +418,15 @@ agent-fs signed-url docs/report.pdf
 # Custom expiry (1 hour)
 agent-fs signed-url docs/report.pdf --expires-in 3600
 
+# Render in the browser instead of downloading (PDF viewer, image tab)
+agent-fs signed-url docs/report.pdf --inline
+
 # JSON output (useful for agents)
 agent-fs signed-url docs/report.pdf --json
 # → { "url": "https://...", "path": "/docs/report.pdf", "expiresIn": 86400, "expiresAt": "2026-03-20T..." }
 ```
 
-On an S3/MinIO backend (`kind: "presigned"`) the URL requires no authentication — anyone with the link can download the file until it expires. Access is RBAC-checked only at generation time (viewer-or-better on the drive); after that the URL is a bearer secret. Don't log it or paste it anywhere you wouldn't paste a credential, and prefer the shortest workable `--expires-in`. Signed URLs serve the correct `Content-Type` header based on file extension (e.g., `application/pdf` for `.pdf`, `image/png` for `.png`), so browsers render them natively.
+On an S3/MinIO backend (`kind: "presigned"`) the URL requires no authentication — anyone with the link can download the file until it expires. Access is RBAC-checked only at generation time (viewer-or-better on the drive); after that the URL is a bearer secret. Don't log it or paste it anywhere you wouldn't paste a credential, and prefer the shortest workable `--expires-in`. Signed URLs serve the correct `Content-Type` header based on file extension (e.g., `application/pdf` for `.pdf`, `image/png` for `.png`). By default they also carry `Content-Disposition: attachment`, so opening the link saves the file under its real name. Pass `--inline` (API: `"disposition": "inline"`) when the link will be embedded or opened for viewing, such as a PDF in an `<iframe>`; `<img>` tags ignore the disposition either way.
 
 On a backend without presigned URLs (the local-filesystem backend), `signed-url` does **not** fail — it falls back to an authenticated in-app link (`kind: "app"`, `expiresIn: 0`) of the form `<appUrl>/file/~/<org>/<drive>/<path>`. Unlike a presigned URL this link is **not** a public bearer secret: the daemon's `/raw` route and the web viewer require sign-in, so the recipient must be an authenticated member of the drive. Set `AGENT_FS_APP_URL` (or `appUrl` in config) so the link points at your deployment.
 
@@ -458,3 +478,21 @@ fusermount3 -u ~/mnt
 ```
 
 See `docs/mounting/` for per-environment guides (sprite, E2B, Hetzner).
+
+### Upload limit configuration
+
+Raw HTTP uploads default to 50 MiB. Set `AGENT_FS_MAX_UPLOAD_BYTES` on the server
+(e.g. `104857600` for 100 MiB) and restart the daemon to change the limit. Invalid
+values fall back to 50 MiB. The web UI discovers the limit from `/health`.
+JSON/MCP `write` stays at 10 MiB. FUSE retains a 64 MiB encoded IPC frame ceiling
+including protocol overhead; use HTTP raw uploads for larger files.
+
+## Own profile
+
+`agent-fs profile get` reads your profile. `agent-fs profile set --name "Taras"`
+sets your display name. Names are trimmed, 1–100 characters, and shown to anyone
+who can read your comments. Only your authenticated profile can be edited.
+HTTP: `GET /auth/profile`, `PATCH /auth/profile` with `{ "displayName": "Taras" }`
+(or `null` to clear). MCP: `profile-get`, `profile-set` with `displayName`.
+The web account menu has **Edit profile**. Comment responses include
+`authorDisplayName` when set; emails and member roles remain admin-only.

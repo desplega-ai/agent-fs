@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { getMaxUploadBytes } from "../config.js";
 import type { OpContext, WriteParams, WriteRawParams, WriteResult } from "./types.js";
 import {
   getS3Key,
@@ -9,13 +10,11 @@ import {
 import { detectMimeType } from "./mime.js";
 import { ValidationError } from "../errors.js";
 import { requireDriveRole } from "../identity/rbac.js";
+import { recordOp } from "../telemetry.js";
 import { indexBytesForSearch, indexTextForSearch } from "./search-index.js";
 
 /** Max file size: 10 MB. Protects SQLite FTS indexing and embedding costs. */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-
-/** Max file size for the binary `writeRaw` path (matches Hono body limit). */
-const MAX_RAW_FILE_SIZE = 50 * 1024 * 1024;
 
 export async function write(
   ctx: OpContext,
@@ -31,7 +30,7 @@ export async function write(
 
 /**
  * Internal binary write path used by `PUT /raw` and the FUSE mount. Accepts
- * up to 50 MB (Hono's body limit) instead of the JSON-path 10 MB cap. Bytes
+ * up to AGENT_FS_MAX_UPLOAD_BYTES (default 50 MiB), unlike the JSON 10 MiB cap. Bytes
  * are stored unchanged; search indexing runs only when the payload is valid,
  * indexable UTF-8 text.
  *
@@ -49,7 +48,9 @@ export async function writeRaw(
     driveId: ctx.driveId,
     requiredRole: "editor",
   });
-  return writeInternal(ctx, params, { maxSize: MAX_RAW_FILE_SIZE });
+  const result = await writeInternal(ctx, params, { maxSize: getMaxUploadBytes() });
+  recordOp("write-raw");
+  return result;
 }
 
 async function writeInternal(
@@ -63,7 +64,7 @@ async function writeInternal(
 
   // Content size limit — applies to all paths (HTTP, MCP, embedded)
   if (size > opts.maxSize) {
-    const limitMb = (opts.maxSize / 1024 / 1024).toFixed(0);
+    const limitMb = String(opts.maxSize / 1024 / 1024);
     throw new ValidationError(
       `File size ${(size / 1024 / 1024).toFixed(1)}MB exceeds the ${limitMb}MB limit`,
       { field: "content", suggestion: "Split large files into smaller chunks" }

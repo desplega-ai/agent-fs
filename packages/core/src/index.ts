@@ -8,6 +8,8 @@ export {
 export type { FtsMigrationResult } from "./db/fts-migration.js";
 export {
   getConfig,
+  getMaxUploadBytes,
+  DEFAULT_MAX_UPLOAD_BYTES,
   setConfig,
   setConfigValue,
   getConfigPath,
@@ -15,6 +17,7 @@ export {
   getHome,
 } from "./config.js";
 export { isLocalStorageConfig } from "./config.js";
+export { startServerTelemetry } from "./telemetry.js";
 export type {
   AgentFSConfig,
   AgentFSStorageConfig,
@@ -86,6 +89,9 @@ export type {
 } from "./ops/types.js";
 export {
   createUser,
+  getProfile,
+  updateProfile,
+  profileUpdateSchema,
   getUserByApiKey,
   getUserByEmail,
   resetApiKey,

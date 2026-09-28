@@ -306,7 +306,7 @@ export function TextViewer({
             },
             padding: { top: 8 },
             domReadOnly: !editable || isSaving,
-            wordWrap: editable ? "on" : "off",
+            wordWrap: "on",
             automaticLayout: true,
           }}
         />

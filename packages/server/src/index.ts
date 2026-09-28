@@ -1,11 +1,13 @@
 import {
   createDatabase,
   getConfig,
+  DEFAULT_MAX_UPLOAD_BYTES,
   getHome,
   createStorageAdapter,
   createEmbeddingProviderFromEnv,
   prepareFtsMigration,
   runFtsMigration,
+  startServerTelemetry,
 } from "@/core";
 import type { Database } from "bun:sqlite";
 import type { EmbeddingProvider } from "@/core";
@@ -59,6 +61,7 @@ const app = createApp(db, s3, embeddingProvider);
 // Start server
 const server = Bun.serve({
   fetch: app.fetch,
+  maxRequestBodySize: config.server.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
   port: config.server.port,
   hostname: config.server.host,
 });
@@ -70,6 +73,11 @@ if (ftsMigrationPending) {
     console.error("search index migration failed (will resume on next start):", err);
   });
 }
+
+// Anonymized telemetry: `server.started` now, `server.heartbeat` every 24h
+// and once more on graceful shutdown.
+// Opt out with ANONYMIZED_TELEMETRY=false or DO_NOT_TRACK=1 (docs/telemetry.md).
+const stopTelemetry = startServerTelemetry(sqlite);
 
 // Event-loop lag watchdog. A synchronous operation that blocks the loop
 // (the prod wedge: /health dead for minutes while the process sits at
@@ -115,10 +123,15 @@ try {
 }
 
 // Graceful shutdown
-function shutdown() {
+// The final telemetry flush is bounded (~1.5s) so shutdown never hangs on it.
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log("Shutting down...");
   server.stop();
   if (ipcServer) ipcServer.stop();
+  await stopTelemetry().catch(() => {});
   process.exit(0);
 }
 
