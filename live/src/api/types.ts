@@ -42,6 +42,8 @@ export interface StatResult {
   modifiedAt: string
   isDeleted: boolean
   embeddingStatus?: string
+  /** Storage ETag of the current bytes (newer servers only). Opaque. */
+  etag?: string
 }
 
 export interface VersionEntry {

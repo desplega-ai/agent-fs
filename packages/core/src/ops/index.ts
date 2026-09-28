@@ -92,7 +92,7 @@ const opRegistry: Record<string, OpDefinition> = {
     schema: z.object({ path: z.string().optional() }),
   },
   stat: {
-    description: "Get file metadata without reading content. Returns path, size, contentType, author, currentVersion, createdAt, modifiedAt, isDeleted, embeddingStatus.",
+    description: "Get file metadata without reading content. Returns path, size, contentType, author, currentVersion, createdAt, modifiedAt, isDeleted, embeddingStatus, etag (opaque id of the current bytes, compare for equality).",
     handler: stat,
     schema: z.object({ path: z.string() }),
   },

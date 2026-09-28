@@ -130,7 +130,7 @@ symlinks are unsupported and throw `EPERM`.
 | `append` | `agent-fs append <path> [--content <text>] [-m <msg>]` | Append to file (stdin or --content) |
 | `tail` | `agent-fs tail <path> [--lines <n>]` | Last N lines (default: 20) |
 | `ls` | `agent-fs ls [path]` | List directory contents (defaults to /) |
-| `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps) |
+| `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps, `etag` of the current bytes: compare for equality to tell whether content changed) |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
 | `glob` | `agent-fs glob <pattern> [--path <prefix>]` | Find files by pattern (`*.md`, `**/*.md`) across all storage pages |
 | `rm` | `agent-fs rm <path>` | Delete a file |

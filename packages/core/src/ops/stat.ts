@@ -55,5 +55,6 @@ export async function stat(
     modifiedAt: dbFile?.modifiedAt ?? s3Head.lastModified ?? new Date(),
     isDeleted: dbFile?.isDeleted ?? false,
     embeddingStatus: dbFile?.embeddingStatus ?? undefined,
+    etag: s3Head.etag,
   };
 }

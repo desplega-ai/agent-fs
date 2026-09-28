@@ -157,6 +157,13 @@ export interface StatResult {
   modifiedAt: Date;
   isDeleted: boolean;
   embeddingStatus?: string;
+  /**
+   * Storage ETag of the current bytes. Opaque: compare for equality only. It
+   * changes whenever the stored content does, even for a write that did not
+   * bump `currentVersion`, so clients can use it to validate a cached copy.
+   * Absent when the storage backend does not report one.
+   */
+  etag?: string;
 }
 
 export interface RmResult {

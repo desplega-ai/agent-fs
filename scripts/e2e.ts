@@ -1198,6 +1198,7 @@ async function runStandardTests(daemonUrl: string) {
     assert(result.path, "/hello.txt");
     assert(typeof result.size, "number");
     assert(result.currentVersion >= 3, true, `Expected version >= 3, got ${result.currentVersion}`);
+    assert(typeof result.etag, "string", "stat should expose the storage etag");
   });
 
   // -- tail --
