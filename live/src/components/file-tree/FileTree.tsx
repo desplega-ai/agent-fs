@@ -8,9 +8,14 @@ import { FileSearchPanel } from "./FileSearchPanel"
 import { treeExpansionStore, useFocusedPath } from "@/stores/tree-expansion"
 import { useSearchInput } from "@/contexts/search-input"
 import { describeRequestError } from "@/lib/request-errors"
-import type { LsResult } from "@/api/types"
+import { isUnknownOperationError } from "@/api/errors"
+import type { LsResult, RevealResult } from "@/api/types"
 
 const REVEAL_TIMEOUT_MS = 15_000
+
+// Set once a server answers "Unknown operation: reveal" (a deploy older than
+// this UI), so later opens go straight to the per-ancestor path.
+let revealUnsupported = false
 
 function ancestorPaths(path: string): string[] {
   const parts = path.split("/").filter(Boolean)
@@ -37,20 +42,53 @@ export function FileTree() {
     if (!path || path.endsWith("/") || !treeReady) return
 
     const ancestors = ancestorPaths(path)
-    treeExpansionStore.expandMany(ancestors)
+    let cancelled = false
 
-    // The file may have been created by another client after an ls result was
-    // cached. Refresh only the listings needed to reveal this path; invalidating
-    // every expanded tree node would turn one selection into an unbounded fanout.
-    for (const listingPath of ["", ...ancestors]) {
-      void queryClient.invalidateQueries({
-        queryKey: ["ls", orgId, driveId, listingPath],
-        exact: true,
-      })
+    // Fallback for servers without `reveal`. Each level's ls only starts once
+    // its parent row mounts, so a file d levels deep costs d serial round trips.
+    const revealPerAncestor = () => {
+      treeExpansionStore.expandMany(ancestors)
+
+      // The file may have been created by another client after an ls result was
+      // cached. Refresh only the listings needed to reveal this path; invalidating
+      // every expanded tree node would turn one selection into an unbounded fanout.
+      for (const listingPath of ["", ...ancestors]) {
+        void queryClient.invalidateQueries({
+          queryKey: ["ls", orgId, driveId, listingPath],
+          exact: true,
+        })
+      }
+    }
+
+    if (revealUnsupported) {
+      revealPerAncestor()
+    } else {
+      // One round trip: seed every ancestor's ls cache entry before expanding,
+      // so each level renders from cache the moment it mounts.
+      client
+        .callOp<RevealResult>(orgId!, "reveal", { path }, driveId)
+        .then((result) => {
+          if (cancelled) return
+          for (const listing of result.listings) {
+            queryClient.setQueryData<LsResult>(
+              ["ls", orgId, driveId, listing.path.replace(/^\/+/, "")],
+              { entries: listing.entries },
+            )
+          }
+          treeExpansionStore.expandMany(ancestors)
+        })
+        .catch((error: unknown) => {
+          if (isUnknownOperationError(error, "reveal")) revealUnsupported = true
+          if (!cancelled) revealPerAncestor()
+        })
     }
 
     const container = containerRef.current
-    if (!container) return
+    if (!container) {
+      return () => {
+        cancelled = true
+      }
+    }
 
     const revealSelectedRow = () => {
       const row = Array.from(
@@ -66,7 +104,11 @@ export function FileTree() {
       return true
     }
 
-    if (revealSelectedRow()) return
+    if (revealSelectedRow()) {
+      return () => {
+        cancelled = true
+      }
+    }
 
     // Child directories load lazily. Watch this tree until the selected row
     // materializes, then disconnect immediately.
@@ -80,10 +122,11 @@ export function FileTree() {
     const timeoutId = window.setTimeout(() => observer.disconnect(), REVEAL_TIMEOUT_MS)
 
     return () => {
+      cancelled = true
       observer.disconnect()
       window.clearTimeout(timeoutId)
     }
-  }, [driveId, orgId, queryClient, selectedFile, treeReady])
+  }, [client, driveId, orgId, queryClient, selectedFile, treeReady])
 
   /** Collect all visible row paths in DOM order. */
   const collectVisible = useCallback((): {

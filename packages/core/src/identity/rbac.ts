@@ -17,6 +17,7 @@ const OP_ROLES: Record<string, Role> = {
   cat: "viewer",
   tail: "viewer",
   stat: "viewer",
+  reveal: "viewer",
   grep: "viewer",
   fts: "viewer",
   search: "viewer",

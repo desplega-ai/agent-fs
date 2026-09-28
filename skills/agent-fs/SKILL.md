@@ -131,6 +131,7 @@ symlinks are unsupported and throw `EPERM`.
 | `tail` | `agent-fs tail <path> [--lines <n>]` | Last N lines (default: 20) |
 | `ls` | `agent-fs ls [path]` | List directory contents (defaults to /) |
 | `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps) |
+| `reveal` | `agent-fs reveal <path>` | Everything needed to show one file in a tree, in one call: the `ls` listing of every ancestor (root first, as `listings: [{ path, entries }]`) plus the file's `stat`. Same permissions as `ls`; `NOT_FOUND` for a missing file. Prefer `ls`/`stat` for ordinary reads. |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
 | `glob` | `agent-fs glob <pattern> [--path <prefix>]` | Find files by pattern (`*.md`, `**/*.md`) across all storage pages |
 | `rm` | `agent-fs rm <path>` | Delete a file |

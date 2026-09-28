@@ -57,6 +57,10 @@ export interface StatParams {
   path: string;
 }
 
+export interface RevealParams {
+  path: string;
+}
+
 export interface RmParams {
   path: string;
   expectedVersion?: number;
@@ -157,6 +161,18 @@ export interface StatResult {
   modifiedAt: Date;
   isDeleted: boolean;
   embeddingStatus?: string;
+}
+
+export interface RevealListing {
+  /** Directory path, root first: "/", "/a", "/a/b". */
+  path: string;
+  entries: LsEntry[];
+}
+
+export interface RevealResult {
+  path: string;
+  stat: StatResult;
+  listings: RevealListing[];
 }
 
 export interface RmResult {
