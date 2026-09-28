@@ -68,7 +68,8 @@ function filenameOf(share: ShareRecord): string {
  * come from the stored share, never from the request.
  *
  * Invalid, expired, revoked and used-up links all render the same "expired"
- * page, so the response does not tell a stranger whether a token ever existed.
+ * page. The status differs (404 unknown, 410 known) but a token is 256 random
+ * bits, so only someone who already holds a real token can tell them apart.
  */
 export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinute: number }) {
   const router = new Hono();
