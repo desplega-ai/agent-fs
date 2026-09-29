@@ -335,7 +335,18 @@ export interface SharePageInput {
   now: Date;
   /** Views left after this one, or null for an unlimited link. */
   viewsLeft: number | null;
+  /**
+   * The grant issued with this view of a view-limited link. The Download link
+   * carries it; without it the byte routes refuse the request. Null for an
+   * unlimited link, whose token is enough.
+   */
+  grant?: string | null;
   body: ShareBody;
+}
+
+/** `?g=<grant>` for a byte-route URL, or nothing for an unlimited link. */
+export function grantQuery(grant: string | null | undefined): string {
+  return grant ? `?g=${encodeURIComponent(grant)}` : "";
 }
 
 function renderEmbed(tag: "img" | "iframe" | "audio" | "video", rawSrc: string, filename: string): string {
@@ -378,7 +389,7 @@ export function renderSharePage(input: SharePageInput): string {
 <h1>${escapeHtml(filename)}</h1>
 <p class="sub">${type}${escapeHtml(formatBytes(size))} · ${expiry}</p>
 </div>
-<a class="btn" href="/share/${token}/download">Download</a>
+<a class="btn" href="/share/${token}/download${grantQuery(input.grant)}">Download</a>
 </header>
 <main>
 ${viewsNote}
@@ -414,7 +425,19 @@ export function buildCsp(embedSource: string | null): string {
   return directives.join("; ");
 }
 
-/** Headers for every response of the share routes. */
+/**
+ * Baseline CSP for every share response that has no page of its own: errors,
+ * redirects, rate-limit refusals. Nothing loads, nothing frames it, and the
+ * sandbox drops every privilege should a browser ever render the body. The
+ * page, the embed routes and the PDF route replace it with their own value.
+ */
+export const SHARE_BASELINE_CSP =
+  "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox";
+
+/**
+ * Headers for every response of the share routes. `extra` wins, which is how
+ * the preview page and the inline routes replace the baseline CSP.
+ */
 export function shareSecurityHeaders(extra?: Record<string, string>): Record<string, string> {
   return {
     "Cache-Control": "no-store",
@@ -422,6 +445,7 @@ export function shareSecurityHeaders(extra?: Record<string, string>): Record<str
     "Referrer-Policy": "no-referrer",
     "X-Robots-Tag": "noindex, nofollow, noarchive",
     "X-Frame-Options": "DENY",
+    "Content-Security-Policy": SHARE_BASELINE_CSP,
     ...extra,
   };
 }

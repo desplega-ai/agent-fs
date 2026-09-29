@@ -1678,6 +1678,18 @@ async function runStandardTests(daemonUrl: string) {
     }
   });
 
+  await test("share-create rejects paths that climb out of the drive", () => {
+    for (const path of ["/no-such-dir/../share-e2e.md", "/../../../etc/passwd", "../../other/drives/x/secret.txt", "/a/./b", "/a\\..\\b"]) {
+      let failed = false;
+      try {
+        run(`share-create "${path}"`);
+      } catch {
+        failed = true;
+      }
+      assert(failed, true, `Expected share-create to reject ${path}`);
+    }
+  });
+
   await test("GET /share/:token renders a hardened page without any credentials", async () => {
     const r = runJson("share-create /share-e2e.md");
     const res = await fetch(r.url); // no Authorization header
@@ -1712,6 +1724,36 @@ async function runStandardTests(daemonUrl: string) {
     const second = await fetch(r.url);
     assert(second.status, 410);
     assertIncludes(await second.text(), "This link has expired");
+  });
+
+  await test("share-create --one-off: bytes belong to the view that spent it, not to the link", async () => {
+    const r = runJson("share-create /share-e2e.md --one-off");
+    // Nothing before the page was opened, and the bare link never gets bytes.
+    assert((await fetch(`${r.url}/download`)).status, 403);
+    const first = await fetch(r.url);
+    assert(first.status, 200);
+    const grant = /\/download\?g=([A-Za-z0-9_-]{43})/.exec(await first.text())?.[1];
+    assert(!!grant, true, "Expected the page to carry a download grant");
+    for (let i = 0; i < 3; i++) {
+      assert((await fetch(`${r.url}/download`)).status, 410);
+    }
+    // The page that spent the view can still download its file.
+    const own = await fetch(`${r.url}/download?g=${grant}`);
+    assert(own.status, 200);
+    assertIncludes(await own.text(), "Shared heading");
+  });
+
+  await test("every share response carries a CSP, redirects and errors included", async () => {
+    const r = runJson("share-create /share-e2e.md");
+    for (const [what, url] of [
+      ["page", r.url],
+      ["download", `${r.url}/download`],
+      ["unknown token", `${shareBase}/share/${"A".repeat(43)}`],
+      ["unknown sub-route", `${r.url}/nope`],
+    ] as const) {
+      const res = await fetch(url, { redirect: "manual" });
+      assert(!!res.headers.get("content-security-policy"), true, `Expected a CSP on the ${what} response (${res.status})`);
+    }
   });
 
   await test("share --max-views N allows exactly N views", async () => {

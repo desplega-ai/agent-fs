@@ -231,3 +231,20 @@ export const shares = sqliteTable(
     drivePathIdx: index("idx_shares_drive_path").on(table.driveId, table.path),
   })
 );
+
+// share_view_grants: the credential a counted page view of a view-limited
+// share hands to that page for its byte fetches (/raw, /download). Only the
+// SHA-256 of the grant is stored. No FKs, same reasoning as `shares`.
+export const shareViewGrants = sqliteTable(
+  "share_view_grants",
+  {
+    grantHash: text("grant_hash").primaryKey(),
+    shareId: text("share_id").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => ({
+    shareIdx: index("idx_share_view_grants_share").on(table.shareId),
+    expiryIdx: index("idx_share_view_grants_expiry").on(table.expiresAt),
+  })
+);

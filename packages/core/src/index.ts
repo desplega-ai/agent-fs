@@ -75,16 +75,27 @@ export {
   shareRevoke,
   findShareByToken,
   getShareState,
-  canServeShareAssets,
+  authorizeShareBytes,
   consumeShareView,
+  openShareView,
+  shareStorageKey,
+  capUrlTtlSeconds,
   recordShareViewed,
   isWellFormedShareToken,
   extractShareToken,
   SHARE_DEFAULT_TTL_SECONDS,
   SHARE_MAX_TTL_SECONDS,
-  SHARE_ASSET_GRACE_SECONDS,
+  SHARE_VIEW_GRANT_TTL_SECONDS,
 } from "./ops/share.js";
-export type { ShareRecord, ShareState, ShareCreateResult, ShareRevokeResult } from "./ops/share.js";
+export type {
+  ShareRecord,
+  ShareState,
+  ShareCreateResult,
+  ShareRevokeResult,
+  ShareByteAccess,
+  ShareViewGrant,
+  OpenedShareView,
+} from "./ops/share.js";
 export type { OpContext, OpDefinition } from "./ops/index.js";
 export type { WriteParams, WriteRawParams, WriteResult } from "./ops/types.js";
 export type {

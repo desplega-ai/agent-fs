@@ -451,7 +451,8 @@ Things worth knowing before you share:
 
 - **The link is a bearer secret.** Anyone who has it can open it until it expires, is revoked, or runs out of views. It is shown once and only its SHA-256 is stored, so it cannot be recovered; keep the `id` if you may need to revoke it.
 - **It shows the file's current content**, not a snapshot. If the file is edited the link shows the new version; if it is deleted or moved the link shows "file unavailable".
-- **`--one-off` counts page views.** The file's bytes stay downloadable for up to an hour after that view (so the page can load its embed and Download button); a one-off link is never a permanent raw URL. Link-preview crawlers (Slack, WhatsApp, ...) and `HEAD` requests do not spend a view.
+- **`--one-off` / `--max-views` count page views, and the bytes go with the view.** A view-limited link never serves the file on its URL alone: the page that spent a view gets a private, short-lived credential (up to one hour, never past the link's expiry) that its embed and Download button use. Once the views are used up, nobody holding only the link can fetch the file, and revoking or expiring the link cuts every credential at once. Unlimited links need no credential. Link-preview crawlers (Slack, WhatsApp, ...) and `HEAD` requests do not spend a view.
+- **Paths must stay inside the drive.** `share-create` rejects any path with a `.` or `..` segment (either slash direction) instead of resolving it.
 - **Viewer role is enough to create a link**, and the creator (or a drive admin) can revoke it. Every counted view is written as a `share_viewed` event.
 - Set `AGENT_FS_PUBLIC_URL` when the server sits behind a proxy that does not forward `Host` / `X-Forwarded-*`, so returned links point at the right address.
 

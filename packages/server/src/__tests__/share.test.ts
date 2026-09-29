@@ -1,7 +1,13 @@
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll, setSystemTime } from "bun:test";
 import { createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
 import { createUser, setDriveMember } from "../../../core/src/index.js";
+import { generateShareToken, hashShareToken } from "../../../core/src/ops/share.js";
 import { createApp } from "../app.js";
+
+// One app per harness, and this file makes far more than the default 120
+// requests a minute from a single "IP". The limiter has its own tests below,
+// which set their own limit.
+process.env.AGENT_FS_SHARE_RATE_LIMIT = "0";
 
 interface Harness {
   app: ReturnType<typeof createApp>;
@@ -57,6 +63,34 @@ const setShare = (h: Harness, id: string, column: "expires_at" | "last_viewed_at
   sqlite(h).prepare(`UPDATE shares SET ${column} = ? WHERE id = ?`).run(Math.floor(date.getTime() / 1000), id);
 
 const get = (h: Harness, path: string, headers?: Record<string, string>) => h.app.request(path, { headers });
+
+/** The grant a view-limited page hands to its Download link (`?g=`), or null. */
+const grantOf = (page: string) => /\/download\?g=([A-Za-z0-9_-]{43})"/.exec(page)?.[1] ?? null;
+const withGrant = (path: string, grant: string | null) => (grant ? `${path}?g=${grant}` : path);
+const grantCount = (h: Harness, shareId: string) =>
+  (sqlite(h).prepare("SELECT COUNT(*) AS n FROM share_view_grants WHERE share_id = ?").get(shareId) as { n: number }).n;
+const urlTtl = (location: string) => Number(new URL(location).searchParams.get("e"));
+
+/**
+ * Make one storage call slow: `jumpTo` runs inside it, so the clock has moved
+ * (or a revoke has landed) by the time the call returns. Returns the undo.
+ */
+function slowStorage(h: Harness, method: "headObject" | "getObject", jumpTo: () => void | Promise<void>) {
+  const s3 = h.s3 as any;
+  const original = s3[method].bind(s3);
+  s3[method] = async (...args: unknown[]) => {
+    const result = await original(...args);
+    await jumpTo();
+    return result;
+  };
+  return () => {
+    s3[method] = original;
+    setSystemTime();
+  };
+}
+const jumpClockTo = (date: Date) => () => {
+  setSystemTime(date);
+};
 
 let h: Harness;
 beforeAll(async () => {
@@ -301,27 +335,6 @@ describe("expiry, one-off, revoke", () => {
     expect(await (await get(h, s.sharePath)).text()).toContain(EXPIRED_TEXT);
   });
 
-  test("maxViews=1: one page view, then expired; bytes stay reachable only for the grace window", async () => {
-    const s = await share(h, "/notes/plain.txt", { maxViews: 1 });
-
-    // Nothing is served before the page was opened.
-    expect((await get(h, `${s.sharePath}/download`)).status).toBe(410);
-
-    const first = await get(h, s.sharePath);
-    expect(first.status).toBe(200);
-    expect(await first.text()).toContain("used up");
-
-    const second = await get(h, s.sharePath);
-    expect(second.status).toBe(410);
-    expect(await second.text()).toContain(EXPIRED_TEXT);
-
-    // The page can still fetch its file right after the view...
-    expect((await get(h, `${s.sharePath}/download`)).status).toBe(302);
-    // ...but not for long.
-    setShare(h, s.id, "last_viewed_at", new Date(Date.now() - 2 * 3600 * 1000));
-    expect((await get(h, `${s.sharePath}/download`)).status).toBe(410);
-  });
-
   test("concurrent opens of a one-off link: exactly one wins", async () => {
     const s = await share(h, "/notes/readme.md", { maxViews: 1 });
     const results = await Promise.all(Array.from({ length: 8 }, () => get(h, s.sharePath)));
@@ -356,6 +369,425 @@ describe("expiry, one-off, revoke", () => {
     const denied = await op(h, { op: "share-revoke", id: s.id }, viewer.apiKey);
     expect(denied.status).toBe(403);
     expect((await get(h, s.sharePath)).status).toBe(200);
+  });
+});
+
+describe("byte routes are bound to the counted page view", () => {
+  test("a view-limited link serves nothing before its page was opened", async () => {
+    const s = await share(h, "/notes/pic.png", { maxViews: 1 });
+    expect((await get(h, `${s.sharePath}/download`)).status).toBe(403);
+    expect((await get(h, `${s.sharePath}/raw`)).status).toBe(403);
+  });
+
+  test("maxViews=1: the spent token cannot fetch bytes, only the view's own grant can", async () => {
+    const s = await share(h, "/notes/pic.png", { maxViews: 1 });
+
+    const first = await get(h, s.sharePath);
+    expect(first.status).toBe(200);
+    const page = await first.text();
+    const grant = grantOf(page)!;
+    expect(grant).toBeTruthy();
+    expect(grantCount(h, s.id)).toBe(1);
+    expect((await get(h, s.sharePath)).status).toBe(410); // the page itself is used up
+
+    // Someone who only holds the (now used-up) link: no /raw, no /download, however often they ask.
+    for (let i = 0; i < 4; i++) {
+      expect((await get(h, `${s.sharePath}/raw`)).status).toBe(410);
+      expect((await get(h, `${s.sharePath}/download`)).status).toBe(410);
+    }
+    expect(shareRow(h, s.id).views).toBe(1);
+
+    // The page that spent the view can still load its file.
+    expect((await get(h, withGrant(`${s.sharePath}/download`, grant))).status).toBe(302);
+    expect((await get(h, withGrant(`${s.sharePath}/raw`, grant))).status).toBe(302);
+  });
+
+  test("a grant opens only its own share, and a made-up one opens nothing", async () => {
+    const a = await share(h, "/notes/plain.txt", { maxViews: 1 });
+    const b = await share(h, "/notes/plain.txt", { maxViews: 1 });
+    const grantA = grantOf(await (await get(h, a.sharePath)).text())!;
+    await get(h, b.sharePath);
+
+    expect((await get(h, withGrant(`${b.sharePath}/download`, grantA))).status).toBe(410);
+    expect((await get(h, withGrant(`${a.sharePath}/download`, grantA))).status).toBe(302);
+
+    for (const bad of [generateShareToken(), "short", "' OR 1=1 --", a.token, grantA.slice(0, 42), "%00"]) {
+      expect((await get(h, withGrant(`${a.sharePath}/download`, bad))).status).toBe(410);
+    }
+  });
+
+  test("a grant stops at its own expiry and when the link is revoked", async () => {
+    const s = await share(h, "/notes/plain.txt", { maxViews: 3 });
+    const grant = grantOf(await (await get(h, s.sharePath)).text())!;
+    expect((await get(h, withGrant(`${s.sharePath}/download`, grant))).status).toBe(302);
+
+    sqlite(h).prepare("UPDATE share_view_grants SET expires_at = ? WHERE share_id = ?")
+      .run(Math.floor(Date.now() / 1000) - 5, s.id);
+    // Still has views left, but the bytes need a live grant.
+    expect((await get(h, withGrant(`${s.sharePath}/download`, grant))).status).toBe(403);
+
+    const fresh = grantOf(await (await get(h, s.sharePath)).text())!;
+    expect((await get(h, withGrant(`${s.sharePath}/download`, fresh))).status).toBe(302);
+    await op(h, { op: "share-revoke", id: s.id });
+    expect((await get(h, withGrant(`${s.sharePath}/download`, fresh))).status).toBe(410);
+    expect((await get(h, withGrant(`${s.sharePath}/raw`, fresh))).status).toBe(410);
+  });
+
+  test("every counted view gets its own grant, at most maxViews of them", async () => {
+    const s = await share(h, "/notes/plain.txt", { maxViews: 2 });
+    const pages = await Promise.all([get(h, s.sharePath), get(h, s.sharePath), get(h, s.sharePath)]);
+    const grants = (await Promise.all(pages.filter((r) => r.status === 200).map((r) => r.text()))).map(grantOf);
+    expect(grants).toHaveLength(2);
+    expect(new Set(grants).size).toBe(2);
+    expect(grantCount(h, s.id)).toBe(2);
+  });
+
+  test("concurrent: one winner for the last view, and bytes only for that winner", async () => {
+    const s = await share(h, "/notes/pic.png", { maxViews: 1 });
+
+    // Eight independent clients race for the single view.
+    const pages = await Promise.all(Array.from({ length: 8 }, () => get(h, s.sharePath)));
+    const winners = pages.filter((r) => r.status === 200);
+    expect(winners).toHaveLength(1);
+    expect(grantCount(h, s.id)).toBe(1);
+    const grant = grantOf(await winners[0].text())!;
+
+    // Sixteen concurrent byte fetches from clients that only hold the link: all refused.
+    const bare = await Promise.all(
+      Array.from({ length: 8 }, (_, i) => [
+        get(h, `${s.sharePath}/raw`, { "Fly-Client-IP": `10.0.0.${i}` }),
+        get(h, `${s.sharePath}/download`, { "User-Agent": `client-${i}` }),
+      ]).flat()
+    );
+    expect(bare.map((r) => r.status)).toEqual(Array(16).fill(410));
+
+    // The winner's page fetches concurrently and everything is served.
+    const owned = await Promise.all(
+      Array.from({ length: 8 }, () => [
+        get(h, withGrant(`${s.sharePath}/raw`, grant)),
+        get(h, withGrant(`${s.sharePath}/download`, grant)),
+      ]).flat()
+    );
+    expect(owned.map((r) => r.status)).toEqual(Array(16).fill(302));
+    expect(shareRow(h, s.id).views).toBe(1);
+  });
+
+  test("an unlimited link keeps serving bytes on the token alone, with no grant in its page", async () => {
+    const s = await share(h, "/notes/pic.png");
+    const page = await (await get(h, s.sharePath)).text();
+    expect(grantOf(page)).toBeNull();
+    expect(page).toContain(`href="/share/${s.token}/download"`);
+    expect(grantCount(h, s.id)).toBe(0);
+    expect((await get(h, `${s.sharePath}/download`)).status).toBe(302);
+    expect((await get(h, `${s.sharePath}/raw`)).status).toBe(302);
+  });
+
+  test("the grant is never echoed in logs and never leaves in a Referer", async () => {
+    const s = await share(h, "/notes/plain.txt", { maxViews: 1 });
+    const res = await get(h, s.sharePath);
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    const grant = grantOf(await res.text())!;
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (...args: unknown[]) => void lines.push(args.join(" "));
+    try {
+      await get(h, withGrant(`${s.sharePath}/download`, grant));
+    } finally {
+      console.log = orig;
+    }
+    expect(lines.join("\n")).not.toContain(grant);
+  });
+
+  test("backends without presigned URLs: the embed and download carry the grant, bare token gets nothing", async () => {
+    const local = await setup({ presigned: false });
+    await write(local, "/pic.png", "fake-png-bytes");
+    const s = await share(local, "/pic.png", { maxViews: 1 });
+
+    const res = await get(local, s.sharePath);
+    const page = await res.text();
+    const grant = grantOf(page)!;
+    expect(page).toContain(`<img class="media" src="/share/${s.token}/raw?g=${grant}"`);
+
+    expect((await get(local, `${s.sharePath}/raw`)).status).toBe(410);
+    expect((await get(local, `${s.sharePath}/download`)).status).toBe(410);
+    const raw = await get(local, withGrant(`${s.sharePath}/raw`, grant));
+    expect(raw.status).toBe(200);
+    expect(await raw.text()).toBe("fake-png-bytes");
+    const dl = await get(local, withGrant(`${s.sharePath}/download`, grant));
+    expect(dl.status).toBe(200);
+    expect(dl.headers.get("content-disposition")).toMatch(/^attachment;/);
+  });
+});
+
+describe("time is read fresh at every authorization and presign point", () => {
+  let t: Harness;
+  beforeAll(async () => {
+    t = await setup();
+    await write(t, "/pic.png", "fake-png-bytes");
+    await write(t, "/notes.txt", "some text");
+    await write(t, "/doc.pdf", "fake-pdf-bytes");
+  });
+  afterAll(() => setSystemTime());
+
+  const expiresAtMs = (id: string) => shareRow(t, id).expires_at * 1000;
+
+  test("every URL is capped to what is left of the link (no 60 / 300 second floor)", async () => {
+    const s = await share(t, "/pic.png", { expiresIn: 60 });
+    setShare(t, s.id, "expires_at", new Date(Math.floor(Date.now() / 1000) * 1000 + 6000));
+
+    const page = await (await get(t, s.sharePath)).text();
+    const embed = /src="([^"]+)"/.exec(page.slice(page.indexOf("<main>")))![1].replace(/&amp;/g, "&");
+    const raw = (await get(t, `${s.sharePath}/raw`)).headers.get("location")!;
+    const download = (await get(t, `${s.sharePath}/download`)).headers.get("location")!;
+
+    for (const ttl of [urlTtl(embed), urlTtl(raw), urlTtl(download)]) {
+      expect(ttl).toBeGreaterThanOrEqual(1);
+      expect(ttl).toBeLessThanOrEqual(6);
+    }
+  });
+
+  test("far from expiry the fixed ceilings still apply", async () => {
+    const s = await share(t, "/pic.png");
+    const page = await (await get(t, s.sharePath)).text();
+    const embed = /src="([^"]+)"/.exec(page.slice(page.indexOf("<main>")))![1].replace(/&amp;/g, "&");
+    expect(urlTtl(embed)).toBe(3600);
+    expect(urlTtl((await get(t, `${s.sharePath}/raw`)).headers.get("location")!)).toBe(300);
+    expect(urlTtl((await get(t, `${s.sharePath}/download`)).headers.get("location")!)).toBe(300);
+  });
+
+  test("a page whose storage call outlasts the link is refused and spends no view", async () => {
+    const s = await share(t, "/notes.txt", { maxViews: 3 });
+    const undo = slowStorage(t, "headObject", jumpClockTo(new Date(expiresAtMs(s.id) + 1000)));
+    try {
+      const res = await get(t, s.sharePath);
+      expect(res.status).toBe(410);
+      expect(await res.text()).not.toContain("some text");
+    } finally {
+      undo();
+    }
+    expect(shareRow(t, s.id).views).toBe(0);
+    expect(grantCount(t, s.id)).toBe(0);
+    const events = sqlite(t).prepare("SELECT COUNT(*) AS n FROM events WHERE resource_id = ?").get(s.id) as { n: number };
+    expect(events.n).toBe(0);
+  });
+
+  test("a preview that finishes reading after the link ended is not released", async () => {
+    const s = await share(t, "/notes.txt", { maxViews: 3 });
+    const undo = slowStorage(t, "getObject", jumpClockTo(new Date(expiresAtMs(s.id) + 1000)));
+    try {
+      const res = await get(t, s.sharePath);
+      expect(res.status).toBe(410);
+      expect(await res.text()).not.toContain("some text");
+    } finally {
+      undo();
+    }
+  });
+
+  test("a page whose link is revoked while it reads storage is not released", async () => {
+    const s = await share(t, "/notes.txt");
+    const undo = slowStorage(t, "getObject", async () => {
+      await op(t, { op: "share-revoke", id: s.id });
+    });
+    try {
+      const res = await get(t, s.sharePath);
+      expect(res.status).toBe(410);
+      expect(await res.text()).not.toContain("some text");
+    } finally {
+      undo();
+    }
+  });
+
+  test("download: a storage call that outlasts the link issues no URL", async () => {
+    const s = await share(t, "/notes.txt");
+    const undo = slowStorage(t, "headObject", jumpClockTo(new Date(expiresAtMs(s.id) + 1000)));
+    try {
+      const res = await get(t, `${s.sharePath}/download`);
+      expect(res.status).toBe(410);
+      expect(res.headers.get("location")).toBeNull();
+    } finally {
+      undo();
+    }
+  });
+
+  test("download: a revoke that lands during the storage call issues no URL", async () => {
+    const s = await share(t, "/notes.txt");
+    const undo = slowStorage(t, "headObject", async () => {
+      await op(t, { op: "share-revoke", id: s.id });
+    });
+    try {
+      const res = await get(t, `${s.sharePath}/download`);
+      expect(res.status).toBe(410);
+      expect(res.headers.get("location")).toBeNull();
+    } finally {
+      undo();
+    }
+  });
+
+  test("a view-limited download re-checks its grant after the storage call too", async () => {
+    const s = await share(t, "/notes.txt", { maxViews: 1 });
+    const grant = grantOf(await (await get(t, s.sharePath)).text())!;
+    const undo = slowStorage(t, "headObject", () => {
+      sqlite(t).prepare("UPDATE share_view_grants SET expires_at = ? WHERE share_id = ?")
+        .run(Math.floor(Date.now() / 1000) - 1, s.id);
+    });
+    try {
+      const res = await get(t, withGrant(`${s.sharePath}/download`, grant));
+      expect(res.status).toBe(410);
+      expect(res.headers.get("location")).toBeNull();
+    } finally {
+      undo();
+    }
+  });
+
+  test("streaming backends do not release bytes read after the link ended", async () => {
+    const local = await setup({ presigned: false });
+    await write(local, "/pic.png", "fake-png-bytes");
+    await write(local, "/notes.txt", "some text");
+    const s = await share(local, "/pic.png");
+    const n = await share(local, "/notes.txt");
+    const jump = new Date(Date.parse(s.expiresAt) + 1000);
+    const undo = slowStorage(local, "getObject", jumpClockTo(jump));
+    try {
+      const raw = await get(local, `${s.sharePath}/raw`);
+      expect(raw.status).toBe(410);
+      expect(await raw.text()).not.toContain("fake-png-bytes");
+      setSystemTime();
+      const dl = await get(local, `${n.sharePath}/download`);
+      expect(dl.status).toBe(410);
+      expect(await dl.text()).not.toContain("some text");
+    } finally {
+      undo();
+    }
+  });
+
+  test("a stored path that leaves its drive is never turned into a storage read", async () => {
+    // A row that got in some way other than share-create. The literal key exists
+    // in the mock, so without the guard this would be served.
+    const key = `${t.orgId}/drives/${t.driveId}/../secret.png`;
+    await t.s3.putObject(key, "OUTSIDE-BYTES");
+    const token = generateShareToken();
+    sqlite(t).prepare(
+      "INSERT INTO shares (id, org_id, drive_id, path, token_hash, expires_at, max_views, views, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ).run(
+      crypto.randomUUID(), t.orgId, t.driveId, "/../secret.png", hashShareToken(token),
+      Math.floor(Date.now() / 1000) + 3600, null, 0, "someone", Math.floor(Date.now() / 1000)
+    );
+    for (const path of [`/share/${token}`, `/share/${token}/raw`, `/share/${token}/download`]) {
+      const res = await get(t, path);
+      expect(res.status).toBe(404);
+      expect(res.headers.get("location")).toBeNull();
+      expect(await res.text()).not.toContain("OUTSIDE-BYTES");
+    }
+  });
+});
+
+describe("every share response carries the security baseline", () => {
+  const BASELINE = ["cache-control", "x-content-type-options", "referrer-policy", "x-robots-tag", "x-frame-options"];
+
+  /** CSP present and locked down: nothing loads by default and nothing frames it. */
+  function expectLockedDown(res: Response, what: string) {
+    const csp = res.headers.get("content-security-policy");
+    expect(csp, `${what}: content-security-policy`).toBeTruthy();
+    expect(csp, what).toContain("default-src 'none'");
+    expect(csp, what).toContain("frame-ancestors 'none'");
+    expect(csp, what).not.toContain("script-src");
+    expect(csp, what).not.toContain("unsafe-eval");
+    for (const name of BASELINE) expect(res.headers.get(name), `${what}: ${name}`).toBeTruthy();
+    expect(res.headers.get("x-content-type-options"), what).toBe("nosniff");
+  }
+
+  test("success, redirect, 403, 404 and 410 across every route", async () => {
+    const open = await share(h, "/notes/pic.png");
+    const limited = await share(h, "/notes/pic.png", { maxViews: 1 });
+    await get(h, limited.sharePath); // spend it
+    const dead = await share(h, "/notes/pic.png");
+    await op(h, { op: "share-revoke", id: dead.id });
+    const unseen = await share(h, "/notes/pic.png", { maxViews: 2 });
+    const unknown = `/share/${generateShareToken()}`;
+
+    const cases: Array<[string, number, Response]> = [
+      ["page 200", 200, await get(h, open.sharePath)],
+      ["HEAD 200", 200, await h.app.request(open.sharePath, { method: "HEAD" })],
+      ["crawler 200", 200, await get(h, open.sharePath, { "User-Agent": "Slackbot 1.0" })],
+      ["raw 302", 302, await get(h, `${open.sharePath}/raw`)],
+      ["download 302", 302, await get(h, `${open.sharePath}/download`)],
+      ["page 404 unknown", 404, await get(h, unknown)],
+      ["page 404 malformed", 404, await get(h, "/share/short")],
+      ["raw 404 unknown", 404, await get(h, `${unknown}/raw`)],
+      ["download 404 unknown", 404, await get(h, `${unknown}/download`)],
+      ["unmatched sub-route 404", 404, await get(h, `${open.sharePath}/nope/deeper`)],
+      ["page 410 used up", 410, await get(h, limited.sharePath)],
+      ["raw 410 used up", 410, await get(h, `${limited.sharePath}/raw`)],
+      ["download 410 used up", 410, await get(h, `${limited.sharePath}/download`)],
+      ["page 410 revoked", 410, await get(h, dead.sharePath)],
+      ["raw 410 revoked", 410, await get(h, `${dead.sharePath}/raw`)],
+      ["raw 403 no grant", 403, await get(h, `${unseen.sharePath}/raw`)],
+      ["download 403 no grant", 403, await get(h, `${unseen.sharePath}/download`)],
+    ];
+    for (const [what, status, res] of cases) {
+      expect(res.status, what).toBe(status);
+      expectLockedDown(res, what);
+    }
+  });
+
+  test("the preview page keeps its own CSP and the PDF route its deliberate override", async () => {
+    const png = await get(h, (await share(h, "/notes/pic.png")).sharePath);
+    const csp = png.headers.get("content-security-policy")!;
+    expect(csp).toContain("img-src https://mock.local");
+    expect(csp).not.toContain("sandbox"); // the page itself is not sandboxed
+
+    const local = await setup({ presigned: false });
+    await write(local, "/doc.pdf", "fake-pdf-bytes");
+    const pdf = await get(local, `${(await share(local, "/doc.pdf")).sharePath}/raw`);
+    expect(pdf.headers.get("content-security-policy")).toBe("frame-ancestors 'self'");
+    expect(pdf.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+  });
+
+  test("the 429 from the rate limiter carries it too", async () => {
+    const saved = process.env.AGENT_FS_SHARE_RATE_LIMIT;
+    process.env.AGENT_FS_SHARE_RATE_LIMIT = "2";
+    try {
+      const limited = await setup();
+      await write(limited, "/a.md", "# a");
+      const s = await share(limited, "/a.md");
+      const statuses: number[] = [];
+      let refused: Response | null = null;
+      for (let i = 0; i < 4; i++) {
+        const res = await get(limited, s.sharePath);
+        statuses.push(res.status);
+        if (res.status === 429) refused ??= res;
+      }
+      expect(statuses).toEqual([200, 200, 429, 429]);
+      expectLockedDown(refused!, "429");
+      expect(refused!.headers.get("retry-after")).toBeTruthy();
+      expect(await refused!.text()).toBe("Too many requests");
+    } finally {
+      if (saved === undefined) delete process.env.AGENT_FS_SHARE_RATE_LIMIT;
+      else process.env.AGENT_FS_SHARE_RATE_LIMIT = saved;
+    }
+  });
+
+  test("an internal error is a generic 500 with the baseline, and leaks nothing", async () => {
+    const broken = await setup();
+    await write(broken, "/a.md", "# a");
+    const s = await share(broken, "/a.md");
+    const original = console.error;
+    console.error = () => {};
+    (broken.s3 as any).headObject = async () => {
+      throw new Error("bucket agent-fs-prod-secret at https://internal.example exploded");
+    };
+    try {
+      for (const path of [s.sharePath, `${s.sharePath}/download`]) {
+        const res = await get(broken, path);
+        expect(res.status, path).toBe(500);
+        expectLockedDown(res, `500 ${path}`);
+        const body = await res.text();
+        expect(body).toBe("Something went wrong");
+        expect(body).not.toContain("secret");
+      }
+    } finally {
+      console.error = original;
+    }
   });
 });
 

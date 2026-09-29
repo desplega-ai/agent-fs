@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach } from "bun:test";
+import { eq } from "drizzle-orm";
 import { schema } from "../../db/index.js";
 import { createTestContext } from "../../test-utils.js";
 import { createUser } from "../../identity/users.js";
@@ -6,14 +7,15 @@ import { setDriveMember } from "../../identity/drives.js";
 import { dispatchOp, getOpDefinition } from "../index.js";
 import {
   consumeShareView,
-  canServeShareAssets,
+  authorizeShareBytes,
   extractShareToken,
   findShareByToken,
   generateShareToken,
   getShareState,
   hashShareToken,
   isWellFormedShareToken,
-  SHARE_ASSET_GRACE_SECONDS,
+  SHARE_VIEW_GRANT_TTL_SECONDS,
+  openShareView,
 } from "../share.js";
 import type { ShareCreateResult } from "../share.js";
 import type { OpContext } from "../types.js";
@@ -175,30 +177,158 @@ describe("consumeShareView", () => {
   });
 });
 
-describe("canServeShareAssets", () => {
-  test("unlimited link: served while active", async () => {
+describe("openShareView", () => {
+  const grantRows = () => t.db.select().from(schema.shareViewGrants).all();
+
+  test("unlimited link: counts the view and mints no grant (the token already opens the page)", async () => {
     const token = tokenOf(await create());
-    expect(canServeShareAssets(findShareByToken(t.db, token)!)).toBe(true);
+    const opened = openShareView(t.db, token)!;
+    expect(opened.share.views).toBe(1);
+    expect(opened.grant).toBeNull();
+    expect(grantRows()).toHaveLength(0);
   });
 
-  test("view-limited link: only after a view, and only for the grace window", async () => {
-    const token = tokenOf(await create({ maxViews: 1 }));
-    expect(canServeShareAssets(findShareByToken(t.db, token)!)).toBe(false);
+  test("view-limited link: the counted view carries its own grant, stored only as a hash", async () => {
+    const token = tokenOf(await create({ maxViews: 2 }));
+    const opened = openShareView(t.db, token)!;
+    expect(opened.share.views).toBe(1);
+    expect(isWellFormedShareToken(opened.grant!.token)).toBe(true);
+    expect(opened.grant!.token).not.toBe(token);
 
-    const viewedAt = new Date();
-    consumeShareView(t.db, token, viewedAt);
-    const share = findShareByToken(t.db, token)!;
-    expect(canServeShareAssets(share, viewedAt)).toBe(true);
-    const later = new Date(viewedAt.getTime() + (SHARE_ASSET_GRACE_SECONDS + 5) * 1000);
-    expect(canServeShareAssets(share, later)).toBe(false);
+    const rows = grantRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].grantHash).toBe(hashShareToken(opened.grant!.token));
+    expect(JSON.stringify(rows)).not.toContain(opened.grant!.token);
+    expect(rows[0].shareId).toBe(opened.share.id);
   });
 
-  test("never once revoked or expired", async () => {
+  test("one grant per counted view, never more than maxViews", async () => {
+    const token = tokenOf(await create({ maxViews: 3 }));
+    const results = Array.from({ length: 10 }, () => openShareView(t.db, token));
+    expect(results.filter(Boolean)).toHaveLength(3);
+    expect(grantRows()).toHaveLength(3);
+    expect(new Set(results.filter(Boolean).map((r) => r!.grant!.token)).size).toBe(3);
+  });
+
+  test("a refused view (used up, revoked, expired) mints nothing", async () => {
+    const one = await create({ maxViews: 1 });
+    expect(openShareView(t.db, tokenOf(one))).not.toBeNull();
+    expect(openShareView(t.db, tokenOf(one))).toBeNull();
+
+    const revoked = await create({ maxViews: 5 });
+    await dispatchOp(ctx, "share-revoke", { id: revoked.id });
+    expect(openShareView(t.db, tokenOf(revoked))).toBeNull();
+
+    const expired = await create({ maxViews: 5 });
+    t.db.update(schema.shares).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(schema.shares.id, expired.id)).run();
+    expect(openShareView(t.db, tokenOf(expired))).toBeNull();
+
+    expect(grantRows()).toHaveLength(1);
+  });
+
+  test("the grant lives for the view TTL, and never past the share itself", async () => {
+    const now = new Date();
+    const long = await create({ maxViews: 2, expiresIn: 86_400 });
+    const g1 = openShareView(t.db, tokenOf(long), now)!.grant!;
+    expect(g1.expiresAt.getTime()).toBeLessThanOrEqual(now.getTime() + SHARE_VIEW_GRANT_TTL_SECONDS * 1000);
+    expect(g1.expiresAt.getTime()).toBeGreaterThan(now.getTime() + (SHARE_VIEW_GRANT_TTL_SECONDS - 2) * 1000);
+
+    const short = await create({ maxViews: 2, expiresIn: 60 });
+    const shareExpiry = findShareByToken(t.db, tokenOf(short))!.expiresAt;
+    const g2 = openShareView(t.db, tokenOf(short), now)!.grant!;
+    expect(g2.expiresAt.getTime()).toBeLessThanOrEqual(shareExpiry.getTime());
+  });
+
+  test("purges grants that have already expired", async () => {
+    const token = tokenOf(await create({ maxViews: 5 }));
+    openShareView(t.db, token);
+    t.db.update(schema.shareViewGrants).set({ expiresAt: new Date(Date.now() - 5000) }).run();
+    openShareView(t.db, token);
+    expect(grantRows()).toHaveLength(1);
+  });
+});
+
+describe("authorizeShareBytes", () => {
+  const gone = { ok: false, reason: "gone" } as const;
+  const needGrant = { ok: false, reason: "grant_required" } as const;
+
+  test("unknown and malformed tokens are not found", () => {
+    expect(authorizeShareBytes(t.db, generateShareToken(), null)).toEqual({ ok: false, reason: "not_found" });
+    expect(authorizeShareBytes(t.db, "short", null)).toEqual({ ok: false, reason: "not_found" });
+  });
+
+  test("unlimited link: the token alone is enough while it is active", async () => {
     const r = await create();
-    const share = findShareByToken(t.db, tokenOf(r))!;
-    expect(canServeShareAssets(share, new Date(share.expiresAt.getTime() + 1000))).toBe(false);
+    const token = tokenOf(r);
+    expect(authorizeShareBytes(t.db, token, null).ok).toBe(true);
+
+    const share = findShareByToken(t.db, token)!;
+    expect(authorizeShareBytes(t.db, token, null, new Date(share.expiresAt.getTime() + 1000))).toEqual(gone);
     await dispatchOp(ctx, "share-revoke", { id: r.id });
-    expect(canServeShareAssets(findShareByToken(t.db, tokenOf(r))!)).toBe(false);
+    expect(authorizeShareBytes(t.db, token, null)).toEqual(gone);
+  });
+
+  test("view-limited link: the bare token never opens the bytes, before or after the view", async () => {
+    const token = tokenOf(await create({ maxViews: 1 }));
+    expect(authorizeShareBytes(t.db, token, null)).toEqual(needGrant);
+    openShareView(t.db, token);
+    expect(authorizeShareBytes(t.db, token, null)).toEqual(gone); // used up
+    expect(authorizeShareBytes(t.db, token, "")).toEqual(gone);
+  });
+
+  test("view-limited link: the grant from the counted view opens the bytes, even once the link is used up", async () => {
+    const token = tokenOf(await create({ maxViews: 1 }));
+    const { grant } = openShareView(t.db, token)!;
+    expect(getShareState(findShareByToken(t.db, token)!)).toBe("exhausted");
+    expect(authorizeShareBytes(t.db, token, grant!.token).ok).toBe(true);
+  });
+
+  test("a grant is bound to its own share", async () => {
+    const a = tokenOf(await create({ maxViews: 1 }));
+    const b = tokenOf(await create({ maxViews: 1 }));
+    const gA = openShareView(t.db, a)!.grant!;
+    openShareView(t.db, b);
+    expect(authorizeShareBytes(t.db, b, gA.token)).toEqual(gone);
+    expect(authorizeShareBytes(t.db, a, gA.token).ok).toBe(true);
+  });
+
+  test("a guessed, malformed or truncated grant is refused", async () => {
+    const token = tokenOf(await create({ maxViews: 3 }));
+    const { grant } = openShareView(t.db, token)!;
+    for (const bad of [generateShareToken(), "short", "' OR 1=1 --", grant!.token.slice(0, 42), token]) {
+      expect(authorizeShareBytes(t.db, token, bad).ok).toBe(false);
+    }
+  });
+
+  test("a grant stops working at its own expiry", async () => {
+    const token = tokenOf(await create({ maxViews: 1 }));
+    const now = new Date();
+    const { grant } = openShareView(t.db, token, now)!;
+    const justBefore = new Date(grant!.expiresAt.getTime() - 1000);
+    expect(authorizeShareBytes(t.db, token, grant!.token, justBefore).ok).toBe(true);
+    expect(authorizeShareBytes(t.db, token, grant!.token, grant!.expiresAt).ok).toBe(false);
+    expect(authorizeShareBytes(t.db, token, grant!.token, new Date(grant!.expiresAt.getTime() + 60_000))).toEqual(gone);
+  });
+
+  test("revoking or expiring the share kills its grants immediately", async () => {
+    const r = await create({ maxViews: 5 });
+    const token = tokenOf(r);
+    const { grant } = openShareView(t.db, token)!;
+    expect(authorizeShareBytes(t.db, token, grant!.token).ok).toBe(true);
+
+    const share = findShareByToken(t.db, token)!;
+    expect(authorizeShareBytes(t.db, token, grant!.token, new Date(share.expiresAt.getTime() + 1000))).toEqual(gone);
+
+    await dispatchOp(ctx, "share-revoke", { id: r.id });
+    expect(authorizeShareBytes(t.db, token, grant!.token)).toEqual(gone);
+  });
+
+  test("an independent client holding only the spent token is refused while the viewer's grant still works", async () => {
+    const token = tokenOf(await create({ maxViews: 1 }));
+    const viewer = openShareView(t.db, token)!;
+    expect(openShareView(t.db, token)).toBeNull(); // the second client cannot open a view
+    expect(authorizeShareBytes(t.db, token, null).ok).toBe(false); // ...nor fetch bytes
+    expect(authorizeShareBytes(t.db, token, viewer.grant!.token).ok).toBe(true);
   });
 });
 

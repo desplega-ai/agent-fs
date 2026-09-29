@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
-import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import type { OpContext } from "./types.js";
 import { getS3Key } from "./versioning.js";
-import { normalizePath } from "./paths.js";
+import { assertPathInsideDrive, normalizePath } from "./paths.js";
 import { NotFoundError, PermissionDeniedError, ValidationError } from "../errors.js";
 import { getUserDriveRole, getUserOrgRole } from "../identity/rbac.js";
 
@@ -13,12 +13,13 @@ export const SHARE_DEFAULT_TTL_SECONDS = 86_400;
 /** Longest a share link may live: 7 days. */
 export const SHARE_MAX_TTL_SECONDS = 604_800;
 /**
- * How long the file bytes (`/share/:token/raw`, `/download`) stay reachable
- * after the last counted page view of a view-limited link. The page has to be
- * able to load its embed and Download button after it consumed the view, but a
- * one-off link must not keep serving the bytes until it expires.
+ * How long a view-limited link's file bytes (`/share/:token/raw`, `/download`)
+ * stay reachable for the page view that was counted. The page has to be able
+ * to load its embed and Download button after it spent the view, but the
+ * credential for that is issued with the view, so a spent token cannot fetch
+ * bytes on its own. Capped to the share's own remaining lifetime.
  */
-export const SHARE_ASSET_GRACE_SECONDS = 3_600;
+export const SHARE_VIEW_GRANT_TTL_SECONDS = 3_600;
 
 /** 32 random bytes → 256 bits of entropy, base64url → 43 chars. */
 const TOKEN_BYTES = 32;
@@ -100,20 +101,6 @@ export function getShareState(share: ShareRecord, now: Date = new Date()): Share
 }
 
 /**
- * Can the file bytes be fetched for this share? Same as an active share, with
- * one difference for view-limited links: the page view has already been spent
- * (so `exhausted` is fine) but the bytes are only served for a short grace
- * window after it, so a one-off link cannot be used as a permanent raw URL.
- */
-export function canServeShareAssets(share: ShareRecord, now: Date = new Date()): boolean {
-  if (share.revokedAt) return false;
-  if (share.expiresAt.getTime() <= now.getTime()) return false;
-  if (share.maxViews === null) return true;
-  if (!share.lastViewedAt) return false;
-  return now.getTime() - share.lastViewedAt.getTime() <= SHARE_ASSET_GRACE_SECONDS * 1000;
-}
-
-/**
  * Atomically spend one view. The revoked / expired / view-limit guards live in
  * the same UPDATE as the increment, so two concurrent requests can never both
  * take the last view and a revoke can never lose a race against a view.
@@ -121,11 +108,14 @@ export function canServeShareAssets(share: ShareRecord, now: Date = new Date()):
  * Note `max_views IS NULL OR views < max_views`: an unlimited link has a NULL
  * limit, and `views < NULL` is never true.
  *
+ * `now` must be the time of THIS call, not one captured before an await: the
+ * `expires_at > now` guard is only as fresh as the value passed in.
+ *
  * Returns the share with its updated counters, or null when the link cannot be
  * opened (unknown, revoked, expired or used up).
  */
 export function consumeShareView(
-  db: DB,
+  db: DB | Tx,
   token: string,
   now: Date = new Date()
 ): ShareRecord | null {
@@ -147,6 +137,141 @@ export function consumeShareView(
     .returning()
     .get();
   return row ? toRecord(row) : null;
+}
+
+/** A drizzle transaction handle: the same query builder as {@link DB}. */
+type Tx = Parameters<Parameters<DB["transaction"]>[0]>[0];
+
+export interface ShareViewGrant {
+  /** Bearer credential for the byte routes. Shown once; only its hash is stored. */
+  token: string;
+  expiresAt: Date;
+}
+
+export interface OpenedShareView {
+  share: ShareRecord;
+  /** Set for view-limited links only; unlimited links need no grant. */
+  grant: ShareViewGrant | null;
+}
+
+/**
+ * Spend one view and, for a view-limited link, mint the grant that this view's
+ * page uses to fetch the file bytes. Both happen in one transaction, so a
+ * counted view always has its grant and a refused view never has one.
+ *
+ * The grant expires at the earlier of `SHARE_VIEW_GRANT_TTL_SECONDS` from now
+ * and the share's own expiry. Expired grants are purged here, so the table
+ * stays bounded by the views handed out in the last hour.
+ */
+export function openShareView(
+  db: DB,
+  token: string,
+  now: Date = new Date()
+): OpenedShareView | null {
+  return db.transaction((tx) => {
+    const share = consumeShareView(tx, token, now);
+    if (!share) return null;
+
+    tx.delete(schema.shareViewGrants).where(lte(schema.shareViewGrants.expiresAt, now)).run();
+    if (share.maxViews === null) return { share, grant: null };
+
+    // Second precision, like every timestamp column here. Rounding down can only
+    // shorten the grant.
+    const nowSeconds = Math.floor(now.getTime() / 1000) * 1000;
+    const expiresAt = new Date(
+      Math.min(nowSeconds + SHARE_VIEW_GRANT_TTL_SECONDS * 1000, share.expiresAt.getTime())
+    );
+    const grantToken = generateShareToken();
+    tx.insert(schema.shareViewGrants)
+      .values({
+        grantHash: hashShareToken(grantToken),
+        shareId: share.id,
+        expiresAt,
+        createdAt: now,
+      })
+      .run();
+    return { share, grant: { token: grantToken, expiresAt } };
+  });
+}
+
+export type ShareByteAccess =
+  | { ok: true; share: ShareRecord }
+  | { ok: false; reason: "not_found" | "gone" | "grant_required" };
+
+/**
+ * May the file bytes of this share be fetched right now? Read-only.
+ *
+ * - unlimited link: the token is enough while the link is active. It already
+ *   opens the page as often as its holder likes, so bytes add no new exposure.
+ * - view-limited link: the token is NOT enough. The request must carry the
+ *   grant issued with a counted view of this very share, unexpired. A used-up
+ *   link therefore never serves bytes to anyone who only holds the token, and
+ *   an unspent one serves them only to a client that opened a view.
+ *
+ * A revoked or expired share refuses everything, grant or not. `now` must be
+ * the time of this call.
+ */
+export function authorizeShareBytes(
+  db: DB,
+  token: string,
+  grant: string | null | undefined,
+  now: Date = new Date()
+): ShareByteAccess {
+  const share = findShareByToken(db, token);
+  if (!share) return { ok: false, reason: "not_found" };
+
+  const state = getShareState(share, now);
+  if (state === "revoked" || state === "expired") return { ok: false, reason: "gone" };
+  if (share.maxViews === null) return { ok: true, share };
+
+  const denied = state === "exhausted" ? "gone" : "grant_required";
+  if (!grant || !isWellFormedShareToken(grant)) return { ok: false, reason: denied };
+
+  const row = db
+    .select({ shareId: schema.shareViewGrants.shareId })
+    .from(schema.shareViewGrants)
+    .where(
+      and(
+        eq(schema.shareViewGrants.grantHash, hashShareToken(grant)),
+        eq(schema.shareViewGrants.shareId, share.id),
+        gt(schema.shareViewGrants.expiresAt, now)
+      )
+    )
+    .get();
+  return row ? { ok: true, share } : { ok: false, reason: denied };
+}
+
+/**
+ * How many seconds a presigned URL for this share may live: `capSeconds`, or
+ * what is left of the share, whichever is shorter. No floor above the
+ * remaining time, so a URL never outlives the link it was issued for. Returns
+ * null once less than a second is left: nothing should be issued then.
+ *
+ * `at` must be the moment of issuing, not a timestamp taken before an await.
+ */
+export function capUrlTtlSeconds(
+  share: ShareRecord,
+  capSeconds: number,
+  at: Date = new Date()
+): number | null {
+  const remaining = Math.floor((share.expiresAt.getTime() - at.getTime()) / 1000);
+  const ttl = Math.min(capSeconds, remaining);
+  return ttl >= 1 ? ttl : null;
+}
+
+/**
+ * Storage key of a share's file, or null when the stored path is not one the
+ * share op would have accepted. The public routes build every key through
+ * this, so a row that got in some other way can never be turned into a read
+ * outside the drive it names.
+ */
+export function shareStorageKey(share: ShareRecord): string | null {
+  try {
+    assertPathInsideDrive(share.path);
+  } catch {
+    return null;
+  }
+  return getS3Key(share.orgId, share.driveId, share.path);
 }
 
 /**
@@ -210,6 +335,9 @@ export async function shareCreate(
   params: ShareCreateParams
 ): Promise<ShareCreateResult> {
   const normalizedPath = normalizePath(params.path);
+  // Before storage is touched and before anything is stored: a public link must
+  // not be able to name a file outside the drive the caller is authorized for.
+  assertPathInsideDrive(normalizedPath);
   const key = getS3Key(ctx.orgId, ctx.driveId, normalizedPath);
 
   // Only mint links for files that exist right now.

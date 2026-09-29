@@ -136,6 +136,19 @@ CREATE TABLE IF NOT EXISTS shares (
 CREATE UNIQUE INDEX IF NOT EXISTS shares_token_hash_uq ON shares(token_hash);
 CREATE INDEX IF NOT EXISTS idx_shares_drive_path ON shares(drive_id, path);
 
+-- What a counted page view of a view-limited share gets to fetch its bytes
+-- with. Only the SHA-256 of the grant is stored. Bytes of a view-limited link
+-- are never served on the (spent) share token alone.
+CREATE TABLE IF NOT EXISTS share_view_grants (
+  grant_hash TEXT PRIMARY KEY,
+  share_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_share_view_grants_share ON share_view_grants(share_id);
+CREATE INDEX IF NOT EXISTS idx_share_view_grants_expiry ON share_view_grants(expires_at);
+
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT NOT NULL,
