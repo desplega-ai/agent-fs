@@ -8,8 +8,8 @@
  * every render, in order:
  *
  *   1. exact quote, disambiguated by prefix/suffix when it occurs more than once;
- *      an occurrence whose saved context conflicts is only accepted where the
- *      line range confirms it
+ *      an occurrence where either saved side conflicts is only accepted where
+ *      the line range confirms it
  *   2. the line range, remapped from the comment's version to the current one
  *   3. the quote alone (first/nearest occurrence, or a partial match)
  *   4. "lost" — surfaced to the user instead of silently highlighting nothing
@@ -169,9 +169,9 @@ function commonPrefixLength(a: string, b: string): number {
 
 // Context is compared on letters and digits only, so markup that differs
 // between the rendered view and the source (emphasis, list markers, blank
-// lines) doesn't read as a change.
+// lines, link targets) doesn't read as a change.
 function contextKey(text: string): string {
-  return text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")
+  return text.replace(/\]\([^)\s]*\)?/g, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")
 }
 
 /** Stray chars (a list number, a link target) either side may skip at the join. */
@@ -195,15 +195,18 @@ function sideMatch(want: string, got: string, side: "prefix" | "suffix"): number
 
 interface ContextMatch {
   score: number
-  /** The quote has saved context and none of it agrees with this occurrence. */
+  /**
+   * Some saved context side disagrees with this occurrence. One agreeing side
+   * doesn't outweigh it: duplicated text often shares one side (the same line
+   * after it) while the other side is what tells the occurrences apart.
+   */
   conflicts: boolean
 }
 
 /** How well the text around a candidate matches the stored prefix/suffix. */
 function contextMatch(text: string, c: Candidate, quote: AnchorQuote): ContextMatch {
   let score = 0
-  let informative = false
-  let agrees = false
+  let disagrees = false
   for (const side of ["prefix", "suffix"] as const) {
     const saved = quote[side]
     if (!saved) continue
@@ -214,11 +217,10 @@ function contextMatch(text: string, c: Candidate, quote: AnchorQuote): ContextMa
     const n = sideMatch(want, contextKey(window), side)
     score += n
     if (want.length < CONTEXT_MIN) continue
-    informative = true
     // Half of what was saved, or the 8 chars nearest the quote.
-    if (n >= Math.min(want.length, Math.max(8, Math.ceil(want.length / 2)))) agrees = true
+    if (n < Math.min(want.length, Math.max(8, Math.ceil(want.length / 2)))) disagrees = true
   }
-  return { score, conflicts: informative && !agrees }
+  return { score, conflicts: disagrees }
 }
 
 /** The candidate with the strictly best context score (strict matches win ties), if there is one. */

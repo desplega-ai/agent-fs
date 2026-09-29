@@ -138,6 +138,32 @@ describe("drift case 2b: the commented duplicate is edited, another survives", (
   })
 })
 
+describe("drift case 2c: the edited duplicate shares its suffix with the survivor", () => {
+  const v1 = "First section\nOwner: TBD\nStatus: active\n\nSecond section\nOwner: TBD\nStatus: active\n"
+  const v2 = "First section\nOwner: TBD\nStatus: active\n\nSecond section\nOwner: Alice\nStatus: active\n"
+  const { quote } = quoteAt(v1, "Owner: TBD", 1)
+  const input = { quote, lineStart: 6, lineEnd: 6, stale: true }
+
+  test("without the diff: the matching suffix doesn't override the conflicting prefix", () => {
+    const r = resolveAnchor(sourceTextSpace(v2), input)
+    expect(r.status).toBe("moved")
+    expect(anchorNeedsDiff(r)).toBe(true)
+  })
+
+  test("with the diff: the line-6 replacement, flagged moved", () => {
+    const r = resolveAnchor(sourceTextSpace(v2), { ...input, changes: lineDiff(v1, v2) })
+    expect(r).toMatchObject({ status: "moved", method: "lines", lineStart: 6, lineEnd: 6 })
+    expect(v2.slice(r.start, r.end)).toBe("Owner: Alice")
+  })
+
+  test("the untouched first occurrence still anchors", () => {
+    const first = quoteAt(v1, "Owner: TBD", 0).quote
+    const r = resolveAnchor(sourceTextSpace(v2), { quote: first, lineStart: 2, lineEnd: 2, stale: true })
+    expect(r).toMatchObject({ status: "anchored", method: "quote", lineStart: 2 })
+    expect(anchorNeedsDiff(r)).toBe(false)
+  })
+})
+
 describe("drift case 3: quote spanning blocks", () => {
   // Rendered text as the DOM space builds it: blocks separated by "\n".
   const rendered = "First paragraph ends here.\nSecond paragraph starts here."
