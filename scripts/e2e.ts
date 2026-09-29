@@ -9,7 +9,7 @@
  *   bun run scripts/e2e.ts "agent-fs"
  */
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync, readFileSync, mkdtempSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, readFileSync, mkdtempSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
@@ -976,6 +976,9 @@ async function runTests() {
     // Capability gating (no-versioning) + signed-url presigned/app fallback.
     await unsupportedOpSuite();
     await signedUrlMatrix(minioBackend, localBackend);
+
+    // Two tenants on one local storage root: `..` must not cross drives.
+    await localContainmentSuite(localBackend);
   }
   await runFuseTests();
 }
@@ -3259,6 +3262,144 @@ async function signedUrlMatrix(minio: Backend | undefined, local: Backend) {
     assert(res.kind, "app", `expected app-URL fallback, got kind=${res.kind}`);
     assert(res.expiresIn, 0);
     assertIncludes(res.url, "/file/~/", "expected an in-app (non-presigned) link");
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Local storage tenant containment
+//
+// Every drive is a sibling directory (`<org>/drives/<drive>/`) under ONE local
+// storage root, so a `.`/`..` segment in a path used to reach another tenant's
+// drive on any op. Two real users on a real daemon: the attacker climbs out of
+// their own drive over the JSON ops API and the raw file route, and the
+// victim's bytes must stay untouched and undisclosed. Legitimate dotted names
+// must keep working. (S3 is not covered here: an `a/../b` key is ordinary data
+// there and its adapter is unchanged.)
+// ---------------------------------------------------------------------------
+
+async function localContainmentSuite(b: Backend) {
+  console.log(`\n-- local storage tenant containment [${b.label}] --`);
+  const url = `http://127.0.0.1:${b.daemonPort}`;
+  const storageRoot = join(b.home, "storage");
+  const SECRET = "VICTIM-SECRET-BYTES";
+
+  const post = (key: string, orgId: string, body: Record<string, unknown>) =>
+    fetch(`${url}/orgs/${orgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+      body: JSON.stringify(body),
+    });
+
+  const reg = await fetch(`${url}/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: `victim-${b.label}@e2e.local` }),
+  });
+  const victim = (await reg.json()) as { apiKey: string; orgId: string };
+  const vDrives = (await (
+    await fetch(`${url}/orgs/${victim.orgId}/drives`, { headers: { Authorization: `Bearer ${victim.apiKey}` } })
+  ).json()) as any;
+  const victimDriveId: string = vDrives.drives[0].id;
+  const victimDir = `${victim.orgId}/drives/${victimDriveId}`;
+  const victimKey = `${victimDir}/secret.txt`;
+
+  const wr = await post(victim.apiKey, victim.orgId, { op: "write", path: "/secret.txt", content: SECRET });
+  if (!wr.ok) throw new Error(`victim write failed: ${wr.status} ${await wr.text()}`);
+  const mine = await post(b.apiKey, b.orgId, { op: "write", path: "/mine.txt", content: "attacker file" });
+  if (!mine.ok) throw new Error(`attacker write failed: ${mine.status} ${await mine.text()}`);
+
+  const victimDiskDir = join(storageRoot, victimDir);
+  const victimState = () => JSON.stringify(readdirSync(victimDiskDir).sort()) + readFileSync(join(storageRoot, victimKey), "utf-8");
+  const untouched = victimState();
+
+  // Three segments deep: org, "drives", drive.
+  const up = "../../..";
+  const hostile: Array<[string, string, string]> = [
+    // [name, path to the victim's file, path to the victim's drive directory]
+    ["climb", `/${up}/${victimKey}`, `/${up}/${victimDir}`],
+    ["no leading slash", `${up}/${victimKey}`, `${up}/${victimDir}`],
+    ["dot segments mixed in", `/./${up.replaceAll("/", "/./")}/./${victimKey}`, `/./${up.replaceAll("/", "/./")}/./${victimDir}`],
+    ["via a real directory", `/x/../${up}/${victimKey}`, `/x/../${up}/${victimDir}`],
+    ["backslashes", `/${up.replaceAll("/", "\\")}\\${victimKey.replaceAll("/", "\\")}`, `/${up.replaceAll("/", "\\")}\\${victimDir.replaceAll("/", "\\")}`],
+  ];
+
+  const fileOps: Array<[string, (p: string) => Record<string, unknown>]> = [
+    ["cat", (p) => ({ op: "cat", path: p })],
+    ["tail", (p) => ({ op: "tail", path: p })],
+    ["stat", (p) => ({ op: "stat", path: p })],
+    ["write", (p) => ({ op: "write", path: p, content: "PWNED" })],
+    ["append", (p) => ({ op: "append", path: p, content: "PWNED" })],
+    ["edit", (p) => ({ op: "edit", path: p, old_string: "VICTIM", new_string: "PWNED" })],
+    ["rm", (p) => ({ op: "rm", path: p })],
+    ["cp from", (p) => ({ op: "cp", from: p, to: "/stolen.txt" })],
+    ["cp to", (p) => ({ op: "cp", from: "/mine.txt", to: p })],
+    ["mv from", (p) => ({ op: "mv", from: p, to: "/stolen.txt" })],
+    ["mv to", (p) => ({ op: "mv", from: "/mine.txt", to: p })],
+  ];
+  const dirOps: Array<[string, (p: string) => Record<string, unknown>]> = [
+    ["ls", (p) => ({ op: "ls", path: p })],
+    ["tree", (p) => ({ op: "tree", path: p })],
+    ["glob", (p) => ({ op: "glob", pattern: "*", path: p })],
+  ];
+
+  for (const [formName, filePath, dirPath] of hostile) {
+    await test(`[${b.label}] hostile path (${formName}) is refused by every op and the other drive is untouched`, async () => {
+      for (const [opName, build] of fileOps) {
+        const res = await post(b.apiKey, b.orgId, build(filePath));
+        const text = await res.text();
+        assert(res.status, 400, `${opName}: expected 400, got ${res.status}: ${text.slice(0, 120)}`);
+        assert(JSON.parse(text).error, "VALIDATION_ERROR", `${opName}: ${text.slice(0, 120)}`);
+        assert(text.includes(SECRET), false, `${opName} leaked the other tenant's bytes`);
+      }
+      for (const [opName, build] of dirOps) {
+        const res = await post(b.apiKey, b.orgId, build(dirPath));
+        const text = await res.text();
+        assert(res.status, 400, `${opName}: expected 400, got ${res.status}: ${text.slice(0, 120)}`);
+        assert(JSON.parse(text).error, "VALIDATION_ERROR", `${opName}: ${text.slice(0, 120)}`);
+      }
+      assert(victimState(), untouched, "the victim's drive changed on disk");
+      // ...and it is still the victim's, readable by them.
+      const own = await post(victim.apiKey, victim.orgId, { op: "cat", path: "/secret.txt" });
+      assert(((await own.json()) as any).content, SECRET);
+    });
+  }
+
+  await test(`[${b.label}] GET /files/.../raw cannot read another tenant's drive`, async () => {
+    // `..%2f` / `..%5c` survive URL parsing (a literal `../` would be collapsed
+    // before it ever reached the server), so the route decodes them itself.
+    for (const enc of [
+      `${encodeURIComponent(`${up}/${victimKey}`)}`,
+      `${encodeURIComponent(`${up}/${victimKey}`.replaceAll("/", "\\"))}`,
+    ]) {
+      const res = await fetch(`${url}/orgs/${b.orgId}/drives/${b.driveId}/files/${enc}/raw`, {
+        headers: { Authorization: `Bearer ${b.apiKey}` },
+      });
+      const text = await res.text();
+      assert(res.status, 400, `expected 400, got ${res.status}: ${text.slice(0, 120)}`);
+      assert(text.includes(SECRET), false, "raw route leaked the other tenant's bytes");
+    }
+    assert(victimState(), untouched, "the victim's drive changed on disk");
+  });
+
+  await test(`[${b.label}] a NUL byte in a path is refused`, async () => {
+    const res = await post(b.apiKey, b.orgId, { op: "cat", path: "/notes\u0000.txt" });
+    assert(res.status, 400, `expected 400, got ${res.status}`);
+  });
+
+  await test(`[${b.label}] names that merely contain dots keep working`, async () => {
+    for (const path of ["/.env", "/a.b", "/..foo", "/file..", "/dir../x.txt", "/.hidden/notes..md"]) {
+      const w = await post(b.apiKey, b.orgId, { op: "write", path, content: "ok" });
+      assert(w.status, 200, `write ${path}: ${w.status} ${await w.text()}`);
+      const c = await post(b.apiKey, b.orgId, { op: "cat", path });
+      assert(((await c.json()) as any).content, "ok", `cat ${path}`);
+    }
+    // through the CLI as well, so the whole path (CLI -> daemon -> adapter) is exercised
+    runJsonOn(b, `write /.cli-env --content cli-ok`);
+    assert(runJsonOn(b, `cat /.cli-env`).content, "cli-ok");
+    const names = runJsonOn(b, `ls /`).entries.map((e: any) => e.name);
+    for (const n of [".env", "a.b", "..foo", "file..", "dir..", ".hidden", ".cli-env"]) {
+      assert(names.includes(n), true, `expected ${n} in ls /, got ${JSON.stringify(names)}`);
+    }
   });
 }
 
