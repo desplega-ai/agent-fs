@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils"
 import { useTheme } from "@/hooks/use-theme"
 import { AddComment } from "@/components/comments/AddComment"
 import { EditToolbar } from "./EditToolbar"
-import { Spinner } from "@/components/ui/spinner"
+import { TextViewerSkeleton } from "./TextViewerSkeleton"
 import type { CommentListEntry } from "@/api/types"
 import type { editor } from "monaco-editor"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
@@ -285,7 +285,7 @@ export function TextViewer({
           onChange={editable ? handleEditorChange : undefined}
           theme={monacoTheme}
           onMount={handleEditorMount}
-          loading={<div className="flex items-center justify-center h-full"><Spinner /></div>}
+          loading={<TextViewerSkeleton className="h-full" />}
           options={{
             readOnly: !editable || isSaving,
             minimap: { enabled: false },
