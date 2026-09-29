@@ -80,6 +80,8 @@ export {
   openShareView,
   shareStorageKey,
   capUrlTtlSeconds,
+  presignShareUrl,
+  presignedUrlDeadline,
   recordShareViewed,
   isWellFormedShareToken,
   extractShareToken,

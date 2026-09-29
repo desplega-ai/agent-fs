@@ -223,14 +223,17 @@ export class MockS3Client implements StorageAdapter {
     expiresIn: number = 86400,
     responseContentType?: string,
     responseContentDisposition?: string,
+    signingDate: Date = new Date(),
   ): Promise<string> {
+    // Shaped like a SigV4 query so callers can read the deadline off the URL.
+    const amzDate = signingDate.toISOString().replace(/[-:]|\.\d{3}/g, "");
     const ct = responseContentType
       ? `&ct=${encodeURIComponent(responseContentType)}`
       : "";
     const cd = responseContentDisposition
       ? `&cd=${encodeURIComponent(responseContentDisposition)}`
       : "";
-    return `https://mock.local/${key}?e=${expiresIn}${ct}${cd}`;
+    return `https://mock.local/${key}?e=${expiresIn}&X-Amz-Date=${amzDate}&X-Amz-Expires=${expiresIn}${ct}${cd}`;
   }
 
   /** Reset all stored objects */

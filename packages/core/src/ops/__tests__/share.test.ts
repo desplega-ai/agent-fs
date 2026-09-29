@@ -16,6 +16,8 @@ import {
   isWellFormedShareToken,
   SHARE_VIEW_GRANT_TTL_SECONDS,
   openShareView,
+  presignShareUrl,
+  presignedUrlDeadline,
 } from "../share.js";
 import type { ShareCreateResult } from "../share.js";
 import type { OpContext } from "../types.js";
@@ -391,5 +393,89 @@ describe("share-revoke", () => {
       dispatchOp({ ...ctx, driveId: "some-other-drive" }, "share-revoke", { id: r.id }, { skipAuth: true })
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(getShareState(findShareByToken(t.db, tokenOf(r))!)).toBe("active");
+  });
+});
+
+describe("presignedUrlDeadline", () => {
+  test("is the SigV4 signing time plus the lifetime", () => {
+    const url = "https://s3.example/b/k?X-Amz-Date=20260929T120002Z&X-Amz-Expires=6&X-Amz-Signature=abc";
+    expect(presignedUrlDeadline(url)?.toISOString()).toBe("2026-09-29T12:00:08.000Z");
+  });
+
+  test("is null unless both parts can be read", () => {
+    expect(presignedUrlDeadline("https://s3.example/b/k?X-Amz-Expires=6")).toBeNull();
+    expect(presignedUrlDeadline("https://s3.example/b/k?X-Amz-Date=20260929T120002Z")).toBeNull();
+    expect(presignedUrlDeadline("https://s3.example/b/k?X-Amz-Date=nope&X-Amz-Expires=6")).toBeNull();
+    expect(presignedUrlDeadline("https://s3.example/b/k?X-Amz-Date=20260929T120002Z&X-Amz-Expires=-1")).toBeNull();
+    expect(presignedUrlDeadline("not a url")).toBeNull();
+  });
+});
+
+describe("presignShareUrl", () => {
+  const sigv4 = (signedAt: Date, ttl: number) =>
+    `https://s3.example/k?X-Amz-Date=${signedAt.toISOString().replace(/[-:]|\.\d{3}/g, "")}&X-Amz-Expires=${ttl}`;
+
+  async function shareExpiringIn(seconds: number) {
+    const r = await create();
+    const row = findShareByToken(t.db, tokenOf(r))!;
+    return { ...row, expiresAt: new Date(Math.floor(Date.now() / 1000) * 1000 + seconds * 1000) };
+  }
+
+  test("pins the signing time and the TTL to one reading of the clock", async () => {
+    const share = await shareExpiringIn(60);
+    let seen: { ttl?: number; signedAt?: Date } = {};
+    const url = await presignShareUrl(
+      {
+        getPresignedUrl: async (_key: string, ttl?: number, _ct?: string, _cd?: string, signedAt?: Date) => {
+          seen = { ttl, signedAt };
+          return sigv4(signedAt!, ttl!);
+        },
+      } as any,
+      share,
+      "k",
+      { capSeconds: 3600 }
+    );
+    expect(url).not.toBeNull();
+    // The share, not the ceiling, sets the TTL; the timestamp is the one the TTL was sized at.
+    expect(seen.ttl).toBeLessThanOrEqual(60);
+    expect(seen.signedAt!.getTime() + seen.ttl! * 1000).toBeLessThanOrEqual(share.expiresAt.getTime());
+  });
+
+  test("hands the content type and disposition through", async () => {
+    const share = await shareExpiringIn(60);
+    let args: unknown[] = [];
+    await presignShareUrl(
+      { getPresignedUrl: async (...a: unknown[]) => ((args = a), sigv4(a[4] as Date, a[1] as number)) } as any,
+      share,
+      "the/key",
+      { capSeconds: 300, contentType: "image/png", disposition: "inline" }
+    );
+    expect(args.slice(0, 4)).toEqual(["the/key", args[1], "image/png", "inline"]);
+    expect(args[1]).toBeLessThanOrEqual(300);
+  });
+
+  test("issues nothing when less than a second is left", async () => {
+    const share = await shareExpiringIn(0);
+    let called = false;
+    const url = await presignShareUrl(
+      { getPresignedUrl: async () => ((called = true), "https://s3.example/k") } as any,
+      share,
+      "k",
+      { capSeconds: 300 }
+    );
+    expect(url).toBeNull();
+    expect(called).toBe(false);
+  });
+
+  test("withholds a URL from a signer that ignored the pinned timestamp", async () => {
+    const share = await shareExpiringIn(6);
+    const late = async (_key: string, ttl?: number) => sigv4(new Date(Date.now() + 2000), ttl!);
+    expect(await presignShareUrl({ getPresignedUrl: late } as any, share, "k", { capSeconds: 300 })).toBeNull();
+  });
+
+  test("withholds a URL whose deadline cannot be read", async () => {
+    const share = await shareExpiringIn(60);
+    const opaque = async () => "https://s3.example/k?sig=abc";
+    expect(await presignShareUrl({ getPresignedUrl: opaque } as any, share, "k", { capSeconds: 300 })).toBeNull();
   });
 });

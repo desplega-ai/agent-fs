@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import {
   authorizeShareBytes,
-  capUrlTtlSeconds,
   findShareByToken,
   getShareState,
   openShareView,
+  presignShareUrl,
   recordShareViewed,
   shareStorageKey,
 } from "@/core";
@@ -200,9 +200,15 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
     const filename = filenameOf(share);
 
     if (s3.capabilities.presignedUrls) {
-      const ttl = capUrlTtlSeconds(share, DOWNLOAD_URL_TTL_SECONDS);
-      if (ttl === null) return plain(410, "This link has expired");
-      const url = await s3.getPresignedUrl(key, ttl, type.mime, contentDisposition("inline", filename));
+      const url = await presignShareUrl(s3, share, key, {
+        capSeconds: DOWNLOAD_URL_TTL_SECONDS,
+        contentType: type.mime,
+        disposition: contentDisposition("inline", filename),
+      });
+      // Signing took time: authorize again before any redirect is released.
+      const again = authorizeBytes(c);
+      if (!again.ok) return deniedBytes(again);
+      if (url === null) return plain(410, "This link has expired");
       return redirect(url);
     }
     return streamObject(s3, key, shareContentType(type), contentDisposition("inline", filename), {
@@ -230,9 +236,15 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
         // Storage took its time: authorize again, and size the URL from now.
         const again = authorizeBytes(c);
         if (!again.ok) return deniedBytes(again);
-        const ttl = capUrlTtlSeconds(again.share, DOWNLOAD_URL_TTL_SECONDS);
-        if (ttl === null) return plain(410, "This link has expired");
-        const url = await s3.getPresignedUrl(key, ttl, shareContentType(type), disposition);
+        const url = await presignShareUrl(s3, again.share, key, {
+          capSeconds: DOWNLOAD_URL_TTL_SECONDS,
+          contentType: shareContentType(type),
+          disposition,
+        });
+        // And so did signing: nothing is released on the strength of the check above.
+        const last = authorizeBytes(c);
+        if (!last.ok) return deniedBytes(last);
+        if (url === null) return plain(410, "This link has expired");
         return redirect(url);
       }
       return await streamObject(s3, key, shareContentType(type), disposition, {
@@ -332,10 +344,13 @@ async function buildBody(args: {
   if (isEmbeddable(type)) {
     const tag = type.kind === "pdf" ? "iframe" : type.kind === "image" ? "img" : type.kind === "audio" ? "audio" : "video";
     if (s3.capabilities.presignedUrls) {
-      // Sized from the clock now, and never longer than the link has left.
-      const ttl = capUrlTtlSeconds(share, EMBED_URL_TTL_SECONDS);
-      if (ttl === null) return null;
-      const url = await s3.getPresignedUrl(key, ttl, type.mime, contentDisposition("inline", filename));
+      // Signed against the clock now, and never valid past the link's expiry.
+      const url = await presignShareUrl(s3, share, key, {
+        capSeconds: EMBED_URL_TTL_SECONDS,
+        contentType: type.mime,
+        disposition: contentDisposition("inline", filename),
+      });
+      if (url === null) return null;
       return { body: { kind: "embed", tag, src: url }, embedSource: new URL(url).origin };
     }
     return { body: { kind: "embed", tag, src: `/share/${token}/raw${grantQuery(grant)}` }, embedSource: "'self'" };

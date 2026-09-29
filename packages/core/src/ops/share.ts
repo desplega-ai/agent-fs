@@ -3,6 +3,7 @@ import { and, eq, gt, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import type { OpContext } from "./types.js";
+import type { StorageAdapter } from "../storage/adapter.js";
 import { getS3Key } from "./versioning.js";
 import { assertPathInsideDrive, normalizePath } from "./paths.js";
 import { NotFoundError, PermissionDeniedError, ValidationError } from "../errors.js";
@@ -257,6 +258,54 @@ export function capUrlTtlSeconds(
   const remaining = Math.floor((share.expiresAt.getTime() - at.getTime()) / 1000);
   const ttl = Math.min(capSeconds, remaining);
   return ttl >= 1 ? ttl : null;
+}
+
+/**
+ * When a SigV4 presigned URL stops working: the signing time plus the lifetime,
+ * both read off its query. Null when the URL carries either in a form that
+ * cannot be read, so the deadline cannot be proven.
+ */
+export function presignedUrlDeadline(url: string): Date | null {
+  let params: URLSearchParams;
+  try {
+    params = new URL(url).searchParams;
+  } catch {
+    return null;
+  }
+  const signed = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(params.get("X-Amz-Date") ?? "");
+  const lifetime = params.get("X-Amz-Expires");
+  if (!signed || lifetime === null || !/^\d+$/.test(lifetime)) return null;
+  const [year, month, day, hour, minute, second] = signed.slice(1).map(Number);
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, second) + Number(lifetime) * 1000);
+}
+
+/**
+ * Presign a share's file so the URL cannot outlive the share. Signing is
+ * asynchronous and a signer stamps the URL with the time it gets to it, so a
+ * TTL sized from the clock before the await can run past the share by however
+ * long signing took. One reading of the clock therefore fixes both the TTL and
+ * the signing timestamp handed to the signer: the URL then dies at
+ * `signedAt + ttl <= expiresAt`, whatever the latency.
+ *
+ * The deadline is then read back off the URL and the URL is withheld unless it
+ * is provably within the share's expiry, so a signer that ignores the pinned
+ * timestamp fails closed. Null means nothing may be released: no time left, or
+ * no proof. The caller still has to authorize again after this returns, since
+ * a revoke can land while signing.
+ */
+export async function presignShareUrl(
+  storage: StorageAdapter,
+  share: ShareRecord,
+  key: string,
+  opts: { capSeconds: number; contentType?: string; disposition?: string }
+): Promise<string | null> {
+  const signedAt = new Date();
+  const ttl = capUrlTtlSeconds(share, opts.capSeconds, signedAt);
+  if (ttl === null) return null;
+  const url = await storage.getPresignedUrl(key, ttl, opts.contentType, opts.disposition, signedAt);
+  const deadline = presignedUrlDeadline(url);
+  if (!deadline || deadline.getTime() > share.expiresAt.getTime()) return null;
+  return url;
 }
 
 /**

@@ -2,6 +2,7 @@ import { describe, test, expect, beforeAll, afterAll, setSystemTime } from "bun:
 import { createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
 import { createUser, setDriveMember } from "../../../core/src/index.js";
 import { generateShareToken, hashShareToken } from "../../../core/src/ops/share.js";
+import { AgentS3Client } from "../../../core/src/s3/client.js";
 import { createApp } from "../app.js";
 
 // One app per harness, and this file makes far more than the default 120
@@ -678,6 +679,167 @@ describe("time is read fresh at every authorization and presign point", () => {
       expect(res.headers.get("location")).toBeNull();
       expect(await res.text()).not.toContain("OUTSIDE-BYTES");
     }
+  });
+});
+
+describe("a slow presigner cannot extend a link past its expiry", () => {
+  // The real signer (dummy credentials, nothing leaves the process), behind a
+  // wrapper that lets the clock move, or a revoke land, before it signs.
+  const signer = new AgentS3Client({
+    provider: "minio",
+    bucket: "test-bucket",
+    region: "us-east-1",
+    endpoint: "https://s3.example.test",
+    accessKeyId: "test-access-key",
+    secretAccessKey: "test-secret-key",
+  });
+
+  type Surface = "page" | "raw" | "download";
+  const surfaces: Surface[] = ["page", "raw", "download"];
+  const OK: Record<Surface, number> = { page: 200, raw: 302, download: 302 };
+
+  let p: Harness;
+  beforeAll(async () => {
+    p = await setup();
+    await write(p, "/pic.png", "fake-png-bytes");
+  });
+  afterAll(() => setSystemTime());
+
+  /** Route every presign through the real signer, after `during` has run. */
+  function slowSigner(
+    during: () => void | Promise<void>,
+    call: (...args: Parameters<AgentS3Client["getPresignedUrl"]>) => Promise<string> = (...args) =>
+      signer.getPresignedUrl(...args)
+  ) {
+    const s3 = p.s3 as any;
+    const original = s3.getPresignedUrl;
+    s3.getPresignedUrl = async (...args: Parameters<AgentS3Client["getPresignedUrl"]>) => {
+      await during();
+      return call(...args);
+    };
+    return () => {
+      s3.getPresignedUrl = original;
+      setSystemTime();
+    };
+  }
+
+  /** Independent of the code under test: SigV4 signing time + lifetime, in ms. */
+  function signedAtMs(url: string): number {
+    const d = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(new URL(url).searchParams.get("X-Amz-Date")!)!;
+    return Date.UTC(+d[1], +d[2] - 1, +d[3], +d[4], +d[5], +d[6]);
+  }
+  const deadlineMs = (url: string) => signedAtMs(url) + Number(new URL(url).searchParams.get("X-Amz-Expires")) * 1000;
+
+  /** Ask for a URL through one of the three issuance paths. */
+  async function issue(surface: Surface, sharePath: string, grant: string | null = null) {
+    const res = await get(p, withGrant(surface === "page" ? sharePath : `${sharePath}/${surface}`, grant));
+    if (surface !== "page") return { res, url: res.headers.get("location") };
+    const page = await res.text();
+    const main = page.indexOf("<main>");
+    const src = main < 0 ? null : /src="([^"]+)"/.exec(page.slice(main))?.[1];
+    return { res, url: src ? src.replace(/&amp;/g, "&") : null };
+  }
+
+  /** A link that ends six seconds after `t0`, on a whole second. */
+  async function shortLink(opts: Record<string, unknown> = {}) {
+    const t0 = Math.floor(Date.now() / 1000) * 1000;
+    const s = await share(p, "/pic.png", { expiresIn: 60, ...opts });
+    setShare(p, s.id, "expires_at", new Date(t0 + 6000));
+    return { s, t0, expiresAt: t0 + 6000 };
+  }
+
+  test.each(surfaces)("%s: signing that lands inside the link still dies with it", async (surface) => {
+    const { s, t0, expiresAt } = await shortLink();
+    const undo = slowSigner(() => {
+      setSystemTime(new Date(t0 + 2000));
+    });
+    try {
+      const { res, url } = await issue(surface, s.sharePath);
+      expect(res.status).toBe(OK[surface]);
+      expect(url).toBeTruthy();
+      expect(deadlineMs(url!)).toBeLessThanOrEqual(expiresAt);
+      // Signed when it was asked for, not when the signer got round to it.
+      expect(signedAtMs(url!)).toBeLessThan(t0 + 2000);
+    } finally {
+      undo();
+    }
+  });
+
+  test.each(surfaces)("%s: signing that ends after the link is refused, with no URL", async (surface) => {
+    const { s, t0 } = await shortLink();
+    const undo = slowSigner(() => {
+      setSystemTime(new Date(t0 + 7000));
+    });
+    try {
+      const { res, url } = await issue(surface, s.sharePath);
+      expect(res.status).toBe(410);
+      expect(res.headers.get("location")).toBeNull();
+      expect(url).toBeNull();
+    } finally {
+      undo();
+    }
+  });
+
+  test.each(surfaces)("%s: a revoke that lands while signing releases no URL", async (surface) => {
+    const s = await share(p, "/pic.png");
+    const undo = slowSigner(async () => {
+      await op(p, { op: "share-revoke", id: s.id });
+    });
+    try {
+      const { res, url } = await issue(surface, s.sharePath);
+      expect(res.status).toBe(410);
+      expect(res.headers.get("location")).toBeNull();
+      expect(url).toBeNull();
+    } finally {
+      undo();
+    }
+  });
+
+  test.each(["raw", "download"] as const)("%s: a view grant that lapses while signing releases no URL", async (surface) => {
+    const s = await share(p, "/pic.png", { maxViews: 1 });
+    // The counted page view is what earns the grant for the byte routes.
+    const page = await (await get(p, s.sharePath)).text();
+    const grant = grantOf(page);
+    expect(grant).not.toBeNull();
+    const undo = slowSigner(() => {
+      sqlite(p).prepare("UPDATE share_view_grants SET expires_at = ? WHERE share_id = ?")
+        .run(Math.floor(Date.now() / 1000) - 1, s.id);
+    });
+    try {
+      const { res, url } = await issue(surface, s.sharePath, grant);
+      expect(res.status).toBe(410);
+      expect(url).toBeNull();
+    } finally {
+      undo();
+    }
+  });
+
+  test.each(surfaces)("%s: a signer that ignores the pinned timestamp is refused, not trusted", async (surface) => {
+    const { s, t0 } = await shortLink();
+    // Same signer, but the timestamp it was given is dropped: the shape of the
+    // original overshoot, where the URL is stamped whenever signing happens.
+    const undo = slowSigner(
+      () => {
+        setSystemTime(new Date(t0 + 2000));
+      },
+      (key, ttl, ct, cd) => signer.getPresignedUrl(key, ttl, ct, cd)
+    );
+    try {
+      const { res, url } = await issue(surface, s.sharePath);
+      expect(res.status).toBe(410);
+      expect(res.headers.get("location")).toBeNull();
+      expect(url).toBeNull();
+    } finally {
+      undo();
+    }
+  });
+
+  test.each(surfaces)("%s: with no delay the URL is unchanged: the ceiling, minus nothing", async (surface) => {
+    const s = await share(p, "/pic.png");
+    const { res, url } = await issue(surface, s.sharePath);
+    expect(res.status).toBe(OK[surface]);
+    const ttl = Number(new URL(url!).searchParams.get("X-Amz-Expires"));
+    expect(ttl).toBe(surface === "page" ? 3600 : 300);
   });
 });
 
