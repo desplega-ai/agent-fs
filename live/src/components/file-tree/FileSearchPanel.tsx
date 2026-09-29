@@ -77,7 +77,7 @@ export function FileSearchPanel() {
             ? `No file in the folders opened so far is named like "${filter.query}".`
             : `Showing ${countLabel(localMatches.length)} from folders opened so far.`}
         </p>
-        {localMatches.length > 0 && <SearchResultList paths={localMatches} />}
+        {localMatches.length > 0 && <SearchResultList key={filter.query} paths={localMatches} />}
       </div>
     )
   }
@@ -112,7 +112,7 @@ export function FileSearchPanel() {
         {countLabel(matches.length)} named like "{filter.query}".
         {matches.length > MAX_RESULTS && ` Showing the first ${MAX_RESULTS}; type more to narrow it.`}
       </p>
-      <SearchResultList paths={matches} />
+      <SearchResultList key={filter.query} paths={matches} />
     </div>
   )
 }

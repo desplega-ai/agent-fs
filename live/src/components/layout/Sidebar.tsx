@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react"
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { FileTree } from "@/components/file-tree/FileTree"
 import { RecentFiles } from "@/components/file-tree/RecentFiles"
 import { FolderActions } from "@/components/file-mutations/FolderActions"
@@ -27,6 +27,14 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
   useEffect(() => {
     if (selectedFile && !selectedFile.endsWith("/")) setView("tree")
   }, [selectedFile])
+
+  // Search results render at the top of the panel. When the query changes,
+  // scroll there so matches are not hidden above a tree scrolled far down.
+  // Only query changes trigger this, so the user's own scrolling is kept.
+  const panelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (search.query) panelRef.current?.scrollTo({ top: 0 })
+  }, [search.query])
 
   // New / Upload in the sidebar act on the folder the user is looking at:
   // the open folder, or the open file's parent, else the drive root.
@@ -117,6 +125,7 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
         <FolderActions folder={contextFolder} size="icon-xs" />
       </div>
       <div
+        ref={panelRef}
         id={activeView === "tree" ? treePanelId : recentPanelId}
         role="tabpanel"
         aria-labelledby={activeView === "tree" ? treeTabId : recentTabId}
