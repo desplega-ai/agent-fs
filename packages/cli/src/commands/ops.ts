@@ -41,6 +41,7 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "append", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "Content to append" }, { flag: "-m, --message <msg>", description: "Version message" }] },
   { name: "ls", args: [{ name: "path", required: false }], options: [] },
   { name: "stat", args: [{ name: "path", required: true }], options: [] },
+  { name: "reveal", args: [{ name: "path", required: true }], options: [] },
   { name: "rm", args: [{ name: "path", required: true }], options: [] },
   { name: "mv", args: [{ name: "from", required: true }, { name: "to", required: true }], options: [{ flag: "-m, --message <msg>", description: "Version message" }] },
   { name: "cp", args: [{ name: "from", required: true }, { name: "to", required: true }], options: [] },

@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS files (
   PRIMARY KEY (path, drive_id)
 );
 
+-- Support drive-scoped file listings and prefix scans.
+CREATE INDEX IF NOT EXISTS idx_files_drive_path ON files(drive_id, path);
+
 CREATE TABLE IF NOT EXISTS file_versions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   path TEXT NOT NULL,

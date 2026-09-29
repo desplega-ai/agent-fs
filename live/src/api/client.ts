@@ -123,17 +123,25 @@ export class AgentFsClient {
     return this.request<T>(path, opts)
   }
 
-  async post<T>(path: string, body: unknown): Promise<T> {
+  async post<T>(path: string, body: unknown, opts?: { signal?: AbortSignal }): Promise<T> {
     return this.request<T>(path, {
       method: "POST",
       body: JSON.stringify(body),
+      signal: opts?.signal,
     })
   }
 
-  async callOp<T>(orgId: string, op: string, params: Record<string, unknown> = {}, driveId?: string): Promise<T> {
+  /** Pass `opts.signal` to let TanStack Query abort a request whose result nobody reads. */
+  async callOp<T>(
+    orgId: string,
+    op: string,
+    params: Record<string, unknown> = {},
+    driveId?: string,
+    opts?: { signal?: AbortSignal },
+  ): Promise<T> {
     const body: Record<string, unknown> = { op, ...params }
     if (driveId) body.driveId = driveId
-    return this.post<T>(`/orgs/${orgId}/ops`, body)
+    return this.post<T>(`/orgs/${orgId}/ops`, body, opts)
   }
 
   async updateProfile(displayName: string | null): Promise<{ userId: string; email: string; displayName: string | null }> {

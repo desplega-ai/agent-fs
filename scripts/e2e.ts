@@ -1574,6 +1574,89 @@ async function runStandardTests(daemonUrl: string) {
     assert(parsed.kind, localOnly ? "app" : "presigned");
   });
 
+  // -- reveal --
+
+  await test("reveal via API returns every ancestor listing plus stat", async () => {
+    runJson('write /reveal/a/b/deep.md --content "deep"');
+    runJson('write /reveal/a/sibling.md --content "sibling"');
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "reveal", path: "reveal/a/b/deep.md" }),
+    });
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const body = await res.json() as any;
+    assert(body.path, "/reveal/a/b/deep.md");
+    assert(body.stat.size, 4);
+    assert(
+      JSON.stringify(body.listings.map((l: any) => l.path)),
+      JSON.stringify(["/", "/reveal", "/reveal/a", "/reveal/a/b"]),
+    );
+    // Each listing must match what `ls` returns for that directory.
+    for (const listing of body.listings) {
+      const ls = runJson(`ls ${listing.path}`);
+      assert(JSON.stringify(listing.entries), JSON.stringify(ls.entries), `listing ${listing.path} differs from ls`);
+    }
+    const names = body.listings[2].entries.map((e: any) => e.name).sort();
+    assert(JSON.stringify(names), JSON.stringify(["b", "sibling.md"]));
+  });
+
+  await test("reveal via CLI", () => {
+    const result = runJson("reveal /reveal/a/b/deep.md");
+    assert(result.stat.path, "/reveal/a/b/deep.md");
+    assert(result.listings.length, 4);
+  });
+
+  await test("reveal via API — 404 for missing file", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "reveal", path: "/reveal/a/missing.md" }),
+    });
+    assert(res.status, 404, `Expected 404, got ${res.status}`);
+    assert(((await res.json()) as any).error, "NOT_FOUND");
+  });
+
+  await test("reveal via MCP", async () => {
+    const initRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "e2e-reveal", version: "1.0.0" },
+        },
+      }),
+    });
+    assert(initRes.ok, true, `MCP init failed: ${initRes.status}`);
+
+    const callRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "reveal", arguments: { path: "/reveal/a/b/deep.md" } },
+      }),
+    });
+    assert(callRes.ok, true, `MCP tools/call failed: ${callRes.status}`);
+    const body = await callRes.json() as any;
+    const parsed = JSON.parse(body.result?.content?.[0]?.text ?? "{}");
+    assert(parsed.path, "/reveal/a/b/deep.md");
+    assert(parsed.listings?.length, 4);
+  });
+
   // -- MIME type detection --
 
   await test("write sets contentType in stat", () => {
@@ -2985,6 +3068,29 @@ async function runStandardTests(daemonUrl: string) {
     });
     assert(res.status, 403, `Expected 403, got ${res.status}`);
     assert(((await res.json()) as any).error, "PERMISSION_DENIED");
+  });
+
+  await test("rbac: reveal follows ls — viewer allowed, non-member denied like ls", async () => {
+    const viewerRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({ op: "reveal", path: "/rbac-probe.txt" }),
+    });
+    assert(viewerRes.status, 200, `Expected 200, got ${viewerRes.status}`);
+    assert(((await viewerRes.json()) as any).stat.path, "/rbac-probe.txt");
+
+    // user3 has no access to user1's personal org: reveal must fail exactly as ls does.
+    const call = (op: string, extra: Record<string, unknown>) =>
+      fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+        method: "POST",
+        headers: authed(user3ApiKey),
+        body: JSON.stringify({ op, ...extra }),
+      });
+    const lsRes = await call("ls", { path: "/" });
+    const revealRes = await call("reveal", { path: "/hello.txt" });
+    assert(lsRes.ok, false, "Expected ls to be denied for a non-member");
+    assert(revealRes.status, lsRes.status, `reveal ${revealRes.status} vs ls ${lsRes.status}`);
+    assert(((await revealRes.json()) as any).error, ((await lsRes.json()) as any).error);
   });
 
   await test("rbac: comment notifications are target and drive scoped", async () => {
