@@ -271,6 +271,7 @@ function MobileCommentToggle({
           <div className="flex-1 min-h-0 overflow-hidden">
             <CommentSidebar
               path={path}
+              isOpen={open}
               showHeader={false}
               onCommentClick={onCommentClick}
             />
