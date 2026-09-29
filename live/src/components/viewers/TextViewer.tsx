@@ -110,7 +110,7 @@ export function TextViewer({
 
   // Resolve comment anchors against the text shown (read-only mode only).
   const anchorSpace = useMemo(() => (editable ? null : sourceTextSpace(displayContent)), [editable, displayContent])
-  const anchors = useCommentAnchors(path, comments, anchorSpace, displayContent === content)
+  const anchors = useCommentAnchors(path, comments, anchorSpace, displayContent === content ? undefined : content)
   const anchorsRef = useRef(anchors)
   useEffect(() => { anchorsRef.current = anchors }, [anchors])
   const hovered = useHoveredComment()

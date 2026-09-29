@@ -7,7 +7,9 @@
  * the view of it) changes under the comment, so the anchor is re-resolved
  * every render, in order:
  *
- *   1. exact quote, disambiguated by prefix/suffix when it occurs more than once
+ *   1. exact quote, disambiguated by prefix/suffix when it occurs more than once;
+ *      an occurrence whose saved context conflicts is only accepted where the
+ *      line range confirms it
  *   2. the line range, remapped from the comment's version to the current one
  *   3. the quote alone (first/nearest occurrence, or a partial match)
  *   4. "lost" — surfaced to the user instead of silently highlighting nothing
@@ -123,11 +125,21 @@ function normalizeNeedle(text: string, mode: Mode): string {
   return mode === "strict" ? n.trim() : n
 }
 
+// Every comment searches the same document text in both modes: keep the last one.
+let hayCache: { text: string; strict?: Normalized; loose?: Normalized } = { text: "" }
+
+function normalizeHay(text: string, mode: Mode): Normalized {
+  if (hayCache.text !== text) hayCache = { text }
+  return (hayCache[mode] ??= normalize(text, mode))
+}
+
 // --- Candidate search --------------------------------------------------------
 
 interface Candidate {
   start: number
   end: number
+  /** Found without markdown/case normalization. */
+  strict?: boolean
 }
 
 function findAll(hay: Normalized, needle: string): Candidate[] {
@@ -155,32 +167,70 @@ function commonPrefixLength(a: string, b: string): number {
   return n
 }
 
-/** How well the text around a candidate matches the stored prefix/suffix. */
-function contextScore(text: string, c: Candidate, quote: AnchorQuote): number {
-  let score = 0
-  if (quote.prefix) {
-    const want = normalizeNeedle(quote.prefix, "loose")
-    const got = normalize(text.slice(Math.max(0, c.start - quote.prefix.length * 3), c.start), "loose").norm
-    score += commonSuffixLength(want, got)
-  }
-  if (quote.suffix) {
-    const want = normalizeNeedle(quote.suffix, "loose")
-    const got = normalize(text.slice(c.end, c.end + quote.suffix.length * 3), "loose").norm
-    score += commonPrefixLength(want, got)
-  }
-  return score
+// Context is compared on letters and digits only, so markup that differs
+// between the rendered view and the source (emphasis, list markers, blank
+// lines) doesn't read as a change.
+function contextKey(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")
 }
 
-/** The candidate with the strictly best context score, if there is one. */
+/** Stray chars (a list number, a link target) either side may skip at the join. */
+const CONTEXT_SKIP = 3
+/** Shorter saved context (after contextKey) says nothing either way. */
+const CONTEXT_MIN = 3
+
+/** Chars of `want` matching `got` outward from the quote, allowing a few stray chars. */
+function sideMatch(want: string, got: string, side: "prefix" | "suffix"): number {
+  let best = 0
+  for (let a = 0; a <= CONTEXT_SKIP; a++) {
+    for (let b = 0; b <= CONTEXT_SKIP; b++) {
+      const n = side === "prefix"
+        ? commonSuffixLength(want.slice(0, want.length - a), got.slice(0, got.length - b))
+        : commonPrefixLength(want.slice(a), got.slice(b))
+      if (n > best) best = n
+    }
+  }
+  return best
+}
+
+interface ContextMatch {
+  score: number
+  /** The quote has saved context and none of it agrees with this occurrence. */
+  conflicts: boolean
+}
+
+/** How well the text around a candidate matches the stored prefix/suffix. */
+function contextMatch(text: string, c: Candidate, quote: AnchorQuote): ContextMatch {
+  let score = 0
+  let informative = false
+  let agrees = false
+  for (const side of ["prefix", "suffix"] as const) {
+    const saved = quote[side]
+    if (!saved) continue
+    const want = contextKey(saved)
+    const window = side === "prefix"
+      ? text.slice(Math.max(0, c.start - saved.length * 3), c.start)
+      : text.slice(c.end, c.end + saved.length * 3)
+    const n = sideMatch(want, contextKey(window), side)
+    score += n
+    if (want.length < CONTEXT_MIN) continue
+    informative = true
+    // Half of what was saved, or the 8 chars nearest the quote.
+    if (n >= Math.min(want.length, Math.max(8, Math.ceil(want.length / 2)))) agrees = true
+  }
+  return { score, conflicts: informative && !agrees }
+}
+
+/** The candidate with the strictly best context score (strict matches win ties), if there is one. */
 function pickByContext(text: string, cands: Candidate[], quote: AnchorQuote): Candidate | null {
   if (!quote.prefix && !quote.suffix) return null
   let best: Candidate | null = null
   let bestScore = 0
   let tie = false
   for (const c of cands) {
-    const s = contextScore(text, c, quote)
-    if (s > bestScore) { best = c; bestScore = s; tie = false }
-    else if (s === bestScore && s > 0) tie = true
+    const s = contextMatch(text, c, quote).score
+    if (s > bestScore || (s === bestScore && s > 0 && c.strict && !best?.strict)) { best = c; bestScore = s; tie = false }
+    else if (s === bestScore && s > 0 && c.strict === best?.strict) tie = true
   }
   return best && !tie ? best : null
 }
@@ -198,14 +248,25 @@ function pickNearestLine(space: TextSpace, cands: Candidate[], line: number): Ca
   return best
 }
 
+/**
+ * Occurrences of the quote, strict and markdown-normalized together: the one
+ * the context points at may only match normalized (a quote taken in the
+ * rendered view, read in the source), while another occurrence matches as is.
+ */
 function findQuote(space: TextSpace, needle: string): Candidate[] {
-  for (const mode of ["strict", "loose"] as const) {
+  const find = (mode: Mode) => {
     const n = normalizeNeedle(needle, mode)
-    if (!n) continue
-    const cands = findAll(normalize(space.text, mode), n)
-    if (cands.length) return cands
+    return n ? findAll(normalizeHay(space.text, mode), n) : []
   }
-  return []
+  const strict = find("strict").map((c) => ({ ...c, strict: true }))
+  const loose = find("loose").filter((c) => !strict.some((s) => s.start < c.end && c.start < s.end))
+  return [...strict, ...loose].sort((a, b) => a.start - b.start)
+}
+
+function overlapsLines(space: TextSpace, c: Candidate, lines: { lineStart: number; lineEnd: number }): boolean {
+  const a = space.offsetToLine?.(c.start)
+  const b = space.offsetToLine?.(Math.max(c.start, c.end - 1))
+  return a != null && b != null && a <= lines.lineEnd && b >= lines.lineStart
 }
 
 /**
@@ -215,7 +276,7 @@ function findQuote(space: TextSpace, needle: string): Candidate[] {
 function findPartial(space: TextSpace, quote: AnchorQuote, lineHint?: number): Candidate | null {
   const needle = normalizeNeedle(quote.exact, "loose")
   if (needle.length <= PARTIAL_CHARS) return null
-  const hay = normalize(space.text, "loose")
+  const hay = normalizeHay(space.text, "loose")
   const pick = (cands: Candidate[]) =>
     cands.length === 1
       ? cands[0]
@@ -321,10 +382,23 @@ export function resolveAnchor(space: TextSpace, input: AnchorInput): AnchorResol
     else if (input.changes && diffHasLineNumbers(input.changes)) lines = remapLineRange(input.changes, input.lineStart, end)
   }
 
-  // 1. Exact quote, disambiguated by prefix/suffix.
+  // 1. Exact quote, disambiguated by prefix/suffix. Occurrences whose saved
+  // context conflicts (e.g. the only one left after the commented duplicate
+  // was edited) are held back until the line range can confirm them.
   let ambiguous: Candidate[] = []
+  let conflicting: Candidate[] = []
   if (quote) {
-    const cands = findQuote(space, quote.exact)
+    const all = findQuote(space, quote.exact)
+    let cands: Candidate[]
+    if (quote.prefix || quote.suffix) {
+      const conflicts = new Set(all.filter((c) => contextMatch(space.text, c, quote).conflicts))
+      cands = all.filter((c) => !conflicts.has(c))
+      conflicting = [...conflicts]
+    } else {
+      // No context (legacy quote): an as-is match beats a normalized one.
+      const strict = all.filter((c) => c.strict)
+      cands = strict.length ? strict : all
+    }
     const picked = cands.length === 1 ? cands[0] : pickByContext(space.text, cands, quote)
     if (picked) return withLines(space, { status: "anchored", method: "quote", start: picked.start, end: picked.end })
     ambiguous = cands
@@ -336,6 +410,8 @@ export function resolveAnchor(space: TextSpace, input: AnchorInput): AnchorResol
       const near = pickNearestLine(space, ambiguous, lines.lineStart)
       if (near) return withLines(space, { status: "anchored", method: "quote", start: near.start, end: near.end })
     }
+    const confirmed = conflicting.find((c) => overlapsLines(space, c, lines))
+    if (confirmed) return withLines(space, { status: "anchored", method: "quote", start: confirmed.start, end: confirmed.end })
     const offsets = space.lineRangeToOffsets?.(lines.lineStart, lines.lineEnd)
     if (offsets) {
       return {
@@ -355,6 +431,13 @@ export function resolveAnchor(space: TextSpace, input: AnchorInput): AnchorResol
       const c = (input.lineStart != null ? pickNearestLine(space, ambiguous, input.lineStart) : null) ?? ambiguous[0]
       return withLines(space, { status: "anchored", method: "quote", start: c.start, end: c.end, ambiguous: true })
     }
+    if (conflicting.length) {
+      // Its original lines are gone: the survivors are other occurrences.
+      if (lines?.deleted) return { status: "lost" }
+      // Position unknown (no diff, or unmappable lines): best guess, flagged.
+      const c = (input.lineStart != null ? pickNearestLine(space, conflicting, lines?.lineStart ?? input.lineStart) : null) ?? conflicting[0]
+      return withLines(space, { status: "moved", method: "quote", start: c.start, end: c.end })
+    }
     const partial = findPartial(space, quote, lines?.lineStart ?? input.lineStart)
     if (partial) return withLines(space, { status: "moved", method: "quote-partial", start: partial.start, end: partial.end })
   }
@@ -369,6 +452,54 @@ export function resolveAnchor(space: TextSpace, input: AnchorInput): AnchorResol
 
   // 4. Lost.
   return { status: "lost" }
+}
+
+/**
+ * Resolve in a view whose lines aren't the file's source lines (JSON shown
+ * formatted). A quote resolves in the view directly; failing that, the
+ * comment resolves in the source with its line range, and the source text it
+ * lands on is carried into the view as a quote. Reported lines are source lines.
+ */
+export function resolveAnchorInView(view: TextSpace, source: TextSpace, input: AnchorInput): AnchorResolution {
+  const direct = input.quote?.exact?.trim()
+    ? resolveAnchor(view, { quote: input.quote, stale: input.stale })
+    : null
+  if (direct && ((direct.status === "anchored" && !direct.ambiguous) || input.lineStart == null)) return direct
+  const inSource = resolveAnchor(source, input)
+  if (inSource.start == null || inSource.end == null) return direct ?? inSource
+  const carried = captureQuote(source.text, inSource.start, inSource.end)
+  const inView = carried ? resolveAnchor(view, { quote: carried }) : null
+  if (inView?.start == null || inView.end == null) return direct ?? { status: "lost" }
+  return {
+    status: inSource.status === "anchored" && inView.status === "anchored" ? "anchored" : "moved",
+    method: inSource.method,
+    start: inView.start,
+    end: inView.end,
+    lineStart: inSource.lineStart,
+    lineEnd: inSource.lineEnd,
+  }
+}
+
+/**
+ * Whether the version diff could still improve a resolution: anything but an
+ * unambiguous, context-confirmed quote match.
+ */
+export function anchorNeedsDiff(r: AnchorResolution | undefined): boolean {
+  return !(r && r.status === "anchored" && r.method === "quote" && !r.ambiguous)
+}
+
+/**
+ * What to resolve for a comment, or null for a general (unanchored) comment.
+ * `version` is set when the file changed since the comment was made.
+ */
+export function commentAnchorInput(
+  c: { quote?: AnchorQuote; quotedContent?: string; lineStart?: number; lineEnd?: number; fileVersion?: number },
+  currentVersion: number | undefined,
+): { version?: number; input: AnchorInput } | null {
+  const quote = commentQuote(c)
+  if (!quote && !c.lineStart) return null
+  const stale = c.fileVersion != null && currentVersion != null && c.fileVersion !== currentVersion
+  return { version: stale ? c.fileVersion : undefined, input: { quote, lineStart: c.lineStart, lineEnd: c.lineEnd, stale } }
 }
 
 // --- Spaces and capture -------------------------------------------------------

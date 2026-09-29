@@ -3,9 +3,12 @@ import { useQueries } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth"
 import { useFileStat } from "@/hooks/use-file-stat"
 import {
-  commentQuote,
+  anchorNeedsDiff,
+  commentAnchorInput,
   diffHasLineNumbers,
   resolveAnchor,
+  resolveAnchorInView,
+  sourceTextSpace,
   type AnchorDiffChange,
   type AnchorInput,
   type AnchorResolution,
@@ -19,14 +22,15 @@ import type { CommentListEntry, DiffResult } from "@/api/types"
  * version diff only for comments the quote alone couldn't place, and publish
  * each comment's status to the sidebar.
  *
- * `linesValid`: the space's lines are the file's source lines (false for e.g.
- * JSON shown formatted), so stored line ranges can be used.
+ * `source`: the file's source text when `space` shows a transformed view of it
+ * (JSON shown formatted), so stored line ranges resolve there and are carried
+ * into the view. Omit when the space's lines are the source lines.
  */
 export function useCommentAnchors(
   path: string,
   comments: CommentListEntry[] | undefined,
   space: TextSpace | null,
-  linesValid = true,
+  source?: string,
 ): Map<string, AnchorResolution> {
   const { client, orgId, driveId } = useAuth()
   const { data: stat } = useFileStat(path)
@@ -35,24 +39,24 @@ export function useCommentAnchors(
   const inputs = useMemo(() => {
     const out: Array<{ id: string; version?: number; input: AnchorInput }> = []
     for (const c of comments ?? []) {
-      const quote = commentQuote(c)
-      const lineStart = linesValid ? c.lineStart : undefined
-      if (!quote && !lineStart) continue // general comment: nothing to anchor
-      const stale = c.fileVersion != null && currentVersion != null && c.fileVersion !== currentVersion
-      out.push({
-        id: c.id,
-        version: stale ? c.fileVersion : undefined,
-        input: { quote, lineStart, lineEnd: linesValid ? c.lineEnd : undefined, stale },
-      })
+      const entry = commentAnchorInput(c, currentVersion)
+      if (entry) out.push({ id: c.id, ...entry }) // null: general comment, nothing to anchor
     }
     return out
-  }, [comments, currentVersion, linesValid])
+  }, [comments, currentVersion])
+
+  const resolve = useMemo(() => {
+    if (!space) return null
+    if (source == null) return (input: AnchorInput) => resolveAnchor(space, input)
+    const sourceSpace = sourceTextSpace(source)
+    return (input: AnchorInput) => resolveAnchorInView(space, sourceSpace, input)
+  }, [space, source])
 
   const firstPass = useMemo(() => {
     const out = new Map<string, AnchorResolution>()
-    if (space) for (const { id, input } of inputs) out.set(id, resolveAnchor(space, input))
+    if (resolve) for (const { id, input } of inputs) out.set(id, resolve(input))
     return out
-  }, [inputs, space])
+  }, [inputs, resolve])
 
   // Versions worth diffing: stale comments with a line range that the quote
   // didn't place unambiguously.
@@ -60,8 +64,7 @@ export function useCommentAnchors(
     const set = new Set<number>()
     for (const { id, version, input } of inputs) {
       if (version == null || input.lineStart == null) continue
-      const r = firstPass.get(id)
-      if (r && r.status === "anchored" && r.method === "quote" && !r.ambiguous) continue
+      if (!anchorNeedsDiff(firstPass.get(id))) continue
       set.add(version)
     }
     return [...set].sort((a, b) => a - b)
@@ -93,12 +96,12 @@ export function useCommentAnchors(
       if (version == null || !byVersion.has(version)) continue
       const changes = byVersion.get(version)
       if (changes === "pending") continue
-      out.set(id, space ? resolveAnchor(space, { ...input, changes }) : { status: "lost" })
+      out.set(id, resolve ? resolve({ ...input, changes }) : { status: "lost" })
     }
     return out
     // diffsKey stands in for `diffs`, whose array identity changes every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firstPass, inputs, neededVersions, diffsKey, space])
+  }, [firstPass, inputs, neededVersions, diffsKey, resolve])
 
   // Publish statuses for the sidebar. Hold back "lost" while a diff that could
   // still place the comment is loading, so cards don't flash a false badge.

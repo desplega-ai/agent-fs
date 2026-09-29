@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import {
+  anchorNeedsDiff,
   captureQuote,
+  commentAnchorInput,
   commentQuote,
   remapLineRange,
   resolveAnchor,
+  resolveAnchorInView,
   sourceTextSpace,
   type AnchorDiffChange,
   type TextSpace,
@@ -96,6 +99,45 @@ describe("drift case 2: duplicate text", () => {
   })
 })
 
+describe("drift case 2b: the commented duplicate is edited, another survives", () => {
+  const v1 = "First section\nOwner: TBD\n\nSecond section\nOwner: TBD\n"
+  const v2 = "First section\nOwner: TBD\n\nSecond section\nOwner: Alice\n"
+  const { quote } = quoteAt(v1, "Owner: TBD", 1)
+  const input = { quote, lineStart: 5, lineEnd: 5, stale: true }
+
+  test("without the diff: not anchored on the survivor, so the diff gets fetched", () => {
+    const r = resolveAnchor(sourceTextSpace(v2), input)
+    expect(r.status).toBe("moved")
+    expect(anchorNeedsDiff(r)).toBe(true)
+  })
+
+  test("with the diff: the remapped original line, flagged moved", () => {
+    const r = resolveAnchor(sourceTextSpace(v2), { ...input, changes: lineDiff(v1, v2) })
+    expect(r).toMatchObject({ status: "moved", method: "lines", lineStart: 5, lineEnd: 5 })
+  })
+
+  test("with the diff, commented line deleted outright: lost", () => {
+    const v3 = "First section\nOwner: TBD\n\nSecond section\n"
+    const r = resolveAnchor(sourceTextSpace(v3), { ...input, changes: lineDiff(v1, v3) })
+    expect(r.status).toBe("lost")
+  })
+
+  test("the untouched first occurrence still anchors", () => {
+    const first = quoteAt(v1, "Owner: TBD", 0).quote
+    const r = resolveAnchor(sourceTextSpace(v2), { quote: first, lineStart: 2, lineEnd: 2, stale: true })
+    expect(r).toMatchObject({ status: "anchored", method: "quote", lineStart: 2 })
+    expect(anchorNeedsDiff(r)).toBe(false)
+  })
+
+  test("text edited around a unique quote on its own line still anchors there", () => {
+    const a = "Intro.\n\nKeep this exact sentence please.\n\nOutro."
+    const b = "Changed intro text entirely.\n\nKeep this exact sentence please.\n\nA new ending."
+    const q = quoteAt(a, "Keep this exact sentence please.").quote
+    const r = resolveAnchor(sourceTextSpace(b), { quote: q, lineStart: 3, lineEnd: 3, stale: true, changes: lineDiff(a, b) })
+    expect(r).toMatchObject({ status: "anchored", method: "quote", lineStart: 3 })
+  })
+})
+
 describe("drift case 3: quote spanning blocks", () => {
   // Rendered text as the DOM space builds it: blocks separated by "\n".
   const rendered = "First paragraph ends here.\nSecond paragraph starts here."
@@ -146,6 +188,33 @@ describe("drift case 4: rendered vs source mode", () => {
     const space: TextSpace = { text: rendered, lineRangeToOffsets: (a) => (a === 3 ? [8, rendered.length] : null) }
     const r = resolveAnchor(space, { quote, lineStart: 3, lineEnd: 3 })
     expect(r).toMatchObject({ status: "anchored", method: "lines", start: 8 })
+  })
+})
+
+describe("drift case 4b: duplicate text across rendered and source mode", () => {
+  const source = "First section\n**Target** phrase is here.\n\nSecond section\nTarget phrase is here.\n"
+  // As the DOM space builds it: one "\n" between blocks, no markdown syntax.
+  const rendered = "First section\nTarget phrase is here.\nSecond section\nTarget phrase is here."
+
+  test("rendered capture in the first paragraph resolves to the first one in source", () => {
+    const { quote } = quoteAt(rendered, "Target phrase", 0)
+    for (const input of [{ quote }, { quote, lineStart: 2, lineEnd: 2 }]) {
+      const r = resolveAnchor(sourceTextSpace(source), input)
+      expect(r).toMatchObject({ status: "anchored", lineStart: 2 })
+      expect(source.slice(r.start, r.end)).toBe("Target** phrase")
+    }
+  })
+
+  test("rendered capture in the second paragraph still resolves to the plain one", () => {
+    const { quote } = quoteAt(rendered, "Target phrase", 1)
+    const r = resolveAnchor(sourceTextSpace(source), { quote })
+    expect(r).toMatchObject({ status: "anchored", lineStart: 5 })
+  })
+
+  test("source capture of the plain one resolves to the second paragraph when rendered", () => {
+    const { quote } = quoteAt(source, "Target phrase", 0)
+    const r = resolveAnchor({ text: rendered }, { quote })
+    expect(r).toMatchObject({ status: "anchored", start: rendered.lastIndexOf("Target phrase") })
   })
 })
 
@@ -205,6 +274,46 @@ describe("remapLineRange", () => {
       lineStart: 2, stale: true, changes: [{ type: "remove" }, { type: "add" }],
     })
     expect(r.status).toBe("moved") // unverified stored lines, flagged
+  })
+})
+
+describe("formatted JSON view (source lines don't match the view)", () => {
+  const raw = '{\n"name": "demo", "tags": ["a", "b"],\n"owner": {"id": 1, "role": "admin"}\n}'
+  const formatted = JSON.stringify(JSON.parse(raw), null, 2)
+  // A comment from before quote anchors: gutter line 3, no quote, no quotedContent.
+  const legacy = { lineStart: 3, lineEnd: 3 }
+
+  test("a legacy line-only comment stays anchored, not general", () => {
+    const entry = commentAnchorInput(legacy, undefined)
+    expect(entry).not.toBeNull()
+    const r = resolveAnchorInView(sourceTextSpace(formatted), sourceTextSpace(raw), entry!.input)
+    expect(r).toMatchObject({ status: "anchored", method: "lines", lineStart: 3, lineEnd: 3 })
+    expect(formatted.slice(r.start, r.end)).toBe('"owner": {\n    "id": 1,\n    "role": "admin"\n  }')
+  })
+
+  test("stale with no diff: carried over but flagged moved", () => {
+    const entry = commentAnchorInput({ ...legacy, fileVersion: 1 }, 2)
+    expect(entry?.version).toBe(1)
+    const r = resolveAnchorInView(sourceTextSpace(formatted), sourceTextSpace(raw), entry!.input)
+    expect(r).toMatchObject({ status: "moved", lineStart: 3 })
+    expect(r.start).toBeDefined()
+  })
+
+  test("a line past the end of the file is lost, not general", () => {
+    const r = resolveAnchorInView(sourceTextSpace(formatted), sourceTextSpace(raw), { lineStart: 40, lineEnd: 40 })
+    expect(r.status).toBe("lost")
+  })
+
+  test("a quoted comment resolves in the formatted view directly", () => {
+    const { quote } = quoteAt(raw, '"role": "admin"')
+    const r = resolveAnchorInView(sourceTextSpace(formatted), sourceTextSpace(raw), { quote, lineStart: 3, lineEnd: 3 })
+    expect(r).toMatchObject({ status: "anchored", method: "quote" })
+    expect(formatted.slice(r.start, r.end)).toBe('"role": "admin"')
+  })
+
+  test("general comments have no anchor input", () => {
+    expect(commentAnchorInput({}, 3)).toBeNull()
+    expect(commentAnchorInput({ quotedContent: "  " }, 3)).toBeNull()
   })
 })
 
