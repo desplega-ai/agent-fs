@@ -111,10 +111,17 @@ export interface StorageAdapter {
 
   enableVersioning(): Promise<boolean>;
 
+  /**
+   * `signingDate` pins the moment the URL is signed at. Left out, the signer
+   * reads the clock itself, later than the caller did if signing is slow; a
+   * caller that must not let the URL outlive a deadline passes it, so the URL
+   * dies at `signingDate + expiresIn` whatever the signing latency.
+   */
   getPresignedUrl(
     key: string,
     expiresIn?: number,
     responseContentType?: string,
     responseContentDisposition?: string,
+    signingDate?: Date,
   ): Promise<string>;
 }

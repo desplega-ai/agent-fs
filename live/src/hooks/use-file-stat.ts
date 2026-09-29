@@ -1,14 +1,13 @@
 import { useQuery } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth"
-import type { StatResult } from "@/api/types"
+import { fetchFileStat, fileStatQueryKey } from "@/lib/file-stat-query"
 
 export function useFileStat(path: string | null) {
   const { client, orgId, driveId } = useAuth()
 
   return useQuery({
-    queryKey: ["stat", orgId, driveId, path],
-    queryFn: () =>
-      client.callOp<StatResult>(orgId!, "stat", { path: path! }, driveId),
+    queryKey: fileStatQueryKey(orgId, driveId, path),
+    queryFn: () => fetchFileStat(client, orgId!, driveId!, path!),
     enabled: !!path && !!orgId && !!driveId,
   })
 }

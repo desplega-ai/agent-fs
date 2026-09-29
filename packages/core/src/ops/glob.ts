@@ -3,6 +3,7 @@ import { schema } from "../db/index.js";
 import type { OpContext, GlobParams, GlobResult, GlobMatch } from "./types.js";
 import { getS3Key } from "./versioning.js";
 import { normalizePrefix } from "./paths.js";
+import { getCachedDriveListing } from "./glob-cache.js";
 
 /**
  * Convert a glob pattern to a RegExp.
@@ -51,8 +52,13 @@ export async function glob(
     : "/";
   const s3Prefix = getS3Key(ctx.orgId, ctx.driveId, prefix);
 
-  // List ALL objects recursively (no delimiter)
-  const { objects } = await ctx.s3.listObjects(s3Prefix);
+  // List all objects recursively (no delimiter)
+  const { objects } = await getCachedDriveListing(
+    ctx.orgId,
+    ctx.driveId,
+    prefix,
+    () => ctx.s3.listObjects(s3Prefix),
+  );
 
   // Get metadata from SQLite
   const dbFiles = ctx.db

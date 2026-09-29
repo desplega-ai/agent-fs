@@ -18,6 +18,7 @@ import type {
   CommentResolveResult,
   CommentEntry,
   CommentListEntry,
+  CommentQuote,
 } from "@/api/types"
 
 const COMMENT_STALE_TIME = 5_000
@@ -243,8 +244,9 @@ export function createCommentQueryOptions({
   poll = false,
 }: CommentQueryOptionsParams): UseQueryOptions<CommentListResult, Error, CommentListResult, QueryKey> {
   const queryKey = commentQueryKey(orgId, driveId, path)
+  const cacheKey = resolved ? [...queryKey, "resolved"] as const : queryKey
   return {
-    queryKey: resolved ? [...queryKey, "resolved"] as const : queryKey,
+    queryKey: cacheKey,
     queryFn: async () => {
       const server = await client.callOp<CommentListResult>(
         orgId!,
@@ -252,8 +254,7 @@ export function createCommentQueryOptions({
         resolved ? { path: path!, resolved: true } : { path: path! },
         driveId,
       )
-      if (resolved) return server
-      return preservePendingOptimisticComments(queryClient.getQueryData<CommentListResult>(queryKey), server)
+      return preservePendingOptimisticComments(queryClient.getQueryData<CommentListResult>(cacheKey), server)
     },
     enabled: !!path && !!orgId && !!driveId && (!poll || isOpen),
     staleTime: COMMENT_STALE_TIME,
@@ -294,6 +295,7 @@ interface AddCommentParams {
   lineStart?: number
   lineEnd?: number
   quotedContent?: string
+  quote?: CommentQuote
 }
 
 interface AddCommentOptionsParams {

@@ -159,6 +159,52 @@
   border-radius: 0 0.25rem 0.25rem 0;
 }
 
+/* Comment anchors: the exact commented text. Markdown preview paints these
+   with the CSS Custom Highlight API (::highlight); Monaco uses the classes. */
+::highlight(comment-anchor) {
+  background-color: oklch(0.82 0.12 85 / 0.3);
+}
+::highlight(comment-anchor-moved) {
+  background-color: oklch(0.8 0.1 55 / 0.22);
+  text-decoration: underline wavy oklch(0.7 0.15 55 / 0.7);
+}
+::highlight(comment-anchor-active) {
+  background-color: oklch(0.82 0.15 85 / 0.6);
+}
+.comment-range-highlight {
+  background: oklch(0.82 0.12 85 / 0.3);
+  border-radius: 2px;
+}
+.comment-range-highlight.comment-anchor-moved {
+  background: oklch(0.8 0.1 55 / 0.22);
+  text-decoration: underline wavy oklch(0.7 0.15 55 / 0.7);
+}
+.comment-line-highlight.comment-anchor-moved {
+  background: oklch(0.8 0.1 55 / 0.12) !important;
+}
+.comment-range-highlight.comment-range-active {
+  background: oklch(0.82 0.15 85 / 0.6);
+  animation: comment-pulse-bg 0.9s ease-out;
+}
+.comment-line-highlight.comment-line-active {
+  background: oklch(0.82 0.15 85 / 0.35) !important;
+}
+@keyframes comment-pulse-bg {
+  0%, 40% { background: oklch(0.82 0.15 85 / 0.85); }
+  100% { background: oklch(0.82 0.15 85 / 0.6); }
+}
+
+/* Pulse the block (preview) or sidebar card of a hovered comment. */
+.comment-pulse,
+.comment-card-pulse {
+  animation: comment-pulse-ring 0.9s ease-out;
+  border-radius: 0.25rem;
+}
+@keyframes comment-pulse-ring {
+  0% { box-shadow: 0 0 0 0 oklch(0.75 0.15 85 / 0.55); }
+  100% { box-shadow: 0 0 0 0.5rem oklch(0.75 0.15 85 / 0); }
+}
+
 /* Flash highlight for comment scroll-to in preview mode */
 .flash-comment-highlight {
   background: oklch(0.82 0.12 85 / 0.3) !important;

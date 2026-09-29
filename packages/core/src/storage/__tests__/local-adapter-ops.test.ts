@@ -98,4 +98,16 @@ describe("LocalStorageAdapter — op-level versioning (full tier)", () => {
       NotFoundError,
     );
   });
+
+  test("stat exposes the storage etag: stable across reads, different once the content changes", async () => {
+    await write(ctx, { path: PATH, content: "first\n" });
+    const a = await stat(ctx, { path: PATH });
+    const again = await stat(ctx, { path: PATH });
+    expect(typeof a.etag).toBe("string");
+    expect(again.etag).toBe(a.etag);
+
+    await write(ctx, { path: PATH, content: "second\n" });
+    const b = await stat(ctx, { path: PATH });
+    expect(b.etag).not.toBe(a.etag);
+  });
 });

@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS files (
   PRIMARY KEY (path, drive_id)
 );
 
+-- Support drive-scoped file listings and prefix scans.
+CREATE INDEX IF NOT EXISTS idx_files_drive_path ON files(drive_id, path);
+
 CREATE TABLE IF NOT EXISTS file_versions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   path TEXT NOT NULL,
@@ -81,6 +84,9 @@ CREATE TABLE IF NOT EXISTS comments (
   line_start INTEGER,
   line_end INTEGER,
   quoted_content TEXT,
+  quote_exact TEXT,
+  quote_prefix TEXT,
+  quote_suffix TEXT,
   file_version_id INTEGER REFERENCES file_versions(id),
   body TEXT NOT NULL,
   author TEXT NOT NULL REFERENCES users(id),
@@ -113,6 +119,41 @@ CREATE INDEX IF NOT EXISTS idx_events_resource ON events(resource_type, resource
 CREATE INDEX IF NOT EXISTS idx_events_actor ON events(actor);
 CREATE INDEX IF NOT EXISTS idx_events_notification_inbox
   ON events(org_id, type, target, status, created_at DESC);
+
+-- Public share links (/share/:token). Only the SHA-256 of the token is
+-- stored, so a database read cannot be turned back into a working link. There
+-- are deliberately no foreign keys: a share must never block deleting a user,
+-- drive or org, and a dangling share just resolves to "file unavailable".
+CREATE TABLE IF NOT EXISTS shares (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  drive_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  max_views INTEGER,
+  views INTEGER NOT NULL DEFAULT 0,
+  last_viewed_at INTEGER,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  revoked_at INTEGER
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS shares_token_hash_uq ON shares(token_hash);
+CREATE INDEX IF NOT EXISTS idx_shares_drive_path ON shares(drive_id, path);
+
+-- What a counted page view of a view-limited share gets to fetch its bytes
+-- with. Only the SHA-256 of the grant is stored. Bytes of a view-limited link
+-- are never served on the (spent) share token alone.
+CREATE TABLE IF NOT EXISTS share_view_grants (
+  grant_hash TEXT PRIMARY KEY,
+  share_id TEXT NOT NULL,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_share_view_grants_share ON share_view_grants(share_id);
+CREATE INDEX IF NOT EXISTS idx_share_view_grants_expiry ON share_view_grants(expires_at);
 
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -34,11 +34,17 @@ export function commentCommands(
     .option("--line-start <n>", "Start line")
     .option("--line-end <n>", "End line")
     .option("--quoted-content <text>", "Quoted content from the file")
+    .option("--quote <text>", "Exact text the comment anchors to (re-found after edits)")
+    .option("--quote-prefix <text>", "Text just before --quote, to pick the right occurrence")
+    .option("--quote-suffix <text>", "Text just after --quote, to pick the right occurrence")
     .description("Add a comment to a file")
     .action(async (path: string, opts: any) => {
       try {
         const params: Record<string, any> = { path, body: opts.body };
         if (opts.quotedContent) params.quotedContent = opts.quotedContent;
+        if (opts.quote) {
+          params.quote = { exact: opts.quote, prefix: opts.quotePrefix, suffix: opts.quoteSuffix };
+        }
         if (opts.line) {
           params.lineStart = parseInt(opts.line);
           params.lineEnd = parseInt(opts.line);

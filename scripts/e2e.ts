@@ -13,6 +13,7 @@ import { mkdirSync, writeFileSync, rmSync, readFileSync, mkdtempSync } from "nod
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
+import { Database } from "bun:sqlite";
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -1198,6 +1199,7 @@ async function runStandardTests(daemonUrl: string) {
     assert(result.path, "/hello.txt");
     assert(typeof result.size, "number");
     assert(result.currentVersion >= 3, true, `Expected version >= 3, got ${result.currentVersion}`);
+    assert(typeof result.etag, "string", "stat should expose the storage etag");
   });
 
   // -- tail --
@@ -1383,6 +1385,17 @@ async function runStandardTests(daemonUrl: string) {
 
     const resolve = JSON.parse(run(`comment resolve ${add.id}`));
     assert(resolve.resolved, true, "Expected comment to be resolved");
+  });
+
+  await test("comment add --quote stores a text-quote anchor", () => {
+    const add = JSON.parse(run('comment add /hello.txt --body "Anchored" --quote "hello" --quote-suffix " world"'));
+    assert(add.quote?.exact, "hello");
+    assert(add.quote?.suffix, " world");
+
+    const list = JSON.parse(run("comment list /hello.txt"));
+    const found = list.comments.find((c: any) => c.id === add.id);
+    assert(found?.quote?.exact, "hello", "Expected the quote anchor in comment list");
+    assert(typeof found?.fileVersion, "number", "Expected the anchor version number in comment list");
   });
 
   // -- recent --
@@ -1573,6 +1586,89 @@ async function runStandardTests(daemonUrl: string) {
     assert(parsed.kind, localOnly ? "app" : "presigned");
   });
 
+  // -- reveal --
+
+  await test("reveal via API returns every ancestor listing plus stat", async () => {
+    runJson('write /reveal/a/b/deep.md --content "deep"');
+    runJson('write /reveal/a/sibling.md --content "sibling"');
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "reveal", path: "reveal/a/b/deep.md" }),
+    });
+    assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const body = await res.json() as any;
+    assert(body.path, "/reveal/a/b/deep.md");
+    assert(body.stat.size, 4);
+    assert(
+      JSON.stringify(body.listings.map((l: any) => l.path)),
+      JSON.stringify(["/", "/reveal", "/reveal/a", "/reveal/a/b"]),
+    );
+    // Each listing must match what `ls` returns for that directory.
+    for (const listing of body.listings) {
+      const ls = runJson(`ls ${listing.path}`);
+      assert(JSON.stringify(listing.entries), JSON.stringify(ls.entries), `listing ${listing.path} differs from ls`);
+    }
+    const names = body.listings[2].entries.map((e: any) => e.name).sort();
+    assert(JSON.stringify(names), JSON.stringify(["b", "sibling.md"]));
+  });
+
+  await test("reveal via CLI", () => {
+    const result = runJson("reveal /reveal/a/b/deep.md");
+    assert(result.stat.path, "/reveal/a/b/deep.md");
+    assert(result.listings.length, 4);
+  });
+
+  await test("reveal via API — 404 for missing file", async () => {
+    const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ op: "reveal", path: "/reveal/a/missing.md" }),
+    });
+    assert(res.status, 404, `Expected 404, got ${res.status}`);
+    assert(((await res.json()) as any).error, "NOT_FOUND");
+  });
+
+  await test("reveal via MCP", async () => {
+    const initRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "e2e-reveal", version: "1.0.0" },
+        },
+      }),
+    });
+    assert(initRes.ok, true, `MCP init failed: ${initRes.status}`);
+
+    const callRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "reveal", arguments: { path: "/reveal/a/b/deep.md" } },
+      }),
+    });
+    assert(callRes.ok, true, `MCP tools/call failed: ${callRes.status}`);
+    const body = await callRes.json() as any;
+    const parsed = JSON.parse(body.result?.content?.[0]?.text ?? "{}");
+    assert(parsed.path, "/reveal/a/b/deep.md");
+    assert(parsed.listings?.length, 4);
+  });
+
   // -- MIME type detection --
 
   await test("write sets contentType in stat", () => {
@@ -1640,6 +1736,228 @@ async function runStandardTests(daemonUrl: string) {
       assert(ct, "image/png", `Expected image/png, got ${ct}`);
     });
   }
+
+  // -- share links (public /share/:token preview) --
+
+  const shareDb = () => {
+    const db = new Database(join(testDir, "agent-fs.db"));
+    db.exec("PRAGMA busy_timeout=5000");
+    return db;
+  };
+  const shareBase = `http://127.0.0.1:${daemonPort}`;
+  const tokenFrom = (url: string) => url.split("/share/")[1];
+
+  await test("/health advertises share-links", async () => {
+    const health = await (await fetch(`${daemonUrl}/health`)).json() as any;
+    assert(health.features?.includes("share-links"), true, `Expected share-links in ${JSON.stringify(health)}`);
+  });
+
+  runJson('write /share-e2e.md --content "# Shared heading\n\nHello <script>alert(1)</script> from **agent-fs**."');
+
+  await test("share-create returns a public link on the API host", () => {
+    const r = runJson("share-create /share-e2e.md");
+    assert(r.url.startsWith(`${shareBase}/share/`), true, `Expected an API-host URL, got ${r.url}`);
+    assert(r.path, "/share-e2e.md");
+    assert(r.expiresIn, 86400);
+    assert(r.maxViews, null);
+    assert(typeof r.id, "string");
+    assertIncludes(r.appUrl ?? "", "/file/~/", "Expected the viewer link alongside the share link (local mode has an app URL)");
+  });
+
+  await test("share-create fails for a missing file", () => {
+    try {
+      run("share-create /no-such-file.md");
+      throw new Error("Expected share-create to fail for a missing file");
+    } catch (e: any) {
+      if (e.message.includes("Expected share-create")) throw e;
+    }
+  });
+
+  await test("share-create rejects paths that climb out of the drive", () => {
+    for (const path of ["/no-such-dir/../share-e2e.md", "/../../../etc/passwd", "../../other/drives/x/secret.txt", "/a/./b", "/a\\..\\b"]) {
+      let failed = false;
+      try {
+        run(`share-create "${path}"`);
+      } catch {
+        failed = true;
+      }
+      assert(failed, true, `Expected share-create to reject ${path}`);
+    }
+  });
+
+  await test("GET /share/:token renders a hardened page without any credentials", async () => {
+    const r = runJson("share-create /share-e2e.md");
+    const res = await fetch(r.url); // no Authorization header
+    assert(res.status, 200);
+    assertIncludes(res.headers.get("content-type") ?? "", "text/html");
+    assert(res.headers.get("x-content-type-options"), "nosniff");
+    assert(res.headers.get("cache-control"), "no-store");
+    assertIncludes(res.headers.get("content-security-policy") ?? "", "default-src 'none'");
+    const body = await res.text();
+    assertIncludes(body, "<h1>share-e2e.md</h1>");
+    assertIncludes(body, "<h1>Shared heading</h1>");
+    assertIncludes(body, "<strong>agent-fs</strong>");
+    assertIncludes(body, `/share/${tokenFrom(r.url)}/download`);
+    assert(body.includes("<script"), false, "Page must not contain a script tag");
+    assert(body.includes(apiKey), false, "Page must not contain the API key");
+    assert(body.includes(personalOrgId), false, "Page must not contain the org id");
+  });
+
+  await test("share download serves the file as an attachment", async () => {
+    const r = runJson("share-create /share-e2e.md");
+    const res = await fetch(`${r.url}/download`); // follows the presigned redirect on MinIO
+    assert(res.status, 200);
+    assert((res.headers.get("content-disposition") ?? "").startsWith("attachment;"), true, "Expected an attachment disposition");
+    assertIncludes(await res.text(), "Shared heading");
+  });
+
+  await test("share-create --one-off: first view works, second is expired", async () => {
+    const r = runJson("share-create /share-e2e.md --one-off");
+    assert(r.maxViews, 1);
+    const first = await fetch(r.url);
+    assert(first.status, 200);
+    const second = await fetch(r.url);
+    assert(second.status, 410);
+    assertIncludes(await second.text(), "This link has expired");
+  });
+
+  await test("share-create --one-off: bytes belong to the view that spent it, not to the link", async () => {
+    const r = runJson("share-create /share-e2e.md --one-off");
+    // Nothing before the page was opened, and the bare link never gets bytes.
+    assert((await fetch(`${r.url}/download`)).status, 403);
+    const first = await fetch(r.url);
+    assert(first.status, 200);
+    const grant = /\/download\?g=([A-Za-z0-9_-]{43})/.exec(await first.text())?.[1];
+    assert(!!grant, true, "Expected the page to carry a download grant");
+    for (let i = 0; i < 3; i++) {
+      assert((await fetch(`${r.url}/download`)).status, 410);
+    }
+    // The page that spent the view can still download its file.
+    const own = await fetch(`${r.url}/download?g=${grant}`);
+    assert(own.status, 200);
+    assertIncludes(await own.text(), "Shared heading");
+  });
+
+  await test("every share response carries a CSP, redirects and errors included", async () => {
+    const r = runJson("share-create /share-e2e.md");
+    for (const [what, url] of [
+      ["page", r.url],
+      ["download", `${r.url}/download`],
+      ["unknown token", `${shareBase}/share/${"A".repeat(43)}`],
+      ["unknown sub-route", `${r.url}/nope`],
+    ] as const) {
+      const res = await fetch(url, { redirect: "manual" });
+      assert(!!res.headers.get("content-security-policy"), true, `Expected a CSP on the ${what} response (${res.status})`);
+    }
+  });
+
+  await test("share --max-views N allows exactly N views", async () => {
+    const r = runJson("share-create /share-e2e.md --max-views 2");
+    const statuses = [(await fetch(r.url)).status, (await fetch(r.url)).status, (await fetch(r.url)).status];
+    assert(statuses.join(","), "200,200,410");
+  });
+
+  await test("an expired share renders 'link expired'", async () => {
+    const r = runJson("share-create /share-e2e.md --expires-in 60");
+    assert((await fetch(r.url)).status, 200);
+    const db = shareDb();
+    db.prepare("UPDATE shares SET expires_at = ? WHERE id = ?").run(Math.floor(Date.now() / 1000) - 10, r.id);
+    db.close();
+    const res = await fetch(r.url);
+    assert(res.status, 410);
+    assertIncludes(await res.text(), "This link has expired");
+    assert((await fetch(`${r.url}/download`)).status, 410);
+  });
+
+  await test("share-revoke stops a link immediately (by id and by URL)", async () => {
+    const byId = runJson("share-create /share-e2e.md");
+    assert((await fetch(byId.url)).status, 200);
+    assert(runJson(`share-revoke ${byId.id}`).revoked, 1);
+    assert((await fetch(byId.url)).status, 410);
+    assert((await fetch(`${byId.url}/download`)).status, 410);
+
+    const byUrl = runJson("share-create /share-e2e.md");
+    assert(runJson(`share-revoke --token ${byUrl.url}`).revoked, 1);
+    assert((await fetch(byUrl.url)).status, 410);
+    // idempotent
+    assert(runJson(`share-revoke ${byId.id}`).revoked, 0);
+  });
+
+  await test("share-revoke --path revokes every link of a file", async () => {
+    runJson('write /share-e2e-multi.txt --content "multi"');
+    const a = runJson("share-create /share-e2e-multi.txt");
+    const b = runJson("share-create /share-e2e-multi.txt");
+    assert(runJson("share-revoke --path /share-e2e-multi.txt").revoked, 2);
+    assert((await fetch(a.url)).status, 410);
+    assert((await fetch(b.url)).status, 410);
+  });
+
+  await test("unknown share tokens get the expired page, not a server error", async () => {
+    const res = await fetch(`${shareBase}/share/${"A".repeat(43)}`);
+    assert(res.status, 404);
+    assertIncludes(await res.text(), "This link has expired");
+  });
+
+  await test("HTML and SVG files are download-only, never previewed", async () => {
+    runJson('write /share-e2e.html --content "<html><script>alert(1)</script></html>"');
+    const r = runJson("share-create /share-e2e.html");
+    const res = await fetch(r.url);
+    assert(res.status, 200);
+    const body = await res.text();
+    assertIncludes(body, "No preview available");
+    assert(body.includes("alert(1)"), false, "HTML source must not be rendered into the page");
+    assert((await fetch(`${r.url}/raw`)).status, 404);
+  });
+
+  await test("every share view is recorded as a share_viewed event", async () => {
+    const r = runJson("share-create /share-e2e.md --max-views 3");
+    await fetch(r.url);
+    await fetch(r.url);
+    const db = shareDb();
+    const rows = db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'share_viewed' AND resource_id = ?").get(r.id) as { n: number };
+    db.close();
+    assert(rows.n, 2);
+  });
+
+  await test("share-create via API and MCP", async () => {
+    const apiRes = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({ op: "share-create", path: "/share-e2e.md", expiresIn: 3600, maxViews: 5 }),
+    });
+    assert(apiRes.status, 200);
+    const api = await apiRes.json() as any;
+    assert(api.expiresIn, 3600);
+    assert(api.maxViews, 5);
+
+    const bad = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({ op: "share-create", path: "/share-e2e.md", expiresIn: 999999 }),
+    });
+    assert(bad.ok, false, "expiresIn above 7 days must be rejected");
+
+    await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 1, method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "e2e-share", version: "1.0.0" } },
+      }),
+    });
+    const mcp = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 2, method: "tools/call",
+        params: { name: "share-create", arguments: { path: "/share-e2e.md", maxViews: 1 } },
+      }),
+    });
+    const mcpBody = await mcp.json() as any;
+    const parsed = JSON.parse(mcpBody.result.content[0].text);
+    assert(parsed.url.startsWith(`${shareBase}/share/`), true, `Expected an API-host URL from MCP, got ${parsed.url}`);
+    assert(parsed.maxViews, 1);
+  });
 
   // Daemon /raw route must declare a charset on text responses, or the
   // browser's anchor-download path falls back to a locale default (cp1252 on
@@ -2762,6 +3080,29 @@ async function runStandardTests(daemonUrl: string) {
     });
     assert(res.status, 403, `Expected 403, got ${res.status}`);
     assert(((await res.json()) as any).error, "PERMISSION_DENIED");
+  });
+
+  await test("rbac: reveal follows ls — viewer allowed, non-member denied like ls", async () => {
+    const viewerRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({ op: "reveal", path: "/rbac-probe.txt" }),
+    });
+    assert(viewerRes.status, 200, `Expected 200, got ${viewerRes.status}`);
+    assert(((await viewerRes.json()) as any).stat.path, "/rbac-probe.txt");
+
+    // user3 has no access to user1's personal org: reveal must fail exactly as ls does.
+    const call = (op: string, extra: Record<string, unknown>) =>
+      fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+        method: "POST",
+        headers: authed(user3ApiKey),
+        body: JSON.stringify({ op, ...extra }),
+      });
+    const lsRes = await call("ls", { path: "/" });
+    const revealRes = await call("reveal", { path: "/hello.txt" });
+    assert(lsRes.ok, false, "Expected ls to be denied for a non-member");
+    assert(revealRes.status, lsRes.status, `reveal ${revealRes.status} vs ls ${lsRes.status}`);
+    assert(((await revealRes.json()) as any).error, ((await lsRes.json()) as any).error);
   });
 
   await test("rbac: comment notifications are target and drive scoped", async () => {

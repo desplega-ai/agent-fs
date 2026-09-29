@@ -16,6 +16,7 @@ import type {
   CommentResolveParams,
   CommentResolveResult,
   CommentEntry,
+  CommentQuote,
 } from "./types.js";
 import { NotFoundError, ValidationError, PermissionDeniedError } from "../errors.js";
 
@@ -110,6 +111,21 @@ function getScopedComment(ctx: OpContext, id: string) {
     .get();
 }
 
+// Quote anchors only need enough text to re-find the selection; cap what we
+// store rather than reject, so a long selection never fails comment-add.
+const QUOTE_EXACT_MAX = 4000;
+const QUOTE_CONTEXT_MAX = 64;
+
+function normalizeQuote(quote: CommentQuote | undefined): CommentQuote | undefined {
+  if (!quote || !quote.exact) return undefined;
+  return {
+    exact: quote.exact.slice(0, QUOTE_EXACT_MAX),
+    // Keep the context closest to the selection.
+    prefix: quote.prefix ? quote.prefix.slice(-QUOTE_CONTEXT_MAX) : undefined,
+    suffix: quote.suffix ? quote.suffix.slice(0, QUOTE_CONTEXT_MAX) : undefined,
+  };
+}
+
 function toCommentEntry(row: any): CommentEntry {
   return {
     id: row.id,
@@ -118,6 +134,13 @@ function toCommentEntry(row: any): CommentEntry {
     lineStart: row.lineStart ?? undefined,
     lineEnd: row.lineEnd ?? undefined,
     quotedContent: row.quotedContent ?? undefined,
+    quote: row.quoteExact
+      ? {
+          exact: row.quoteExact,
+          prefix: row.quotePrefix ?? undefined,
+          suffix: row.quoteSuffix ?? undefined,
+        }
+      : undefined,
     body: row.body,
     author: row.author,
     resolved: row.resolved ?? false,
@@ -138,6 +161,22 @@ function addAuthorNames<T extends { author: string; authorDisplayName?: string }
     .from(schema.users).where(inArray(schema.users.id, ids)).all();
   const names = new Map(users.map((user) => [user.id, user.displayName]));
   for (const entry of entries) entry.authorDisplayName = names.get(entry.author) ?? undefined;
+  return entries;
+}
+
+// Resolve fileVersionId (a file_versions row id) to its version number so
+// clients can diff the anchor version against the current one.
+function addFileVersions<T extends { fileVersionId?: number; fileVersion?: number }>(ctx: OpContext, entries: T[]): T[] {
+  const ids = [...new Set(entries.flatMap((entry) => entry.fileVersionId ?? []))];
+  if (!ids.length) return entries;
+  const rows = ctx.db.select({ id: schema.fileVersions.id, version: schema.fileVersions.version })
+    .from(schema.fileVersions)
+    .where(and(inArray(schema.fileVersions.id, ids), eq(schema.fileVersions.driveId, ctx.driveId)))
+    .all();
+  const versions = new Map(rows.map((row) => [row.id, row.version]));
+  for (const entry of entries) {
+    if (entry.fileVersionId !== undefined) entry.fileVersion = versions.get(entry.fileVersionId);
+  }
   return entries;
 }
 
@@ -180,6 +219,8 @@ export async function commentAdd(
     });
   }
 
+  const quote = normalizeQuote(params.quote);
+
   // Capture current file version ID
   const currentVersion = ctx.db
     .select({ id: schema.fileVersions.id })
@@ -205,6 +246,9 @@ export async function commentAdd(
       lineStart: params.lineStart ?? null,
       lineEnd: params.lineEnd ?? null,
       quotedContent: params.quotedContent ?? null,
+      quoteExact: quote?.exact ?? null,
+      quotePrefix: quote?.prefix ?? null,
+      quoteSuffix: quote?.suffix ?? null,
       fileVersionId: currentVersion?.id ?? null,
       body: params.body,
       author: ctx.userId,
@@ -235,6 +279,7 @@ export async function commentAdd(
     parentId: params.parentId,
     lineStart: params.lineStart,
     lineEnd: params.lineEnd,
+    quote,
     author: ctx.userId,
     createdAt: now,
   }])[0];
@@ -306,6 +351,7 @@ export async function commentList(
   });
 
   addAuthorNames(ctx, comments.flatMap((comment) => [comment, ...comment.replies]));
+  addFileVersions(ctx, comments);
   return { comments };
 }
 
@@ -358,6 +404,7 @@ export async function commentGet(
   const replies = replyRows.map((r) => toCommentEntry({ ...r, replyCount: 0 }));
 
   addAuthorNames(ctx, [comment, ...replies]);
+  addFileVersions(ctx, [comment]);
   return { comment, replies };
 }
 

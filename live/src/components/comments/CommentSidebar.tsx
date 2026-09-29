@@ -18,7 +18,7 @@ interface CommentSidebarProps {
   path: string
   isOpen?: boolean
   showHeader?: boolean
-  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
+  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string, commentId?: string) => void
   /** When provided, renders a collapse button in the header that calls this callback. */
   onCollapse?: () => void
 }

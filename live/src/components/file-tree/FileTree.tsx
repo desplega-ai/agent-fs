@@ -1,29 +1,44 @@
-import { useCallback, useEffect, useRef } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
+import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual"
 import { FolderOpen } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
 import { FileTreeNode } from "./FileTreeNode"
+import { FileTreeContextMenu, type TreeMenuTarget } from "./FileTreeContextMenu"
 import { FileSearchPanel } from "./FileSearchPanel"
-import { treeExpansionStore, useFocusedPath } from "@/stores/tree-expansion"
+import { treeExpansionStore, useExpandedPaths, useFocusedPath } from "@/stores/tree-expansion"
 import { useSearchInput } from "@/contexts/search-input"
 import { describeRequestError } from "@/lib/request-errors"
+import { fetchReveal } from "@/lib/reveal"
+import { expandedDirsKey, flattenTree, listingsByPath, type TreeRow } from "@/lib/tree-rows"
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu"
+import { Tooltip, TooltipContent, createTooltipHandle } from "@/components/ui/tooltip"
 import type { LsResult } from "@/api/types"
 
 const REVEAL_TIMEOUT_MS = 15_000
+/** `py-1 text-sm` row; `py-1 text-xs` "Empty folder" line. Measured after mount. */
+const ENTRY_ROW_HEIGHT = 28
+const EMPTY_ROW_HEIGHT = 24
 
 function ancestorPaths(path: string): string[] {
   const parts = path.split("/").filter(Boolean)
   return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"))
 }
 
+// Module-level so useQueries keeps the combined result stable between renders.
+const combineListings = (results: { data?: LsResult; isPending: boolean }[]) => ({
+  data: results.map((result) => result.data),
+  settled: results.every((result) => !result.isPending),
+})
+
 export function FileTree() {
   const { client, orgId, driveId } = useAuth()
   const { selectedFile } = useBrowser()
   const queryClient = useQueryClient()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const focusedPath = useFocusedPath()
-  const { focus: focusSearchInput } = useSearchInput()
+  const expandedPaths = useExpandedPaths()
+  // Path the selection effect wants scrolled into view once its row exists.
+  const [revealPath, setRevealPath] = useState<string | null>(null)
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["ls", orgId, driveId, ""],
@@ -32,169 +47,89 @@ export function FileTree() {
   })
   const treeReady = !!data
 
+  // Which expanded folders are reachable depends on listings already loaded, so
+  // pick the queries from the cache. useQueries subscribes to them; each listing
+  // that resolves re-renders the tree and may surface deeper expanded folders,
+  // exactly like the per-row queries this replaces.
+  const expandedDirs = data
+    ? flattenTree(data, expandedPaths, (path) =>
+        queryClient.getQueryData<LsResult>(["ls", orgId, driveId, path]),
+      ).expandedDirs
+    : []
+  const { data: listings, settled: listingsSettled } = useQueries({
+    queries: expandedDirs.map((path) => ({
+      queryKey: ["ls", orgId, driveId, path],
+      queryFn: () => client.callOp<LsResult>(orgId!, "ls", { path }, driveId),
+      enabled: !!orgId && !!driveId,
+    })),
+    combine: combineListings,
+  })
+  const expandedKey = expandedDirsKey(expandedDirs)
+  const rows = useMemo(() => {
+    if (!data) return []
+    const byPath = listingsByPath(expandedKey, listings)
+    return flattenTree(data, expandedPaths, (path) => byPath.get(path)).rows
+  }, [data, expandedPaths, expandedKey, listings])
+
   useEffect(() => {
     const path = selectedFile?.replace(/^\/+/, "")
     if (!path || path.endsWith("/") || !treeReady) return
 
     const ancestors = ancestorPaths(path)
-    treeExpansionStore.expandMany(ancestors)
+    let cancelled = false
 
-    // The file may have been created by another client after an ls result was
-    // cached. Refresh only the listings needed to reveal this path; invalidating
-    // every expanded tree node would turn one selection into an unbounded fanout.
-    for (const listingPath of ["", ...ancestors]) {
-      void queryClient.invalidateQueries({
-        queryKey: ["ls", orgId, driveId, listingPath],
-        exact: true,
-      })
-    }
+    // Fallback for servers without `reveal`. Each level's ls only starts once
+    // its parent listing loads, so a file d levels deep costs d serial round trips.
+    const revealPerAncestor = () => {
+      treeExpansionStore.expandMany(ancestors)
 
-    const container = containerRef.current
-    if (!container) return
-
-    const revealSelectedRow = () => {
-      const row = Array.from(
-        container.querySelectorAll<HTMLButtonElement>("[data-tree-path]"),
-      ).find((candidate) => candidate.dataset.treePath === path)
-
-      if (!row) return false
-
-      // Update the roving tab stop without moving DOM focus away from the
-      // viewer, editor, or search input that the user is currently using.
-      treeExpansionStore.setFocusedPath(path)
-      row.scrollIntoView({ block: "center", inline: "nearest" })
-      return true
-    }
-
-    if (revealSelectedRow()) return
-
-    // Child directories load lazily. Watch this tree until the selected row
-    // materializes, then disconnect immediately.
-    const observer = new MutationObserver(() => {
-      if (!revealSelectedRow()) return
-      observer.disconnect()
-      window.clearTimeout(timeoutId)
-    })
-    observer.observe(container, { childList: true, subtree: true })
-
-    const timeoutId = window.setTimeout(() => observer.disconnect(), REVEAL_TIMEOUT_MS)
-
-    return () => {
-      observer.disconnect()
-      window.clearTimeout(timeoutId)
-    }
-  }, [driveId, orgId, queryClient, selectedFile, treeReady])
-
-  /** Collect all visible row paths in DOM order. */
-  const collectVisible = useCallback((): {
-    paths: string[]
-    nodes: HTMLButtonElement[]
-  } => {
-    if (!containerRef.current) return { paths: [], nodes: [] }
-    const buttons = Array.from(
-      containerRef.current.querySelectorAll<HTMLButtonElement>("[data-tree-path]"),
-    )
-    return {
-      paths: buttons.map((b) => b.dataset.treePath ?? ""),
-      nodes: buttons,
-    }
-  }, [])
-
-  const focusByPath = useCallback(
-    (path: string) => {
-      const { nodes } = collectVisible()
-      const target = nodes.find((n) => n.dataset.treePath === path)
-      if (target) {
-        treeExpansionStore.setFocusedPath(path)
-        target.focus()
+      // The file may have been created by another client after an ls result was
+      // cached. Refresh only the listings needed to reveal this path; invalidating
+      // every expanded tree node would turn one selection into an unbounded fanout.
+      for (const listingPath of ["", ...ancestors]) {
+        void queryClient.invalidateQueries({
+          queryKey: ["ls", orgId, driveId, listingPath],
+          exact: true,
+        })
       }
-    },
-    [collectVisible],
-  )
+    }
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
-      // Only act on arrow keys; Enter is handled natively by the focused
-      // button (which fires click → handleClick on the row).
-      const key = e.key
-      if (
-        key !== "ArrowUp" &&
-        key !== "ArrowDown" &&
-        key !== "ArrowLeft" &&
-        key !== "ArrowRight"
-      ) {
+    // One round trip: seed every ancestor's ls cache entry before expanding,
+    // so each level renders from cache the moment it is expanded.
+    const abort = new AbortController()
+    void fetchReveal(client, orgId!, driveId, path, abort.signal).then((result) => {
+      if (cancelled) return
+      if (!result) {
+        revealPerAncestor()
         return
       }
-
-      // Ignore if focus is in an input inside the tree (defensive).
-      const tag =
-        e.target instanceof HTMLElement ? e.target.tagName : ""
-      if (tag === "INPUT" || tag === "TEXTAREA") return
-
-      const { paths, nodes } = collectVisible()
-      if (paths.length === 0) return
-
-      const current = focusedPath ?? paths[0]!
-      const idx = paths.indexOf(current)
-      const safeIdx = idx === -1 ? 0 : idx
-      const currentNode = nodes[safeIdx]
-      const isDir = currentNode?.dataset.treeIsDir === "true"
-      const expanded = currentNode?.dataset.treeExpanded === "true"
-      const fullPath = paths[safeIdx]!
-
-      switch (key) {
-        case "ArrowDown": {
-          e.preventDefault()
-          const next = paths[Math.min(paths.length - 1, safeIdx + 1)]
-          if (next) focusByPath(next)
-          return
-        }
-        case "ArrowUp": {
-          e.preventDefault()
-          if (safeIdx === 0) {
-            // At the top of the tree — return focus to the search input so
-            // ↑ can escape back out of the results.
-            focusSearchInput()
-            return
-          }
-          const prev = paths[safeIdx - 1]
-          if (prev) focusByPath(prev)
-          return
-        }
-        case "ArrowRight": {
-          e.preventDefault()
-          if (isDir && !expanded) {
-            treeExpansionStore.expand(fullPath)
-            return
-          }
-          if (isDir && expanded) {
-            // Move to first child if any visible.
-            const nextPath = paths[safeIdx + 1]
-            if (nextPath && nextPath.startsWith(`${fullPath}/`)) {
-              focusByPath(nextPath)
-            }
-          }
-          return
-        }
-        case "ArrowLeft": {
-          e.preventDefault()
-          if (isDir && expanded) {
-            treeExpansionStore.collapse(fullPath)
-            return
-          }
-          // Move focus to parent: drop the last segment.
-          const lastSlash = fullPath.lastIndexOf("/")
-          if (lastSlash <= 0) return
-          const parent = fullPath.slice(0, lastSlash)
-          if (paths.includes(parent)) {
-            focusByPath(parent)
-          }
-          return
-        }
+      for (const listing of result.listings) {
+        queryClient.setQueryData<LsResult>(
+          ["ls", orgId, driveId, listing.path.replace(/^\/+/, "")],
+          { entries: listing.entries },
+        )
       }
-    },
-    [collectVisible, focusByPath, focusedPath, focusSearchInput],
-  )
+      treeExpansionStore.expandMany(ancestors)
+    })
+
+    // Off-screen rows are not in the DOM, so the virtual list scrolls to the
+    // row's index as soon as it appears in `rows`, then clears this.
+    setRevealPath(path)
+    const timeoutId = window.setTimeout(
+      () => setRevealPath((current) => (current === path ? null : current)),
+      REVEAL_TIMEOUT_MS,
+    )
+
+    return () => {
+      cancelled = true
+      abort.abort()
+      window.clearTimeout(timeoutId)
+    }
+  }, [client, driveId, orgId, queryClient, selectedFile, treeReady])
+
+  const handleRevealed = useCallback((path: string) => {
+    setRevealPath((current) => (current === path ? null : current))
+  }, [])
 
   if (isLoading) {
     return (
@@ -231,29 +166,321 @@ export function FileTree() {
     )
   }
 
-  const sorted = [...data.entries].sort((a, b) => {
-    if (a.type !== b.type) return a.type === "directory" ? -1 : 1
-    return a.name.localeCompare(b.name)
+  return (
+    <VirtualTree
+      rows={rows}
+      listingsSettled={listingsSettled}
+      revealPath={revealPath}
+      onRevealed={handleRevealed}
+    />
+  )
+}
+
+/** Nearest ancestor that scrolls vertically (the sidebar's tab panel). */
+function findScrollParent(element: HTMLElement): HTMLElement | null {
+  let parent = element.parentElement
+  while (parent) {
+    const { overflowY } = getComputedStyle(parent)
+    if (overflowY === "auto" || overflowY === "scroll") return parent
+    parent = parent.parentElement
+  }
+  return null
+}
+
+interface VirtualTreeProps {
+  rows: TreeRow[]
+  /** False while an expanded folder's listing is still loading. */
+  listingsSettled: boolean
+  revealPath: string | null
+  onRevealed: (path: string) => void
+}
+
+/**
+ * Renders only the rows near the viewport. Kept apart from FileTree so a
+ * scroll re-renders this list, not the listing queries and flattening above.
+ */
+function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualTreeProps) {
+  const { selectedFile } = useBrowser()
+  const focusedPath = useFocusedPath()
+  const { focus: focusSearchInput } = useSearchInput()
+  const headerRef = useRef<HTMLDivElement>(null)
+  const treeRef = useRef<HTMLDivElement>(null)
+  const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null)
+  const [scrollMargin, setScrollMargin] = useState(0)
+  const [tooltip] = useState(() => createTooltipHandle())
+  const [menuTarget, setMenuTarget] = useState<TreeMenuTarget | null>(null)
+  // Row to move DOM focus to once it is rendered (keyboard navigation).
+  const pendingFocusRef = useRef<string | null>(null)
+  const selectedPath = selectedFile?.replace(/^\/+|\/+$/g, "") ?? null
+
+  const { indexByPath, entryPaths, firstEntryIndex, lastEntryIndex } = useMemo(() => {
+    const indexByPath = new Map<string, number>()
+    const entryPaths: string[] = []
+    rows.forEach((row, index) => {
+      if (row.kind !== "entry") return
+      indexByPath.set(row.path, index)
+      entryPaths.push(row.path)
+    })
+    return {
+      indexByPath,
+      entryPaths,
+      firstEntryIndex: indexByPath.get(entryPaths[0] ?? "") ?? -1,
+      lastEntryIndex: indexByPath.get(entryPaths[entryPaths.length - 1] ?? "") ?? -1,
+    }
+  }, [rows])
+
+  // Roving tabindex: the focused row, or the first row when focus has not
+  // entered the tree yet (or its row was collapsed away).
+  const tabStopPath =
+    focusedPath !== null && indexByPath.has(focusedPath) ? focusedPath : (entryPaths[0] ?? null)
+  const tabStopIndex = tabStopPath === null ? -1 : (indexByPath.get(tabStopPath) ?? -1)
+
+  // Always keep the tab stop mounted so the tree stays tabbable and a focused
+  // row keeps DOM focus when scrolled away, and keep the first and last rows
+  // mounted for callers that focus `[data-tree-path]` from outside the tree.
+  const rangeExtractor = useCallback(
+    (range: Range) => {
+      const indexes = new Set(defaultRangeExtractor(range))
+      for (const index of [tabStopIndex, firstEntryIndex, lastEntryIndex]) {
+        if (index >= 0 && index < range.count) indexes.add(index)
+      }
+      return [...indexes].sort((a, b) => a - b)
+    },
+    [tabStopIndex, firstEntryIndex, lastEntryIndex],
+  )
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollElement,
+    estimateSize: (index) =>
+      rows[index]?.kind === "empty" ? EMPTY_ROW_HEIGHT : ENTRY_ROW_HEIGHT,
+    getItemKey: (index) => rows[index]?.path ?? index,
+    overscan: 12,
+    scrollMargin,
+    rangeExtractor,
   })
+
+  // The search panel sits above the tree in the same scroll container; track
+  // how far down the tree starts so the virtualizer maps offsets correctly.
+  useLayoutEffect(() => {
+    const tree = treeRef.current
+    const header = headerRef.current
+    if (!tree || !header) return
+    const scroller = findScrollParent(tree)
+    setScrollElement(scroller)
+    if (!scroller) return
+
+    const measure = () => {
+      const offset =
+        tree.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top +
+        scroller.scrollTop
+      setScrollMargin(Math.round(offset))
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(header)
+    return () => observer.disconnect()
+  }, [])
+
+  // Reveal the selected file without moving DOM focus away from the viewer,
+  // editor, or search input the user is working in. Rows are absolutely
+  // positioned, so the browser's scroll anchoring cannot keep the row in view
+  // while other expanded folders load above it: follow its index until every
+  // listing has settled.
+  useEffect(() => {
+    if (!revealPath) return
+    const index = indexByPath.get(revealPath)
+    if (index === undefined || !scrollElement) return
+    treeExpansionStore.setFocusedPath(revealPath)
+    virtualizer.scrollToIndex(index, { align: "center" })
+    if (listingsSettled) onRevealed(revealPath)
+  }, [revealPath, indexByPath, listingsSettled, scrollElement, virtualizer, onRevealed])
+
+  // Keyboard navigation: move DOM focus once the target row is rendered. The
+  // range extractor keeps the focused row mounted, so this lands on the render
+  // right after `setFocusedPath`.
+  useLayoutEffect(() => {
+    const path = pendingFocusRef.current
+    if (!path || !treeRef.current) return
+    const row = Array.from(
+      treeRef.current.querySelectorAll<HTMLButtonElement>("[data-tree-path]"),
+    ).find((candidate) => candidate.dataset.treePath === path)
+    if (!row) return
+    pendingFocusRef.current = null
+    row.focus()
+  })
+
+  const focusByPath = useCallback((path: string) => {
+    pendingFocusRef.current = path
+    treeExpansionStore.setFocusedPath(path)
+  }, [])
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      // Only act on arrow keys; Enter is handled natively by the focused
+      // button (which fires click → handleClick on the row).
+      const key = e.key
+      if (
+        key !== "ArrowUp" &&
+        key !== "ArrowDown" &&
+        key !== "ArrowLeft" &&
+        key !== "ArrowRight"
+      ) {
+        return
+      }
+
+      // Ignore if focus is in an input inside the tree (defensive).
+      const tag =
+        e.target instanceof HTMLElement ? e.target.tagName : ""
+      if (tag === "INPUT" || tag === "TEXTAREA") return
+
+      if (entryPaths.length === 0) return
+
+      const current = focusedPath ?? entryPaths[0]!
+      const idx = entryPaths.indexOf(current)
+      const safeIdx = idx === -1 ? 0 : idx
+      const fullPath = entryPaths[safeIdx]!
+      const row = rows[indexByPath.get(fullPath) ?? -1]
+      const isDir = row?.kind === "entry" && row.isDir
+      const expanded = row?.kind === "entry" && row.expanded
+
+      switch (key) {
+        case "ArrowDown": {
+          e.preventDefault()
+          const next = entryPaths[Math.min(entryPaths.length - 1, safeIdx + 1)]
+          if (next) focusByPath(next)
+          return
+        }
+        case "ArrowUp": {
+          e.preventDefault()
+          if (safeIdx === 0) {
+            // At the top of the tree — return focus to the search input so
+            // ↑ can escape back out of the results.
+            focusSearchInput()
+            return
+          }
+          const prev = entryPaths[safeIdx - 1]
+          if (prev) focusByPath(prev)
+          return
+        }
+        case "ArrowRight": {
+          e.preventDefault()
+          if (isDir && !expanded) {
+            treeExpansionStore.expand(fullPath)
+            return
+          }
+          if (isDir && expanded) {
+            // Move to first child if any visible.
+            const nextPath = entryPaths[safeIdx + 1]
+            if (nextPath && nextPath.startsWith(`${fullPath}/`)) {
+              focusByPath(nextPath)
+            }
+          }
+          return
+        }
+        case "ArrowLeft": {
+          e.preventDefault()
+          if (isDir && expanded) {
+            treeExpansionStore.collapse(fullPath)
+            return
+          }
+          // Move focus to parent: drop the last segment.
+          const lastSlash = fullPath.lastIndexOf("/")
+          if (lastSlash <= 0) return
+          const parent = fullPath.slice(0, lastSlash)
+          if (indexByPath.has(parent)) {
+            focusByPath(parent)
+          }
+          return
+        }
+      }
+    },
+    [entryPaths, focusByPath, focusedPath, focusSearchInput, indexByPath, rows],
+  )
+
+  // One context menu for the whole tree: note which row it opened on. Right
+  // clicks between rows (e.g. "Empty folder") open nothing, as before.
+  const pickMenuTarget = (
+    e: React.SyntheticEvent<HTMLDivElement> & { preventBaseUIHandler: () => void },
+  ) => {
+    const element =
+      e.target instanceof Element
+        ? e.target.closest<HTMLElement>("[data-tree-path]")
+        : null
+    const row = rows[indexByPath.get(element?.dataset.treePath ?? "") ?? -1]
+    if (row?.kind !== "entry") {
+      e.preventBaseUIHandler()
+      return
+    }
+    setMenuTarget({
+      path: row.path,
+      parentPath: row.parentPath,
+      name: row.entry.name,
+      isDir: row.isDir,
+    })
+  }
 
   return (
     <>
-      <FileSearchPanel />
-      <div
-        ref={containerRef}
-        className="py-1"
-        role="tree"
-        onKeyDown={handleKeyDown}
-      >
-        {sorted.map((entry, idx) => (
-          <FileTreeNode
-            key={entry.name}
-            entry={entry}
-            path=""
-            depth={0}
-            isDefaultFocus={idx === 0}
-          />
-        ))}
+      <div ref={headerRef}>
+        <FileSearchPanel />
+      </div>
+      <div className="py-1">
+        <ContextMenu>
+          <ContextMenuTrigger
+            ref={treeRef}
+            role="tree"
+            onKeyDown={handleKeyDown}
+            onContextMenu={pickMenuTarget}
+            onTouchStart={pickMenuTarget}
+            className="relative w-full"
+            style={{ height: virtualizer.getTotalSize() }}
+          >
+            {virtualizer.getVirtualItems().map((item) => {
+              const row = rows[item.index]
+              if (!row) return null
+              return (
+                <div
+                  key={item.key}
+                  data-index={item.index}
+                  ref={virtualizer.measureElement}
+                  className="absolute left-0 top-0 w-full"
+                  style={{ transform: `translateY(${item.start - scrollMargin}px)` }}
+                >
+                  {row.kind === "entry" ? (
+                    <FileTreeNode
+                      entry={row.entry}
+                      parentPath={row.parentPath}
+                      fullPath={row.path}
+                      depth={row.depth}
+                      isDir={row.isDir}
+                      expanded={row.expanded}
+                      isSelected={selectedPath === row.path}
+                      tabIndex={row.path === tabStopPath ? 0 : -1}
+                      tooltip={tooltip}
+                    />
+                  ) : (
+                    <p
+                      className="px-2 py-1 text-xs text-muted-foreground italic"
+                      style={{ paddingLeft: `${row.depth * 12 + 8}px` }}
+                    >
+                      Empty folder
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+          </ContextMenuTrigger>
+          <FileTreeContextMenu target={menuTarget} />
+        </ContextMenu>
+        <Tooltip handle={tooltip}>
+          {({ payload }) => (
+            <TooltipContent side="right" align="center">
+              {String(payload ?? "")}
+            </TooltipContent>
+          )}
+        </Tooltip>
       </div>
     </>
   )

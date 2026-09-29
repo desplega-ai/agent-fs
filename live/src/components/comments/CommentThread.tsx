@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Check, Trash2, Pencil, MessageSquare, RotateCcw, X, ChevronDown, ChevronRight } from "lucide-react"
+import { Check, Trash2, Pencil, MessageSquare, RotateCcw, X, ChevronDown, ChevronRight, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -11,6 +11,7 @@ import {
 import { useResolveComment, useDeleteComment, useUpdateComment } from "@/hooks/use-comments"
 import { UserName, useDisplayName } from "@/components/UserName"
 import { AddComment } from "./AddComment"
+import { commentAnchors, useCommentAnchor, useHoveredComment } from "@/stores/comment-anchors"
 import type { CommentListEntry, CommentEntry } from "@/api/types"
 
 function timeAgo(dateStr: string): string {
@@ -48,7 +49,7 @@ interface CommentThreadProps {
   comment: CommentListEntry
   path: string
   currentUserId?: string
-  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
+  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string, commentId?: string) => void
 }
 
 export function CommentThread({ comment, path, currentUserId, onCommentClick }: CommentThreadProps) {
@@ -63,20 +64,34 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
   const updateComment = useUpdateComment()
 
   const isOwn = currentUserId === comment.author
-  const isGeneralComment = !comment.lineStart
+  const quoteText = comment.quotedContent ?? comment.quote?.exact
+  const isGeneralComment = !comment.lineStart && !quoteText
   const hasReplies = comment.replies.length > 0
+
+  // Resolved anchor (published by the open viewer) and cross-hover state.
+  const anchor = useCommentAnchor(comment.id)
+  const hovered = useHoveredComment()
+  const docHovered = hovered?.id === comment.id && hovered.source === "doc"
+  const lineStart = anchor?.lineStart ?? comment.lineStart
+  const lineEnd = anchor?.lineStart != null ? anchor.lineEnd : comment.lineEnd
 
   const handleThreadClick = () => {
     if (onCommentClick) {
-      onCommentClick(comment.lineStart, comment.lineEnd ?? comment.lineStart, comment.quotedContent)
+      onCommentClick(comment.lineStart, comment.lineEnd ?? comment.lineStart, comment.quotedContent, comment.id)
     }
   }
 
   return (
     <div className={cn("border-b border-border last:border-b-0", comment.resolved && "opacity-60")}>
       <div
-        className={cn("px-3 py-2.5", (comment.lineStart || comment.quotedContent) && "cursor-pointer hover:bg-accent/50 transition-colors")}
+        className={cn(
+          "px-3 py-2.5",
+          !isGeneralComment && "cursor-pointer hover:bg-accent/50 transition-colors",
+          docHovered && "comment-card-pulse bg-accent/50",
+        )}
         onClick={handleThreadClick}
+        onMouseEnter={isGeneralComment ? undefined : () => commentAnchors.setHovered(comment.id, "card")}
+        onMouseLeave={isGeneralComment ? undefined : () => commentAnchors.setHovered(null, "card")}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-1">
@@ -87,10 +102,34 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
             {isGeneralComment && (
               <span className="text-[10px] text-muted-foreground/60 shrink-0">general</span>
             )}
-            {comment.lineStart && (
+            {lineStart && anchor?.status !== "lost" && (
               <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400 shrink-0">
-                L{comment.lineStart}{comment.lineEnd && comment.lineEnd !== comment.lineStart ? `-${comment.lineEnd}` : ""}
+                L{lineStart}{lineEnd && lineEnd !== lineStart ? `-${lineEnd}` : ""}
               </span>
+            )}
+            {anchor && anchor.status !== "anchored" && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-0.5 rounded px-1 text-[10px] shrink-0",
+                        anchor.status === "moved"
+                          ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      <TriangleAlert className="size-2.5" />
+                      {anchor.status === "moved" ? "moved" : "anchor lost"}
+                    </span>
+                  }
+                />
+                <TooltipContent>
+                  {anchor.status === "moved"
+                    ? "The text changed since this comment. Showing its closest match."
+                    : "The text this comment pointed to is no longer in the file."}
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
           <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -142,9 +181,9 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
         </div>
 
         {/* Quoted content */}
-        {comment.quotedContent && (
+        {quoteText && (
           <div className="mb-1.5 ml-6.5 rounded border-l-2 border-amber-400/50 bg-amber-500/5 px-2 py-1 text-xs font-mono text-muted-foreground">
-            <span className="line-clamp-2">{comment.quotedContent}</span>
+            <span className={cn("line-clamp-2", anchor?.status === "lost" && "line-through decoration-muted-foreground/50")}>{quoteText}</span>
           </div>
         )}
 

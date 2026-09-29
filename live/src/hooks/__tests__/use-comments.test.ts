@@ -438,3 +438,82 @@ test("rejecting one overlapping add and refetching does not erase the other pend
   expect(cached.comments.map((comment) => comment.id)).toEqual([savedSecond.id])
   expect(cached.comments.some((comment) => comment.id === firstId)).toBe(false)
 })
+
+test("a reply to a resolved root survives refetch and becomes one saved reply on success", async () => {
+  const addRequest = deferred<CommentAddResult>()
+  const addStarted = deferred<void>()
+  const resolvedRoot = makeEntry("resolved-root", { resolved: true })
+  const client = makeClient((operation, args) => {
+    if (operation === "comment-add") {
+      addStarted.resolve()
+      return addRequest.promise
+    }
+    return args.resolved ? list(resolvedRoot) : list()
+  })
+  const queryClient = createQueryClient()
+  queryClient.setQueryData(unresolvedKey, list())
+  queryClient.setQueryData(resolvedKey, list(resolvedRoot))
+  const mutation = new MutationObserver(queryClient, addOptions(client, queryClient))
+
+  const pending = mutation.mutate({ path, parentId: resolvedRoot.id, body: "reply" })
+  await addStarted.promise
+  const optimisticReply = queryClient.getQueryData<CommentListResult>(resolvedKey)!.comments[0].replies[0]
+  expect(optimisticReply.id.startsWith("optimistic:")).toBe(true)
+
+  await queryClient.fetchQuery({
+    ...createCommentQueryOptions({ client, queryClient, orgId, driveId, path, resolved: true }),
+    staleTime: 0,
+  })
+  let cachedRoot = queryClient.getQueryData<CommentListResult>(resolvedKey)!.comments[0]
+  expect(cachedRoot.replies.map((reply) => reply.id)).toEqual([optimisticReply.id])
+  expect(cachedRoot.replyCount).toBe(1)
+
+  const savedReply = makeReply("saved-reply", resolvedRoot.id, { body: "reply", author: "current-user" })
+  addRequest.resolve({
+    id: savedReply.id,
+    path,
+    body: savedReply.body,
+    parentId: resolvedRoot.id,
+    author: savedReply.author,
+    createdAt: savedReply.createdAt,
+  })
+  await pending
+
+  cachedRoot = queryClient.getQueryData<CommentListResult>(resolvedKey)!.comments[0]
+  expect(cachedRoot.replies.map((reply) => reply.id)).toEqual([savedReply.id])
+  expect(cachedRoot.replyCount).toBe(1)
+})
+
+test("a rejected reply to a resolved root is removed after refetch", async () => {
+  const addRequest = deferred<CommentAddResult>()
+  const addStarted = deferred<void>()
+  const resolvedRoot = makeEntry("resolved-root", { resolved: true })
+  const client = makeClient((operation, args) => {
+    if (operation === "comment-add") {
+      addStarted.resolve()
+      return addRequest.promise
+    }
+    return args.resolved ? list(resolvedRoot) : list()
+  })
+  const queryClient = createQueryClient()
+  queryClient.setQueryData(unresolvedKey, list())
+  queryClient.setQueryData(resolvedKey, list(resolvedRoot))
+  const mutation = new MutationObserver(queryClient, addOptions(client, queryClient))
+
+  const pending = mutation.mutate({ path, parentId: resolvedRoot.id, body: "reply" })
+  await addStarted.promise
+  const optimisticReply = queryClient.getQueryData<CommentListResult>(resolvedKey)!.comments[0].replies[0]
+  await queryClient.fetchQuery({
+    ...createCommentQueryOptions({ client, queryClient, orgId, driveId, path, resolved: true }),
+    staleTime: 0,
+  })
+  expect(queryClient.getQueryData<CommentListResult>(resolvedKey)?.comments[0].replies.map((reply) => reply.id))
+    .toEqual([optimisticReply.id])
+
+  addRequest.reject(new Error("offline"))
+  await expect(pending).rejects.toThrow("offline")
+
+  const cachedRoot = queryClient.getQueryData<CommentListResult>(resolvedKey)!.comments[0]
+  expect(cachedRoot.replies).toEqual([])
+  expect(cachedRoot.replyCount).toBe(0)
+})
