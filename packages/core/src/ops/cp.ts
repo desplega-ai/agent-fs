@@ -7,6 +7,7 @@ import {
 } from "./versioning.js";
 import { detectMimeType } from "./mime.js";
 import { indexBytesForSearch } from "./search-index.js";
+import { invalidateDriveGlobListings } from "./glob-cache.js";
 
 export async function cp(
   ctx: OpContext,
@@ -23,6 +24,7 @@ export async function cp(
 
   // 1. Copy in S3
   const copyResult = await ctx.s3.copyObject(fromKey, toKey);
+  invalidateDriveGlobListings(ctx.orgId, ctx.driveId);
 
   // 2. Get size
   const head = await ctx.s3.headObject(toKey);
