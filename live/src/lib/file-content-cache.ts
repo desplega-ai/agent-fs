@@ -1,4 +1,4 @@
-import { hashKey, type Query, type QueryClient } from "@tanstack/react-query"
+import type { Query, QueryClient } from "@tanstack/react-query"
 import type { AgentFsClient } from "@/api/client"
 import type { StatResult } from "@/api/types"
 import { fetchFileStat, fileStatQueryKey } from "./file-stat-query"
@@ -111,11 +111,11 @@ export function evictToBudget(
   incomingChars: number,
 ): void {
   const queryCache = queryClient.getQueryCache()
-  const incomingHash = hashKey(incomingKey)
+  const incoming = JSON.stringify(incomingKey)
   let total = incomingChars
   const closed: { query: Query; chars: number }[] = []
   for (const query of queryCache.findAll({ queryKey: ["file-content"] })) {
-    if (query.queryHash === incomingHash) continue
+    if (JSON.stringify(query.queryKey) === incoming) continue
     const data = query.state.data as CachedFileContent | undefined
     if (!data) continue
     total += data.content.length

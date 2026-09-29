@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test"
-import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import {
   MAX_RETAINED_CHARS,
   MAX_TOTAL_RETAINED_CHARS,
@@ -13,6 +12,65 @@ import {
 } from "../file-content-cache"
 
 const STAT = { etag: '"abc"' }
+
+/**
+ * The slice of TanStack's `QueryClient` the cache module touches, with the same
+ * semantics: a successful fetch stores its data and restamps `dataUpdatedAt`,
+ * a query with observers is in use, and `remove` drops the entry. The real
+ * client is not importable here (`live/` has its own pnpm install, which the
+ * root test run does not have), so this is checked against the real one by
+ * running this suite with the two swapped.
+ */
+class FakeQueryClient {
+  queries = new Map<string, FakeQuery>()
+
+  getQueryCache() {
+    return {
+      findAll: ({ queryKey }: { queryKey: readonly unknown[] }) =>
+        [...this.queries.values()].filter((q) => q.queryKey[0] === queryKey[0]),
+      remove: (query: FakeQuery) => this.queries.delete(query.queryHash),
+    }
+  }
+
+  getQueryData(queryKey: readonly unknown[]) {
+    return this.queries.get(JSON.stringify(queryKey))?.state.data
+  }
+
+  async fetchQuery(options: { queryKey: readonly unknown[]; queryFn: (ctx: object) => Promise<unknown> }) {
+    const data = await options.queryFn({})
+    // Only file text is retained by these tests; stat results are not cached.
+    if (options.queryKey[0] !== "file-content") return data
+    const queryHash = JSON.stringify(options.queryKey)
+    const query = this.queries.get(queryHash) ?? new FakeQuery(options.queryKey, queryHash)
+    query.state = { data, dataUpdatedAt: Date.now() }
+    this.queries.set(queryHash, query)
+    return data
+  }
+
+  /** A viewer on screen: the entry now has an observer and must not be evicted. */
+  observe(queryKey: readonly unknown[]) {
+    const query = this.queries.get(JSON.stringify(queryKey))!
+    query.observers++
+    return () => query.observers--
+  }
+
+  clear() {
+    this.queries.clear()
+  }
+}
+
+class FakeQuery {
+  state: { data: unknown; dataUpdatedAt: number } = { data: undefined, dataUpdatedAt: 0 }
+  observers = 0
+  constructor(
+    readonly queryKey: readonly unknown[],
+    readonly queryHash: string,
+  ) {}
+
+  getObserversCount() {
+    return this.observers
+  }
+}
 
 /** A download that answers with `text`, stamped with `etag` the way a storage response would be. */
 const download = (text: string, etag: string | null = STAT.etag) => async () => ({ text, etag })
@@ -142,7 +200,7 @@ describe("withSavedText", () => {
 
 describe("fileContentQueryOptions", () => {
   const realFetch = globalThis.fetch
-  const queryClients: QueryClient[] = []
+  const queryClients: FakeQueryClient[] = []
   afterEach(() => {
     globalThis.fetch = realFetch
     setSystemTime()
@@ -206,7 +264,7 @@ describe("fileContentQueryOptions", () => {
       return new Response(f.text, responseEtag ? { headers: { ETag: f.etag } } : undefined)
     }) as unknown as typeof fetch
 
-    const queryClient = new QueryClient()
+    const queryClient = new FakeQueryClient()
     queryClients.push(queryClient)
     const optionsFor = (path: string) => fileContentQueryOptions(queryClient, client as never, "org", "drive", path)
     /** What a viewer opening `path` does: run the query, which keeps its result in the cache. */
@@ -382,8 +440,7 @@ describe("fileContentQueryOptions", () => {
       const { open, optionsFor, queryClient, cachedPaths, retainedChars } = setup({ files: files(20) })
       setSystemTime(new Date(1_000_000))
       await open("/f0.txt")
-      const viewer = new QueryObserver(queryClient, { ...optionsFor("/f0.txt"), staleTime: Infinity })
-      const unsubscribe = viewer.subscribe(() => {})
+      const unsubscribe = queryClient.observe(optionsFor("/f0.txt").queryKey)
       try {
         for (let i = 1; i < 20; i++) {
           setSystemTime(new Date(1_000_000 + i * 1000))
