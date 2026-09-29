@@ -65,6 +65,23 @@ const OP_COMMANDS: OpCommandDef[] = [
       { flag: "--inline", description: "Ask the browser to render the file instead of downloading it (Content-Disposition: inline)" },
     ],
   },
+  {
+    name: "share-create",
+    args: [{ name: "path", required: true }],
+    options: [
+      { flag: "--expires-in <seconds>", description: "Expiry in seconds (default: 86400 = 24h, max: 604800 = 7d)" },
+      { flag: "--max-views <n>", description: "Limit how many times the page can be opened" },
+      { flag: "--one-off", description: "Single-use link (same as --max-views 1)" },
+    ],
+  },
+  {
+    name: "share-revoke",
+    args: [{ name: "id", required: false }],
+    options: [
+      { flag: "--token <token-or-url>", description: "Revoke by share token or the full share URL" },
+      { flag: "--path <path>", description: "Revoke every share link of this file" },
+    ],
+  },
 ];
 
 export function registerOpCommands(
@@ -160,13 +177,18 @@ export function registerOpCommands(
         params.expiresIn = params["expires-in"];
         delete params["expires-in"];
       }
+      // `--one-off` is sugar for `--max-views 1` (commander camel-cases it).
+      if (params.oneOff !== undefined) {
+        if (params.oneOff) params.maxViews = 1;
+        delete params.oneOff;
+      }
       // `--inline` is a boolean flag; the op takes an explicit disposition.
       if (params.inline !== undefined) {
         if (params.inline) params.disposition = "inline";
         delete params.inline;
       }
 
-      for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth", "expiresIn"]) {
+      for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth", "expiresIn", "maxViews"]) {
         if (params[key] !== undefined) {
           params[key] = parseInt(params[key]);
         }

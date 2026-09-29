@@ -88,6 +88,16 @@ export interface AgentFSConfig {
     rateLimit?: {
       requestsPerMinute: number;
     };
+    /** Per-IP limit for the public /share/:token routes (default 120). */
+    shareRateLimit?: {
+      requestsPerMinute: number;
+    };
+    /**
+     * Public address of this API server, e.g. https://agent-fs-acme.fly.dev.
+     * Used to build absolute share links; when unset it is derived from the
+     * request's Host / X-Forwarded-* headers.
+     */
+    publicUrl?: string;
   };
   auth: {
     apiKey: string;
@@ -271,6 +281,13 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
     if (!config.server.rateLimit) config.server.rateLimit = { requestsPerMinute: 3000 };
     config.server.rateLimit.requestsPerMinute = parseInt(env.AGENT_FS_RATE_LIMIT, 10);
   }
+
+  // Share-link overrides
+  if (env.AGENT_FS_SHARE_RATE_LIMIT) {
+    const rpm = parseInt(env.AGENT_FS_SHARE_RATE_LIMIT, 10);
+    if (Number.isFinite(rpm) && rpm >= 0) config.server.shareRateLimit = { requestsPerMinute: rpm };
+  }
+  if (env.AGENT_FS_PUBLIC_URL) config.server.publicUrl = env.AGENT_FS_PUBLIC_URL;
 
   // App URL override
   if (env.AGENT_FS_APP_URL) config.appUrl = env.AGENT_FS_APP_URL;

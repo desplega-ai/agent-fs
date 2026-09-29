@@ -112,6 +112,15 @@ describe("S3 Client", () => {
     expect(parsed.host).toBe("localhost:9000");
   });
 
+  test("getPresignedUrl signs at the given signingDate, not at the moment it runs", async () => {
+    const client = createClient();
+    const signingDate = new Date(Date.now() - 5000);
+    const parsed = new URL(await client.getPresignedUrl("some/key.txt", 30, undefined, undefined, signingDate));
+    const stamp = signingDate.toISOString().replace(/[-:]|\.\d{3}/g, "");
+    expect(parsed.searchParams.get("X-Amz-Date")).toBe(stamp);
+    expect(parsed.searchParams.get("X-Amz-Expires")).toBe("30");
+  });
+
   test("lists every page and preserves the request fields", async () => {
     const { client, requests } = mockListResponses([
       {

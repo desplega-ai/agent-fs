@@ -10,6 +10,12 @@ export interface OpContext {
   userId: string;
   embeddingProvider?: EmbeddingProvider | null;
   appUrl?: string;
+  /**
+   * Public address of this API server (no trailing slash), used to build
+   * absolute `/share/:token` links. Unset when the caller has no way to know it
+   * (in-process/IPC callers); `share-create` then returns a host-relative link.
+   */
+  apiUrl?: string;
 }
 
 // --- Param types ---

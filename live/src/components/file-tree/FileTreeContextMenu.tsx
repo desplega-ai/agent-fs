@@ -1,8 +1,10 @@
 import { useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import {
   ExternalLink,
   Download,
   Link as LinkIcon,
+  Share2,
   FolderOpen as OpenIcon,
   FilePlus,
   FolderPlus,
@@ -14,6 +16,8 @@ import { useBrowser } from "@/contexts/browser"
 import { treeExpansionStore } from "@/stores/tree-expansion"
 import { toast } from "@/stores/toast"
 import { downloadFile } from "@/lib/download"
+import { copyShareLink, supportsShareLinks } from "@/lib/share-link"
+import { healthQueryOptions } from "@/lib/upload-limit"
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -41,6 +45,7 @@ type NodeDialog = { kind: NewEntryKind | "rename" | "delete"; target: TreeMenuTa
 export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null }) {
   const { client, orgId, driveId } = useAuth()
   const { selectFile } = useBrowser()
+  const { data: health } = useQuery(healthQueryOptions(client))
   const [dialog, setDialog] = useState<NodeDialog | null>(null)
   const closeDialog = (open: boolean) => {
     if (!open) setDialog(null)
@@ -105,6 +110,11 @@ export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null 
     void downloadFile(client, orgId!, driveId!, fullPath, name)
   }
 
+  const canShareLink = !isDir && !!orgId && !!driveId && supportsShareLinks(health)
+  const handleCopyShareLink = () => {
+    if (canShareLink) void copyShareLink(client, orgId!, driveId!, fullPath)
+  }
+
   return (
     <>
       <ContextMenuContent>
@@ -116,6 +126,12 @@ export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null 
           <LinkIcon className="h-4 w-4" />
           Copy link
         </ContextMenuItem>
+        {canShareLink && (
+          <ContextMenuItem onClick={handleCopyShareLink}>
+            <Share2 className="h-4 w-4" />
+            Copy share link
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onClick={handleDownload} disabled={!canDownload}>
           <Download className="h-4 w-4" />
           Download

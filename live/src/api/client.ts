@@ -14,6 +14,20 @@ import type {
 /** Mirrors the `disposition` param of the core `signed-url` op. */
 export type SignedUrlDisposition = "inline" | "attachment"
 
+/** Result of the core `share-create` op. */
+export interface ShareCreateResult {
+  id: string
+  /** Absolute when the server knows its public address, otherwise the same as `sharePath`. */
+  url: string
+  /** Host-relative link, always `/share/<token>`. */
+  sharePath: string
+  path: string
+  expiresIn: number
+  expiresAt: string
+  /** `null` = unlimited, `1` = one-off. */
+  maxViews: number | null
+}
+
 export interface ApiError {
   error: string
   message: string
@@ -167,6 +181,16 @@ export class AgentFsClient {
       options?.disposition ? { path, disposition: options.disposition } : { path },
       driveId,
     )
+  }
+
+  /** Mint a public `/share/<token>` link for `path`. The server defaults to 24 hours. */
+  async createShare(
+    orgId: string,
+    driveId: string,
+    path: string,
+    options?: { expiresIn?: number; maxViews?: number },
+  ): Promise<ShareCreateResult> {
+    return this.callOp<ShareCreateResult>(orgId, "share-create", { path, ...options }, driveId)
   }
 
   async sqlQuery(

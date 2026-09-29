@@ -5,7 +5,7 @@ description: >-
   an agent-first filesystem backed by S3. Triggers on: "save this to agent-fs",
   "find that file", "store this document", "search agent-fs", "list my files",
   "show version history", "revert file", "set up agent-fs", "get a signed url",
-  "share this file", "manage members", "invite user", "list members", "remove member",
+  "share this file", "share link", "public link", "one-off link", "revoke a share link", "manage members", "invite user", "list members", "remove member",
   "update role", "reset api key", "rotate api key", "lost my api key", file
   persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
@@ -138,6 +138,8 @@ symlinks are unsupported and throw `EPERM`.
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
 | `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>] [--inline]` | Generate a download URL. On S3/MinIO: a presigned URL (default 24h, max 7 days, `kind: "presigned"`). On local-FS: an authenticated in-app link (`kind: "app"`, requires sign-in, non-expiring). By default the URL forces a download; `--inline` makes the browser render the file instead (PDF, image). |
+| `share-create` | `agent-fs share-create <path> [--expires-in <seconds>] [--max-views <n>] [--one-off]` | Create a public `/share/<token>` link on the API host: a read-only page with a preview (markdown, text/code, image, PDF, audio, video) and a Download button. Default 24h, max 7 days; `--one-off` (= `--max-views 1`) makes it single-use. Returns `{ id, url, sharePath, expiresAt, maxViews }`. |
+| `share-revoke` | `agent-fs share-revoke [<id>] [--token <token-or-url>] [--path <path>]` | Kill share links immediately. Exactly one selector: the `id` from `share-create`, the token/URL, or a file path (every link to that file). Creator or drive admin only. |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
 
 `cat` is a paginated viewer, not a raw file reader: without `--limit`, it defaults to the first 200 lines at a TTY, but returns the **whole file** when stdout is piped or redirected (a pipe/redirect almost always means "give me everything"). Any time `cat` returns fewer lines than requested, a `truncated: showing N of M lines (use --limit)` note goes to **stderr** — never stdout, so it never corrupts piped/redirected output. The default (non-`--raw`, TTY) view also prefixes each line with a line number for readability; that prefix is **not** part of the stored bytes. For a complete, byte-exact read — required before parsing as CSV/JSON, or any time line numbers or a partial read would corrupt the data — use `agent-fs cat <path> --raw` or, better, `agent-fs download <path> -o <file>`.
@@ -426,6 +428,34 @@ agent-fs signed-url docs/report.pdf --json
 On an S3/MinIO backend (`kind: "presigned"`) the URL requires no authentication — anyone with the link can download the file until it expires. Access is RBAC-checked only at generation time (viewer-or-better on the drive); after that the URL is a bearer secret. Don't log it or paste it anywhere you wouldn't paste a credential, and prefer the shortest workable `--expires-in`. Signed URLs serve the correct `Content-Type` header based on file extension (e.g., `application/pdf` for `.pdf`, `image/png` for `.png`). By default they also carry `Content-Disposition: attachment`, so opening the link saves the file under its real name. Pass `--inline` (API: `"disposition": "inline"`) when the link will be embedded or opened for viewing, such as a PDF in an `<iframe>`; `<img>` tags ignore the disposition either way.
 
 On a backend without presigned URLs (the local-filesystem backend), `signed-url` does **not** fail — it falls back to an authenticated in-app link (`kind: "app"`, `expiresIn: 0`) of the form `<appUrl>/file/~/<org>/<drive>/<path>`. Unlike a presigned URL this link is **not** a public bearer secret: the daemon's `/raw` route and the web viewer require sign-in, so the recipient must be an authenticated member of the drive. Set `AGENT_FS_APP_URL` (or `appUrl` in config) so the link points at your deployment.
+
+### Share a file with someone who has no account
+
+```bash
+# 24h link, opens as many times as needed
+agent-fs share-create docs/report.md
+
+# Single-use link: the page opens once, then shows "link expired"
+agent-fs share-create docs/report.pdf --one-off
+
+# At most 5 views, valid for 1 hour
+agent-fs share-create docs/report.pdf --max-views 5 --expires-in 3600
+
+# Kill a link (id from share-create), or every link to a file
+agent-fs share-revoke <id>
+agent-fs share-revoke --path docs/report.pdf
+```
+
+`share-create` returns a URL on the **API host** (`https://<server>/share/<token>`), not the web app, so it works for anyone without signing in. Unlike `signed-url` the recipient gets a rendered page: markdown becomes sanitized HTML, text and code are shown escaped, images, PDF, audio and video are embedded, and every other type shows a no-preview card. Each page has the filename, size, expiry and a Download button. HTML and SVG files are never rendered, only downloaded.
+
+Things worth knowing before you share:
+
+- **The link is a bearer secret.** Anyone who has it can open it until it expires, is revoked, or runs out of views. It is shown once and only its SHA-256 is stored, so it cannot be recovered; keep the `id` if you may need to revoke it.
+- **It shows the file's current content**, not a snapshot. If the file is edited the link shows the new version; if it is deleted or moved the link shows "file unavailable".
+- **`--one-off` / `--max-views` count page views, and the bytes go with the view.** A view-limited link never serves the file on its URL alone: the page that spent a view gets a private, short-lived credential (up to one hour, never past the link's expiry) that its embed and Download button use. Once the views are used up, nobody holding only the link can fetch the file, and revoking or expiring the link cuts every credential at once. Unlimited links need no credential. Link-preview crawlers (Slack, WhatsApp, ...) and `HEAD` requests do not spend a view.
+- **Paths must stay inside the drive.** `share-create` rejects any path with a `.` or `..` segment (either slash direction) instead of resolving it.
+- **Viewer role is enough to create a link**, and the creator (or a drive admin) can revoke it. Every counted view is written as a `share_viewed` event.
+- Set `AGENT_FS_PUBLIC_URL` when the server sits behind a proxy that does not forward `Host` / `X-Forwarded-*`, so returned links point at the right address.
 
 **MIME types on upload:** `write`, `edit`, `append`, and `revert` automatically detect and set the correct `Content-Type` on S3 objects based on file extension. The content type is also stored in the database and visible in `stat` output via the `contentType` field. Raw stdin and `--file` uploads preserve bytes exactly; text search/indexing is applied only when the payload is valid, indexable UTF-8 text.
 
