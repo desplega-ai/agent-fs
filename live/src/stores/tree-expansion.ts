@@ -8,6 +8,9 @@ type Listener = () => void
 class TreeExpansionStore {
   private paths: Set<string>
   private order: string[] // LRU order — most recent at end
+  // Immutable copy handed to React; replaced only when `paths` changes, so a
+  // focus change does not re-render readers of the expanded set.
+  private snapshot: ReadonlySet<string> = new Set()
   private focusedPath: string | null = null
   private listeners = new Set<Listener>()
 
@@ -26,6 +29,7 @@ class TreeExpansionStore {
       const trimmed = parsed.filter((p): p is string => typeof p === "string").slice(-MAX_PATHS)
       this.paths = new Set(trimmed)
       this.order = trimmed
+      this.snapshot = new Set(trimmed)
     } catch {
       // ignore corrupt storage
     }
@@ -39,8 +43,13 @@ class TreeExpansionStore {
     }
   }
 
-  private emit() {
+  private emit(pathsChanged = true) {
+    if (pathsChanged) this.snapshot = new Set(this.paths)
     this.listeners.forEach((l) => l())
+  }
+
+  getExpandedPaths(): ReadonlySet<string> {
+    return this.snapshot
   }
 
   isExpanded(path: string): boolean {
@@ -120,7 +129,7 @@ class TreeExpansionStore {
   setFocusedPath(path: string | null) {
     if (this.focusedPath === path) return
     this.focusedPath = path
-    this.emit()
+    this.emit(false)
   }
 
   subscribe(listener: Listener): () => void {
@@ -132,12 +141,22 @@ class TreeExpansionStore {
 }
 
 const store = new TreeExpansionStore()
+const EMPTY_PATHS: ReadonlySet<string> = new Set()
 
 export function useExpanded(path: string): boolean {
   return useSyncExternalStore(
     (cb) => store.subscribe(cb),
     () => store.isExpanded(path),
     () => false
+  )
+}
+
+/** The whole expanded set; a new object only when it changes. */
+export function useExpandedPaths(): ReadonlySet<string> {
+  return useSyncExternalStore(
+    (cb) => store.subscribe(cb),
+    () => store.getExpandedPaths(),
+    () => EMPTY_PATHS
   )
 }
 

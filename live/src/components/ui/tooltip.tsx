@@ -63,4 +63,15 @@ function TooltipContent({
   )
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+/** One tooltip shared by many detached `TooltipTrigger`s (pass it as `handle`). */
+const createTooltipHandle = TooltipPrimitive.createHandle
+type TooltipHandle = TooltipPrimitive.Handle<unknown>
+
+export {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+  createTooltipHandle,
+  type TooltipHandle,
+}
