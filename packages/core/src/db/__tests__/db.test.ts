@@ -1,11 +1,16 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { Database } from "bun:sqlite";
+import { Database, type SQLQueryBindings } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as sqliteVec from "sqlite-vec";
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { VEC_TABLE_SQL } from "../raw.js";
+import { CREATE_TABLES_SQL, VEC_TABLE_SQL } from "../raw.js";
 import { createDatabase } from "../index.js";
+import * as schema from "../schema.js";
+import { createTestContext } from "../../test-utils.js";
+import { ls } from "../../ops/ls.js";
+import { glob } from "../../ops/glob.js";
 
 // setup-sqlite.ts is auto-imported by db/index.ts, which runs setCustomSQLite once.
 
@@ -96,6 +101,99 @@ describe("Database initialization", () => {
     expect(tableNames).toContain("content_chunks");
     expect(tableNames).toContain("files_fts");
     expect(tableNames).toContain("chunk_vectors");
+  });
+
+  test("upgrades existing databases and indexes ls/glob metadata queries", async () => {
+    const testDbPath = makeTestDbPath();
+    const legacy = new Database(testDbPath);
+    const schemaWithoutDrivePathIndex = CREATE_TABLES_SQL.replace(
+      "CREATE INDEX IF NOT EXISTS idx_files_drive_path ON files(drive_id, path);\n",
+      ""
+    );
+    legacy.exec(schemaWithoutDrivePathIndex);
+    legacy
+      .prepare("INSERT INTO orgs (id, name, created_at) VALUES (?, ?, ?)")
+      .run("org-1", "Org", 1);
+    legacy
+      .prepare("INSERT INTO drives (id, org_id, name, created_at) VALUES (?, ?, ?, ?)")
+      .run("drive-1", "org-1", "Drive 1", 1);
+    legacy
+      .prepare("INSERT INTO drives (id, org_id, name, created_at) VALUES (?, ?, ?, ?)")
+      .run("drive-2", "org-1", "Drive 2", 1);
+    const insertFile = legacy.prepare(
+      "INSERT INTO files (path, drive_id, size, author, created_at, modified_at) VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    insertFile.run("/ls/existing.txt", "drive-1", 7, "user-1", 1, 2);
+    insertFile.run("/glob/existing.txt", "drive-1", 10, "user-1", 1, 3);
+    insertFile.run("/ls/existing.txt", "drive-2", 8, "user-2", 1, 4);
+    expect(
+      legacy
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get("idx_files_drive_path")
+    ).toBeNull();
+    legacy.close();
+
+    const expectedRows = [
+      { path: "/glob/existing.txt", drive_id: "drive-1", size: 10 },
+      { path: "/ls/existing.txt", drive_id: "drive-1", size: 7 },
+      { path: "/ls/existing.txt", drive_id: "drive-2", size: 8 },
+    ];
+    const db = createDatabase(testDbPath);
+    const sqlite = (db as any).$client as Database;
+    try {
+      const rows = sqlite
+        .prepare("SELECT path, drive_id, size FROM files ORDER BY drive_id, path")
+        .all();
+      expect(rows).toEqual(expectedRows);
+
+      const queries: Array<{ sql: string; params: SQLQueryBindings[] }> = [];
+      const loggedDb = drizzle(sqlite, {
+        schema,
+        logger: {
+          logQuery(sql, params) {
+            if (sql.includes("files")) {
+              queries.push({ sql, params: params as SQLQueryBindings[] });
+            }
+          },
+        },
+      });
+      const { ctx } = createTestContext();
+      const opCtx = { ...ctx, db: loggedDb, orgId: "org-1", driveId: "drive-1" };
+      await ls(opCtx, { path: "/ls" });
+      const lsQuery = queries.at(-1)!;
+      await glob(opCtx, { pattern: "**", path: "/glob" });
+      const globQuery = queries.at(-1)!;
+
+      const queryPlan = (query: { sql: string; params: SQLQueryBindings[] }) =>
+        (
+          sqlite
+            .prepare(`EXPLAIN QUERY PLAN ${query.sql}`)
+            .all(...query.params) as Array<{ detail: string }>
+        )
+          .map((row) => row.detail)
+          .join(" | ");
+
+      expect(queryPlan(lsQuery)).toContain("idx_files_drive_path");
+      expect(queryPlan(globQuery)).toContain("idx_files_drive_path");
+    } finally {
+      sqlite.close();
+    }
+
+    const reinitializedDb = createDatabase(testDbPath);
+    const reinitializedSqlite = (reinitializedDb as any).$client as Database;
+    try {
+      const indexCount = reinitializedSqlite
+        .prepare("SELECT count(*) AS count FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get("idx_files_drive_path") as { count: number };
+      expect(indexCount.count).toBe(1);
+      expect(
+        reinitializedSqlite
+          .prepare("SELECT path, drive_id, size FROM files ORDER BY drive_id, path")
+          .all()
+      ).toEqual(expectedRows);
+    } finally {
+      reinitializedSqlite.close();
+    }
   });
 
   test("WAL mode is enabled", () => {
