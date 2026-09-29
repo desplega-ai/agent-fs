@@ -7,6 +7,7 @@ import { edit } from "./edit.js";
 import { append } from "./append.js";
 import { ls } from "./ls.js";
 import { stat } from "./stat.js";
+import { reveal } from "./reveal.js";
 import { rm } from "./rm.js";
 import { mv } from "./mv.js";
 import { cp } from "./cp.js";
@@ -94,6 +95,11 @@ const opRegistry: Record<string, OpDefinition> = {
   stat: {
     description: "Get file metadata without reading content. Returns path, size, contentType, author, currentVersion, createdAt, modifiedAt, isDeleted, embeddingStatus, etag (opaque id of the current bytes, compare for equality).",
     handler: stat,
+    schema: z.object({ path: z.string() }),
+  },
+  reveal: {
+    description: "Everything needed to show one file in a tree, in one call: the ls listing of every ancestor directory (root first) plus the file's stat. Returns { path, stat, listings } where each listing is { path, entries } with entries shaped exactly like ls.",
+    handler: reveal,
     schema: z.object({ path: z.string() }),
   },
   rm: {
@@ -370,5 +376,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead };
+export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead };
 export type * from "./types.js";

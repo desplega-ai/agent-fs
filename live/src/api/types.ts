@@ -46,6 +46,13 @@ export interface StatResult {
   etag?: string
 }
 
+/** Result of the `reveal` op: every ancestor's `ls` listing, root first. */
+export interface RevealResult {
+  path: string
+  stat: StatResult
+  listings: { path: string; entries: LsEntry[] }[]
+}
+
 export interface VersionEntry {
   version: number
   author: string

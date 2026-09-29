@@ -574,6 +574,29 @@
                   },
                   {
                     "type": "object",
+                    "title": "reveal",
+                    "description": "Everything needed to show one file in a tree, in one call: the ls listing of every ancestor directory (root first) plus the file's stat. Returns { path, stat, listings } where each listing is { path, entries } with entries shaped exactly like ls.",
+                    "required": [
+                      "op",
+                      "path"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "reveal"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
                     "title": "rm",
                     "description": "Delete a file. Removes from S3, cleans up FTS5 index and vector embeddings. Returns { path, deleted }.",
                     "required": [
