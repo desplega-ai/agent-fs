@@ -2,9 +2,6 @@ import { beforeEach, describe, expect, test } from "bun:test"
 import {
   clearSearchFilter,
   fileSearchStore,
-  hasMatchingDescendant,
-  isPathMatched,
-  isPathVisible,
   setSearchError,
   setSearchLoading,
   setSearchResults,
@@ -24,7 +21,6 @@ describe("file search state", () => {
       matchedPaths: [],
       error: null,
     })
-    expect(isPathVisible("docs/report.md")).toBe(false)
   })
 
   test("clears old matches when the active drive changes", () => {
@@ -49,9 +45,5 @@ describe("file search state", () => {
     setSearchResults("report", "drive-a", ["/docs/report.md", "docs/report.md/"])
 
     expect(fileSearchStore.getSnapshot().matchedPaths).toEqual(["docs/report.md"])
-    expect(isPathMatched("/docs/report.md")).toBe(true)
-    expect(isPathMatched("docs/other.md")).toBe(false)
-    expect(isPathVisible("docs")).toBe(true)
-    expect(hasMatchingDescendant("docs")).toBe(true)
   })
 })

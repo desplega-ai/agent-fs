@@ -12,6 +12,10 @@ interface SearchInputContextValue {
   register: (el: HTMLInputElement | null) => void
   /** Focus the registered input (no-op if not registered). */
   focus: () => void
+  /** Register the opener for the content search modal (fts/semantic/hybrid). */
+  registerContentSearch: (open: ((query: string) => void) | null) => void
+  /** Open the content search modal seeded with `query` (no-op if not registered). */
+  openContentSearch: (query: string) => void
 }
 
 const SearchInputContext = createContext<SearchInputContextValue | null>(null)
@@ -22,6 +26,7 @@ const SearchInputContext = createContext<SearchInputContextValue | null>(null)
  */
 export function SearchInputProvider({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLInputElement | null>(null)
+  const contentSearchRef = useRef<((query: string) => void) | null>(null)
 
   const register = useCallback((el: HTMLInputElement | null) => {
     ref.current = el
@@ -39,7 +44,21 @@ export function SearchInputProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const value = useMemo(() => ({ register, focus }), [register, focus])
+  const registerContentSearch = useCallback(
+    (open: ((query: string) => void) | null) => {
+      contentSearchRef.current = open
+    },
+    [],
+  )
+
+  const openContentSearch = useCallback((query: string) => {
+    contentSearchRef.current?.(query)
+  }, [])
+
+  const value = useMemo(
+    () => ({ register, focus, registerContentSearch, openContentSearch }),
+    [register, focus, registerContentSearch, openContentSearch],
+  )
 
   return (
     <SearchInputContext.Provider value={value}>
@@ -61,4 +80,6 @@ export function useSearchInput(): SearchInputContextValue {
 const NOOP_CONTEXT: SearchInputContextValue = {
   register: () => {},
   focus: () => {},
+  registerContentSearch: () => {},
+  openContentSearch: () => {},
 }

@@ -212,3 +212,45 @@ export const contentChunks = sqliteTable(
     ),
   })
 );
+
+// shares (public /share/:token links)
+// Only the SHA-256 of the token is stored. No FKs on purpose: a share must
+// never block deleting a user, drive or org (same reasoning as file_versions).
+export const shares = sqliteTable(
+  "shares",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    driveId: text("drive_id").notNull(),
+    path: text("path").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    maxViews: integer("max_views"),
+    views: integer("views").notNull().default(0),
+    lastViewedAt: integer("last_viewed_at", { mode: "timestamp" }),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  },
+  (table) => ({
+    tokenHashUq: uniqueIndex("shares_token_hash_uq").on(table.tokenHash),
+    drivePathIdx: index("idx_shares_drive_path").on(table.driveId, table.path),
+  })
+);
+
+// share_view_grants: the credential a counted page view of a view-limited
+// share hands to that page for its byte fetches (/raw, /download). Only the
+// SHA-256 of the grant is stored. No FKs, same reasoning as `shares`.
+export const shareViewGrants = sqliteTable(
+  "share_view_grants",
+  {
+    grantHash: text("grant_hash").primaryKey(),
+    shareId: text("share_id").notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => ({
+    shareIdx: index("idx_share_view_grants_share").on(table.shareId),
+    expiryIdx: index("idx_share_view_grants_expiry").on(table.expiresAt),
+  })
+);

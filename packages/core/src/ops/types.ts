@@ -10,6 +10,12 @@ export interface OpContext {
   userId: string;
   embeddingProvider?: EmbeddingProvider | null;
   appUrl?: string;
+  /**
+   * Public address of this API server (no trailing slash), used to build
+   * absolute `/share/:token` links. Unset when the caller has no way to know it
+   * (in-process/IPC callers); `share-create` then returns a host-relative link.
+   */
+  apiUrl?: string;
 }
 
 // --- Param types ---
@@ -54,6 +60,10 @@ export interface LsParams {
 }
 
 export interface StatParams {
+  path: string;
+}
+
+export interface RevealParams {
   path: string;
 }
 
@@ -157,6 +167,25 @@ export interface StatResult {
   modifiedAt: Date;
   isDeleted: boolean;
   embeddingStatus?: string;
+  /**
+   * Storage ETag of the current bytes. Opaque: compare for equality only. It
+   * changes whenever the stored content does, even for a write that did not
+   * bump `currentVersion`, so clients can use it to validate a cached copy.
+   * Absent when the storage backend does not report one.
+   */
+  etag?: string;
+}
+
+export interface RevealListing {
+  /** Directory path, root first: "/", "/a", "/a/b". */
+  path: string;
+  entries: LsEntry[];
+}
+
+export interface RevealResult {
+  path: string;
+  stat: StatResult;
+  listings: RevealListing[];
 }
 
 export interface RmResult {

@@ -8,6 +8,7 @@ import {
   ExternalLink,
   Download,
   Link as LinkIcon,
+  Share2,
   FolderOpen as OpenIcon,
   FilePlus,
   FolderPlus,
@@ -23,17 +24,13 @@ import {
   useFocusedPath,
   useSetFocusedPath,
 } from "@/stores/tree-expansion"
-import {
-  isPathMatched,
-  isPathVisible,
-  hasMatchingDescendant,
-} from "@/stores/file-search"
-import { useFileSearch } from "@/hooks/use-file-search"
 import { toast } from "@/stores/toast"
 import { MiddleEllipsis } from "@/lib/middle-ellipsis"
 import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"
 import { glyphFor } from "@/lib/file-glyphs"
 import { downloadFile } from "@/lib/download"
+import { copyShareLink, supportsShareLinks } from "@/lib/share-link"
+import { healthQueryOptions } from "@/lib/upload-limit"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import {
   ContextMenu,
@@ -64,26 +61,15 @@ interface FileTreeNodeProps {
 export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: FileTreeNodeProps) {
   const { client, orgId, driveId } = useAuth()
   const { selectedFile, selectFile } = useBrowser()
+  const { data: health } = useQuery(healthQueryOptions(client))
   const fullPath = path ? `${path}/${entry.name}` : entry.name
   const isDir = entry.type === "directory"
   const selectedPath = selectedFile?.replace(/^\/+|\/+$/g, "") ?? null
   const isSelected = selectedPath === fullPath
-  const userExpanded = useExpanded(fullPath)
+  // Search results render as a flat list in FileTree, so the tree never
+  // force-expands matched folders (each expansion would fire its own `ls`).
+  const expanded = useExpanded(fullPath)
   const toggleExpanded = useToggleExpanded()
-  // When the in-tree search filter is active, hide nodes outside the match
-  // path and force-expand folders that contain matching descendants. Subscribe
-  // to the store so re-renders fire on every keystroke.
-  const filter = useFileSearch()
-  const filterActive = filter.status === "success" && filter.query.length > 0
-  // Keep the selected file and its ancestor chain visible even when an old
-  // in-tree search is still active (for example after opening a notification).
-  // This preserves the promise that every file open reveals itself in Tree.
-  const isOnSelectedPath =
-    selectedPath === fullPath || selectedPath?.startsWith(`${fullPath}/`) === true
-  const visible = isPathVisible(fullPath) || isOnSelectedPath
-  const isSelectedNonmatch = isSelected && filterActive && !isPathMatched(fullPath)
-  const expandedByFilter = filterActive && isDir && hasMatchingDescendant(fullPath)
-  const expanded = userExpanded || expandedByFilter
   const focusedPath = useFocusedPath()
   const setFocusedPath = useSetFocusedPath()
   const isFocused = focusedPath === fullPath
@@ -109,17 +95,12 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
 
   const handleClick = () => {
     if (isDir) {
-      // While the filter is force-expanding this folder, treat the click as
-      // a no-op for expansion (the user can't really "collapse" a filter
-      // expansion); just move focus.
-      if (!expandedByFilter) toggleExpanded(fullPath)
+      toggleExpanded(fullPath)
     } else {
       selectFile(fullPath)
     }
     setFocusedPath(fullPath)
   }
-
-  if (filterActive && !visible) return null
 
   const deepLink =
     orgId && driveId
@@ -153,6 +134,11 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
   const handleDownload = () => {
     if (!canDownload) return
     void downloadFile(client, orgId!, driveId!, fullPath, entry.name)
+  }
+
+  const canShareLink = !isDir && !!orgId && !!driveId && supportsShareLinks(health)
+  const handleCopyShareLink = () => {
+    if (canShareLink) void copyShareLink(client, orgId!, driveId!, fullPath)
   }
 
   const glyph = !isDir ? glyphFor(fullPath) : null
@@ -224,11 +210,6 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
                   render={
                     <span className="flex min-w-0 flex-1 items-baseline">
                       {labelNode}
-                      {isSelectedNonmatch && (
-                        <span className="ml-1.5 shrink-0 rounded bg-sidebar-accent px-1 py-0.5 text-[10px] font-normal text-muted-foreground">
-                          Open, not a match
-                        </span>
-                      )}
                     </span>
                   }
                 />
@@ -248,6 +229,12 @@ export function FileTreeNode({ entry, path, depth, isDefaultFocus = false }: Fil
             <LinkIcon className="h-4 w-4" />
             Copy link
           </ContextMenuItem>
+          {canShareLink && (
+            <ContextMenuItem onClick={handleCopyShareLink}>
+              <Share2 className="h-4 w-4" />
+              Copy share link
+            </ContextMenuItem>
+          )}
           <ContextMenuItem onClick={handleDownload} disabled={!canDownload}>
             <Download className="h-4 w-4" />
             Download
