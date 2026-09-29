@@ -8,14 +8,10 @@ import { FileSearchPanel } from "./FileSearchPanel"
 import { treeExpansionStore, useFocusedPath } from "@/stores/tree-expansion"
 import { useSearchInput } from "@/contexts/search-input"
 import { describeRequestError } from "@/lib/request-errors"
-import { isUnknownOperationError } from "@/api/errors"
-import type { LsResult, RevealResult } from "@/api/types"
+import { fetchReveal } from "@/lib/reveal"
+import type { LsResult } from "@/api/types"
 
 const REVEAL_TIMEOUT_MS = 15_000
-
-// Set once a server answers "Unknown operation: reveal" (a deploy older than
-// this UI), so later opens go straight to the per-ancestor path.
-let revealUnsupported = false
 
 function ancestorPaths(path: string): string[] {
   const parts = path.split("/").filter(Boolean)
@@ -60,33 +56,29 @@ export function FileTree() {
       }
     }
 
-    if (revealUnsupported) {
-      revealPerAncestor()
-    } else {
-      // One round trip: seed every ancestor's ls cache entry before expanding,
-      // so each level renders from cache the moment it mounts.
-      client
-        .callOp<RevealResult>(orgId!, "reveal", { path }, driveId)
-        .then((result) => {
-          if (cancelled) return
-          for (const listing of result.listings) {
-            queryClient.setQueryData<LsResult>(
-              ["ls", orgId, driveId, listing.path.replace(/^\/+/, "")],
-              { entries: listing.entries },
-            )
-          }
-          treeExpansionStore.expandMany(ancestors)
-        })
-        .catch((error: unknown) => {
-          if (isUnknownOperationError(error, "reveal")) revealUnsupported = true
-          if (!cancelled) revealPerAncestor()
-        })
-    }
+    // One round trip: seed every ancestor's ls cache entry before expanding,
+    // so each level renders from cache the moment it mounts.
+    const abort = new AbortController()
+    void fetchReveal(client, orgId!, driveId, path, abort.signal).then((result) => {
+      if (cancelled) return
+      if (!result) {
+        revealPerAncestor()
+        return
+      }
+      for (const listing of result.listings) {
+        queryClient.setQueryData<LsResult>(
+          ["ls", orgId, driveId, listing.path.replace(/^\/+/, "")],
+          { entries: listing.entries },
+        )
+      }
+      treeExpansionStore.expandMany(ancestors)
+    })
 
     const container = containerRef.current
     if (!container) {
       return () => {
         cancelled = true
+        abort.abort()
       }
     }
 
@@ -107,6 +99,7 @@ export function FileTree() {
     if (revealSelectedRow()) {
       return () => {
         cancelled = true
+        abort.abort()
       }
     }
 
@@ -123,6 +116,7 @@ export function FileTree() {
 
     return () => {
       cancelled = true
+      abort.abort()
       observer.disconnect()
       window.clearTimeout(timeoutId)
     }
