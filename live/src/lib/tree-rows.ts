@@ -72,3 +72,21 @@ export function flattenTree(
   visit("", root, 0)
   return { rows, expandedDirs }
 }
+
+/**
+ * Memo key for `expandedDirs`. Folder names may contain any character but
+ * `/`, newlines included, so the key must round-trip through
+ * `listingsByPath` without re-splitting paths.
+ */
+export function expandedDirsKey(expandedDirs: readonly string[]): string {
+  return JSON.stringify(expandedDirs)
+}
+
+/** Pair each expanded folder in `key` with the listing fetched at the same index. */
+export function listingsByPath(
+  key: string,
+  listings: readonly (LsResult | undefined)[],
+): Map<string, LsResult | undefined> {
+  const dirs = JSON.parse(key) as string[]
+  return new Map(dirs.map((path, index) => [path, listings[index]]))
+}

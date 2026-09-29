@@ -11,7 +11,7 @@ import { treeExpansionStore, useExpandedPaths, useFocusedPath } from "@/stores/t
 import { useSearchInput } from "@/contexts/search-input"
 import { describeRequestError } from "@/lib/request-errors"
 import { fetchReveal } from "@/lib/reveal"
-import { flattenTree, type TreeRow } from "@/lib/tree-rows"
+import { expandedDirsKey, flattenTree, listingsByPath, type TreeRow } from "@/lib/tree-rows"
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { Tooltip, TooltipContent, createTooltipHandle } from "@/components/ui/tooltip"
 import type { LsResult } from "@/api/types"
@@ -64,11 +64,10 @@ export function FileTree() {
     })),
     combine: combineListings,
   })
-  const expandedKey = expandedDirs.join("\n")
+  const expandedKey = expandedDirsKey(expandedDirs)
   const rows = useMemo(() => {
     if (!data) return []
-    const dirs = expandedKey ? expandedKey.split("\n") : []
-    const byPath = new Map(dirs.map((path, index) => [path, listings[index]]))
+    const byPath = listingsByPath(expandedKey, listings)
     return flattenTree(data, expandedPaths, (path) => byPath.get(path)).rows
   }, [data, expandedPaths, expandedKey, listings])
 
