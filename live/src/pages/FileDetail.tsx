@@ -7,6 +7,7 @@ import { UserName } from "@/components/UserName"
 import { MainWithComments } from "@/components/layout/MainWithComments"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
+import { CopyShareLinkButton } from "@/components/CopyShareLinkButton"
 import {
   Tooltip,
   TooltipContent,
@@ -30,7 +31,7 @@ export function FileDetailPage() {
 
   const filePath = params["*"] ?? ""
   const { data: stat } = useFileStat(filePath || null)
-  const { copyPath, copyLink, download, copiedPath, copiedLink, canShare } = useFileActions(filePath)
+  const { copyPath, copyLink, copyShareLink, download, copiedPath, copiedLink, copiedShare, canShare, canShareLink } = useFileActions(filePath)
 
   // Tab title reflects the open file (single-sourced via the shared hook).
   useDocumentTitle(filePath ? (filePath.split("/").pop() ?? filePath) : null)
@@ -46,8 +47,8 @@ export function FileDetailPage() {
     queueMicrotask(() => uiChromeStore.setLeft(false))
   }, [])
 
-  const handleCommentClick = useCallback((lineStart?: number, _lineEnd?: number, quotedContent?: string) => {
-    scrollToCommentRef.current?.({ lineStart, quotedContent })
+  const handleCommentClick = useCallback((lineStart?: number, _lineEnd?: number, quotedContent?: string, commentId?: string) => {
+    scrollToCommentRef.current?.({ lineStart, quotedContent, commentId })
   }, [])
 
   if (!filePath) {
@@ -128,6 +129,7 @@ export function FileDetailPage() {
                 <TooltipContent>Copy link <Kbd className="ml-1">⇧Y</Kbd></TooltipContent>
               </Tooltip>
             )}
+            {canShareLink && <CopyShareLinkButton onClick={copyShareLink} copied={copiedShare} />}
             <Tooltip>
               <TooltipTrigger
                 render={

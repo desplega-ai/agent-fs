@@ -11,12 +11,14 @@ import { uiChromeStore } from "@/stores/ui-chrome"
 import { sidePanelStore } from "@/stores/side-panel"
 import { toast } from "@/stores/toast"
 import { Kbd } from "@/components/ui/kbd"
+import { CopyShareLinkButton } from "@/components/CopyShareLinkButton"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import type { OutlineItem } from "@/lib/outline"
 import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { useComments } from "@/hooks/use-comments"
-import { TextViewer } from "./TextViewer"
+// Lazy boundary: keeps Monaco out of the entry bundle (see LazyTextViewer).
+import { LazyTextViewer as TextViewer } from "./LazyTextViewer"
 import { MarkdownViewer } from "./MarkdownViewer"
 import { ImageViewer } from "./ImageViewer"
 import { VideoViewer } from "./VideoViewer"
@@ -665,7 +667,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
   splitOrientation?: SplitOrientation
   onToggleOrientation?: () => void
 }) {
-  const { copyPath, copyLink, download, copiedPath, copiedLink, canShare } = actions
+  const { copyPath, copyLink, copyShareLink, download, copiedPath, copiedLink, copiedShare, canShare, canShareLink } = actions
   const filename = path.split("/").pop() ?? path
 
   return (
@@ -802,6 +804,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
             <TooltipContent>Copy link <Kbd className="ml-1">⇧Y</Kbd></TooltipContent>
           </Tooltip>
         )}
+        {canShareLink && <CopyShareLinkButton onClick={copyShareLink} copied={copiedShare} />}
         <Tooltip>
           <TooltipTrigger
             render={

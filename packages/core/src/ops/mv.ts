@@ -10,6 +10,7 @@ import { indexFile, removeFromIndex } from "../search/fts.js";
 import { schema } from "../db/index.js";
 import { decodeIndexableText, detectMimeType } from "./mime.js";
 import { clearSearchData } from "./search-index.js";
+import { invalidateDriveGlobListings } from "./glob-cache.js";
 
 export async function mv(
   ctx: OpContext,
@@ -26,6 +27,7 @@ export async function mv(
 
   // 1. Copy to new location
   const copyResult = await ctx.s3.copyObject(fromKey, toKey);
+  invalidateDriveGlobListings(ctx.orgId, ctx.driveId);
 
   // 2. Get size from head
   const head = await ctx.s3.headObject(toKey);

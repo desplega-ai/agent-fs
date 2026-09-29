@@ -10,6 +10,12 @@ export interface OpContext {
   userId: string;
   embeddingProvider?: EmbeddingProvider | null;
   appUrl?: string;
+  /**
+   * Public address of this API server (no trailing slash), used to build
+   * absolute `/share/:token` links. Unset when the caller has no way to know it
+   * (in-process/IPC callers); `share-create` then returns a host-relative link.
+   */
+  apiUrl?: string;
 }
 
 // --- Param types ---
@@ -54,6 +60,10 @@ export interface LsParams {
 }
 
 export interface StatParams {
+  path: string;
+}
+
+export interface RevealParams {
   path: string;
 }
 
@@ -157,6 +167,25 @@ export interface StatResult {
   modifiedAt: Date;
   isDeleted: boolean;
   embeddingStatus?: string;
+  /**
+   * Storage ETag of the current bytes. Opaque: compare for equality only. It
+   * changes whenever the stored content does, even for a write that did not
+   * bump `currentVersion`, so clients can use it to validate a cached copy.
+   * Absent when the storage backend does not report one.
+   */
+  etag?: string;
+}
+
+export interface RevealListing {
+  /** Directory path, root first: "/", "/a", "/a/b". */
+  path: string;
+  entries: LsEntry[];
+}
+
+export interface RevealResult {
+  path: string;
+  stat: StatResult;
+  listings: RevealListing[];
 }
 
 export interface RmResult {
@@ -194,6 +223,10 @@ export interface DiffChange {
   type: "add" | "remove" | "context";
   content: string;
   lineNumber?: number;
+  /** 1-based line in v1 (set on "remove" and "context" when content was diffed). */
+  oldLine?: number;
+  /** 1-based line in v2 (set on "add" and "context" when content was diffed). */
+  newLine?: number;
 }
 
 export interface DiffResult {
@@ -215,6 +248,16 @@ export interface RecentResult {
 
 // --- Comment types ---
 
+/**
+ * Text-quote anchor: the exact selected text plus up to 32 chars of context on
+ * each side, used to re-find the selection after the file changes.
+ */
+export interface CommentQuote {
+  exact: string;
+  prefix?: string;
+  suffix?: string;
+}
+
 export interface CommentAddParams {
   path?: string;
   body: string;
@@ -222,6 +265,7 @@ export interface CommentAddParams {
   lineStart?: number;
   lineEnd?: number;
   quotedContent?: string;
+  quote?: CommentQuote;
 }
 
 export interface CommentAddResult {
@@ -231,6 +275,7 @@ export interface CommentAddResult {
   parentId?: string;
   lineStart?: number;
   lineEnd?: number;
+  quote?: CommentQuote;
   author: string;
   authorDisplayName?: string;
   createdAt: Date;
@@ -252,6 +297,7 @@ export interface CommentEntry {
   lineStart?: number;
   lineEnd?: number;
   quotedContent?: string;
+  quote?: CommentQuote;
   body: string;
   author: string;
   authorDisplayName?: string;
@@ -259,6 +305,8 @@ export interface CommentEntry {
   resolvedBy?: string;
   resolvedAt?: Date;
   fileVersionId?: number;
+  /** Version number of fileVersionId (the head version when the comment was made). */
+  fileVersion?: number;
   replyCount: number;
   createdAt: Date;
   updatedAt: Date;

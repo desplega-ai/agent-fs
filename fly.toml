@@ -11,6 +11,7 @@ primary_region = 'ams'
 
 [env]
   AGENT_FS_HOME = '/data'
+  AGENT_FS_RATE_LIMIT = '12000'
   SERVER_HOST = '0.0.0.0'
   AGENT_FS_CLOUD = 'true'
 

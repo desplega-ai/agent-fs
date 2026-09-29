@@ -9,12 +9,14 @@ import type { AppEnv } from "./types.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { handleError } from "./middleware/error.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
+import { resolveApiUrl } from "./public-url.js";
 import { requestLogMiddleware } from "./middleware/request-log.js";
 import { authRoutes } from "./routes/auth.js";
 import { opsRoutes } from "./routes/ops.js";
 import { orgRoutes } from "./routes/orgs.js";
 import { docsRoutes } from "./routes/docs.js";
 import { fileRoutes } from "./routes/files.js";
+import { shareRoutes } from "./routes/share.js";
 
 export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null) {
   const app = new Hono<AppEnv>();
@@ -44,10 +46,17 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
       }, 413),
     })(c, next);
   });
+
+  // Public share links: the token is the only credential, so this mounts before
+  // authMiddleware and brings its own per-IP rate limit.
+  app.route("/share", shareRoutes(db, s3, {
+    requestsPerMinute: config.server?.shareRateLimit?.requestsPerMinute ?? 120,
+  }));
+
   app.use("*", authMiddleware(db));
 
-  // Rate limiting (default 1200 rpm per API key, override via AGENT_FS_RATE_LIMIT) — skip /health
-  const rpm = config.server?.rateLimit?.requestsPerMinute ?? 1200;
+  // Rate limiting (default 3000 rpm per API key, override via AGENT_FS_RATE_LIMIT) — skip /health
+  const rpm = config.server?.rateLimit?.requestsPerMinute ?? 3000;
   if (rpm > 0) {
     app.use("/orgs/*", rateLimitMiddleware(rpm));
     app.use("/auth/*", rateLimitMiddleware(rpm));
@@ -58,7 +67,9 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   app.onError((err, c) => handleError(err, c));
 
   // Health check
-  app.get("/health", (c) => c.json({ ok: true, version: VERSION, maxUploadBytes }));
+  // `features` lets clients (the live UI) detect newer capabilities without
+  // probing: an older server simply omits the field.
+  app.get("/health", (c) => c.json({ ok: true, version: VERSION, maxUploadBytes, features: ["share-links"] }));
 
   // MCP endpoint — per-request stateless transport
   app.all("/mcp", async (c) => {
@@ -69,7 +80,13 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
       enableJsonResponse: true,
     });
 
-    const mcpServer = createMcpServer({ db, s3, embeddingProvider, appUrl: config.appUrl });
+    const mcpServer = createMcpServer({
+      db,
+      s3,
+      embeddingProvider,
+      appUrl: config.appUrl,
+      apiUrl: resolveApiUrl(c, config.server?.publicUrl),
+    });
     await mcpServer.connect(transport);
 
     return transport.handleRequest(c.req.raw, {
@@ -85,7 +102,7 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   // Routes
   app.route("/auth", authRoutes(db));
   app.route("/orgs", orgRoutes(db));
-  app.route("/orgs", opsRoutes(db, s3, embeddingProvider, config.appUrl));
+  app.route("/orgs", opsRoutes(db, s3, embeddingProvider, config.appUrl, config.server?.publicUrl));
   app.route("/docs", docsRoutes());
   app.route("/orgs", fileRoutes(db, s3, embeddingProvider, config.appUrl));
 

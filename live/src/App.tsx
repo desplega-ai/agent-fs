@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { Suspense, lazy, useEffect, useRef } from "react"
 import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -11,8 +11,10 @@ import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { CredentialsPage } from "@/pages/Credentials"
 import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
-import { SqlPage } from "@/pages/SqlPage"
 import { Spinner } from "@/components/ui/spinner"
+
+// The SQL page embeds a Monaco editor; keep it out of the entry bundle.
+const SqlPage = lazy(() => import("@/pages/SqlPage").then((m) => ({ default: m.SqlPage })))
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -140,7 +142,9 @@ function SqlRoute() {
     <>
       <RouteParamsSync />
       <Shell>
-        <SqlPage />
+        <Suspense fallback={<div className="flex h-full items-center justify-center"><Spinner /></div>}>
+          <SqlPage />
+        </Suspense>
       </Shell>
     </>
   )

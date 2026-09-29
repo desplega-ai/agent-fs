@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.13.11",
+    "version": "0.14.0",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -43,6 +43,13 @@
                       "type": "integer",
                       "minimum": 1,
                       "description": "Maximum raw upload size in bytes"
+                    },
+                    "features": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Optional capabilities this server supports (e.g. \"share-links\"). Absent on older servers."
                     }
                   },
                   "required": [
@@ -53,6 +60,138 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/share/{token}": {
+      "get": {
+        "summary": "Public share page",
+        "description": "Unauthenticated HTML preview of a file shared with the share-create op, with a Download button. The token is the only credential. Expired, revoked and used-up links return the same 'link expired' page (404 for an unknown token, 410 otherwise). Each successful page view counts against maxViews.",
+        "operationId": "sharePage",
+        "tags": [
+          "Share"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The share page",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown token or file no longer available",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Link expired, revoked or used up",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests from this address"
+          }
+        }
+      }
+    },
+    "/share/{token}/raw": {
+      "get": {
+        "summary": "Inline bytes for a share embed",
+        "description": "Serves (or redirects to a short-lived presigned URL for) the shared file inline. Only images, PDF, audio and video; HTML and SVG are never served inline. Does not count as a view.",
+        "operationId": "shareRaw",
+        "tags": [
+          "Share"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File bytes"
+          },
+          "302": {
+            "description": "Redirect to a short-lived presigned URL"
+          },
+          "404": {
+            "description": "Not found or not embeddable"
+          },
+          "410": {
+            "description": "Link expired, revoked or used up"
+          }
+        }
+      }
+    },
+    "/share/{token}/download": {
+      "get": {
+        "summary": "Download a shared file",
+        "description": "Serves (or redirects to a short-lived presigned URL for) the shared file with Content-Disposition: attachment. Does not count as a view.",
+        "operationId": "shareDownload",
+        "tags": [
+          "Share"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File bytes as an attachment"
+          },
+          "302": {
+            "description": "Redirect to a short-lived presigned URL"
+          },
+          "404": {
+            "description": "File no longer available"
+          },
+          "410": {
+            "description": "Link expired, revoked or used up"
           }
         }
       }
@@ -552,7 +691,7 @@
                   {
                     "type": "object",
                     "title": "stat",
-                    "description": "Get file metadata without reading content. Returns path, size, contentType, author, currentVersion, createdAt, modifiedAt, isDeleted, embeddingStatus.",
+                    "description": "Get file metadata without reading content. Returns path, size, contentType, author, currentVersion, createdAt, modifiedAt, isDeleted, embeddingStatus, etag (opaque id of the current bytes, compare for equality).",
                     "required": [
                       "op",
                       "path"
@@ -561,6 +700,29 @@
                       "op": {
                         "type": "string",
                         "const": "stat"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "reveal",
+                    "description": "Everything needed to show one file in a tree, in one call: the ls listing of every ancestor directory (root first) plus the file's stat. Returns { path, stat, listings } where each listing is { path, entries } with entries shaped exactly like ls.",
+                    "required": [
+                      "op",
+                      "path"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "reveal"
                       },
                       "driveId": {
                         "type": "string",
@@ -718,7 +880,7 @@
                   {
                     "type": "object",
                     "title": "diff",
-                    "description": "Show the diff between two versions of a file. Specify v1 and v2 version numbers. Returns { changes } as add/remove/context hunks.",
+                    "description": "Show the diff between two versions of a file. Specify v1 and v2 version numbers. Returns { changes } as add/remove/context hunks; when file content was diffed each change carries oldLine/newLine.",
                     "required": [
                       "op",
                       "path",
@@ -1087,8 +1249,69 @@
                   },
                   {
                     "type": "object",
+                    "title": "share-create",
+                    "description": "Create a public share link for a file: an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video) and a Download button. Default expiry is 24 hours (max 7 days); set maxViews to limit how often the page can be opened (maxViews=1 is a one-off link). Anyone with the link can open it, so share deliberately. Returns { id, url, sharePath, path, expiresIn, expiresAt, maxViews }. The link is shown only once; keep the id to revoke it.",
+                    "required": [
+                      "op",
+                      "path"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "share-create"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "expiresIn": {
+                        "type": "integer",
+                        "minimum": 60,
+                        "maximum": 604800
+                      },
+                      "maxViews": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1000000
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "share-revoke",
+                    "description": "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share URL), or path (revokes every link to that file). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
+                    "required": [
+                      "op"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "share-revoke"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "token": {
+                        "type": "string"
+                      },
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
                     "title": "comment-add",
-                    "description": "Add a comment to a file. Supports line ranges and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
+                    "description": "Add a comment to a file. Supports line ranges, a text-quote anchor ({ exact, prefix, suffix }), and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
                     "required": [
                       "op",
                       "body"
@@ -1119,6 +1342,25 @@
                       },
                       "quotedContent": {
                         "type": "string"
+                      },
+                      "quote": {
+                        "type": "object",
+                        "properties": {
+                          "exact": {
+                            "type": "string"
+                          },
+                          "prefix": {
+                            "type": "string"
+                          },
+                          "suffix": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "exact"
+                        ],
+                        "additionalProperties": false,
+                        "description": "Text-quote anchor: the exact selected text plus ~32 chars of context before (prefix) and after (suffix). Lets viewers re-find the selection after the file is edited."
                       }
                     },
                     "additionalProperties": false

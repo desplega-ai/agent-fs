@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Files } from "files-sdk";
 import { fs } from "files-sdk/fs";
 import { UnsupportedOperation } from "../errors.js";
+import { assertKeyInsideDrive } from "./key-guard.js";
 import type {
   StorageAdapter,
   StorageCapabilities,
@@ -39,6 +40,14 @@ import type {
  * deliberately NOT cleaned up on failure. The partial-failure window matches
  * today's S3 path; real reconciliation/retry is deferred to the
  * remote/consumer adapter (follow-up plan).
+ *
+ * ### Tenant containment
+ * Every drive is a sibling directory (`<orgId>/drives/<driveId>/`) under one
+ * root, and `files-sdk` only stops a key from leaving the *root*. So every
+ * method here first runs its key (or prefix) through {@link assertKeyInsideDrive},
+ * which refuses `.`/`..` segments and NUL bytes. That covers every op, since
+ * they all reach storage through this adapter. S3 is not affected: an
+ * `a/../b` key is ordinary data there and that adapter is left alone.
  */
 
 const BLOB_PREFIX = "_afs-blobs/sha256/";
@@ -105,6 +114,7 @@ export class LocalStorageAdapter implements StorageAdapter {
     _metadata?: Record<string, string>,
     contentType?: string,
   ): Promise<PutObjectResult> {
+    assertKeyInsideDrive(key);
     const bytes =
       typeof body === "string" ? new TextEncoder().encode(body) : body;
     const hash = createHash("sha256").update(bytes).digest("hex");
@@ -132,9 +142,11 @@ export class LocalStorageAdapter implements StorageAdapter {
     versionId?: string,
     opts?: { abortSignal?: AbortSignal },
   ): Promise<GetObjectResult> {
+    assertKeyInsideDrive(key);
     // A version handle reads the content-addressed blob; otherwise the plain
-    // current key.
+    // current key. The handle is spliced into a path, so it is checked too.
     const target = versionId ? blobKey(versionId) : key;
+    assertKeyInsideDrive(target);
     try {
       const stored = await this.files.download(
         target,
@@ -157,6 +169,7 @@ export class LocalStorageAdapter implements StorageAdapter {
     // Delete the plain key only — blobs ARE the version history and stay put
     // (mirrors S3 delete-marker semantics: prior versions stay retrievable by
     // handle). A missing key is a no-op.
+    assertKeyInsideDrive(key);
     try {
       await this.files.delete(key);
     } catch (err) {
@@ -166,6 +179,10 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 
   async copyObject(fromKey: string, toKey: string): Promise<PutObjectResult> {
+    // Check both ends before reading anything, so a hostile destination does
+    // not even cost a read of the source.
+    assertKeyInsideDrive(fromKey);
+    assertKeyInsideDrive(toKey);
     // Read source bytes, then re-put — ensures the blob exists for `toKey`'s
     // history and writes the plain destination key.
     const src = await this.getObject(fromKey);
@@ -176,6 +193,7 @@ export class LocalStorageAdapter implements StorageAdapter {
     prefix: string,
     options?: { delimiter?: string },
   ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
+    assertKeyInsideDrive(prefix);
     const objects: S3Object[] = [];
     const prefixes = new Set<string>();
     let cursor: string | undefined;
@@ -206,6 +224,7 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 
   async headObject(key: string): Promise<HeadObjectResult> {
+    assertKeyInsideDrive(key);
     try {
       const stored = await this.files.head(key);
       return {

@@ -37,6 +37,17 @@ export function runMigrations(sqlite: Database): void {
       "ON file_versions(path, drive_id, version)"
   );
 
+  // Migration 2b: add the comment text-quote anchor columns. All nullable, so
+  // existing rows keep resolving through line_start/line_end + quoted_content.
+  const commentCols = sqlite
+    .prepare("PRAGMA table_info(comments)")
+    .all() as Array<{ name: string }>;
+  for (const col of ["quote_exact", "quote_prefix", "quote_suffix"]) {
+    if (!commentCols.some((c) => c.name === col)) {
+      sqlite.exec(`ALTER TABLE comments ADD COLUMN ${col} TEXT`);
+    }
+  }
+
   // Migration 3: backfill explicit drive memberships (multi-tenant RBAC).
   //
   // Drive visibility is strict explicit membership: drives with zero

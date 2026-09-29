@@ -16,15 +16,16 @@ import { AddComment } from "./AddComment"
 
 interface CommentSidebarProps {
   path: string
+  isOpen?: boolean
   showHeader?: boolean
-  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
+  onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string, commentId?: string) => void
   /** When provided, renders a collapse button in the header that calls this callback. */
   onCollapse?: () => void
 }
 
-export function CommentSidebar({ path, showHeader = true, onCommentClick, onCollapse }: CommentSidebarProps) {
+export function CommentSidebar({ path, isOpen = false, showHeader = true, onCommentClick, onCollapse }: CommentSidebarProps) {
   const { user } = useAuth()
-  const { unresolvedComments, resolvedComments, isLoading } = useAllComments(path)
+  const { unresolvedComments, resolvedComments, isLoading } = useAllComments(path, isOpen)
   const [showAddForm, setShowAddForm] = useState(false)
   const [showResolved, setShowResolved] = useState(false)
 

@@ -6,6 +6,8 @@ export interface HealthResponse {
   ok: boolean
   version: string
   maxUploadBytes?: number
+  /** Optional capabilities, e.g. "share-links". Absent on older servers. */
+  features?: string[]
 }
 
 export function uploadLimitBytes(health?: HealthResponse): number {

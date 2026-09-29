@@ -34,10 +34,12 @@ export interface McpServerOptions {
   s3: StorageAdapter;
   embeddingProvider: EmbeddingProvider | null;
   appUrl?: string;
+  /** Public address of the API server, for absolute /share links. */
+  apiUrl?: string;
 }
 
 export function createMcpServer(options: McpServerOptions) {
-  const { db, s3, embeddingProvider, appUrl } = options;
+  const { db, s3, embeddingProvider, appUrl, apiUrl } = options;
 
   const server = new McpServer({
     name: "agent-fs",
@@ -51,7 +53,7 @@ export function createMcpServer(options: McpServerOptions) {
     }
     const user = authInfo.extra.user as { id: string; email: string };
     const resolved = resolveContext(db, { userId: user.id });
-    return { db, s3, orgId: resolved.orgId, driveId: resolved.driveId, userId: user.id, embeddingProvider, appUrl };
+    return { db, s3, orgId: resolved.orgId, driveId: resolved.driveId, userId: user.id, embeddingProvider, appUrl, apiUrl };
   };
 
   registerTools(server, getContext);

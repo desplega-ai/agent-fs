@@ -3,7 +3,7 @@ import { getRequiredRole } from "../identity/rbac.js";
 
 describe("getRequiredRole", () => {
   const viewerOps = [
-    "ls", "cat", "tail", "stat", "grep", "fts", "search", "log", "diff", "recent", "signed-url",
+    "ls", "cat", "tail", "stat", "reveal", "grep", "fts", "search", "log", "diff", "recent", "signed-url", "share-create", "share-revoke",
     "comment-notification-list", "comment-notification-read",
   ];
   const editorOps = ["write", "edit", "append", "rm", "mv", "cp", "revert"];

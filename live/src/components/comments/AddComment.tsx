@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useAddComment } from "@/hooks/use-comments"
+import type { CommentQuote } from "@/api/types"
 
 interface AddCommentProps {
   path: string
@@ -15,6 +16,8 @@ interface AddCommentProps {
   lineStart?: number
   lineEnd?: number
   quotedContent?: string
+  /** Text-quote anchor ({ exact, prefix, suffix }) for robust re-anchoring. */
+  quote?: CommentQuote
   onDone?: () => void
   autoFocus?: boolean
   placeholder?: string
@@ -26,6 +29,7 @@ export function AddComment({
   lineStart,
   lineEnd,
   quotedContent,
+  quote,
   onDone,
   autoFocus,
   placeholder = "Add a comment...",
@@ -38,7 +42,7 @@ export function AddComment({
     if (!body.trim()) return
 
     addComment.mutate(
-      { path, body: body.trim(), parentId, lineStart, lineEnd, quotedContent },
+      { path, body: body.trim(), parentId, lineStart, lineEnd, quotedContent, quote },
       {
         onSuccess: () => {
           setBody("")

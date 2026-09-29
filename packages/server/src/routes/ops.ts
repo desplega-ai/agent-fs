@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { dispatchOp, resolveContext } from "@/core";
 import type { DB, StorageAdapter, EmbeddingProvider } from "@/core";
 import type { AppEnv } from "../types.js";
+import { resolveApiUrl } from "../public-url.js";
 
-export function opsRoutes(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null, appUrl?: string) {
+export function opsRoutes(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null, appUrl?: string, publicUrl?: string) {
   const router = new Hono<AppEnv>();
 
   router.post("/:orgId/ops", async (c) => {
@@ -34,6 +35,7 @@ export function opsRoutes(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
       userId: user.id,
       embeddingProvider,
       appUrl,
+      apiUrl: resolveApiUrl(c, publicUrl),
     };
 
     const result = await dispatchOp(ctx, op, params);
