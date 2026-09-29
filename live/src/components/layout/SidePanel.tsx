@@ -17,6 +17,7 @@ import type { OutlineItem } from "@/lib/outline"
 interface SidePanelProps {
   path: string
   outline: OutlineItem[]
+  isOpen?: boolean
   showCommentsHeader?: boolean
   onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string) => void
   /** Renders a collapse button in the header. */
@@ -32,6 +33,7 @@ interface SidePanelProps {
 export function SidePanel({
   path,
   outline,
+  isOpen = false,
   showCommentsHeader = true,
   onCommentClick,
   onCollapse,
@@ -49,6 +51,7 @@ export function SidePanel({
     return (
       <CommentSidebar
         path={path}
+        isOpen={isOpen}
         showHeader={showCommentsHeader}
         onCommentClick={onCommentClick}
         onCollapse={onCollapse}
@@ -93,7 +96,7 @@ export function SidePanel({
 
       <div className="flex-1 min-h-0">
         {tab === "comments" ? (
-          <CommentSidebar path={path} showHeader={false} onCommentClick={onCommentClick} />
+          <CommentSidebar path={path} isOpen={isOpen} showHeader={false} onCommentClick={onCommentClick} />
         ) : (
           <Outline items={outline} className="h-full" />
         )}

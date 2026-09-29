@@ -23,7 +23,7 @@ interface CommentSidebarProps {
   onCollapse?: () => void
 }
 
-export function CommentSidebar({ path, isOpen = true, showHeader = true, onCommentClick, onCollapse }: CommentSidebarProps) {
+export function CommentSidebar({ path, isOpen = false, showHeader = true, onCommentClick, onCollapse }: CommentSidebarProps) {
   const { user } = useAuth()
   const { unresolvedComments, resolvedComments, isLoading } = useAllComments(path, isOpen)
   const [showAddForm, setShowAddForm] = useState(false)

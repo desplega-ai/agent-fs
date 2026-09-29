@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
 import { MessageSquare, PanelRightOpen } from "lucide-react"
 import {
   Tooltip,
@@ -19,6 +19,7 @@ import { uiChromeStore } from "@/stores/ui-chrome"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { cn } from "@/lib/utils"
+import { getDesktopBreakpointSnapshot, getVisibleCommentSurfaces, subscribeToDesktopBreakpoint } from "@/lib/desktop-breakpoint"
 import type { OutlineItem } from "@/lib/outline"
 
 interface MainWithCommentsProps {
@@ -55,7 +56,17 @@ export function MainWithComments({
   children,
 }: MainWithCommentsProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const isDesktop = useSyncExternalStore(
+    subscribeToDesktopBreakpoint,
+    getDesktopBreakpointSnapshot,
+    () => false,
+  )
   const comments = useResizableSidebar(COMMENTS_KEY, COMMENTS_DEFAULTS)
+  const visibleSurfaces = getVisibleCommentSurfaces(isDesktop, comments.open, mobileOpen)
+
+  useEffect(() => {
+    if (isDesktop) setMobileOpen(false)
+  }, [isDesktop])
 
   // Register the right (comments) sidebar toggle so the global `]` shortcut
   // can flip it. Only meaningful when a file is selected (rail is rendered).
@@ -111,6 +122,7 @@ export function MainWithComments({
               <SidePanel
                 path={filePath}
                 outline={outline}
+                isOpen={visibleSurfaces.desktopOpen}
                 showCommentsHeader={showCommentsHeader}
                 onCommentClick={onCommentClick}
                 onCollapse={() => comments.setOpen(false)}
@@ -126,7 +138,7 @@ export function MainWithComments({
           themselves; nothing here takes flex space). */}
       <MobileCommentToggle
         path={filePath}
-        open={mobileOpen}
+        open={visibleSurfaces.mobileOpen}
         onToggle={() => setMobileOpen((v) => !v)}
         onOpenChange={setMobileOpen}
         onCommentClick={onCommentClick}

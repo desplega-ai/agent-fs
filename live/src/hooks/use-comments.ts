@@ -1,4 +1,13 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import {
+  useQuery,
+  useMutation,
+  useQueryClient,
+  type QueryClient,
+  type QueryKey,
+  type UseMutationOptions,
+  type UseQueryOptions,
+} from "@tanstack/react-query"
+import type { AgentFsClient } from "@/api/client"
 import { useAuth } from "@/contexts/auth"
 import { toast } from "@/stores/toast"
 import type {
@@ -103,55 +112,173 @@ function replaceOptimisticComment(
   savedComment: CommentEntry,
 ): CommentListResult | undefined {
   if (!data) return data
+  const savedCommentExists = data.comments.some((comment) =>
+    comment.id === savedComment.id || comment.replies.some((reply) => reply.id === savedComment.id)
+  )
   return {
     ...data,
-    comments: data.comments.map((comment) => {
+    comments: data.comments.flatMap((comment) => {
       if (comment.id === optimisticId) {
-        return { ...comment, ...savedComment, replies: comment.replies }
+        return savedCommentExists ? [] : [{ ...comment, ...savedComment, replies: comment.replies }]
       }
-      return {
+      const hasOptimisticReply = comment.replies.some((reply) => reply.id === optimisticId)
+      return [{
         ...comment,
-        replies: comment.replies.map((reply) =>
-          reply.id === optimisticId ? { ...reply, ...savedComment } : reply
-        ),
-      }
+        replyCount: savedCommentExists && hasOptimisticReply
+          ? Math.max(0, comment.replyCount - 1)
+          : comment.replyCount,
+        replies: comment.replies.flatMap((reply) => reply.id === optimisticId
+          ? savedCommentExists ? [] : [{ ...reply, ...savedComment }]
+          : [reply]),
+      }]
     }),
+  }
+}
+
+function preservePendingOptimisticComments(
+  previous: CommentListResult | undefined,
+  server: CommentListResult,
+): CommentListResult {
+  if (!previous) return server
+
+  let comments = [...server.comments]
+  for (const previousRoot of previous.comments) {
+    const pendingReplies = previousRoot.replies.filter((reply) => reply.id.startsWith("optimistic:"))
+    const rootIsPending = previousRoot.id.startsWith("optimistic:")
+    let rootIndex = comments.findIndex((comment) => comment.id === previousRoot.id)
+
+    if (rootIsPending && rootIndex < 0) {
+      comments.unshift(previousRoot)
+      rootIndex = 0
+    }
+
+    if (pendingReplies.length === 0) continue
+    if (rootIndex < 0) {
+      comments.push(previousRoot)
+      continue
+    }
+
+    let root = comments[rootIndex]
+    for (const reply of pendingReplies) {
+      if (root.replies.some((existing) => existing.id === reply.id)) continue
+      root = {
+        ...root,
+        replyCount: root.replyCount + 1,
+        replies: [...root.replies, reply],
+      }
+    }
+    comments[rootIndex] = root
+  }
+
+  return { ...server, comments: comments.sort((a, b) => b.createdAt.localeCompare(a.createdAt)) }
+}
+
+function findThread(data: CommentListResult | undefined, id: string) {
+  return data?.comments.find((comment) => comment.id === id || comment.replies.some((reply) => reply.id === id))
+}
+
+function restoreThread(
+  data: CommentListResult | undefined,
+  id: string,
+  previousThread: CommentListEntry | undefined,
+  concurrentData: CommentListResult | undefined,
+): CommentListResult | undefined {
+  if (!data) return data
+  if (!previousThread) {
+    return { ...data, comments: data.comments.filter((comment) => comment.id !== id) }
+  }
+
+  const currentThread = data.comments.find((comment) => comment.id === previousThread.id)
+    ?? concurrentData?.comments.find((comment) => comment.id === previousThread.id)
+  const restoredThread: CommentListEntry = currentThread
+    ? id === previousThread.id
+      ? {
+          ...currentThread,
+          resolved: previousThread.resolved,
+          resolvedBy: previousThread.resolvedBy,
+          resolvedAt: previousThread.resolvedAt,
+        }
+      : {
+          ...currentThread,
+          replies: currentThread.replies.map((reply) => {
+            if (reply.id !== id) return reply
+            const previousReply = previousThread.replies.find((before) => before.id === id)
+            if (!previousReply) return reply
+            return {
+              ...reply,
+              resolved: previousReply.resolved,
+              resolvedBy: previousReply.resolvedBy,
+              resolvedAt: previousReply.resolvedAt,
+            }
+          }),
+        }
+    : previousThread
+
+  return {
+    ...data,
+    comments: [restoredThread, ...data.comments.filter((comment) => comment.id !== previousThread.id)]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+  }
+}
+
+interface CommentQueryOptionsParams {
+  client: AgentFsClient
+  queryClient: QueryClient
+  orgId: string | null
+  driveId: string
+  path: string | null
+  isOpen?: boolean
+  resolved?: boolean
+  poll?: boolean
+}
+
+export function createCommentQueryOptions({
+  client,
+  queryClient,
+  orgId,
+  driveId,
+  path,
+  isOpen = false,
+  resolved = false,
+  poll = false,
+}: CommentQueryOptionsParams): UseQueryOptions<CommentListResult, Error, CommentListResult, QueryKey> {
+  const queryKey = commentQueryKey(orgId, driveId, path)
+  return {
+    queryKey: resolved ? [...queryKey, "resolved"] as const : queryKey,
+    queryFn: async () => {
+      const server = await client.callOp<CommentListResult>(
+        orgId!,
+        "comment-list",
+        resolved ? { path: path!, resolved: true } : { path: path! },
+        driveId,
+      )
+      if (resolved) return server
+      return preservePendingOptimisticComments(queryClient.getQueryData<CommentListResult>(queryKey), server)
+    },
+    enabled: !!path && !!orgId && !!driveId && (!poll || isOpen),
+    staleTime: COMMENT_STALE_TIME,
+    ...(poll && { refetchInterval: isOpen ? COMMENT_REFETCH_INTERVAL : false as const }),
   }
 }
 
 export function useComments(path: string | null) {
   const { client, orgId, driveId } = useAuth()
+  const queryClient = useQueryClient()
 
-  return useQuery({
-    queryKey: commentQueryKey(orgId, driveId, path),
-    queryFn: () =>
-      client.callOp<CommentListResult>(orgId!, "comment-list", { path: path! }, driveId),
-    enabled: !!path && !!orgId && !!driveId,
-    staleTime: COMMENT_STALE_TIME,
-  })
+  return useQuery(createCommentQueryOptions({ client, queryClient, orgId, driveId, path }))
 }
 
 export function useAllComments(path: string | null, isOpen = false) {
   const { client, orgId, driveId } = useAuth()
-  const queryKey = commentQueryKey(orgId, driveId, path)
+  const queryClient = useQueryClient()
 
-  const unresolved = useQuery({
-    queryKey,
-    queryFn: () =>
-      client.callOp<CommentListResult>(orgId!, "comment-list", { path: path! }, driveId),
-    enabled: !!path && !!orgId && !!driveId && isOpen,
-    staleTime: COMMENT_STALE_TIME,
-    refetchInterval: isOpen ? COMMENT_REFETCH_INTERVAL : false,
-  })
+  const unresolved = useQuery(createCommentQueryOptions({
+    client, queryClient, orgId, driveId, path, isOpen, poll: true,
+  }))
 
-  const resolved = useQuery({
-    queryKey: [...queryKey, "resolved"],
-    queryFn: () =>
-      client.callOp<CommentListResult>(orgId!, "comment-list", { path: path!, resolved: true }, driveId),
-    enabled: !!path && !!orgId && !!driveId && isOpen,
-    staleTime: COMMENT_STALE_TIME,
-    refetchInterval: isOpen ? COMMENT_REFETCH_INTERVAL : false,
-  })
+  const resolved = useQuery(createCommentQueryOptions({
+    client, queryClient, orgId, driveId, path, isOpen, resolved: true, poll: true,
+  }))
 
   return {
     unresolvedComments: unresolved.data?.comments ?? [],
@@ -160,19 +287,31 @@ export function useAllComments(path: string | null, isOpen = false) {
   }
 }
 
-export function useAddComment() {
-  const { client, orgId, driveId, user } = useAuth()
-  const queryClient = useQueryClient()
+interface AddCommentParams {
+  path: string
+  body: string
+  parentId?: string
+  lineStart?: number
+  lineEnd?: number
+  quotedContent?: string
+}
 
-  return useMutation({
-    mutationFn: (params: {
-      path: string
-      body: string
-      parentId?: string
-      lineStart?: number
-      lineEnd?: number
-      quotedContent?: string
-    }) => client.callOp<CommentAddResult>(orgId!, "comment-add", params, driveId),
+interface AddCommentOptionsParams {
+  client: AgentFsClient
+  orgId: string | null
+  driveId: string
+  user: { userId: string; displayName?: string | null } | undefined
+  queryClient: QueryClient
+}
+
+interface AddCommentContext {
+  optimisticComment: CommentListEntry
+}
+
+export function createAddCommentMutationOptions({ client, orgId, driveId, user, queryClient }: AddCommentOptionsParams):
+  UseMutationOptions<CommentAddResult, Error, AddCommentParams, AddCommentContext | undefined> {
+  return {
+    mutationFn: (params) => client.callOp<CommentAddResult>(orgId!, "comment-add", { ...params }, driveId),
     onMutate: async (vars) => {
       if (!user?.userId) return
 
@@ -228,7 +367,13 @@ export function useAddComment() {
     onSettled: (_data, _error, vars) => {
       queryClient.invalidateQueries({ queryKey: commentQueryKey(orgId, driveId, vars.path) })
     },
-  })
+  }
+}
+
+export function useAddComment() {
+  const { client, orgId, driveId, user } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation(createAddCommentMutationOptions({ client, orgId, driveId, user, queryClient }))
 }
 
 export function useUpdateComment() {
@@ -248,12 +393,28 @@ export function useUpdateComment() {
   })
 }
 
-export function useResolveComment() {
-  const { client, orgId, driveId } = useAuth()
-  const queryClient = useQueryClient()
+interface ResolveCommentOptionsParams {
+  client: AgentFsClient
+  orgId: string | null
+  driveId: string
+  queryClient: QueryClient
+}
 
-  return useMutation({
-    mutationFn: (params: { id: string; resolved: boolean; path: string }) =>
+interface ResolveCommentParams {
+  id: string
+  resolved: boolean
+  path: string
+}
+
+interface ResolveCommentContext {
+  previousUnresolvedThread: CommentListEntry | undefined
+  previousResolvedThread: CommentListEntry | undefined
+}
+
+export function createResolveCommentMutationOptions({ client, orgId, driveId, queryClient }: ResolveCommentOptionsParams):
+  UseMutationOptions<CommentResolveResult, Error, ResolveCommentParams, ResolveCommentContext> {
+  return {
+    mutationFn: (params) =>
       client.callOp<CommentResolveResult>(orgId!, "comment-resolve", {
         id: params.id,
         resolved: params.resolved,
@@ -262,23 +423,28 @@ export function useResolveComment() {
       const queryKey = commentQueryKey(orgId, driveId, vars.path)
       const resolvedKey = [...queryKey, "resolved"] as const
       await queryClient.cancelQueries({ queryKey })
+      const previousUnresolvedThread = findThread(queryClient.getQueryData<CommentListResult>(queryKey), vars.id)
       const allComments = queryClient.getQueryData<CommentListResult>(resolvedKey)
+      const previousResolvedThread = findThread(allComments, vars.id)
       queryClient.setQueryData<CommentListResult>(queryKey, (data) =>
         withUnresolvedComment(data, vars.id, vars.resolved, allComments)
       )
       queryClient.setQueryData<CommentListResult>(resolvedKey, (data) =>
         withResolvedComment(data, vars.id, vars.resolved)
       )
+      return { previousUnresolvedThread, previousResolvedThread }
     },
-    onError: (_error, vars) => {
+    onError: (_error, vars, context) => {
+      if (!context) return
       const queryKey = commentQueryKey(orgId, driveId, vars.path)
       const resolvedKey = [...queryKey, "resolved"] as const
-      const allComments = queryClient.getQueryData<CommentListResult>(resolvedKey)
+      const currentUnresolved = queryClient.getQueryData<CommentListResult>(queryKey)
+      const currentResolved = queryClient.getQueryData<CommentListResult>(resolvedKey)
       queryClient.setQueryData<CommentListResult>(queryKey, (data) =>
-        withUnresolvedComment(data, vars.id, !vars.resolved, allComments)
+        restoreThread(data, vars.id, context.previousUnresolvedThread, currentResolved)
       )
       queryClient.setQueryData<CommentListResult>(resolvedKey, (data) =>
-        withResolvedComment(data, vars.id, !vars.resolved)
+        restoreThread(data, vars.id, context.previousResolvedThread, currentUnresolved)
       )
     },
     onSuccess: (_data, vars) => {
@@ -287,7 +453,13 @@ export function useResolveComment() {
     onSettled: (_data, _error, vars) => {
       queryClient.invalidateQueries({ queryKey: commentQueryKey(orgId, driveId, vars.path) })
     },
-  })
+  }
+}
+
+export function useResolveComment() {
+  const { client, orgId, driveId } = useAuth()
+  const queryClient = useQueryClient()
+  return useMutation(createResolveCommentMutationOptions({ client, orgId, driveId, queryClient }))
 }
 
 export function useDeleteComment() {
