@@ -262,6 +262,7 @@ export interface CommentAddParams {
   path?: string;
   body: string;
   parentId?: string;
+  mentions?: string[];
   lineStart?: number;
   lineEnd?: number;
   quotedContent?: string;
@@ -302,6 +303,11 @@ export interface CommentEntry {
   body: string;
   author: string;
   authorDisplayName?: string;
+  mentions?: Array<{
+    userId: string;
+    displayName: string | null;
+    email: string;
+  }>;
   resolved: boolean;
   resolvedBy?: string;
   resolvedAt?: Date;
@@ -333,6 +339,7 @@ export interface CommentGetResult {
 export interface CommentUpdateParams {
   id: string;
   body: string;
+  mentions?: string[];
 }
 
 export interface CommentUpdateResult {
@@ -363,6 +370,7 @@ export interface CommentResolveResult {
 
 export interface CommentNotificationListParams {
   unreadOnly?: boolean;
+  kinds?: Array<"comment" | "mention">;
   limit?: number;
   offset?: number;
 }
@@ -370,6 +378,7 @@ export interface CommentNotificationListParams {
 export interface CommentNotificationEntry {
   /** Notification event ID. */
   id: string;
+  kind: "comment" | "mention";
   commentId: string;
   parentId?: string;
   path: string;

@@ -1,4 +1,4 @@
-import { eq, and, sql, desc, ne, inArray } from "drizzle-orm";
+import { eq, and, sql, desc, ne, inArray, notInArray } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type {
   OpContext,
@@ -20,6 +20,12 @@ import type {
 } from "./types.js";
 import { NotFoundError, ValidationError, PermissionDeniedError } from "../errors.js";
 import { normalizePrefix } from "./paths.js";
+import {
+  emitMentionNotifications,
+  loadMentions,
+  resolveMentions,
+  saveMentions,
+} from "./comment-mentions.js";
 
 // --- Event helper ---
 
@@ -182,6 +188,18 @@ function addFileVersions<T extends { fileVersionId?: number; fileVersion?: numbe
   return entries;
 }
 
+function addMentions<T extends { id: string; mentions?: CommentEntry["mentions"] }>(
+  ctx: OpContext,
+  entries: T[]
+): T[] {
+  const mentions = loadMentions(ctx, entries.map((entry) => entry.id));
+  for (const entry of entries) {
+    const commentMentions = mentions.get(entry.id);
+    if (commentMentions?.length) entry.mentions = commentMentions;
+  }
+  return entries;
+}
+
 // --- Handlers ---
 
 export async function commentAdd(
@@ -221,6 +239,9 @@ export async function commentAdd(
     });
   }
 
+  const mentionUserIds = params.mentions
+    ? resolveMentions(ctx, params.mentions)
+    : [];
   const quote = normalizeQuote(params.quote);
 
   // Capture current file version ID
@@ -260,6 +281,14 @@ export async function commentAdd(
       isDeleted: false,
     })
     .run();
+
+  const newMentionUserIds = saveMentions(ctx, id, mentionUserIds);
+  emitMentionNotifications(ctx, {
+    commentId: id,
+    path,
+    parentId: params.parentId,
+    userIds: newMentionUserIds,
+  });
 
   emitEvent(ctx, {
     type: "comment_created",
@@ -367,7 +396,9 @@ export async function commentList(
     };
   });
 
-  addAuthorNames(ctx, comments.flatMap((comment) => [comment, ...comment.replies]));
+  const entries = comments.flatMap((comment) => [comment, ...comment.replies]);
+  addAuthorNames(ctx, entries);
+  addMentions(ctx, entries);
   addFileVersions(ctx, comments);
   return { comments };
 }
@@ -420,7 +451,9 @@ export async function commentGet(
 
   const replies = replyRows.map((r) => toCommentEntry({ ...r, replyCount: 0 }));
 
-  addAuthorNames(ctx, [comment, ...replies]);
+  const entries = [comment, ...replies];
+  addAuthorNames(ctx, entries);
+  addMentions(ctx, entries);
   addFileVersions(ctx, [comment]);
   return { comment, replies };
 }
@@ -443,6 +476,9 @@ export async function commentUpdate(
     });
   }
 
+  const mentionUserIds = params.mentions === undefined
+    ? undefined
+    : resolveMentions(ctx, params.mentions);
   const now = new Date();
   ctx.db
     .update(schema.comments)
@@ -455,6 +491,24 @@ export async function commentUpdate(
       )
     )
     .run();
+
+  if (mentionUserIds !== undefined) {
+    const removeCondition = mentionUserIds.length > 0
+      ? and(
+          eq(schema.commentMentions.commentId, params.id),
+          notInArray(schema.commentMentions.userId, mentionUserIds)
+        )
+      : eq(schema.commentMentions.commentId, params.id);
+    ctx.db.delete(schema.commentMentions).where(removeCondition).run();
+
+    const newMentionUserIds = saveMentions(ctx, params.id, mentionUserIds);
+    emitMentionNotifications(ctx, {
+      commentId: params.id,
+      path: row.path,
+      parentId: row.parentId ?? undefined,
+      userIds: newMentionUserIds,
+    });
+  }
 
   return { id: params.id, body: params.body, updatedAt: now };
 }
