@@ -42,8 +42,8 @@ export function stripLeadingSlash(path: string): string {
  * Rejects a `.` or `..` segment on either separator (a backslash is a
  * separator on Windows hosts) and NUL bytes. Names that merely contain dots
  * (`a..b`, `.hidden`, `file..`) are fine. This is deliberately not folded into
- * {@link normalizePath}: most ops build their key straight from the raw path
- * and never call it, and on S3 an existing `a/../b` key is legal data.
+ * {@link normalizePath}: validation and canonicalization are separate steps,
+ * and on S3 an existing `a/../b` key is legal data.
  */
 export function assertPathInsideDrive(path: string): void {
   if (path.includes("\u0000")) {

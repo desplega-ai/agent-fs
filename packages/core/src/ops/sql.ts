@@ -150,13 +150,6 @@ function findFileByPath(
   return row ?? null;
 }
 
-function findFile(
-  ctx: OpContext,
-  path: string
-): { path: string; size: number } | null {
-  return findFileByPath(ctx, path);
-}
-
 function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
   const bindings: Binding[] = [];
   const usedNames = new Set<string>();
@@ -188,7 +181,7 @@ function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
       );
     }
 
-    const file = findFile(ctx, path);
+    const file = findFileByPath(ctx, path);
     if (!file) {
       throw new NotFoundError(`File not found: ${path}`, { path });
     }
@@ -218,7 +211,7 @@ function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
     if (seenPaths.has(path)) continue;
     seenPaths.add(path);
 
-    const file = findFile(ctx, path);
+    const file = findFileByPath(ctx, path);
     if (!file) continue;
 
     let name = `doc_${docIdx++}`;

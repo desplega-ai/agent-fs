@@ -69,7 +69,7 @@ function publishCommentChange(
   publishDriveEvent({
     type: "comment.changed",
     driveId: ctx.driveId,
-    path: normalizePath(comment.path),
+    path: comment.path,
     commentId: comment.id,
     parentId: comment.parentId ?? null,
     action,
@@ -146,7 +146,7 @@ function toCommentEntry(row: any): CommentEntry {
   return {
     id: row.id,
     parentId: row.parentId ?? undefined,
-    path: normalizePath(row.path),
+    path: row.path,
     lineStart: row.lineStart ?? undefined,
     lineEnd: row.lineEnd ?? undefined,
     quotedContent: row.quotedContent ?? undefined,

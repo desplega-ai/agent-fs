@@ -2,186 +2,363 @@ import { describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createTestContext } from "../../test-utils.js";
 import { subscribeDrive, type DriveEvent } from "../../events/bus.js";
-import { dispatchOp, writeRaw } from "../index.js";
+import {
+  dispatchOp,
+  getOpDefinition,
+  getRegisteredOps,
+  writeRaw,
+} from "../index.js";
 
-describe("file operation path normalization", () => {
-  test("exact-path operations use one canonical file and emit canonical paths", async () => {
-    const { ctx, db } = createTestContext({ versioningEnabled: true });
-    const raw = (db as any).$client as Database;
+function rawDb(db: ReturnType<typeof createTestContext>["db"]): Database {
+  return (db as any).$client as Database;
+}
+
+function expectOnlyCanonicalRows(sqlite: Database): void {
+  for (const [table, column] of [
+    ["files", "path"],
+    ["file_versions", "path"],
+    ["comments", "path"],
+    ["shares", "path"],
+    ["content_chunks", "file_path"],
+    ["files_fts_docs", "path"],
+  ]) {
+    expect(
+      sqlite
+        .query(`SELECT COUNT(*) AS count FROM ${table} WHERE ${column} NOT LIKE '/%'`)
+        .get()
+    ).toEqual({ count: 0 });
+  }
+}
+
+async function seedVersionedFile(
+  ctx: ReturnType<typeof createTestContext>["ctx"],
+  path = "/normalized/file.md"
+): Promise<void> {
+  await dispatchOp(ctx, "write", { path, content: "one\ntwo" });
+  await dispatchOp(ctx, "write", { path, content: "one\ntwo\nthree" });
+}
+
+describe("exact file operation path normalization", () => {
+  test("write uses one database row for bare and slash paths", async () => {
+    const { ctx, db } = createTestContext();
     const events: DriveEvent[] = [];
     const unsubscribe = subscribeDrive(ctx.driveId, (event) => events.push(event));
-
     try {
-      const written = await dispatchOp(ctx, "write", {
-        path: "normalized/file.md",
-        content: "one\ntwo",
-      }) as { path: string; version: number };
-      expect(written).toMatchObject({ path: "/normalized/file.md", version: 1 });
-
-      expect((await dispatchOp(ctx, "cat", { path: "/normalized/file.md" }) as any).content)
-        .toBe("one\ntwo");
-      expect((await dispatchOp(ctx, "stat", { path: "normalized/file.md" }) as any))
-        .toMatchObject({ path: "/normalized/file.md", currentVersion: 1 });
-
-      await dispatchOp(ctx, "append", {
-        path: "normalized/file.md",
-        content: "\nthree",
-      });
-      const edited = await dispatchOp(ctx, "edit", {
-        path: "normalized/file.md",
-        old_string: "two",
-        new_string: "TWO",
-      }) as { path: string; version: number };
-      expect(edited).toMatchObject({ path: "/normalized/file.md", version: 3 });
-
-      const tail = await dispatchOp(ctx, "tail", {
-        path: "normalized/file.md",
-        lines: 2,
-      }) as { content: string };
-      expect(tail.content).toBe("TWO\nthree");
-      const history = await dispatchOp(ctx, "log", {
-        path: "normalized/file.md",
-      }) as { versions: Array<{ version: number }> };
-      expect(history.versions.map((row) => row.version)).toEqual([3, 2, 1]);
-      const compared = await dispatchOp(ctx, "diff", {
-        path: "normalized/file.md",
-        v1: 1,
-        v2: 3,
-      }) as { changes: unknown[] };
-      expect(compared.changes.length).toBeGreaterThan(0);
-
-      const signed = await dispatchOp(ctx, "signed-url", {
-        path: "normalized/file.md",
-      }) as { path: string };
-      expect(signed.path).toBe("/normalized/file.md");
-      const revealed = await dispatchOp(ctx, "reveal", {
-        path: "normalized/file.md",
-      }) as { path: string; stat: { path: string } };
-      expect(revealed).toMatchObject({
-        path: "/normalized/file.md",
-        stat: { path: "/normalized/file.md" },
-      });
-
-      const share = await dispatchOp(ctx, "share-create", {
-        path: "normalized/file.md",
-      }) as { path: string };
-      expect(share.path).toBe("/normalized/file.md");
-      expect(await dispatchOp(ctx, "share-revoke", { path: "normalized/file.md" }))
-        .toMatchObject({ revoked: 1 });
-
-      const comment = await dispatchOp(ctx, "comment-add", {
-        path: "normalized/file.md",
-        body: "canonical comment",
-      }) as { path: string };
-      expect(comment.path).toBe("/normalized/file.md");
-      const comments = await dispatchOp(ctx, "comment-list", {
-        path: "normalized/file.md",
-      }) as { comments: Array<{ path: string }> };
-      expect(comments.comments.map((row) => row.path)).toEqual(["/normalized/file.md"]);
-
-      const copied = await dispatchOp(ctx, "cp", {
-        from: "normalized/file.md",
-        to: "normalized/copy.md",
-      }) as { from: string; to: string };
-      expect(copied).toMatchObject({
-        from: "/normalized/file.md",
-        to: "/normalized/copy.md",
-      });
-      const moved = await dispatchOp(ctx, "mv", {
-        from: "normalized/copy.md",
-        to: "normalized/moved.md",
-      }) as { from: string; to: string };
-      expect(moved).toMatchObject({
-        from: "/normalized/copy.md",
-        to: "/normalized/moved.md",
-      });
-
-      const reverted = await dispatchOp(ctx, "revert", {
-        path: "normalized/file.md",
-        version: 1,
-      }) as { version: number; revertedTo: number };
-      expect(reverted).toMatchObject({ version: 4, revertedTo: 1 });
-      const removed = await dispatchOp(ctx, "rm", {
-        path: "normalized/file.md",
-      }) as { path: string; deleted: boolean };
-      expect(removed).toEqual({ path: "/normalized/file.md", deleted: true });
-
-      for (const table of ["files", "file_versions", "comments", "shares"]) {
-        const row = raw
-          .prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE path NOT LIKE '/%'`)
-          .get() as { count: number };
-        expect(row.count).toBe(0);
-      }
-      expect(events.length).toBeGreaterThan(0);
-      expect(events.every((event) => event.path.startsWith("/"))).toBe(true);
+      await dispatchOp(ctx, "write", { path: "same.md", content: "one" });
+      await dispatchOp(ctx, "write", { path: "/same.md", content: "two" });
     } finally {
       unsubscribe();
     }
+
+    const sqlite = rawDb(db);
+    expect(sqlite.query("SELECT path, current_version_id AS version FROM files").all()).toEqual([
+      { path: "/same.md", version: "2" },
+    ]);
+    expect(sqlite.query("SELECT path, version FROM file_versions ORDER BY version").all()).toEqual([
+      { path: "/same.md", version: 1 },
+      { path: "/same.md", version: 2 },
+    ]);
+    expect(events.every((event) => event.path === "/same.md")).toBe(true);
   });
 
-  test("writeRaw normalizes before storage, metadata, indexing, and output", async () => {
+  test("writeRaw uses one database row for bare and slash paths", async () => {
     const { ctx, db } = createTestContext();
-    const result = await writeRaw(ctx, {
-      path: "raw/note.md",
-      bytes: new TextEncoder().encode("raw path content"),
+    await writeRaw(ctx, {
+      path: "raw.md",
+      bytes: new TextEncoder().encode("one"),
     });
-    expect(result.path).toBe("/raw/note.md");
+    await writeRaw(ctx, {
+      path: "/raw.md",
+      bytes: new TextEncoder().encode("two"),
+    });
 
-    const raw = (db as any).$client as Database;
-    expect(raw.prepare("SELECT path FROM files").all()).toEqual([{ path: "/raw/note.md" }]);
-    expect(raw.prepare("SELECT path FROM file_versions").all()).toEqual([{ path: "/raw/note.md" }]);
-    expect(raw.prepare("SELECT path FROM files_fts_docs").all()).toEqual([{ path: "/raw/note.md" }]);
+    const sqlite = rawDb(db);
+    expect(sqlite.query("SELECT path, current_version_id AS version FROM files").all()).toEqual([
+      { path: "/raw.md", version: "2" },
+    ]);
+    expectOnlyCanonicalRows(sqlite);
   });
 
-  test("prefix operations accept bare inputs and return canonical result paths", async () => {
-    const { ctx } = createTestContext();
+  for (const op of ["cat", "stat", "tail", "log", "diff", "signed-url", "reveal"] as const) {
+    test(`${op} resolves bare and slash paths to the same stored row`, async () => {
+      const { ctx, db } = createTestContext({ versioningEnabled: true });
+      await seedVersionedFile(ctx);
+      const params =
+        op === "diff"
+          ? { path: "normalized/file.md", v1: 1, v2: 2 }
+          : { path: "normalized/file.md" };
+      const slashParams = { ...params, path: "/normalized/file.md" };
+      const bareResult = await dispatchOp(ctx, op, params);
+      const slashResult = await dispatchOp(ctx, op, slashParams);
+
+      if (op === "stat" || op === "signed-url" || op === "reveal") {
+        expect((bareResult as any).path).toBe("/normalized/file.md");
+        expect((slashResult as any).path).toBe("/normalized/file.md");
+      } else if (op === "cat" || op === "tail") {
+        expect((bareResult as any).content).toBe((slashResult as any).content);
+      } else if (op === "log") {
+        expect((bareResult as any).versions).toEqual((slashResult as any).versions);
+      } else {
+        expect((bareResult as any).changes).toEqual((slashResult as any).changes);
+      }
+      expectOnlyCanonicalRows(rawDb(db));
+    });
+  }
+
+  test("append writes both path forms to one history", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/append.md", content: "one" });
+    await dispatchOp(ctx, "append", { path: "append.md", content: " two" });
+    await dispatchOp(ctx, "append", { path: "/append.md", content: " three" });
+    expect((await dispatchOp(ctx, "cat", { path: "/append.md" }) as any).content).toBe(
+      "one two three"
+    );
+    expect(rawDb(db).query("SELECT COUNT(*) AS count FROM file_versions").get()).toEqual({
+      count: 3,
+    });
+    expectOnlyCanonicalRows(rawDb(db));
+  });
+
+  test("edit writes both path forms to one history", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/edit.md", content: "alpha beta" });
+    await dispatchOp(ctx, "edit", {
+      path: "edit.md",
+      old_string: "alpha",
+      new_string: "A",
+    });
+    await dispatchOp(ctx, "edit", {
+      path: "/edit.md",
+      old_string: "beta",
+      new_string: "B",
+    });
+    expect((await dispatchOp(ctx, "cat", { path: "/edit.md" }) as any).content).toBe(
+      "A B"
+    );
+    expectOnlyCanonicalRows(rawDb(db));
+  });
+
+  test("rm writes both path forms to one history", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/remove.md", content: "one" });
+    await dispatchOp(ctx, "rm", { path: "remove.md" });
+    await dispatchOp(ctx, "write", { path: "/remove.md", content: "two" });
+    await dispatchOp(ctx, "rm", { path: "/remove.md" });
+    expect(rawDb(db).query("SELECT path, current_version_id AS version FROM files").get()).toEqual({
+      path: "/remove.md",
+      version: "4",
+    });
+    expectOnlyCanonicalRows(rawDb(db));
+  });
+
+  test("mv normalizes both source and destination before database writes", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/source.md", content: "one" });
+    await dispatchOp(ctx, "mv", { from: "source.md", to: "middle.md" });
+    await dispatchOp(ctx, "mv", { from: "/middle.md", to: "/final.md" });
+    expect(
+      rawDb(db).query("SELECT path FROM files ORDER BY path").all()
+    ).toEqual([{ path: "/final.md" }, { path: "/middle.md" }, { path: "/source.md" }]);
+    expectOnlyCanonicalRows(rawDb(db));
+  });
+
+  test("cp normalizes both source and destination into one destination row", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/source.md", content: "one" });
+    await dispatchOp(ctx, "cp", { from: "source.md", to: "copy.md" });
+    await dispatchOp(ctx, "cp", { from: "/source.md", to: "/copy.md" });
+    expect(
+      rawDb(db)
+        .query("SELECT path, current_version_id AS version FROM files ORDER BY path")
+        .all()
+    ).toEqual([
+      { path: "/copy.md", version: "2" },
+      { path: "/source.md", version: "1" },
+    ]);
+    expectOnlyCanonicalRows(rawDb(db));
+  });
+
+  test("revert writes both path forms to one history", async () => {
+    const { ctx, db } = createTestContext({ versioningEnabled: true });
+    await seedVersionedFile(ctx, "/revert.md");
+    await dispatchOp(ctx, "revert", { path: "revert.md", version: 1 });
+    await dispatchOp(ctx, "revert", { path: "/revert.md", version: 2 });
+    expect(rawDb(db).query("SELECT path, current_version_id AS version FROM files").get()).toEqual({
+      path: "/revert.md",
+      version: "4",
+    });
+    expectOnlyCanonicalRows(rawDb(db));
+  });
+
+  test("share-create stores both path forms canonically", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/shared.md", content: "one" });
+    await dispatchOp(ctx, "share-create", { path: "shared.md" });
+    await dispatchOp(ctx, "share-create", { path: "/shared.md" });
+    expect(rawDb(db).query("SELECT DISTINCT path FROM shares").all()).toEqual([
+      { path: "/shared.md" },
+    ]);
+  });
+
+  test("share-revoke resolves both path forms to canonical share rows", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/shared.md", content: "one" });
+    await dispatchOp(ctx, "share-create", { path: "/shared.md" });
+    expect(await dispatchOp(ctx, "share-revoke", { path: "shared.md" })).toMatchObject({
+      revoked: 1,
+    });
+    await dispatchOp(ctx, "share-create", { path: "/shared.md" });
+    expect(await dispatchOp(ctx, "share-revoke", { path: "/shared.md" })).toMatchObject({
+      revoked: 1,
+    });
+    expectOnlyCanonicalRows(rawDb(db));
+  });
+
+  test("comment-add stores both path forms canonically", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/commented.md", content: "one" });
+    await dispatchOp(ctx, "comment-add", { path: "commented.md", body: "bare" });
+    await dispatchOp(ctx, "comment-add", { path: "/commented.md", body: "slash" });
+    expect(rawDb(db).query("SELECT DISTINCT path FROM comments").all()).toEqual([
+      { path: "/commented.md" },
+    ]);
+  });
+
+  test("comment-list resolves bare and slash exact paths to the same rows", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/commented.md", content: "one" });
+    await dispatchOp(ctx, "comment-add", { path: "/commented.md", body: "one" });
+    const bare = await dispatchOp(ctx, "comment-list", { path: "commented.md" });
+    const slash = await dispatchOp(ctx, "comment-list", { path: "/commented.md" });
+    expect((bare as any).comments.map((row: any) => row.id)).toEqual(
+      (slash as any).comments.map((row: any) => row.id)
+    );
+    expectOnlyCanonicalRows(rawDb(db));
+  });
+});
+
+describe("directory-prefix operation path normalization", () => {
+  async function seedPrefixes(ctx: ReturnType<typeof createTestContext>["ctx"]): Promise<void> {
     await dispatchOp(ctx, "write", {
-      path: "prefix/sub/a.md",
+      path: "/docs/a.md",
       content: "unique normalized search token",
     });
+    await dispatchOp(ctx, "write", {
+      path: "/docs-old/b.md",
+      content: "unique normalized search token",
+    });
+  }
 
-    const listed = await dispatchOp(ctx, "ls", { path: "prefix/sub" }) as {
-      entries: Array<{ name: string }>;
-    };
-    expect(listed.entries.map((entry) => entry.name)).toContain("a.md");
+  for (const op of ["ls", "tree", "glob", "grep"] as const) {
+    test(`${op} resolves bare and slash directory prefixes identically`, async () => {
+      const { ctx } = createTestContext();
+      await seedPrefixes(ctx);
+      const extra = op === "glob" ? { pattern: "**/*.md" } : op === "grep" ? { pattern: "normalized" } : {};
+      const bare = await dispatchOp(ctx, op, { path: "docs", ...extra });
+      const slash = await dispatchOp(ctx, op, { path: "/docs/", ...extra });
+      if (op === "ls") {
+        expect((bare as any).entries.map((row: any) => row.name)).toEqual(
+          (slash as any).entries.map((row: any) => row.name)
+        );
+      } else if (op === "tree") {
+        expect((bare as any).tree.map((row: any) => row.name)).toEqual(
+          (slash as any).tree.map((row: any) => row.name)
+        );
+      } else {
+        expect((bare as any).matches.map((row: any) => row.path)).toEqual(
+          (slash as any).matches.map((row: any) => row.path)
+        );
+      }
+    });
+  }
 
-    const tree = await dispatchOp(ctx, "tree", { path: "prefix" }) as {
-      tree: Array<{ name: string }>;
-    };
-    expect(tree.tree.map((entry) => entry.name)).toContain("sub");
-
-    const glob = await dispatchOp(ctx, "glob", {
-      path: "prefix",
-      pattern: "**/*.md",
-    }) as { matches: Array<{ path: string }> };
-    expect(glob.matches.map((entry) => entry.path)).toEqual(["/prefix/sub/a.md"]);
-
-    const grep = await dispatchOp(ctx, "grep", {
-      path: "prefix",
+  test("fts keeps a trailing slash and excludes sibling prefixes", async () => {
+    const { ctx } = createTestContext();
+    await seedPrefixes(ctx);
+    const result = await dispatchOp(ctx, "fts", {
+      path: "/docs/",
       pattern: "normalized",
     }) as { matches: Array<{ path: string }> };
-    expect(grep.matches.map((entry) => entry.path)).toEqual(["/prefix/sub/a.md"]);
+    expect(result.matches.length).toBeGreaterThan(0);
+    expect(result.matches.map((row) => row.path)).toEqual(["/docs/a.md"]);
+  });
 
-    const fts = await dispatchOp(ctx, "fts", {
-      path: "prefix",
-      pattern: "normalized",
-    }) as { matches: Array<{ path: string }> };
-    expect(fts.matches.map((entry) => entry.path)).toEqual(["/prefix/sub/a.md"]);
-
-    const search = await dispatchOp(ctx, "search", {
-      query: "normalized",
-    }) as { results: Array<{ path: string }> };
-    expect(search.results.every((entry) => entry.path.startsWith("/"))).toBe(true);
-
-    const recent = await dispatchOp(ctx, "recent", { path: "prefix" }) as {
+  test("recent keeps a trailing slash and excludes sibling prefixes", async () => {
+    const { ctx } = createTestContext();
+    await seedPrefixes(ctx);
+    const result = await dispatchOp(ctx, "recent", { path: "/docs/" }) as {
       entries: Array<{ path: string }>;
     };
-    expect(recent.entries.map((entry) => entry.path)).toEqual(["/prefix/sub/a.md"]);
-
-    const reindexed = await dispatchOp(ctx, "reindex", { path: "prefix/sub/a.md" }) as {
-      failed: number;
-      skipped: number;
-    };
-    expect(reindexed).toMatchObject({ failed: 0, skipped: 1 });
+    expect(result.entries.map((row) => row.path)).toEqual(["/docs/a.md"]);
   });
+
+  test("reindex normalizes a bare directory prefix without changing prefix scope", async () => {
+    const { ctx } = createTestContext();
+    await seedPrefixes(ctx);
+    const result = await dispatchOp(ctx, "reindex", { path: "docs" }) as {
+      skipped: number;
+      failed: number;
+    };
+    expect(result).toMatchObject({ skipped: 1, failed: 0 });
+  });
+
+  test("comment-list keeps its dual-form prefix range and returns canonical rows", async () => {
+    const { ctx } = createTestContext();
+    await seedPrefixes(ctx);
+    await dispatchOp(ctx, "comment-add", { path: "/docs/a.md", body: "in" });
+    await dispatchOp(ctx, "comment-add", { path: "/docs-old/b.md", body: "out" });
+    const result = await dispatchOp(ctx, "comment-list", { pathPrefix: "/docs/" }) as {
+      comments: Array<{ path: string }>;
+    };
+    expect(result.comments.map((row) => row.path)).toEqual(["/docs/a.md"]);
+  });
+
+  test("search returns a non-empty canonical result", async () => {
+    const { ctx } = createTestContext();
+    await seedPrefixes(ctx);
+    const result = await dispatchOp(ctx, "search", { query: "normalized" }) as {
+      results: Array<{ path: string }>;
+    };
+    expect(result.results.length).toBeGreaterThan(0);
+    expect(result.results.every((row) => row.path.startsWith("/"))).toBe(true);
+  });
+});
+
+test("every registered top-level path, from, or to parameter has normalization coverage", () => {
+  const covered = new Set([
+    "append",
+    "cat",
+    "comment-add",
+    "comment-list",
+    "cp",
+    "diff",
+    "edit",
+    "fts",
+    "glob",
+    "grep",
+    "log",
+    "ls",
+    "mv",
+    "recent",
+    "reindex",
+    "reveal",
+    "revert",
+    "rm",
+    "share-create",
+    "share-revoke",
+    "signed-url",
+    "stat",
+    "tail",
+    "tree",
+    "write",
+  ]);
+  const pathBearing = getRegisteredOps().filter((name) => {
+    let schema: any = getOpDefinition(name)!.schema;
+    while (schema?._def?.schema) schema = schema._def.schema;
+    const shape = typeof schema?._def?.shape === "function" ? schema._def.shape() : {};
+    return ["path", "from", "to"].some((field) => field in shape);
+  });
+
+  expect(pathBearing.filter((name) => !covered.has(name))).toEqual([]);
+  expect([...covered].filter((name) => !pathBearing.includes(name))).toEqual([]);
 });

@@ -243,7 +243,7 @@ describe("commentList", () => {
 
     const result = await commentList(ctx, { pathPrefix: "/relative-prefix/" });
     expect(result.comments.map((comment) => comment.id)).toEqual([relative.id]);
-    expect(result.comments[0].path).toBe("/relative-prefix/a.md");
+    expect(result.comments[0].path).toBe("relative-prefix/a.md");
   });
 
   test("matches prefixes containing supplementary Unicode characters", async () => {

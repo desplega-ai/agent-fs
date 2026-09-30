@@ -13,7 +13,6 @@ import {
   COMMENT_MENTION_EVENT,
   COMMENT_NOTIFICATION_EVENT,
 } from "./comment-mentions.js";
-import { normalizePath } from "./paths.js";
 
 const NOTIFICATION_TYPES = {
   comment: COMMENT_NOTIFICATION_EVENT,
@@ -104,7 +103,7 @@ export async function commentNotificationList(
     kind: row.type === NOTIFICATION_TYPES.mention ? "mention" : "comment",
     commentId: row.commentId,
     parentId: row.parentId ?? undefined,
-    path: normalizePath(row.path),
+    path: row.path,
     body: row.body,
     actor: row.actor,
     createdAt: row.createdAt,

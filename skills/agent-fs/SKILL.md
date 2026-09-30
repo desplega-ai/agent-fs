@@ -165,7 +165,7 @@ symlinks are unsupported and throw `EPERM`.
 | `search` | `agent-fs search <query> [--limit <n>]` | Hybrid search (semantic + keyword, best for general queries) |
 | `vec-search` | `agent-fs vec-search <query> [--limit <n>]` | Semantic search over distinct files in the active drive |
 | `recent` | `agent-fs recent [path] [--since <duration>] [--limit <n>]` | Recent activity (e.g., `--since 24h`) |
-| `reindex` | `agent-fs reindex [path]` | Re-index one file, one directory, or all files with failed or missing indexes |
+| `reindex` | `agent-fs reindex [path]` | Re-index files with failed/missing embeddings |
 
 **When to use which:**
 - `grep` — you know the exact pattern and path (regex)

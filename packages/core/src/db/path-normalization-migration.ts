@@ -1,21 +1,28 @@
 import type { Database } from "bun:sqlite";
 import { normalizePath } from "../ops/paths.js";
+import {
+  hasLegacyFts,
+  isLegacyFtsTable,
+  LEGACY_FTS_TABLE,
+} from "./fts-migration.js";
 
-const MIGRATION_KEY = "migration:file-path-normalization:v1";
-const REPORT_KEY = `${MIGRATION_KEY}:report`;
-const REINDEX_KEY = `${MIGRATION_KEY}:reindex`;
+/**
+ * Canonicalize legacy bare paths and merge split histories.
+ *
+ * Only the daemon calls this. `createDatabase()` must stay safe for CLI
+ * commands that open the production database while an older daemon runs.
+ */
 
 export interface PathNormalizationMigrationSummary {
   renamedPaths: number;
   mergedPaths: number;
   versionsRenumbered: number;
   commentsRemapped: number;
-  reindexPaths: number;
+  skippedPaths: number;
 }
 
-export interface PathReindexTarget {
-  driveId: string;
-  path: string;
+export interface PathNormalizationMigrationOptions {
+  log?: (message: string) => void;
 }
 
 interface BarePath {
@@ -27,20 +34,14 @@ interface VersionRow {
   id: number;
   path: string;
   version: number;
-  s3VersionId: string;
   author: string;
   operation: "write" | "edit" | "append" | "delete" | "revert";
-  message: string | null;
-  diffSummary: string | null;
   size: number | null;
-  etag: string | null;
-  contentHash: string | null;
   createdAt: number;
 }
 
 interface FileRow {
   path: string;
-  driveId: string;
   size: number;
   contentType: string | null;
   author: string;
@@ -51,20 +52,20 @@ interface FileRow {
   embeddingStatus: "pending" | "indexed" | "failed" | null;
 }
 
-function tableSql(sqlite: Database, name: string): string | null {
-  const row = sqlite
-    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
-    .get(name) as { sql: string | null } | null;
-  return row?.sql ?? null;
+interface VirtualFtsTable {
+  name: string;
+  rowIdsByPath: Map<string, number[]>;
 }
 
-function isInternalFts(sqlite: Database, name: string): boolean {
-  const sql = tableSql(sqlite, name);
-  return sql !== null && !sql.includes("content='files_fts_docs'");
+interface FtsTables {
+  internal: VirtualFtsTable | null;
+  legacy: VirtualFtsTable | null;
 }
 
 function collectBarePaths(sqlite: Database): BarePath[] {
   const seen = new Map<string, BarePath>();
+  // These are covering-index scans. Do not scan the FTS virtual tables here.
+  // Their rows are reconciled for paths found through the indexed source tables.
   const queries = [
     "SELECT drive_id AS driveId, path FROM files WHERE path NOT LIKE '/%'",
     "SELECT drive_id AS driveId, path FROM file_versions WHERE path NOT LIKE '/%'",
@@ -74,15 +75,8 @@ function collectBarePaths(sqlite: Database): BarePath[] {
     "SELECT drive_id AS driveId, path FROM files_fts_docs WHERE path NOT LIKE '/%'",
   ];
 
-  if (isInternalFts(sqlite, "files_fts")) {
-    queries.push("SELECT drive_id AS driveId, path FROM files_fts WHERE path NOT LIKE '/%'");
-  }
-  if (tableSql(sqlite, "files_fts_legacy")) {
-    queries.push("SELECT drive_id AS driveId, path FROM files_fts_legacy WHERE path NOT LIKE '/%'");
-  }
-
   for (const query of queries) {
-    for (const row of sqlite.prepare(query).all() as BarePath[]) {
+    for (const row of sqlite.query(query).all() as BarePath[]) {
       seen.set(`${row.driveId}\u0000${row.path}`, row);
     }
   }
@@ -92,138 +86,224 @@ function collectBarePaths(sqlite: Database): BarePath[] {
   );
 }
 
-function hasFileHistory(
-  sqlite: Database,
-  driveId: string,
-  path: string
-): boolean {
-  const file = sqlite
-    .prepare("SELECT 1 FROM files WHERE drive_id = ? AND path = ? LIMIT 1")
-    .get(driveId, path);
-  if (file) return true;
+function hasFileHistory(sqlite: Database, driveId: string, path: string): boolean {
+  if (
+    sqlite
+      .query("SELECT 1 FROM files WHERE drive_id = ? AND path = ? LIMIT 1")
+      .get(driveId, path)
+  ) {
+    return true;
+  }
   return Boolean(
     sqlite
-      .prepare("SELECT 1 FROM file_versions WHERE drive_id = ? AND path = ? LIMIT 1")
+      .query("SELECT 1 FROM file_versions WHERE drive_id = ? AND path = ? LIMIT 1")
       .get(driveId, path)
   );
 }
 
 function deleteChunks(sqlite: Database, driveId: string, path: string): void {
   sqlite
-    .prepare(
+    .query(
       "DELETE FROM chunk_vectors WHERE chunk_id IN " +
         "(SELECT id FROM content_chunks WHERE drive_id = ? AND file_path = ?)"
     )
     .run(driveId, path);
   sqlite
-    .prepare("DELETE FROM content_chunks WHERE drive_id = ? AND file_path = ?")
+    .query("DELETE FROM content_chunks WHERE drive_id = ? AND file_path = ?")
     .run(driveId, path);
 }
 
-function deleteInternalFtsRows(
-  sqlite: Database,
-  driveId: string,
-  paths: string[]
-): void {
-  for (const table of ["files_fts", "files_fts_legacy"]) {
-    if (table === "files_fts" && !isInternalFts(sqlite, table)) continue;
-    if (table === "files_fts_legacy" && !tableSql(sqlite, table)) continue;
-    const remove = sqlite.prepare(`DELETE FROM ${table} WHERE drive_id = ? AND path = ?`);
-    for (const path of paths) remove.run(driveId, path);
-  }
-}
-
-function renameInternalFtsRows(
+function reconcileChunks(
   sqlite: Database,
   driveId: string,
   barePath: string,
   canonicalPath: string,
   preferCanonical: boolean
-): void {
-  for (const table of ["files_fts", "files_fts_legacy"]) {
-    if (table === "files_fts" && !isInternalFts(sqlite, table)) continue;
-    if (table === "files_fts_legacy" && !tableSql(sqlite, table)) continue;
-    const hasBare = sqlite
-      .prepare(`SELECT 1 FROM ${table} WHERE drive_id = ? AND path = ? LIMIT 1`)
-      .get(driveId, barePath);
-    if (!hasBare) continue;
-    const hasCanonical = sqlite
-      .prepare(`SELECT 1 FROM ${table} WHERE drive_id = ? AND path = ? LIMIT 1`)
-      .get(driveId, canonicalPath);
-    if (preferCanonical && hasCanonical) {
-      sqlite
-        .prepare(`DELETE FROM ${table} WHERE drive_id = ? AND path = ?`)
-        .run(driveId, barePath);
-      continue;
-    }
+): boolean {
+  const preferredPath = preferCanonical ? canonicalPath : barePath;
+  const discardedPath = preferCanonical ? barePath : canonicalPath;
+  const hasPreferred = Boolean(
     sqlite
-      .prepare(`DELETE FROM ${table} WHERE drive_id = ? AND path = ?`)
-      .run(driveId, canonicalPath);
+      .query(
+        "SELECT 1 FROM content_chunks WHERE drive_id = ? AND file_path = ? LIMIT 1"
+      )
+      .get(driveId, preferredPath)
+  );
+
+  deleteChunks(sqlite, driveId, discardedPath);
+  if (!preferCanonical && hasPreferred) {
     sqlite
-      .prepare(`UPDATE ${table} SET path = ? WHERE drive_id = ? AND path = ?`)
+      .query(
+        "UPDATE content_chunks SET file_path = ? WHERE drive_id = ? AND file_path = ?"
+      )
       .run(canonicalPath, driveId, barePath);
+  }
+  return hasPreferred;
+}
+
+function reconcilePathTable(
+  sqlite: Database,
+  table: string,
+  driveId: string,
+  barePath: string,
+  canonicalPath: string,
+  preferCanonical: boolean
+): boolean {
+  const preferredPath = preferCanonical ? canonicalPath : barePath;
+  const discardedPath = preferCanonical ? barePath : canonicalPath;
+  const hasPreferred = Boolean(
+    sqlite
+      .query(`SELECT 1 FROM ${table} WHERE drive_id = ? AND path = ? LIMIT 1`)
+      .get(driveId, preferredPath)
+  );
+
+  sqlite
+    .query(`DELETE FROM ${table} WHERE drive_id = ? AND path = ?`)
+    .run(driveId, discardedPath);
+  if (!preferCanonical && hasPreferred) {
+    sqlite
+      .query(`UPDATE ${table} SET path = ? WHERE drive_id = ? AND path = ?`)
+      .run(canonicalPath, driveId, barePath);
+  }
+  return hasPreferred;
+}
+
+function readVirtualFtsTable(sqlite: Database, name: string): VirtualFtsTable {
+  const rowIdsByPath = new Map<string, number[]>();
+  const rows = sqlite
+    .query(`SELECT rowid, drive_id AS driveId, path FROM ${name}`)
+    .all() as Array<{ rowid: number; driveId: string; path: string }>;
+  for (const row of rows) {
+    const key = `${row.driveId}\u0000${row.path}`;
+    const rowIds = rowIdsByPath.get(key) ?? [];
+    rowIds.push(row.rowid);
+    rowIdsByPath.set(key, rowIds);
+  }
+  return { name, rowIdsByPath };
+}
+
+function reconcileVirtualFtsRows(
+  sqlite: Database,
+  table: VirtualFtsTable,
+  driveId: string,
+  barePath: string,
+  canonicalPath: string,
+  preferCanonical: boolean
+): boolean {
+  const preferredPath = preferCanonical ? canonicalPath : barePath;
+  const discardedPath = preferCanonical ? barePath : canonicalPath;
+  const preferredRowIds =
+    table.rowIdsByPath.get(`${driveId}\u0000${preferredPath}`) ?? [];
+  const discardedRowIds =
+    table.rowIdsByPath.get(`${driveId}\u0000${discardedPath}`) ?? [];
+
+  for (const rowid of discardedRowIds) {
+    sqlite.query(`DELETE FROM ${table.name} WHERE rowid = ?`).run(rowid);
+  }
+  if (!preferCanonical) {
+    for (const rowid of preferredRowIds) {
+      sqlite
+        .query(`UPDATE ${table.name} SET path = ? WHERE rowid = ?`)
+        .run(canonicalPath, rowid);
+    }
+  }
+  return preferredRowIds.length > 0;
+}
+
+function reconcileFtsRows(
+  sqlite: Database,
+  fts: FtsTables,
+  driveId: string,
+  barePath: string,
+  canonicalPath: string,
+  preferCanonical: boolean
+): boolean {
+  let hasPreferred = reconcilePathTable(
+    sqlite,
+    "files_fts_docs",
+    driveId,
+    barePath,
+    canonicalPath,
+    preferCanonical
+  );
+  if (fts.internal !== null) {
+    hasPreferred =
+      reconcileVirtualFtsRows(
+        sqlite,
+        fts.internal,
+        driveId,
+        barePath,
+        canonicalPath,
+        preferCanonical
+      ) || hasPreferred;
+  }
+  if (fts.legacy !== null) {
+    hasPreferred =
+      reconcileVirtualFtsRows(
+        sqlite,
+        fts.legacy,
+        driveId,
+        barePath,
+        canonicalPath,
+        preferCanonical
+      ) || hasPreferred;
+  }
+  return hasPreferred;
+}
+
+function deleteAllIndexRows(
+  sqlite: Database,
+  fts: FtsTables,
+  driveId: string,
+  barePath: string,
+  canonicalPath: string
+): void {
+  deleteChunks(sqlite, driveId, barePath);
+  deleteChunks(sqlite, driveId, canonicalPath);
+  sqlite
+    .query("DELETE FROM files_fts_docs WHERE drive_id = ? AND path IN (?, ?)")
+    .run(driveId, barePath, canonicalPath);
+  for (const table of [fts.internal, fts.legacy]) {
+    if (table === null) continue;
+    for (const path of [barePath, canonicalPath]) {
+      const rowIds = table.rowIdsByPath.get(`${driveId}\u0000${path}`) ?? [];
+      for (const rowid of rowIds) {
+        sqlite.query(`DELETE FROM ${table.name} WHERE rowid = ?`).run(rowid);
+      }
+    }
   }
 }
 
 function renameBareOnlyPath(
   sqlite: Database,
+  fts: FtsTables,
   driveId: string,
   barePath: string,
   canonicalPath: string,
   preferCanonical: boolean
 ): number {
   sqlite
-    .prepare("UPDATE files SET path = ? WHERE drive_id = ? AND path = ?")
+    .query("UPDATE files SET path = ? WHERE drive_id = ? AND path = ?")
     .run(canonicalPath, driveId, barePath);
   sqlite
-    .prepare("UPDATE file_versions SET path = ? WHERE drive_id = ? AND path = ?")
+    .query("UPDATE file_versions SET path = ? WHERE drive_id = ? AND path = ?")
     .run(canonicalPath, driveId, barePath);
   const commentsRemapped = sqlite
-    .prepare("UPDATE comments SET path = ? WHERE drive_id = ? AND path = ?")
+    .query("UPDATE comments SET path = ? WHERE drive_id = ? AND path = ?")
     .run(canonicalPath, driveId, barePath).changes;
   sqlite
-    .prepare("UPDATE shares SET path = ? WHERE drive_id = ? AND path = ?")
+    .query("UPDATE shares SET path = ? WHERE drive_id = ? AND path = ?")
     .run(canonicalPath, driveId, barePath);
 
-  const hasBareChunks = sqlite
-    .prepare("SELECT 1 FROM content_chunks WHERE drive_id = ? AND file_path = ? LIMIT 1")
-    .get(driveId, barePath);
-  if (hasBareChunks) {
-    const hasCanonicalChunks = sqlite
-      .prepare("SELECT 1 FROM content_chunks WHERE drive_id = ? AND file_path = ? LIMIT 1")
-      .get(driveId, canonicalPath);
-    if (preferCanonical && hasCanonicalChunks) {
-      deleteChunks(sqlite, driveId, barePath);
-    } else {
-      deleteChunks(sqlite, driveId, canonicalPath);
-      sqlite
-        .prepare("UPDATE content_chunks SET file_path = ? WHERE drive_id = ? AND file_path = ?")
-        .run(canonicalPath, driveId, barePath);
-    }
-  }
-
-  const hasBareFts = sqlite
-    .prepare("SELECT 1 FROM files_fts_docs WHERE drive_id = ? AND path = ? LIMIT 1")
-    .get(driveId, barePath);
-  if (hasBareFts) {
-    const hasCanonicalFts = sqlite
-      .prepare("SELECT 1 FROM files_fts_docs WHERE drive_id = ? AND path = ? LIMIT 1")
-      .get(driveId, canonicalPath);
-    if (preferCanonical && hasCanonicalFts) {
-      sqlite
-        .prepare("DELETE FROM files_fts_docs WHERE drive_id = ? AND path = ?")
-        .run(driveId, barePath);
-    } else {
-      sqlite
-        .prepare("DELETE FROM files_fts_docs WHERE drive_id = ? AND path = ?")
-        .run(driveId, canonicalPath);
-      sqlite
-        .prepare("UPDATE files_fts_docs SET path = ? WHERE drive_id = ? AND path = ?")
-        .run(canonicalPath, driveId, barePath);
-    }
-  }
-
-  renameInternalFtsRows(sqlite, driveId, barePath, canonicalPath, preferCanonical);
+  reconcileChunks(sqlite, driveId, barePath, canonicalPath, preferCanonical);
+  reconcileFtsRows(
+    sqlite,
+    fts,
+    driveId,
+    barePath,
+    canonicalPath,
+    preferCanonical
+  );
   return commentsRemapped;
 }
 
@@ -234,22 +314,14 @@ function readVersions(
   canonicalPath: string
 ): VersionRow[] {
   const rows = sqlite
-    .prepare(
-      `SELECT id, path, version, s3_version_id AS s3VersionId, author, operation,
-              message, diff_summary AS diffSummary, size, etag,
-              content_hash AS contentHash, created_at AS createdAt
+    .query(
+      `SELECT id, path, version, author, operation, size, created_at AS createdAt
        FROM file_versions
        WHERE drive_id = ? AND path IN (?, ?)`
     )
     .all(driveId, barePath, canonicalPath) as VersionRow[];
 
-  return rows.sort(
-    (a, b) =>
-      a.createdAt - b.createdAt ||
-      Number(b.path === canonicalPath) - Number(a.path === canonicalPath) ||
-      a.version - b.version ||
-      a.id - b.id
-  );
+  return rows.sort((a, b) => a.createdAt - b.createdAt || a.id - b.id);
 }
 
 function readFiles(
@@ -259,9 +331,9 @@ function readFiles(
   canonicalPath: string
 ): FileRow[] {
   return sqlite
-    .prepare(
-      `SELECT path, drive_id AS driveId, size, content_type AS contentType,
-              author, current_version_id AS currentVersionId,
+    .query(
+      `SELECT path, size, content_type AS contentType, author,
+              current_version_id AS currentVersionId,
               created_at AS createdAt, modified_at AS modifiedAt,
               is_deleted AS isDeleted, embedding_status AS embeddingStatus
        FROM files WHERE drive_id = ? AND path IN (?, ?)`
@@ -271,11 +343,12 @@ function readFiles(
 
 function mergeSplitPath(
   sqlite: Database,
+  fts: FtsTables,
   driveId: string,
   barePath: string,
   canonicalPath: string,
   summary: PathNormalizationMigrationSummary
-): boolean {
+): void {
   const versions = readVersions(sqlite, driveId, barePath, canonicalPath);
   const files = readFiles(sqlite, driveId, barePath, canonicalPath);
   const maxOldVersion = versions.reduce((max, row) => Math.max(max, row.version), 0);
@@ -288,21 +361,20 @@ function mergeSplitPath(
       summary.versionsRenumbered++;
       changedVersionIds.add(row.id);
     }
-    if (row.path !== canonicalPath) changedVersionIds.add(row.id);
     sqlite
-      .prepare("UPDATE file_versions SET path = ?, version = ? WHERE id = ?")
+      .query("UPDATE file_versions SET path = ?, version = ? WHERE id = ?")
       .run(canonicalPath, maxOldVersion + index + 1, row.id);
   }
   for (let index = 0; index < versions.length; index++) {
     sqlite
-      .prepare("UPDATE file_versions SET version = ? WHERE id = ?")
+      .query("UPDATE file_versions SET version = ? WHERE id = ?")
       .run(index + 1, versions[index].id);
   }
 
   const comments = sqlite
-    .prepare(
-      "SELECT id, path, file_version_id AS fileVersionId FROM comments " +
-        "WHERE drive_id = ? AND path IN (?, ?)"
+    .query(
+      `SELECT id, path, file_version_id AS fileVersionId FROM comments
+       WHERE drive_id = ? AND path IN (?, ?)`
     )
     .all(driveId, barePath, canonicalPath) as Array<{
       id: string;
@@ -319,10 +391,10 @@ function mergeSplitPath(
   }
 
   sqlite
-    .prepare("UPDATE comments SET path = ? WHERE drive_id = ? AND path = ?")
+    .query("UPDATE comments SET path = ? WHERE drive_id = ? AND path = ?")
     .run(canonicalPath, driveId, barePath);
   sqlite
-    .prepare("UPDATE shares SET path = ? WHERE drive_id = ? AND path = ?")
+    .query("UPDATE shares SET path = ? WHERE drive_id = ? AND path = ?")
     .run(canonicalPath, driveId, barePath);
 
   const latestVersion = versions.at(-1);
@@ -333,6 +405,18 @@ function mergeSplitPath(
   const sourceFile = latestVersion
     ? files.find((row) => row.path === latestVersion.path) ?? latestFile
     : latestFile;
+
+  const canonicalFile = files.find((row) => row.path === canonicalPath);
+  if (!canonicalFile) {
+    sqlite
+      .query("UPDATE files SET path = ? WHERE drive_id = ? AND path = ?")
+      .run(canonicalPath, driveId, barePath);
+  } else {
+    sqlite
+      .query("DELETE FROM files WHERE drive_id = ? AND path = ?")
+      .run(driveId, barePath);
+  }
+
   const createdAt = Math.min(
     ...files.map((row) => row.createdAt),
     ...versions.map((row) => row.createdAt)
@@ -345,19 +429,37 @@ function mergeSplitPath(
     ? Number(latestVersion.operation === "delete")
     : sourceFile?.isDeleted ?? 0;
 
+  let embeddingStatus = sourceFile?.embeddingStatus ?? "pending";
+  if (isDeleted) {
+    deleteAllIndexRows(sqlite, fts, driveId, barePath, canonicalPath);
+  } else {
+    const preferCanonical = latestVersion?.path === canonicalPath;
+    const hasChunks = reconcileChunks(
+      sqlite,
+      driveId,
+      barePath,
+      canonicalPath,
+      preferCanonical
+    );
+    const hasFts = reconcileFtsRows(
+      sqlite,
+      fts,
+      driveId,
+      barePath,
+      canonicalPath,
+      preferCanonical
+    );
+    if (!hasChunks || !hasFts) embeddingStatus = "pending";
+  }
+
   sqlite
-    .prepare("DELETE FROM files WHERE drive_id = ? AND path IN (?, ?)")
-    .run(driveId, barePath, canonicalPath);
-  sqlite
-    .prepare(
-      `INSERT INTO files (
-         path, drive_id, size, content_type, author, current_version_id,
-         created_at, modified_at, is_deleted, embedding_status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    .query(
+      `UPDATE files SET
+         size = ?, content_type = ?, author = ?, current_version_id = ?,
+         created_at = ?, modified_at = ?, is_deleted = ?, embedding_status = ?
+       WHERE drive_id = ? AND path = ?`
     )
     .run(
-      canonicalPath,
-      driveId,
       size,
       sourceFile?.contentType ?? null,
       author,
@@ -365,73 +467,63 @@ function mergeSplitPath(
       fileCreatedAt,
       modifiedAt,
       isDeleted,
-      "pending"
+      embeddingStatus,
+      driveId,
+      canonicalPath
     );
-
-  deleteChunks(sqlite, driveId, barePath);
-  deleteChunks(sqlite, driveId, canonicalPath);
-  sqlite
-    .prepare("DELETE FROM files_fts_docs WHERE drive_id = ? AND path IN (?, ?)")
-    .run(driveId, barePath, canonicalPath);
-  deleteInternalFtsRows(sqlite, driveId, [barePath, canonicalPath]);
-
-  return isDeleted === 0;
 }
 
-function normalizeEventMetadata(sqlite: Database): void {
-  const rows = sqlite
-    .prepare(
-      `SELECT e.id, e.metadata, c.path
-       FROM events e JOIN comments c ON e.resource_type = 'comment' AND e.resource_id = c.id
-       WHERE e.metadata IS NOT NULL
-       UNION ALL
-       SELECT e.id, e.metadata, s.path
-       FROM events e JOIN shares s ON e.resource_type = 'share' AND e.resource_id = s.id
-       WHERE e.metadata IS NOT NULL`
-    )
-    .all() as Array<{ id: string; metadata: string; path: string }>;
-
-  const update = sqlite.prepare("UPDATE events SET metadata = ? WHERE id = ?");
-  for (const row of rows) {
-    try {
-      const metadata = JSON.parse(row.metadata) as Record<string, unknown>;
-      if (metadata.path === row.path) continue;
-      metadata.path = row.path;
-      update.run(JSON.stringify(metadata), row.id);
-    } catch {
-      // Keep malformed legacy metadata unchanged.
-    }
-  }
+function canSafelyPrefixBarePath(path: string): boolean {
+  return normalizePath(path) === "/" + path && !path.includes("//");
 }
 
 export function runPathNormalizationMigration(
-  sqlite: Database
+  sqlite: Database,
+  opts: PathNormalizationMigrationOptions = {}
 ): PathNormalizationMigrationSummary | null {
-  const applied = sqlite.prepare("SELECT 1 FROM meta WHERE key = ?").get(MIGRATION_KEY);
-  if (applied) return null;
+  const skipped: BarePath[] = [];
+  const migrate = sqlite.transaction(() => {
+    const internalFts = isLegacyFtsTable(sqlite);
+    const legacyFts = hasLegacyFts(sqlite);
+    const barePaths = collectBarePaths(sqlite);
+    if (barePaths.length === 0) return null;
+    const fts = {
+      internal: internalFts ? readVirtualFtsTable(sqlite, "files_fts") : null,
+      legacy: legacyFts ? readVirtualFtsTable(sqlite, LEGACY_FTS_TABLE) : null,
+    };
 
-  const summary: PathNormalizationMigrationSummary = {
-    renamedPaths: 0,
-    mergedPaths: 0,
-    versionsRenumbered: 0,
-    commentsRemapped: 0,
-    reindexPaths: 0,
-  };
-  const reindex = new Map<string, PathReindexTarget>();
+    const summary: PathNormalizationMigrationSummary = {
+      renamedPaths: 0,
+      mergedPaths: 0,
+      versionsRenumbered: 0,
+      commentsRemapped: 0,
+      skippedPaths: 0,
+    };
 
-  sqlite.transaction(() => {
-    for (const { driveId, path: barePath } of collectBarePaths(sqlite)) {
-      const canonicalPath = normalizePath(barePath);
+    for (const { driveId, path: barePath } of barePaths) {
+      if (!canSafelyPrefixBarePath(barePath)) {
+        skipped.push({ driveId, path: barePath });
+        summary.skippedPaths++;
+        continue;
+      }
+
+      const canonicalPath = "/" + barePath;
       const hasBareHistory = hasFileHistory(sqlite, driveId, barePath);
       const hasCanonicalHistory = hasFileHistory(sqlite, driveId, canonicalPath);
       if (hasBareHistory && hasCanonicalHistory) {
         summary.mergedPaths++;
-        if (mergeSplitPath(sqlite, driveId, barePath, canonicalPath, summary)) {
-          reindex.set(`${driveId}\u0000${canonicalPath}`, { driveId, path: canonicalPath });
-        }
+        mergeSplitPath(
+          sqlite,
+          fts,
+          driveId,
+          barePath,
+          canonicalPath,
+          summary
+        );
       } else {
         summary.commentsRemapped += renameBareOnlyPath(
           sqlite,
+          fts,
           driveId,
           barePath,
           canonicalPath,
@@ -441,57 +533,14 @@ export function runPathNormalizationMigration(
       }
     }
 
-    normalizeEventMetadata(sqlite);
-    summary.reindexPaths = reindex.size;
-    const serializedSummary = JSON.stringify(summary);
-    sqlite
-      .prepare("INSERT INTO meta(key, value) VALUES (?, ?)")
-      .run(MIGRATION_KEY, serializedSummary);
-    if (summary.renamedPaths > 0 || summary.mergedPaths > 0) {
-      sqlite
-        .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
-        .run(REPORT_KEY, serializedSummary);
-    }
-    if (reindex.size > 0) {
-      sqlite
-        .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
-        .run(REINDEX_KEY, JSON.stringify([...reindex.values()]));
-    }
-  })();
+    return summary;
+  });
 
-  return summary;
-}
-
-export function takePathNormalizationMigrationReport(
-  sqlite: Database
-): PathNormalizationMigrationSummary | null {
-  return sqlite.transaction(() => {
-    const row = sqlite
-      .prepare("SELECT value FROM meta WHERE key = ?")
-      .get(REPORT_KEY) as { value: string } | null;
-    if (!row) return null;
-    sqlite.prepare("DELETE FROM meta WHERE key = ?").run(REPORT_KEY);
-    return JSON.parse(row.value) as PathNormalizationMigrationSummary;
-  })();
-}
-
-export function getQueuedPathReindexes(sqlite: Database): PathReindexTarget[] {
-  const row = sqlite
-    .prepare("SELECT value FROM meta WHERE key = ?")
-    .get(REINDEX_KEY) as { value: string } | null;
-  if (!row) return [];
-  return JSON.parse(row.value) as PathReindexTarget[];
-}
-
-export function replaceQueuedPathReindexes(
-  sqlite: Database,
-  targets: PathReindexTarget[]
-): void {
-  if (targets.length === 0) {
-    sqlite.prepare("DELETE FROM meta WHERE key = ?").run(REINDEX_KEY);
-    return;
+  const summary = migrate.immediate();
+  for (const row of skipped) {
+    opts.log?.(
+      `file path migration: skipped unsafe bare path ${JSON.stringify(row.path)} in drive ${row.driveId}`
+    );
   }
-  sqlite
-    .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)")
-    .run(REINDEX_KEY, JSON.stringify(targets));
+  return summary;
 }

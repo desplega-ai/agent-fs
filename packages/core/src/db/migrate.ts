@@ -1,8 +1,4 @@
 import { Database } from "bun:sqlite";
-import {
-  runPathNormalizationMigration,
-  type PathNormalizationMigrationSummary,
-} from "./path-normalization-migration.js";
 
 /**
  * Idempotent, additive migrations for existing databases.
@@ -14,9 +10,7 @@ import {
  * Runs every time `createDatabase()` is called, so it's safe across
  * daemon restarts and fresh installs. Never destructive.
  */
-export function runMigrations(
-  sqlite: Database
-): PathNormalizationMigrationSummary | null {
+export function runMigrations(sqlite: Database): void {
   const userCols = sqlite.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
   if (!userCols.some((c) => c.name === "display_name")) {
     sqlite.exec("ALTER TABLE users ADD COLUMN display_name TEXT");
@@ -78,8 +72,4 @@ export function runMigrations(
       "JOIN org_members om ON om.org_id = d.org_id AND om.role = 'admin' " +
       "WHERE NOT EXISTS (SELECT 1 FROM drive_members dm WHERE dm.drive_id = d.id)"
   );
-
-  // Migration 5: canonicalize file paths and merge histories that were split
-  // between bare and slash-prefixed forms.
-  return runPathNormalizationMigration(sqlite);
 }

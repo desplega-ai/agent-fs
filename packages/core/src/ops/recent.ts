@@ -1,7 +1,7 @@
 import { eq, and, desc, gte, like } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext, RecentParams, RecentResult } from "./types.js";
-import { normalizePath } from "./paths.js";
+import { normalizePrefix } from "./paths.js";
 
 export async function recent(
   ctx: OpContext,
@@ -16,11 +16,11 @@ export async function recent(
     .$dynamic();
 
   if (params.path) {
-    const path = normalizePath(params.path);
+    const prefix = normalizePrefix(params.path);
     query = query.where(
       and(
         eq(schema.fileVersions.driveId, ctx.driveId),
-        like(schema.fileVersions.path, path + "%")
+        like(schema.fileVersions.path, prefix + "%")
       )
     );
   }
@@ -41,7 +41,7 @@ export async function recent(
 
   return {
     entries: rows.map((r) => ({
-      path: normalizePath(r.path),
+      path: r.path,
       version: r.version,
       author: r.author,
       createdAt: r.createdAt,

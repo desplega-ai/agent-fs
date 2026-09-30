@@ -7,15 +7,6 @@ export {
 } from "./db/fts-migration.js";
 export type { FtsMigrationResult } from "./db/fts-migration.js";
 export {
-  getQueuedPathReindexes,
-  replaceQueuedPathReindexes,
-  takePathNormalizationMigrationReport,
-} from "./db/path-normalization-migration.js";
-export type {
-  PathNormalizationMigrationSummary,
-  PathReindexTarget,
-} from "./db/path-normalization-migration.js";
-export {
   getConfig,
   getMaxUploadBytes,
   DEFAULT_MAX_UPLOAD_BYTES,
@@ -63,7 +54,6 @@ export {
   getOpDefinition,
   write,
   writeRaw,
-  reindex,
   commentAdd,
   commentList,
   commentGet,

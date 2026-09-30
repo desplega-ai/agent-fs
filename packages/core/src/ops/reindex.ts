@@ -1,4 +1,4 @@
-import { eq, and, or, isNull, like } from "drizzle-orm";
+import { eq, and, or, isNull } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext } from "./types.js";
 import { getS3Key } from "./versioning.js";
@@ -6,7 +6,7 @@ import { indexFileEmbeddings } from "../search/pipeline.js";
 import { indexFile } from "../search/fts.js";
 import { clearSearchData } from "./search-index.js";
 import { decodeIndexableText, detectMimeType } from "./mime.js";
-import { normalizePath, normalizePrefix } from "./paths.js";
+import { normalizePrefix } from "./paths.js";
 
 export interface ReindexParams {
   path?: string;
@@ -34,14 +34,9 @@ export async function reindex(
   ];
 
   if (params.path) {
-    const path = normalizePath(params.path);
-    const prefix = normalizePrefix(path);
-    conditions.push(
-      or(
-        eq(schema.files.path, path),
-        like(schema.files.path, prefix + "%")
-      )!
-    );
+    const { like } = await import("drizzle-orm");
+    const prefix = normalizePrefix(params.path);
+    conditions.push(like(schema.files.path, prefix + "%"));
   }
 
   const files = ctx.db

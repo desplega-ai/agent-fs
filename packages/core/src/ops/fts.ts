@@ -1,6 +1,6 @@
 import type { OpContext } from "./types.js";
 import { ftsQuery, type FtsMatch } from "../search/fts.js";
-import { normalizePath } from "./paths.js";
+import { normalizePrefix } from "./paths.js";
 
 export interface FtsParams {
   pattern: string;
@@ -25,11 +25,11 @@ export async function fts(
   const results = ftsQuery(ctx.db, {
     pattern: params.pattern,
     driveId: ctx.driveId,
-    pathPrefix: params.path ? normalizePath(params.path) : undefined,
+    pathPrefix: params.path ? normalizePrefix(params.path) : undefined,
   });
 
   const matches = results.map((r) => ({
-    path: normalizePath(r.path),
+    path: r.path,
     snippet: r.snippet,
     rank: r.rank,
   }));
