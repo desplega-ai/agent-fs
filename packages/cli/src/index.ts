@@ -18,6 +18,7 @@ import { docsCommand } from "./commands/docs.js";
 import { mountCommand, umountCommand } from "./commands/mount.js";
 import { downloadCommand } from "./commands/download.js";
 import { sqlCommand } from "./commands/sql.js";
+import { watchCommand } from "./commands/watch.js";
 
 const program = new Command();
 
@@ -121,6 +122,7 @@ program.addCommand(initCommand());
 program.addCommand(onboardCommand());
 program.addCommand(commentCommands(client, getOrgId, getDriveId));
 program.addCommand(membersCommand(program, client, getOrgId, getDriveId));
+program.addCommand(watchCommand(program, client, getOrgId, getDriveId));
 program.addCommand(memberCommands(client, getOrgId));
 program.addCommand(mountCommand());
 program.addCommand(umountCommand());

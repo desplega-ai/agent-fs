@@ -52,6 +52,7 @@ describe("Health check", () => {
       "comment-path-prefix",
       "drive-members",
       "comment-mentions",
+      "change-stream",
     ]));
   });
 });

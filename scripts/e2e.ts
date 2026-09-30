@@ -999,6 +999,45 @@ async function runStandardTests(daemonUrl: string) {
 
   // -- write + cat roundtrip --
 
+  await test("drive stream receives a file change from the CLI", async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const response = await fetch(`${daemonUrl}/orgs/${personalOrgId}/drives/${personalDriveId}/events`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      });
+      assert(response.status, 200);
+      reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const nextFrame = async () => {
+        while (!buffer.includes("\n\n")) {
+          const { done, value } = await reader!.read();
+          if (done) throw new Error("Event stream closed before the expected event");
+          buffer += decoder.decode(value, { stream: true });
+        }
+        const end = buffer.indexOf("\n\n");
+        const frame = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        return frame;
+      };
+      assertIncludes(await nextFrame(), "event: ready");
+      runJson('write /stream-e2e.md --content "change stream"');
+      const frame = await nextFrame();
+      assertIncludes(frame, "event: file.changed");
+      const event = JSON.parse(frame.split("\n").find((line) => line.startsWith("data: "))!.slice(6));
+      assert(event.path, "/stream-e2e.md");
+      assert(event.version, 1);
+      assert(event.operation, "write");
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
+      await reader?.cancel().catch(() => {});
+    }
+  });
+
   await test("write + cat roundtrip", () => {
     const result = runJson('write /hello.txt --content "Hello, agent-fs!"');
     assert(result.version, 1);

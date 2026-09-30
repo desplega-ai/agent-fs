@@ -16,6 +16,7 @@ import { opsRoutes } from "./routes/ops.js";
 import { orgRoutes } from "./routes/orgs.js";
 import { docsRoutes } from "./routes/docs.js";
 import { fileRoutes } from "./routes/files.js";
+import { eventRoutes } from "./routes/events.js";
 import { shareRoutes } from "./routes/share.js";
 import { SERVER_FEATURES } from "./features.js";
 
@@ -106,6 +107,7 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   app.route("/orgs", opsRoutes(db, s3, embeddingProvider, config.appUrl, config.server?.publicUrl));
   app.route("/docs", docsRoutes());
   app.route("/orgs", fileRoutes(db, s3, embeddingProvider, config.appUrl));
+  app.route("/orgs", eventRoutes(db));
 
   return app;
 }

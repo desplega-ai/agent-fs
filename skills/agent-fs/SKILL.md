@@ -6,7 +6,8 @@ description: >-
   "find that file", "store this document", "search agent-fs", "list my files",
   "show version history", "revert file", "set up agent-fs", "get a signed url",
   "share this file", "share link", "public link", "one-off link", "revoke a share link", "manage members", "invite user", "list members", "remove member",
-  "update role", "reset api key", "rotate api key", "lost my api key", file
+  "update role", "reset api key", "rotate api key", "lost my api key",
+  "watch drive changes", "stream file changes", file
   persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
   manage org/drive members, generate presigned URLs, check recent activity, or use
@@ -141,6 +142,7 @@ symlinks are unsupported and throw `EPERM`.
 | `share-create` | `agent-fs share-create <path> [--expires-in <seconds>] [--max-views <n>] [--one-off]` | Create a public `/share/<token>` link on the API host: a read-only page with a preview (markdown, text/code, image, PDF, audio, video) and a Download button. Default 24h, max 7 days; `--one-off` (= `--max-views 1`) makes it single-use. Returns `{ id, url, sharePath, expiresAt, maxViews }`. |
 | `share-revoke` | `agent-fs share-revoke [<id>] [--token <token-or-url>] [--path <path>]` | Kill share links immediately. Exactly one selector: the `id` from `share-create`, the token/URL, or a file path (every link to that file). Creator or drive admin only. |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
+| `watch` | `agent-fs watch [--json]` | Stream active-drive changes until Ctrl+C. Bearer endpoint: `GET /orgs/:orgId/drives/:driveId/events` emits `ready`, `file.changed`, and `comment.changed`. |
 
 `cat` is a paginated viewer, not a raw file reader: without `--limit`, it defaults to the first 200 lines at a TTY, but returns the **whole file** when stdout is piped or redirected (a pipe/redirect almost always means "give me everything"). Any time `cat` returns fewer lines than requested, a `truncated: showing N of M lines (use --limit)` note goes to **stderr** — never stdout, so it never corrupts piped/redirected output. The default (non-`--raw`, TTY) view also prefixes each line with a line number for readability; that prefix is **not** part of the stored bytes. For a complete, byte-exact read — required before parsing as CSV/JSON, or any time line numbers or a partial read would corrupt the data — use `agent-fs cat <path> --raw` or, better, `agent-fs download <path> -o <file>`.
 

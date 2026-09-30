@@ -507,6 +507,172 @@
         }
       }
     },
+    "/orgs/{orgId}/drives/{driveId}/events": {
+      "get": {
+        "summary": "Stream drive changes",
+        "operationId": "watchDrive",
+        "tags": [
+          "Drives"
+        ],
+        "description": "Drive members can stream committed changes with Bearer authentication. The first event is ready. Heartbeat comments (: ping) arrive every 5 seconds. Each user can open at most 8 concurrent streams. Events are live only, with no replay.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "driveId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE frames use event: <name> and data: <JSON>, followed by a blank line.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "event: ready\ndata: {\"driveId\":\"drive-id\",\"at\":\"2026-09-30T12:00:00.000Z\"}\n\n: ping\n\n"
+              }
+            },
+            "x-sse-events": {
+              "ready": {
+                "type": "object",
+                "required": [
+                  "driveId",
+                  "at"
+                ],
+                "properties": {
+                  "driveId": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "file.changed": {
+                "type": "object",
+                "required": [
+                  "type",
+                  "driveId",
+                  "path",
+                  "version",
+                  "operation",
+                  "actor",
+                  "at"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "file.changed"
+                  },
+                  "driveId": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "operation": {
+                    "type": "string",
+                    "enum": [
+                      "write",
+                      "edit",
+                      "append",
+                      "delete",
+                      "revert"
+                    ]
+                  },
+                  "actor": {
+                    "type": "string",
+                    "description": "User ID of the actor"
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "comment.changed": {
+                "type": "object",
+                "required": [
+                  "type",
+                  "driveId",
+                  "path",
+                  "commentId",
+                  "parentId",
+                  "action",
+                  "actor",
+                  "at"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "comment.changed"
+                  },
+                  "driveId": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "commentId": {
+                    "type": "string"
+                  },
+                  "parentId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "created",
+                      "updated",
+                      "resolved",
+                      "reopened",
+                      "deleted"
+                    ]
+                  },
+                  "actor": {
+                    "type": "string",
+                    "description": "User ID of the actor"
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Bearer key"
+          },
+          "404": {
+            "description": "Drive not found or the user is not a member"
+          },
+          "429": {
+            "description": "Concurrent stream cap or request rate limit exceeded"
+          }
+        }
+      }
+    },
     "/orgs/{orgId}/ops": {
       "post": {
         "summary": "Dispatch a file operation",

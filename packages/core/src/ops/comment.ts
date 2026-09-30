@@ -20,6 +20,7 @@ import type {
 } from "./types.js";
 import { NotFoundError, ValidationError, PermissionDeniedError } from "../errors.js";
 import { normalizePrefix } from "./paths.js";
+import { publishDriveEvent, type DriveEvent } from "../events/bus.js";
 import {
   COMMENT_MENTION_EVENT,
   COMMENT_NOTIFICATION_EVENT,
@@ -57,6 +58,24 @@ function emitEvent(
       createdAt: new Date(),
     })
     .run();
+}
+
+function publishCommentChange(
+  ctx: OpContext,
+  comment: { id: string; path: string; parentId?: string | null },
+  action: Extract<DriveEvent, { type: "comment.changed" }>["action"],
+  at: Date
+) {
+  publishDriveEvent({
+    type: "comment.changed",
+    driveId: ctx.driveId,
+    path: comment.path,
+    commentId: comment.id,
+    parentId: comment.parentId ?? null,
+    action,
+    actor: ctx.userId,
+    at: at.toISOString(),
+  });
 }
 
 function emitCommentNotifications(
@@ -282,6 +301,7 @@ export async function commentAdd(
       createdAt: now,
     });
   });
+  publishCommentChange(ctx, { id, path, parentId: params.parentId }, "created", now);
 
   return addAuthorNames(ctx, [{
     id,
@@ -514,6 +534,7 @@ export async function commentUpdate(
     }
   });
 
+  publishCommentChange(ctx, row, "updated", now);
   return { id: params.id, body: params.body, updatedAt: now };
 }
 
@@ -571,6 +592,7 @@ export async function commentDelete(
     resourceId: params.id,
   });
 
+  publishCommentChange(ctx, row, "deleted", now);
   return { deleted: true };
 }
 
@@ -618,6 +640,7 @@ export async function commentResolve(
     resourceType: "comment",
     resourceId: params.id,
   });
+  publishCommentChange(ctx, row, params.resolved ? "resolved" : "reopened", now);
 
   return {
     id: params.id,

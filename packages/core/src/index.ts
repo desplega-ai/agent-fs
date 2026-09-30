@@ -158,6 +158,8 @@ export {
 } from "./identity/index.js";
 export type { Role, ResolvedContext, ResetApiKeyResult } from "./identity/index.js";
 export { VERSION } from "./version.js";
+export { publishDriveEvent, subscribeDrive } from "./events/bus.js";
+export type { DriveEvent } from "./events/bus.js";
 export { createEmbeddingProviderFromEnv } from "./search/embeddings/index.js";
 export type { EmbeddingProvider } from "./search/embeddings/index.js";
 export { generateOpenAPISpec } from "./openapi.js";

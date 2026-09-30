@@ -77,6 +77,17 @@ export class ApiClient {
     return this.get("/auth/me");
   }
 
+  async getEvents(orgId: string, driveId: string, signal: AbortSignal): Promise<Response> {
+    const headers = new Headers({ Accept: "text/event-stream" });
+    if (this.apiKey) headers.set("Authorization", `Bearer ${this.apiKey}`);
+    const res = await fetch(`${this.baseUrl}/orgs/${orgId}/drives/${driveId}/events`, { headers, signal });
+    if (!res.ok) {
+      const body = await res.json();
+      throw new Error(body.message ?? body.error ?? `Request failed (${res.status})`);
+    }
+    return res;
+  }
+
   setApiKey(key: string): void {
     this.apiKey = key;
   }

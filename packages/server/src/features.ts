@@ -3,4 +3,5 @@ export const SERVER_FEATURES = [
   "comment-path-prefix",
   "drive-members",
   "comment-mentions",
+  "change-stream",
 ] as const;
