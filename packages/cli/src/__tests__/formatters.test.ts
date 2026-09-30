@@ -107,3 +107,21 @@ describe("stat formatter with appUrl", () => {
     expect(output).not.toContain("App URL");
   });
 });
+
+describe("drive-members formatter", () => {
+  test("prints a table without roles", () => {
+    const result = {
+      members: [
+        { userId: "user-1", email: "a@example.com", displayName: "Alice", role: "admin" },
+        { userId: "user-2", email: "b@example.com", displayName: null },
+      ],
+    };
+
+    const output = captureOutput(() => outputResult("drive-members", result, false));
+    expect(output).toContain("DISPLAY NAME");
+    expect(output).toContain("Alice");
+    expect(output).toContain("a@example.com");
+    expect(output).toContain("user-2");
+    expect(output).not.toContain("role");
+  });
+});

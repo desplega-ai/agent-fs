@@ -262,6 +262,7 @@ export interface CommentAddParams {
   path?: string;
   body: string;
   parentId?: string;
+  mentions?: string[];
   lineStart?: number;
   lineEnd?: number;
   quotedContent?: string;
@@ -283,6 +284,7 @@ export interface CommentAddResult {
 
 export interface CommentListParams {
   path?: string;
+  pathPrefix?: string;
   parentId?: string;
   resolved?: boolean;
   orgId?: string;
@@ -301,6 +303,11 @@ export interface CommentEntry {
   body: string;
   author: string;
   authorDisplayName?: string;
+  mentions?: Array<{
+    userId: string;
+    displayName: string | null;
+    email: string;
+  }>;
   resolved: boolean;
   resolvedBy?: string;
   resolvedAt?: Date;
@@ -332,6 +339,7 @@ export interface CommentGetResult {
 export interface CommentUpdateParams {
   id: string;
   body: string;
+  mentions?: string[];
 }
 
 export interface CommentUpdateResult {
@@ -362,6 +370,7 @@ export interface CommentResolveResult {
 
 export interface CommentNotificationListParams {
   unreadOnly?: boolean;
+  kinds?: Array<"comment" | "mention">;
   limit?: number;
   offset?: number;
 }
@@ -369,6 +378,7 @@ export interface CommentNotificationListParams {
 export interface CommentNotificationEntry {
   /** Notification event ID. */
   id: string;
+  kind: "comment" | "mention";
   commentId: string;
   parentId?: string;
   path: string;
@@ -386,12 +396,28 @@ export interface CommentNotificationListResult {
 export interface CommentNotificationReadParams {
   /** Mark only these notification event IDs as read. */
   ids?: string[];
-  /** Mark every unread comment notification in the active drive as read. */
+  /** Mark every unread notification of these kinds in the active drive as read. */
   all?: boolean;
+  /** Defaults to comment when all is true. Ignored for explicit IDs. */
+  kinds?: Array<"comment" | "mention">;
 }
 
 export interface CommentNotificationReadResult {
   markedRead: number;
+}
+
+// --- Drive member types ---
+
+export interface DriveMembersParams {}
+
+export interface DriveMember {
+  userId: string;
+  email: string;
+  displayName: string | null;
+}
+
+export interface DriveMembersResult {
+  members: DriveMember[];
 }
 
 // --- Tree types ---

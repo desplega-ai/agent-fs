@@ -1,4 +1,4 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, isNull } from "drizzle-orm";
 import { Database } from "bun:sqlite";
 import { schema } from "../db/index.js";
 import type { OpContext, RmParams, RmResult } from "./types.js";
@@ -8,6 +8,7 @@ import {
   assertExpectedVersion,
 } from "./versioning.js";
 import { removeFromIndex } from "../search/fts.js";
+import { publishDriveEvent } from "../events/bus.js";
 
 export async function rm(
   ctx: OpContext,
@@ -63,9 +64,22 @@ export async function rm(
   }
 
   // 5. Soft-delete comments on this file
+  const deletedComments = ctx.db
+    .select({ id: schema.comments.id, path: schema.comments.path })
+    .from(schema.comments)
+    .where(
+      and(
+        eq(schema.comments.path, params.path),
+        eq(schema.comments.driveId, ctx.driveId),
+        isNull(schema.comments.parentId),
+        eq(schema.comments.isDeleted, false)
+      )
+    )
+    .all();
+  const now = new Date();
   ctx.db
     .update(schema.comments)
-    .set({ isDeleted: true, updatedAt: new Date() })
+    .set({ isDeleted: true, updatedAt: now })
     .where(
       and(
         eq(schema.comments.path, params.path),
@@ -73,6 +87,19 @@ export async function rm(
       )
     )
     .run();
+
+  for (const comment of deletedComments) {
+    publishDriveEvent({
+      type: "comment.changed",
+      driveId: ctx.driveId,
+      path: comment.path,
+      commentId: comment.id,
+      parentId: null,
+      action: "deleted",
+      actor: ctx.userId,
+      at: now.toISOString(),
+    });
+  }
 
   return { path: params.path, deleted: true };
 }

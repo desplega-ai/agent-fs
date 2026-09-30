@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { eq } from "drizzle-orm";
 import { createDatabase, schema } from "../../db/index.js";
+import { MockS3Client } from "../../test-utils.js";
 import type { OpContext } from "../types.js";
 import {
   commentAdd,
@@ -13,6 +14,8 @@ import {
   commentDelete,
   commentResolve,
 } from "../comment.js";
+import { write } from "../write.js";
+import { dispatchOp } from "../index.js";
 import { NotFoundError, ValidationError, PermissionDeniedError } from "../../errors.js";
 
 const TEST_DB = join(tmpdir(), `agent-fs-comment-test-${Date.now()}.db`);
@@ -95,6 +98,36 @@ describe("commentAdd", () => {
     expect(result.lineEnd).toBe(20);
   });
 
+  test("captures the current file version for both path forms", async () => {
+    const originalS3 = ctx.s3;
+    ctx.s3 = new MockS3Client();
+
+    try {
+      const file = await write(ctx, {
+        path: "/docs/a.md",
+        content: "Current content",
+      });
+      const relative = await commentAdd(ctx, {
+        path: "docs/a.md",
+        body: "Relative path comment",
+      });
+      const absolute = await commentAdd(ctx, {
+        path: "/docs/a.md",
+        body: "Absolute path comment",
+      });
+
+      const relativeComment = await commentGet(ctx, { id: relative.id });
+      const absoluteComment = await commentGet(ctx, { id: absolute.id });
+
+      expect(relativeComment.comment.path).toBe("docs/a.md");
+      expect(relativeComment.comment.fileVersion).toBe(file.version);
+      expect(absoluteComment.comment.path).toBe("/docs/a.md");
+      expect(absoluteComment.comment.fileVersion).toBe(file.version);
+    } finally {
+      ctx.s3 = originalS3;
+    }
+  });
+
   test("creates a reply and resolves path from parent", async () => {
     const root = await commentAdd(ctx, {
       path: "/docs/api.md",
@@ -174,6 +207,125 @@ describe("commentList", () => {
     });
     const resolvedIds = resolved.comments.map((c) => c.id);
     expect(resolvedIds).toContain(added.id);
+  });
+
+  test("filters by normalized path prefix without matching sibling names", async () => {
+    const nested = await Promise.all([
+      commentAdd(ctx, { path: "/prefix-case/a.md", body: "root" }),
+      commentAdd(ctx, { path: "/prefix-case/sub/b.md", body: "nested" }),
+    ]);
+    const sibling = await commentAdd(ctx, {
+      path: "/prefix-case-old/c.md",
+      body: "sibling",
+    });
+    const differentCase = await commentAdd(ctx, {
+      path: "/Prefix-Case/d.md",
+      body: "different case",
+    });
+
+    const result = await commentList(ctx, { pathPrefix: "prefix-case" });
+    const ids = result.comments.map((comment) => comment.id);
+    expect(ids.sort()).toEqual(nested.map((comment) => comment.id).sort());
+    expect(ids).not.toContain(sibling.id);
+    expect(ids).not.toContain(differentCase.id);
+  });
+
+  test("matches comments stored with relative paths", async () => {
+    const relative = await commentAdd(ctx, {
+      path: "relative-prefix/a.md",
+      body: "relative",
+    });
+
+    const result = await commentList(ctx, { pathPrefix: "/relative-prefix/" });
+    expect(result.comments.map((comment) => comment.id)).toEqual([relative.id]);
+  });
+
+  test("matches prefixes containing supplementary Unicode characters", async () => {
+    const unicode = await commentAdd(ctx, {
+      path: "/📁/a.md",
+      body: "unicode",
+    });
+
+    const result = await commentList(ctx, { pathPrefix: "📁" });
+    expect(result.comments.map((comment) => comment.id)).toEqual([unicode.id]);
+  });
+
+  test("treats LIKE wildcard characters in path prefixes literally", async () => {
+    const underscore = await commentAdd(ctx, {
+      path: "/literal_under/a.md",
+      body: "underscore",
+    });
+    const underscoreWildcard = await commentAdd(ctx, {
+      path: "/literalXunder/a.md",
+      body: "underscore wildcard",
+    });
+    const percent = await commentAdd(ctx, {
+      path: "/literal%percent/a.md",
+      body: "percent",
+    });
+    const percentWildcard = await commentAdd(ctx, {
+      path: "/literal-any-percent/a.md",
+      body: "percent wildcard",
+    });
+    const backslash = await commentAdd(ctx, {
+      path: "/literal\\folder/a.md",
+      body: "backslash",
+    });
+
+    const underscoreIds = (await commentList(ctx, { pathPrefix: "literal_under" }))
+      .comments.map((comment) => comment.id);
+    expect(underscoreIds).toContain(underscore.id);
+    expect(underscoreIds).not.toContain(underscoreWildcard.id);
+
+    const percentIds = (await commentList(ctx, { pathPrefix: "literal%percent" }))
+      .comments.map((comment) => comment.id);
+    expect(percentIds).toContain(percent.id);
+    expect(percentIds).not.toContain(percentWildcard.id);
+
+    const backslashIds = (await commentList(ctx, { pathPrefix: "literal\\folder" }))
+      .comments.map((comment) => comment.id);
+    expect(backslashIds).toEqual([backslash.id]);
+  });
+
+  test("keeps resolved filtering and treats root prefixes as the whole drive", async () => {
+    const unresolved = await commentAdd(ctx, {
+      path: "/prefix-resolved/a.md",
+      body: "unresolved",
+    });
+    const resolved = await commentAdd(ctx, {
+      path: "/prefix-resolved/b.md",
+      body: "resolved",
+    });
+    await commentResolve(ctx, { id: resolved.id, resolved: true });
+    const outsideResolved = await commentAdd(ctx, {
+      path: "/outside-resolved/a.md",
+      body: "outside resolved",
+    });
+    await commentResolve(ctx, { id: outsideResolved.id, resolved: true });
+
+    const defaultList = await commentList(ctx, { pathPrefix: "prefix-resolved/" });
+    expect(defaultList.comments.map((comment) => comment.id)).toEqual([unresolved.id]);
+
+    const withResolved = await commentList(ctx, {
+      pathPrefix: "/prefix-resolved",
+      resolved: true,
+    });
+    expect(withResolved.comments.map((comment) => comment.id)).toContain(resolved.id);
+    expect(withResolved.comments.map((comment) => comment.id)).not.toContain(outsideResolved.id);
+
+    const rootList = await commentList(ctx, { pathPrefix: "/" });
+    expect(rootList.comments.map((comment) => comment.id)).toContain(unresolved.id);
+    const emptyList = await commentList(ctx, { pathPrefix: "" });
+    expect(emptyList.comments.map((comment) => comment.id)).toContain(unresolved.id);
+  });
+
+  test("rejects path and pathPrefix together through dispatch", async () => {
+    await expect(
+      dispatchOp(ctx, "comment-list", {
+        path: "/docs/readme.md",
+        pathPrefix: "/docs/",
+      })
+    ).rejects.toThrow("path and pathPrefix cannot be used together");
   });
 });
 

@@ -19,12 +19,16 @@ import { createTestContext, createTestDb, MockS3Client } from "../../../core/src
 
 describe("registerTools", () => {
   test("registers all ops as MCP tools", () => {
-    const registeredTools: Array<{ name: string; description: string }> = [];
+    const registeredTools: Array<{
+      name: string;
+      description: string;
+      schema: Record<string, unknown>;
+    }> = [];
 
     // Mock McpServer with just the tool() method
     const mockServer = {
-      tool: (name: string, description: string, _schema: any, _handler: any) => {
-        registeredTools.push({ name, description });
+      tool: (name: string, description: string, schema: Record<string, unknown>, _handler: any) => {
+        registeredTools.push({ name, description, schema });
       },
     };
 
@@ -37,6 +41,14 @@ describe("registerTools", () => {
     for (const op of ops) {
       expect(registeredTools.some((t) => t.name === op)).toBe(true);
     }
+
+    for (const tool of registeredTools) {
+      expect(
+        Object.keys(tool.schema).length === 1 && tool.schema.params instanceof z.ZodAny
+      ).toBe(false);
+    }
+    expect(registeredTools.find((tool) => tool.name === "comment-list")?.schema)
+      .toHaveProperty("pathPrefix");
   });
 
   test("tool descriptions are rich descriptions from the registry", () => {
@@ -414,29 +426,6 @@ describe("whoami hides inaccessible drives", () => {
       m.drives.map((d: any) => d.driveId)
     );
     expect(allDriveIds).not.toContain(h.foreignDriveId);
-  });
-});
-
-describe("Schema conversion", () => {
-  test("all op schemas are ZodObject instances", () => {
-    const ops = getRegisteredOps();
-    for (const op of ops) {
-      const def = getOpDefinition(op);
-      expect(def).toBeDefined();
-      // All our op schemas should be ZodObject
-      expect(def!.schema).toBeInstanceOf(z.ZodObject);
-    }
-  });
-
-  test("ZodObject schemas have extractable shape", () => {
-    const ops = getRegisteredOps();
-    for (const op of ops) {
-      const def = getOpDefinition(op);
-      if (def!.schema instanceof z.ZodObject) {
-        const shape = (def!.schema as z.ZodObject<any>).shape;
-        expect(typeof shape).toBe("object");
-      }
-    }
   });
 });
 

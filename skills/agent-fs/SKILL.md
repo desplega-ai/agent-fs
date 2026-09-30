@@ -6,7 +6,8 @@ description: >-
   "find that file", "store this document", "search agent-fs", "list my files",
   "show version history", "revert file", "set up agent-fs", "get a signed url",
   "share this file", "share link", "public link", "one-off link", "revoke a share link", "manage members", "invite user", "list members", "remove member",
-  "update role", "reset api key", "rotate api key", "lost my api key", file
+  "update role", "reset api key", "rotate api key", "lost my api key",
+  "watch drive changes", "stream file changes", file
   persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
   manage org/drive members, generate presigned URLs, check recent activity, or use
@@ -141,6 +142,7 @@ symlinks are unsupported and throw `EPERM`.
 | `share-create` | `agent-fs share-create <path> [--expires-in <seconds>] [--max-views <n>] [--one-off]` | Create a public `/share/<token>` link on the API host: a read-only page with a preview (markdown, text/code, image, PDF, audio, video) and a Download button. Default 24h, max 7 days; `--one-off` (= `--max-views 1`) makes it single-use. Returns `{ id, url, sharePath, expiresAt, maxViews }`. |
 | `share-revoke` | `agent-fs share-revoke [<id>] [--token <token-or-url>] [--path <path>]` | Kill share links immediately. Exactly one selector: the `id` from `share-create`, the token/URL, or a file path (every link to that file). Creator or drive admin only. |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
+| `watch` | `agent-fs watch [--json]` | Stream active-drive changes until Ctrl+C. Bearer endpoint: `GET /orgs/:orgId/drives/:driveId/events` emits `ready`, `file.changed`, and `comment.changed`. |
 
 `cat` is a paginated viewer, not a raw file reader: without `--limit`, it defaults to the first 200 lines at a TTY, but returns the **whole file** when stdout is piped or redirected (a pipe/redirect almost always means "give me everything"). Any time `cat` returns fewer lines than requested, a `truncated: showing N of M lines (use --limit)` note goes to **stderr** — never stdout, so it never corrupts piped/redirected output. The default (non-`--raw`, TTY) view also prefixes each line with a line number for readability; that prefix is **not** part of the stored bytes. For a complete, byte-exact read — required before parsing as CSV/JSON, or any time line numbers or a partial read would corrupt the data — use `agent-fs cat <path> --raw` or, better, `agent-fs download <path> -o <file>`.
 
@@ -200,15 +202,15 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `comment add` | `agent-fs comment add <path> --body <text> [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits; prefix/suffix pick the right occurrence when the text repeats |
-| `comment reply` | `agent-fs comment reply <comment-id> --body <text>` | Reply to a comment |
-| `comment list` | `agent-fs comment list [path]` | List comments (with inline replies) |
+| `comment add` | `agent-fs comment add <path> --body <text> [--mention <user-id-or-email>]... [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits; prefix/suffix pick the right occurrence when the text repeats. Repeat `--mention` to notify drive members. |
+| `comment reply` | `agent-fs comment reply <comment-id> --body <text> [--mention <user-id-or-email>]...` | Reply to a comment and optionally mention drive members |
+| `comment list` | `agent-fs comment list [path] [--prefix <path>]` | List comments with inline replies. Use `--prefix` for all comments below a directory. Do not combine a positional path with `--prefix`. |
 | `comment get` | `agent-fs comment get <id>` | Get a comment with its replies |
-| `comment update` | `agent-fs comment update <id> --body <text>` | Update a comment (author only) |
+| `comment update` | `agent-fs comment update <id> --body <text> [--mention <user-id-or-email>]... [--clear-mentions]` | Update a comment and optionally replace or clear its mentions (author only) |
 | `comment delete` | `agent-fs comment delete <id>` | Soft-delete a comment (author only) |
 | `comment resolve` | `agent-fs comment resolve <id>` | Resolve a comment |
-| `comment notifications` | `agent-fs comment notifications [--unread] [--limit <n>]` | List comment notifications for the current user in the active drive |
-| `comment read` | `agent-fs comment read [ids...] [--all]` | Mark selected notification event IDs, or all active-drive notifications, as read |
+| `comment notifications` | `agent-fs comment notifications [--kind <comment\|mention>]... [--unread] [--limit <n>]` | List notifications for the current user. The default kind is `comment`. |
+| `comment read` | `agent-fs comment read [ids...] [--all [--kind <comment\|mention>]...]` | Mark selected notification event IDs, or all active-drive notification kinds, as read. `--all` defaults to `comment`. |
 
 ### Setup & Auth
 
@@ -224,6 +226,7 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 | Command | Usage | Description |
 |---------|-------|-------------|
+| `members` | `agent-fs members` | List the active drive's members with user ID, email, and display name. Available to every drive member. Roles are omitted. |
 | `member list` | `agent-fs member list` | List org members (use `--drive <id>` for drive members) |
 | `member invite` | `agent-fs member invite <email> --role <role>` | Invite user to org (use `--drive <id>` to add an existing org member to a drive) |
 | `member update-role` | `agent-fs member update-role <email> --role <role>` | Update org role (use `--drive <id>` for drive role) |
@@ -232,7 +235,7 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 The `--drive` flag is a global option — place it before the subcommand: `agent-fs --drive <id> member list`.
 
-Member commands are admin-gated: org-scoped commands require org `admin`; drive-scoped commands (`--drive <id>`) require drive `admin` or admin of the owning org, and the drive must belong to the current org. Non-admins get a permission error; org/drive IDs outside your memberships return "not found".
+`members` is viewer-accessible and returns no roles. The `member` management commands remain admin-gated. Org-scoped commands require org `admin`. Drive-scoped commands (`--drive <id>`) require drive `admin` or admin of the owning org, and the drive must belong to the current org. Non-admins get a permission error. Org or drive IDs outside your memberships return "not found".
 
 ### Drive Management
 
@@ -344,6 +347,9 @@ agent-fs revert docs/spec.md --version 2
 # Add a comment to a file
 agent-fs comment add docs/spec.md --body "Needs more detail on auth"
 
+# Ask a human for a decision and send a targeted mention notification
+agent-fs comment add docs/spec.md --body "Which option should we use?" --mention human@example.com
+
 # Anchor a comment to exact text (survives edits above it; the MCP/API param is quote: { exact, prefix, suffix })
 agent-fs comment add docs/spec.md --body "Which provider?" --quote "OAuth login" --quote-suffix " flow"
 
@@ -353,14 +359,23 @@ agent-fs comment reply <comment-id> --body "Added in v3"
 # List comments
 agent-fs comment list docs/spec.md
 
+# List unresolved comments below a directory
+agent-fs comment list --prefix docs/
+
 # Check unread notifications (the returned IDs are notification event IDs)
 agent-fs comment notifications --unread --limit 20
+
+# Check targeted mention notifications
+agent-fs comment notifications --kind mention --unread
 
 # Mark selected notifications as read
 agent-fs comment read <notification-id> [<notification-id>...]
 
 # Or acknowledge every notification in the active drive
 agent-fs comment read --all
+
+# Acknowledge every targeted mention notification in the active drive
+agent-fs comment read --all --kind mention
 
 # Resolve a comment
 agent-fs comment resolve <comment-id>
@@ -383,6 +398,9 @@ agent-fs drive current
 ### Manage members
 
 ```bash
+# List active-drive members without exposing roles
+agent-fs members
+
 # List org members
 agent-fs member list
 
@@ -453,7 +471,7 @@ agent-fs share-revoke <id>
 agent-fs share-revoke --path docs/report.pdf
 ```
 
-`share-create` returns a URL on the **API host** (`https://<server>/share/<token>`), not the web app, so it works for anyone without signing in. Unlike `signed-url` the recipient gets a rendered page: markdown becomes sanitized HTML, text and code are shown escaped, images, PDF, audio and video are embedded, and every other type shows a no-preview card. Each page has the filename, size, expiry and a Download button. HTML and SVG files are never rendered, only downloaded.
+`share-create` returns a URL on the **API host** (`https://<server>/share/<token>`), not the web app, so it works for anyone without signing in. Unlike `signed-url` the recipient gets a rendered page: markdown becomes sanitized HTML (frontmatter card, table of contents, callouts, task lists, footnotes, math, mermaid diagrams, highlighted code, light/dark/system theme, view-source and copy), text and code are shown escaped, images, PDF, audio and video are embedded, and every other type shows a no-preview card. Each page has the filename, size, expiry and a Download button. HTML and SVG files are never rendered, only downloaded.
 
 Things worth knowing before you share:
 
@@ -529,4 +547,5 @@ who can read your comments. Only your authenticated profile can be edited.
 HTTP: `GET /auth/profile`, `PATCH /auth/profile` with `{ "displayName": "Taras" }`
 (or `null` to clear). MCP: `profile-get`, `profile-set` with `displayName`.
 The web account menu has **Edit profile**. Comment responses include
-`authorDisplayName` when set; emails and member roles remain admin-only.
+`authorDisplayName` when set. Every drive member can list member emails and
+display names with `agent-fs members`. Member roles remain admin-only.

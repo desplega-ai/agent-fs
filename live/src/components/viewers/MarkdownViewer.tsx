@@ -23,7 +23,7 @@ import {
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { Kbd } from "@/components/ui/kbd"
-import { slugify, scrollToHeading, type OutlineItem } from "@/lib/outline"
+import { slugify, scrollToHeading, scrollBehavior, type OutlineItem } from "@/lib/outline"
 import { computeActiveHeadings } from "@/hooks/use-active-headings"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
 import { captureQuote, type AnchorResolution } from "@/lib/comment-anchor"
@@ -292,7 +292,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
         }
         const blocks = domSpace.blocksFor(resolved.start, resolved.end)
         const target = blocks[0] ?? domSpace.toRange(resolved.start, resolved.end)?.startContainer.parentElement
-        target?.scrollIntoView({ behavior: "smooth", block: "center" })
+        target?.scrollIntoView({ behavior: scrollBehavior(), block: "center" })
         flashBlocks(blocks, "flash-comment-highlight", 2000)
         return
       }
@@ -304,7 +304,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
         const el = node as HTMLElement
         const text = el.textContent?.trim().toLowerCase() ?? ""
         if (text.includes(needle) && el.children.length === 0) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" })
+          el.scrollIntoView({ behavior: scrollBehavior(), block: "center" })
           el.classList.add("flash-comment-highlight")
           setTimeout(() => el.classList.remove("flash-comment-highlight"), 2000)
           return
@@ -662,7 +662,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
             )
             setShowCommentForm(true)
           }}
-          className="fixed z-40 flex items-center justify-center size-6 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-all"
+          className="fixed z-40 flex items-center justify-center size-6 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
           style={{
             top: hoverComment.rect.top + 2,
             left: Math.max(VIEWPORT_MARGIN, hoverComment.rect.left - 32),

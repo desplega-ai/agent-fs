@@ -4,6 +4,7 @@ import type { OpContext } from "./types.js";
 import { stripLeadingSlash } from "./paths.js";
 import { EditConflictError } from "../errors.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
+import { publishDriveEvent } from "../events/bus.js";
 
 /**
  * Compute the S3 object key for a file.
@@ -258,6 +259,16 @@ export async function createVersion(
     }
     throw err;
   }
+
+  publishDriveEvent({
+    type: "file.changed",
+    driveId: ctx.driveId,
+    path: params.path,
+    version,
+    operation: params.operation,
+    actor: ctx.userId,
+    at: now.toISOString(),
+  });
 
   return version;
 }

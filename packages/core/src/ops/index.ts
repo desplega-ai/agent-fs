@@ -40,6 +40,7 @@ import {
   commentNotificationList,
   commentNotificationRead,
 } from "./comment-notification.js";
+import { driveMembers } from "./drive-members.js";
 
 export interface OpDefinition {
   description: string;
@@ -277,12 +278,13 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-add": {
-    description: "Add a comment to a file. Supports line ranges, a text-quote anchor ({ exact, prefix, suffix }), and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
+    description: "Add a comment to a file. Supports line ranges, a text-quote anchor ({ exact, prefix, suffix }), mentions by drive-member user ID or email, and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
     handler: commentAdd,
     schema: z.object({
       path: z.string().optional(),
       body: z.string(),
       parentId: z.string().optional(),
+      mentions: z.array(z.string().min(1)).max(20).optional(),
       lineStart: z.number().int().optional(),
       lineEnd: z.number().int().optional(),
       quotedContent: z.string().optional(),
@@ -297,16 +299,22 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-list": {
-    description: "List comments on a file. Filter by path, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with inline replies.",
+    description: "List comments on a file or below a path prefix. Filter by path, pathPrefix, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with inline replies.",
     handler: commentList,
-    schema: z.object({
-      path: z.string().optional(),
-      parentId: z.string().optional(),
-      resolved: z.boolean().optional(),
-      orgId: z.string().optional(),
-      limit: z.number().int().min(1).optional(),
-      offset: z.number().int().min(0).optional(),
-    }),
+    schema: z
+      .object({
+        path: z.string().optional(),
+        pathPrefix: z.string().optional(),
+        parentId: z.string().optional(),
+        resolved: z.boolean().optional(),
+        orgId: z.string().optional(),
+        limit: z.number().int().min(1).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .refine(
+        ({ path, pathPrefix }) => path === undefined || pathPrefix === undefined,
+        { message: "path and pathPrefix cannot be used together" }
+      ),
   },
   "comment-get": {
     description: "Get a single comment by ID with all its replies. Returns { comment, replies }.",
@@ -316,11 +324,12 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-update": {
-    description: "Update a comment's body. Only the original author can update. Returns { id, body, updatedAt }.",
+    description: "Update a comment's body and optionally replace its mentions. Mentions accept drive-member user IDs or emails. Only the original author can update. Returns { id, body, updatedAt }.",
     handler: commentUpdate,
     schema: z.object({
       id: z.string(),
       body: z.string(),
+      mentions: z.array(z.string().min(1)).max(20).optional(),
     }),
   },
   "comment-delete": {
@@ -339,21 +348,28 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-notification-list": {
-    description: "List comment notifications for the current user in the active drive. Returns { notifications, unreadCount }.",
+    description: "List comment or mention notifications for the current user in the active drive. Defaults to comment notifications. Returns { notifications, unreadCount }.",
     handler: commentNotificationList,
     schema: z.object({
       unreadOnly: z.boolean().optional(),
+      kinds: z.array(z.enum(["comment", "mention"])).min(1).optional(),
       limit: z.number().int().min(1).max(100).optional(),
       offset: z.number().int().min(0).optional(),
     }),
   },
   "comment-notification-read": {
-    description: "Mark selected comment notification IDs, or all comment notifications in the active drive, as read. Returns { markedRead }.",
+    description: "Mark selected comment or mention notification IDs, or all notifications of the selected kinds in the active drive, as read. All defaults to comment notifications. Returns { markedRead }.",
     handler: commentNotificationRead,
     schema: z.object({
       ids: z.array(z.string()).min(1).max(100).optional(),
       all: z.literal(true).optional(),
+      kinds: z.array(z.enum(["comment", "mention"])).min(1).optional(),
     }),
+  },
+  "drive-members": {
+    description: "List members of the active drive. Returns { members } with userId, email, and displayName. Membership roles are not included.",
+    handler: driveMembers,
+    schema: z.object({}),
   },
 };
 
@@ -403,5 +419,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead };
+export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers };
 export type * from "./types.js";

@@ -26,6 +26,20 @@ export function slugify(text: string): string {
     .replace(/^-+|-+$/g, "")
 }
 
+/** Whether the user asked the OS to minimize non-essential motion. */
+export function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  )
+}
+
+/** `scrollIntoView` behavior that honors `prefers-reduced-motion`. */
+export function scrollBehavior(): ScrollBehavior {
+  return prefersReducedMotion() ? "auto" : "smooth"
+}
+
 /** Restart the arrival-flash animation on a heading. */
 function flashHeading(el: HTMLElement): void {
   el.classList.remove("flash-heading-highlight")
@@ -54,9 +68,7 @@ export function scrollToHeading(id: string): void {
   const scroller =
     el.closest<HTMLElement>("[data-markdown-scroll]") ??
     document.querySelector<HTMLElement>("[data-markdown-scroll]")
-  const prefersReduced =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  const prefersReduced = prefersReducedMotion()
 
   if (!scroller || prefersReduced) {
     el.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" })

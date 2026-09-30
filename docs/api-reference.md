@@ -137,7 +137,7 @@ The `signed-url` op is viewer-accessible and RBAC is checked **only at generatio
 
 ### Share links are bearer secrets
 
-`share-create` mints a public `GET /share/{token}` page on the API host. The token (256 random bits) is the only credential: anyone who has the link can open it until it expires (default 24h, max 7 days), is revoked with `share-revoke`, or reaches `maxViews`. Only the SHA-256 of the token is stored. The page is server-rendered with no scripts, a strict `Content-Security-Policy`, `nosniff` and `no-store`; markdown is rendered with raw HTML and images stripped, HTML and SVG files are download-only, and the page shows no API keys, org names or member details. `/share/*` sits before authentication and has its own per-IP rate limit (`AGENT_FS_SHARE_RATE_LIMIT`, default 120/min). Expired, revoked, used-up and unknown links all render the same "link expired" page. See the Sharing row below.
+`share-create` mints a public `GET /share/{token}` page on the API host. The token (256 random bits) is the only credential: anyone who has the link can open it until it expires (default 24h, max 7 days), is revoked with `share-revoke`, or reaches `maxViews`. Only the SHA-256 of the token is stored. The page is server-rendered under a strict `Content-Security-Policy` (`nosniff`, `no-store`) that runs only the page's own two inline scripts, allowed by hash, plus, when a markdown file needs them, version-pinned mermaid, KaTeX and highlight.js files loaded with Subresource Integrity; markdown is rendered with raw HTML and images stripped (frontmatter card, table of contents, callouts, footnotes, math and mermaid diagrams, light/dark theme), HTML and SVG files are download-only, and the page shows no API keys, org names or member details. `/share/*` sits before authentication and has its own per-IP rate limit (`AGENT_FS_SHARE_RATE_LIMIT`, default 120/min). Expired, revoked, used-up and unknown links all render the same "link expired" page. See the Sharing row below.
 
 ## Operations
 
@@ -151,7 +151,8 @@ All 26 operations are dispatched through `POST /orgs/{orgId}/ops`. Each expects 
 | **Version Control** | `log`, `diff`, `revert` |
 | **Search** | `grep`, `fts`, `search` |
 | **Maintenance** | `recent`, `reindex` |
-| **Comments** | `comment-add`, `comment-list`, `comment-get`, `comment-update`, `comment-delete`, `comment-resolve` |
+| **Comments** | `comment-add`, `comment-list` (supports `pathPrefix`), `comment-get`, `comment-update`, `comment-delete`, `comment-resolve` |
+| **Drive Members** | `drive-members` |
 | **Sharing** | `signed-url`, `share-create`, `share-revoke` |
 
 For parameter details, see the [OpenAPI spec](./openapi.json).

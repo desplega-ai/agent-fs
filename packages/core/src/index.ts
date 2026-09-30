@@ -60,6 +60,7 @@ export {
   commentUpdate,
   commentDelete,
   commentResolve,
+  driveMembers,
 } from "./ops/index.js";
 export {
   getS3Key,
@@ -114,6 +115,9 @@ export type {
   CommentDeleteResult,
   CommentResolveParams,
   CommentResolveResult,
+  DriveMembersParams,
+  DriveMember,
+  DriveMembersResult,
 } from "./ops/types.js";
 export {
   createUser,
@@ -137,6 +141,7 @@ export {
   getDrive,
   setDriveMember,
   listDriveMembers,
+  listDriveMembersPublic,
   updateDriveMemberRole,
   removeDriveMember,
   checkPermission,
@@ -153,6 +158,8 @@ export {
 } from "./identity/index.js";
 export type { Role, ResolvedContext, ResetApiKeyResult } from "./identity/index.js";
 export { VERSION } from "./version.js";
+export { publishDriveEvent, subscribeDrive } from "./events/bus.js";
+export type { DriveEvent } from "./events/bus.js";
 export { createEmbeddingProviderFromEnv } from "./search/embeddings/index.js";
 export type { EmbeddingProvider } from "./search/embeddings/index.js";
 export { generateOpenAPISpec } from "./openapi.js";

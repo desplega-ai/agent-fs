@@ -232,6 +232,23 @@
   }
 }
 
+/* Reduced motion: drop the fades and pulse rings. Every flash class above is
+   removed by a timer, so the static highlight still marks the target for the
+   same duration, just without animating in or out. */
+@media (prefers-reduced-motion: reduce) {
+  .flash-line-highlight,
+  .flash-comment-highlight,
+  .comment-range-highlight.comment-range-active,
+  .comment-pulse,
+  .comment-card-pulse {
+    animation: none;
+  }
+  .flash-heading-highlight {
+    animation: none;
+    background: oklch(0.82 0.12 85 / 0.32);
+  }
+}
+
 /* highlight.js token colors — themed via CSS variables so light/dark share the
    same selectors. Tokens picked to be readable against the prose-pre muted bg. */
 :root {

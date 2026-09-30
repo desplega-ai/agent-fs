@@ -15,13 +15,17 @@ export function registerTools(
     const def = getOpDefinition(opName);
     if (!def) continue;
 
+    const schema = def.schema instanceof z.ZodEffects
+      ? def.schema.innerType()
+      : def.schema;
+
     // Convert Zod schema to a plain object shape for MCP
     // MCP SDK accepts Zod schemas directly
     server.tool(
       opName,
       def.description,
-      def.schema instanceof z.ZodObject
-        ? (def.schema as z.ZodObject<any>).shape
+      schema instanceof z.ZodObject
+        ? (schema as z.ZodObject<any>).shape
         : { params: z.any() },
       async (params: any, extra: Extra) => {
         const ctx = getContext(extra);

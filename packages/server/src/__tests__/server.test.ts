@@ -47,6 +47,13 @@ describe("Health check", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.version).toBeDefined();
+    expect(body.features).toEqual(expect.arrayContaining([
+      "share-links",
+      "comment-path-prefix",
+      "drive-members",
+      "comment-mentions",
+      "change-stream",
+    ]));
   });
 });
 

@@ -999,6 +999,45 @@ async function runStandardTests(daemonUrl: string) {
 
   // -- write + cat roundtrip --
 
+  await test("drive stream receives a file change from the CLI", async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const response = await fetch(`${daemonUrl}/orgs/${personalOrgId}/drives/${personalDriveId}/events`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      });
+      assert(response.status, 200);
+      reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const nextFrame = async () => {
+        while (!buffer.includes("\n\n")) {
+          const { done, value } = await reader!.read();
+          if (done) throw new Error("Event stream closed before the expected event");
+          buffer += decoder.decode(value, { stream: true });
+        }
+        const end = buffer.indexOf("\n\n");
+        const frame = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        return frame;
+      };
+      assertIncludes(await nextFrame(), "event: ready");
+      runJson('write /stream-e2e.md --content "change stream"');
+      const frame = await nextFrame();
+      assertIncludes(frame, "event: file.changed");
+      const event = JSON.parse(frame.split("\n").find((line) => line.startsWith("data: "))!.slice(6));
+      assert(event.path, "/stream-e2e.md");
+      assert(event.version, 1);
+      assert(event.operation, "write");
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
+      await reader?.cancel().catch(() => {});
+    }
+  });
+
   await test("write + cat roundtrip", () => {
     const result = runJson('write /hello.txt --content "Hello, agent-fs!"');
     assert(result.version, 1);
@@ -1401,6 +1440,24 @@ async function runStandardTests(daemonUrl: string) {
     assert(typeof found?.fileVersion, "number", "Expected the anchor version number in comment list");
   });
 
+  await test("comment list --prefix includes nested paths and excludes sibling prefixes", () => {
+    for (const path of [
+      "prefix-e2e/docs/a.md",
+      "prefix-e2e/docs/sub/b.md",
+      "prefix-e2e/docs-old/c.md",
+    ]) {
+      runJson(`write ${path} --content "prefix fixture"`);
+      JSON.parse(run(`comment add ${path} --body "comment on ${path}"`));
+    }
+
+    const result = JSON.parse(run("comment list --prefix prefix-e2e/docs"));
+    const paths = result.comments.map((comment: any) => comment.path).sort();
+    assert(
+      JSON.stringify(paths),
+      JSON.stringify(["prefix-e2e/docs/a.md", "prefix-e2e/docs/sub/b.md"]),
+    );
+  });
+
   // -- recent --
 
   await test("recent", () => {
@@ -1750,9 +1807,12 @@ async function runStandardTests(daemonUrl: string) {
   const shareBase = `http://127.0.0.1:${daemonPort}`;
   const tokenFrom = (url: string) => url.split("/share/")[1];
 
-  await test("/health advertises share-links", async () => {
+  await test("/health advertises server capabilities", async () => {
     const health = await (await fetch(`${daemonUrl}/health`)).json() as any;
     assert(health.features?.includes("share-links"), true, `Expected share-links in ${JSON.stringify(health)}`);
+    assert(health.features?.includes("comment-path-prefix"), true, `Expected comment-path-prefix in ${JSON.stringify(health)}`);
+    assert(health.features?.includes("drive-members"), true, `Expected drive-members in ${JSON.stringify(health)}`);
+    assert(health.features?.includes("comment-mentions"), true, `Expected comment-mentions in ${JSON.stringify(health)}`);
   });
 
   runJson('write /share-e2e.md --content "# Shared heading\n\nHello <script>alert(1)</script> from **agent-fs**."');
@@ -1795,13 +1855,17 @@ async function runStandardTests(daemonUrl: string) {
     assertIncludes(res.headers.get("content-type") ?? "", "text/html");
     assert(res.headers.get("x-content-type-options"), "nosniff");
     assert(res.headers.get("cache-control"), "no-store");
-    assertIncludes(res.headers.get("content-security-policy") ?? "", "default-src 'none'");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    assertIncludes(csp, "default-src 'none'");
+    // Only the page's own scripts run, allowed by hash: never inline-anything.
+    const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("script-src ")) ?? "";
+    assert(/^script-src 'sha256-[^']+' 'sha256-[^']+'$/.test(scriptSrc), true, `Unexpected script-src: ${scriptSrc}`);
     const body = await res.text();
     assertIncludes(body, "<h1>share-e2e.md</h1>");
-    assertIncludes(body, "<h1>Shared heading</h1>");
+    assertIncludes(body, '<h1 id="shared-heading">Shared heading');
     assertIncludes(body, "<strong>agent-fs</strong>");
     assertIncludes(body, `/share/${tokenFrom(r.url)}/download`);
-    assert(body.includes("<script"), false, "Page must not contain a script tag");
+    assert((body.match(/<script\b/g) ?? []).length, 2, "Page must carry only its own two scripts");
     assert(body.includes(apiKey), false, "Page must not contain the API key");
     assert(body.includes(personalOrgId), false, "Page must not contain the org id");
   });
@@ -2950,6 +3014,45 @@ async function runStandardTests(daemonUrl: string) {
     assert(res.ok, true, `Expected 200, got ${res.status}`);
   });
 
+  await test("drive-members works for viewers over HTTP and CLI without roles", async () => {
+    const apiRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({ op: "drive-members", driveId: secondDriveId }),
+    });
+    assert(apiRes.status, 200, `Expected 200, got ${apiRes.status}`);
+    const apiMembers = ((await apiRes.json()) as any).members;
+    assert(apiMembers.some((member: any) => member.email === "user3@e2e.local"), true);
+    assert(apiMembers.some((member: any) => "role" in member), false, "drive-members must not expose roles");
+    assert(apiMembers.every((member: any) => "displayName" in member), true, "Expected displayName on every member");
+
+    const cli = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} members`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    assert(cli.members.length, apiMembers.length);
+    assert(cli.members.some((member: any) => "role" in member), false, "CLI must not expose roles");
+  });
+
+  await test("drive-members works over MCP", async () => {
+    const response = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(user3ApiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "drive-members", arguments: {} },
+      }),
+    });
+    assert(response.ok, true, `MCP drive-members failed: ${response.status}`);
+    const body = await response.json() as any;
+    assert(body.result?.isError === true, false, "MCP drive-members returned an operation error");
+    const members = JSON.parse(body.result.content[0].text).members;
+    assert(members.some((member: any) => member.email === "user3@e2e.local"), true);
+    assert(members.some((member: any) => "role" in member), false, "MCP must not expose roles");
+  });
+
   let rbacDriveId = "";
   await test("rbac: strict membership — new drive visible to creator only", async () => {
     // Created AFTER user3's invite, so user3 has no membership row on it.
@@ -3222,6 +3325,52 @@ async function runStandardTests(daemonUrl: string) {
     const readNotification = afterRead.notifications.find((entry: any) => entry.id === notification.id);
     assert(!!readNotification, true, "Expected acknowledged notification in the full list");
     assert(readNotification.read, true, "Expected notification to be marked read");
+  });
+
+  await test("comment mentions work through CLI add, list, notifications, and read", () => {
+    const add = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment add /rbac-probe.txt --body "mention e2e" --mention USER3@E2E.LOCAL`,
+      { AGENT_FS_API_KEY: apiKey },
+    ));
+    assert(typeof add.id, "string", "Expected comment ID");
+
+    const comments = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment list /rbac-probe.txt`,
+      { AGENT_FS_API_KEY: apiKey },
+    ));
+    const comment = comments.comments.find((entry: any) => entry.id === add.id);
+    assert(comment?.mentions?.[0]?.email, "user3@e2e.local", "Expected resolved mention profile");
+
+    const mentionInbox = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment notifications --kind mention`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    const mention = mentionInbox.notifications.find((entry: any) => entry.commentId === add.id);
+    assert(!!mention, true, "Expected targeted mention notification");
+    assert(mention.kind, "mention");
+    assert(mention.read, false);
+
+    const defaultInbox = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment notifications`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    const broadcast = defaultInbox.notifications.find((entry: any) => entry.commentId === add.id);
+    assert(!!broadcast, true, "Expected existing broadcast notification by default");
+    assert(broadcast.kind, "comment");
+
+    JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment read ${mention.id}`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    const afterRead = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment notifications --kind mention --unread`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    assert(
+      afterRead.notifications.some((entry: any) => entry.id === mention.id),
+      false,
+      "Expected the read mention to leave the unread inbox",
+    );
   });
 
   await test("rbac: comment IDs are org/drive scoped (cross-tenant 404)", async () => {

@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
+import { collect } from "./collect.js";
 
 export function commentCommands(
   client: ApiClient,
@@ -37,6 +38,12 @@ export function commentCommands(
     .option("--quote <text>", "Exact text the comment anchors to (re-found after edits)")
     .option("--quote-prefix <text>", "Text just before --quote, to pick the right occurrence")
     .option("--quote-suffix <text>", "Text just after --quote, to pick the right occurrence")
+    .option(
+      "--mention <user-id-or-email>",
+      "Mention a drive member (repeatable)",
+      collect,
+      [] as string[]
+    )
     .description("Add a comment to a file")
     .action(async (path: string, opts: any) => {
       try {
@@ -51,6 +58,7 @@ export function commentCommands(
         }
         if (opts.lineStart) params.lineStart = parseInt(opts.lineStart);
         if (opts.lineEnd) params.lineEnd = parseInt(opts.lineEnd);
+        if (opts.mention.length > 0) params.mentions = opts.mention;
         const result = await callOp("comment-add", params);
         console.log(JSON.stringify(result, null, 2));
       } catch (err: any) {
@@ -63,13 +71,21 @@ export function commentCommands(
     .command("reply")
     .argument("<comment-id>", "Parent comment ID to reply to")
     .requiredOption("--body <text>", "Reply body")
+    .option(
+      "--mention <user-id-or-email>",
+      "Mention a drive member (repeatable)",
+      collect,
+      [] as string[]
+    )
     .description("Reply to a comment")
     .action(async (commentId: string, opts: any) => {
       try {
-        const result = await callOp("comment-add", {
+        const params: Record<string, any> = {
           parentId: commentId,
           body: opts.body,
-        });
+        };
+        if (opts.mention.length > 0) params.mentions = opts.mention;
+        const result = await callOp("comment-add", params);
         console.log(JSON.stringify(result, null, 2));
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
@@ -80,14 +96,19 @@ export function commentCommands(
   cmd
     .command("list")
     .argument("[path]", "File path to list comments for")
+    .option("--prefix <path>", "Directory path prefix to list comments below")
     .option("--resolved", "Show resolved comments")
     .option("--limit <n>", "Max results")
     .option("--offset <n>", "Skip N results")
     .description("List comments")
     .action(async (path: string | undefined, opts: any) => {
       try {
+        if (path && opts.prefix !== undefined) {
+          throw new Error("Use either <path> or --prefix, not both");
+        }
         const params: Record<string, any> = {};
         if (path) params.path = path;
+        if (opts.prefix !== undefined) params.pathPrefix = opts.prefix;
         if (opts.resolved) params.resolved = true;
         if (opts.limit) params.limit = parseInt(opts.limit);
         if (opts.offset) params.offset = parseInt(opts.offset);
@@ -117,10 +138,23 @@ export function commentCommands(
     .command("update")
     .argument("<id>", "Comment ID")
     .requiredOption("--body <text>", "New comment body")
+    .option(
+      "--mention <user-id-or-email>",
+      "Replace mentions with drive members (repeatable)",
+      collect,
+      [] as string[]
+    )
+    .option("--clear-mentions", "Remove every mention")
     .description("Update a comment")
     .action(async (id: string, opts: any) => {
       try {
-        const result = await callOp("comment-update", { id, body: opts.body });
+        const params: Record<string, any> = { id, body: opts.body };
+        if (opts.clearMentions && opts.mention.length > 0) {
+          throw new Error("Use --clear-mentions or --mention, not both");
+        }
+        if (opts.clearMentions) params.mentions = [];
+        else if (opts.mention.length > 0) params.mentions = opts.mention;
+        const result = await callOp("comment-update", params);
         console.log(JSON.stringify(result, null, 2));
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
@@ -173,12 +207,19 @@ export function commentCommands(
   cmd
     .command("notifications")
     .option("--unread", "Show unread notifications only")
+    .option(
+      "--kind <comment|mention>",
+      "Notification kind (repeatable; default: comment)",
+      collect,
+      [] as string[]
+    )
     .option("--limit <n>", "Max results (1-100)")
     .description("List comment notifications for the current user")
     .action(async (opts: any) => {
       try {
         const params: Record<string, any> = {};
         if (opts.unread) params.unreadOnly = true;
+        if (opts.kind.length > 0) params.kinds = opts.kind;
         if (opts.limit !== undefined) {
           const limit = Number(opts.limit);
           if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
@@ -198,6 +239,12 @@ export function commentCommands(
     .command("read")
     .argument("[ids...]", "Notification event IDs")
     .option("--all", "Mark all notifications in the active drive as read")
+    .option(
+      "--kind <comment|mention>",
+      "Notification kind for --all (repeatable; default: comment)",
+      collect,
+      [] as string[]
+    )
     .description("Mark comment notifications as read")
     .action(async (ids: string[] | undefined, opts: any) => {
       try {
@@ -208,12 +255,15 @@ export function commentCommands(
         if (!opts.all && notificationIds.length === 0) {
           throw new Error("Provide one or more notification IDs or --all");
         }
+        if (!opts.all && opts.kind.length > 0) {
+          throw new Error("Use --kind only with --all");
+        }
         if (notificationIds.length > 100) {
           throw new Error("At most 100 notification IDs can be marked read at once");
         }
 
         const params = opts.all
-          ? { all: true }
+          ? { all: true, ...(opts.kind.length > 0 ? { kinds: opts.kind } : {}) }
           : { ids: notificationIds };
         const result = await callOp("comment-notification-read", params);
         console.log(JSON.stringify(result, null, 2));

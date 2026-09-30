@@ -77,6 +77,34 @@ export class ApiClient {
     return this.get("/auth/me");
   }
 
+  async getEvents(orgId: string, driveId: string, signal: AbortSignal): Promise<Response> {
+    const headers = new Headers({ Accept: "text/event-stream" });
+    if (this.apiKey) headers.set("Authorization", `Bearer ${this.apiKey}`);
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/orgs/${orgId}/drives/${driveId}/events`, { headers, signal });
+    } catch {
+      throw new Error(
+        `Cannot connect to agent-fs daemon at ${this.baseUrl}. Is it running? Start with: agent-fs daemon start`
+      );
+    }
+    if (!res.ok) {
+      let body: any;
+      const text = await res.text().catch(() => "");
+      try {
+        body = JSON.parse(text);
+      } catch {
+        throw new Error(
+          `Unexpected response from daemon (${res.status}): ${text || "empty"}`
+        );
+      }
+      const message = body.message ?? body.error ?? `Request failed (${res.status})`;
+      const suggestion = body.suggestion ? `\n  Suggestion: ${body.suggestion}` : "";
+      throw new Error(`${message}${suggestion}`);
+    }
+    return res;
+  }
+
   setApiKey(key: string): void {
     this.apiKey = key;
   }

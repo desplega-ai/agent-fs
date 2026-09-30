@@ -1,11 +1,14 @@
 import { detectMimeType, withUtf8Charset } from "@/core/ops/mime.js";
+import { PAGE_SCRIPT, PAGE_SCRIPT_HASH, SHARE_ASSETS, THEME_INIT_HASH, THEME_INIT_SCRIPT } from "./client.js";
+import type { MarkdownDocument } from "./markdown.js";
 
 /**
  * Server-side HTML for the public /share/:token page.
  *
  * Everything here is escape-by-construction: user content only ever reaches the
- * page through `escapeHtml`, the page carries no scripts (the CSP forbids them
- * too), and links/embeds are built from fixed shapes, never from file content.
+ * page through `escapeHtml`, the only scripts are the page's own static ones
+ * (allowed by hash in the CSP, see `client.ts`), and links/embeds are built
+ * from fixed shapes, never from file content.
  */
 
 const ESCAPES: Record<string, string> = {
@@ -139,68 +142,6 @@ export function isMarkdownSafeToRender(markdown: string): boolean {
   return markdown.length <= MAX_MARKDOWN_RENDER_CHARS && !DEEP_CONTAINER.test(markdown);
 }
 
-const ALIGN_CLASS: Record<string, string> = { left: "al-l", right: "al-r", center: "al-c" };
-
-/**
- * Render markdown to HTML with a whitelist renderer. Raw HTML in the source is
- * shown as text (never passed through), images are replaced by their alt text
- * (no remote loads from a public page), and links are restricted to http(s) and
- * mailto. Text is escaped in one place, the `text` callback.
- */
-export function renderMarkdownSafe(markdown: string): string {
-  const md = (Bun as any).markdown as
-    | { render?: (input: string, callbacks: Record<string, (...args: any[]) => string>) => string }
-    | undefined;
-  if (typeof md?.render !== "function") {
-    // Runtime without the markdown renderer: show the source, escaped.
-    return `<pre>${escapeHtml(markdown)}</pre>`;
-  }
-
-  const level = (meta: any): number => Math.min(6, Math.max(1, Number(meta?.level) || 1));
-
-  return md.render(markdown, {
-    text: (text: string) => escapeHtml(String(text)),
-    html: (children: string) => children, // already-escaped text: raw HTML is displayed, not interpreted
-    heading: (children: string, meta: any) => `<h${level(meta)}>${children}</h${level(meta)}>\n`,
-    paragraph: (children: string) => `<p>${children}</p>\n`,
-    blockquote: (children: string) => `<blockquote>${children}</blockquote>\n`,
-    code: (children: string) => `<pre><code>${children}</code></pre>\n`,
-    codespan: (children: string) => `<code>${children}</code>`,
-    hr: () => "<hr>\n",
-    strong: (children: string) => `<strong>${children}</strong>`,
-    emphasis: (children: string) => `<em>${children}</em>`,
-    strikethrough: (children: string) => `<del>${children}</del>`,
-    list: (children: string, meta: any) => {
-      if (!meta?.ordered) return `<ul>\n${children}</ul>\n`;
-      const start = Number(meta.start);
-      const attr = Number.isInteger(start) && start !== 1 ? ` start="${start}"` : "";
-      return `<ol${attr}>\n${children}</ol>\n`;
-    },
-    listItem: (children: string, meta: any) => {
-      const box = meta?.checked === true ? "&#9745; " : meta?.checked === false ? "&#9744; " : "";
-      return `<li>${box}${children}</li>\n`;
-    },
-    table: (children: string) => `<div class="table-wrap"><table>${children}</table></div>\n`,
-    thead: (children: string) => `<thead>${children}</thead>`,
-    tbody: (children: string) => `<tbody>${children}</tbody>`,
-    tr: (children: string) => `<tr>${children}</tr>`,
-    th: (children: string, meta: any) => {
-      const cls = ALIGN_CLASS[meta?.align as string];
-      return `<th${cls ? ` class="${cls}"` : ""}>${children}</th>`;
-    },
-    td: (children: string, meta: any) => {
-      const cls = ALIGN_CLASS[meta?.align as string];
-      return `<td${cls ? ` class="${cls}"` : ""}>${children}</td>`;
-    },
-    link: (children: string, meta: any) => {
-      const href = typeof meta?.href === "string" ? safeHref(meta.href) : null;
-      if (!href) return children;
-      return `<a href="${escapeHtml(href)}" rel="noopener noreferrer nofollow" target="_blank">${children}</a>`;
-    },
-    image: (children: string) => `<span class="img-alt">[image${children ? `: ${children}` : ""}]</span>`,
-  });
-}
-
 // --- Page ---
 
 export function formatBytes(bytes: number): string {
@@ -226,27 +167,101 @@ export function formatRemaining(ms: number): string {
   return `in ${days} days`;
 }
 
+const LIGHT = "--bg:#fff;--fg:#1a1a1a;--muted:#6b7280;--line:#e5e7eb;--card:#f6f7f9;--accent:#111827;--accent-fg:#fff;--link:#2563eb;--hl-kw:#cf222e;--hl-str:#0a3069;--hl-num:#0550ae;--hl-com:#6e7781;--hl-fn:#8250df;--hl-type:#953800;--hl-add:#dafbe1;--hl-del:#ffebe9;--note:#2563eb;--tip:#16a34a;--important:#8250df;--warning:#b45309;--caution:#dc2626";
+const DARK = "--bg:#0f1115;--fg:#e5e7eb;--muted:#9ca3af;--line:#262a33;--card:#161a21;--accent:#e5e7eb;--accent-fg:#0f1115;--link:#7aa2ff;--hl-kw:#ff7b72;--hl-str:#a5d6ff;--hl-num:#79c0ff;--hl-com:#8b949e;--hl-fn:#d2a8ff;--hl-type:#ffa657;--hl-add:#033a16;--hl-del:#67060c;--note:#6ea8fe;--tip:#4ade80;--important:#c4a5ff;--warning:#fbbf24;--caution:#f87171";
+const MONO = "ui-monospace,SFMono-Regular,Menlo,Consolas,monospace";
+
 const STYLE = `
-:root{color-scheme:light dark;--bg:#fff;--fg:#1a1a1a;--muted:#6b7280;--line:#e5e7eb;--card:#f9fafb;--accent:#111827;--accent-fg:#fff}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--fg:#e5e7eb;--muted:#9ca3af;--line:#262a33;--card:#161a21;--accent:#e5e7eb;--accent-fg:#0f1115}}
+:root{color-scheme:light dark;${LIGHT}}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){${DARK}}}
+:root[data-theme=light]{color-scheme:light}
+:root[data-theme=dark]{color-scheme:dark;${DARK}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-.bar{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg)}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-x:hidden}
+html:not(.js) .js-only{display:none!important}
+.bar{display:flex;gap:12px 16px;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10;background:var(--bg)}
+.bar-title{min-width:0}
 .bar h1{margin:0;font-size:16px;font-weight:600;overflow-wrap:anywhere}
 .sub{margin:2px 0 0;color:var(--muted);font-size:13px}
+.actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
 .btn{display:inline-block;padding:8px 16px;border-radius:8px;background:var(--accent);color:var(--accent-fg);font-weight:600;text-decoration:none;white-space:nowrap}
-.btn:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.btn:focus-visible,.tool:focus-visible,.theme-select:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
+.theme-select,.tool{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
+.tool:hover,.theme-select:hover{background:var(--card)}
 main{max-width:920px;margin:0 auto;padding:24px 20px}
+main.wide{max-width:1180px}
 .note{margin:0 0 16px;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--muted);font-size:13px}
-pre{margin:0;padding:16px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--card);font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
-article :is(h1,h2,h3,h4){line-height:1.25;margin:1.6em 0 .6em}
-article h1{font-size:1.8em}article h2{font-size:1.4em}article h3{font-size:1.15em}
-article p,article ul,article ol,article blockquote{margin:0 0 1em}
+pre{margin:0;padding:16px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--card);font:13px/1.5 ${MONO};white-space:pre-wrap;overflow-wrap:anywhere}
+.doc{min-width:0}
+.doc-body,.doc-main{min-width:0}
+.doc-tools{display:flex;gap:8px;justify-content:flex-end;margin:0 0 12px}
+.frontmatter{margin:0 0 24px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);font-size:14px}
+.fm{margin:0;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 20px}
+.fm-row{display:contents}
+.fm dt{color:var(--muted);font-weight:600}
+.fm dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.fm .fm{grid-template-columns:max-content minmax(0,1fr);font-size:13px}
+.fm-empty{color:var(--muted)}
+.fm-bool{font-family:${MONO};font-size:.9em}
+.fm-list{margin:0;padding-left:18px}
+.fm-raw{background:none;border:0;padding:0}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{padding:0 8px;border:1px solid var(--line);border-radius:999px;background:var(--bg);font-size:13px}
+article{font-size:16px;line-height:1.7;overflow-wrap:break-word}
+article>:first-child{margin-top:0}
+article :is(h1,h2,h3,h4,h5,h6){line-height:1.25;margin:1.6em 0 .6em;scroll-margin-top:80px}
+article h1{font-size:1.8em}article h2{font-size:1.4em;padding-bottom:.25em;border-bottom:1px solid var(--line)}article h3{font-size:1.15em}
+article p,article ul,article ol,article blockquote,article .callout{margin:0 0 1em}
+article li>ul,article li>ol{margin:0}
+article li.task{list-style:none}
+article li.task input{margin:0 .4em 0 -1.3em;vertical-align:middle}
 article blockquote{padding-left:14px;border-left:3px solid var(--line);color:var(--muted)}
-article code{padding:1px 5px;border-radius:4px;background:var(--card);font:.9em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-article pre code{padding:0;background:none}
-article a{color:inherit;text-decoration:underline}
+article code{padding:1px 5px;border-radius:4px;background:var(--card);font:.88em ${MONO}}
+article pre code{padding:0;background:none;font-size:13px}
+article a{color:var(--link);text-decoration:underline;text-underline-offset:2px}
 article hr{border:0;border-top:1px solid var(--line);margin:1.6em 0}
+.anchor{margin-left:.35em;color:var(--muted);text-decoration:none!important;opacity:0;font-weight:400}
+:is(h1,h2,h3,h4,h5,h6):hover>.anchor,.anchor:focus{opacity:1}
+@media (hover:none){.anchor{opacity:.5}}
+.code-block{position:relative;margin:0 0 1em}
+.code-block pre{white-space:pre;overflow-wrap:normal;overflow-x:auto}
+.code-block[data-lang]::before{content:attr(data-lang);position:absolute;top:6px;right:64px;color:var(--muted);font:11px ${MONO};pointer-events:none}
+.copy{position:absolute;top:6px;right:6px;font:12px system-ui,sans-serif;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:2px 8px;cursor:pointer;opacity:.85}
+.copy:hover{opacity:1;color:var(--fg)}
+.callout{padding:8px 14px;border-left:4px solid var(--c);border-radius:6px;background:var(--card)}
+.callout>:last-child{margin-bottom:0}
+.callout-title{margin:0 0 4px!important;font-weight:600;color:var(--c)}
+.callout-note{--c:var(--note)}.callout-tip{--c:var(--tip)}.callout-important{--c:var(--important)}.callout-warning{--c:var(--warning)}.callout-caution{--c:var(--caution)}
+.math-display{display:block;overflow-x:auto;overflow-y:hidden;padding:4px 0;text-align:center}
+.math:not(:has(.katex)){font-family:${MONO};font-size:.9em}
+.mermaid-block{margin:0 0 1em}
+.mermaid-block.rendered .mermaid-src{display:none}
+.mermaid-out{overflow-x:auto;text-align:center}
+.mermaid-out:empty{display:none}
+.mermaid-out svg{max-width:100%;height:auto}
+.mermaid-block.failed .mermaid-out{margin-top:6px;color:var(--muted);font-size:13px;text-align:left}
+.footnotes{font-size:.9em;color:var(--muted);margin-top:2em}
+.footnotes li:target,.fnref a:target{background:var(--card)}
+.fnref a{text-decoration:none}
+.fn-back{text-decoration:none}
+pre.source{white-space:pre-wrap}
+.toc{display:none}
+.toc-title{margin:0 0 8px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.toc ol,.toc-mobile ol{list-style:none;margin:0;padding:0}
+.toc a,.toc-mobile a{display:block;padding:3px 0 3px 10px;border-left:2px solid transparent;color:var(--muted);text-decoration:none;font-size:13px;line-height:1.4}
+.toc a:hover,.toc-mobile a:hover{color:var(--fg)}
+.toc a.active{color:var(--fg);border-left-color:var(--fg)}
+.toc .t2 a,.toc-mobile .t2 a{padding-left:22px}
+.toc-mobile{margin:0 0 16px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.toc-mobile summary{padding:8px 12px;cursor:pointer;font-size:14px;font-weight:600}
+.toc-mobile ol{padding:0 12px 10px}
+@media (min-width:1100px){
+.doc.has-toc{display:grid;grid-template-columns:minmax(0,1fr) 220px;column-gap:48px}
+.doc.has-toc>*{grid-column:1}
+.doc.has-toc>.toc{display:block;grid-column:2;grid-row:1/span 5;position:sticky;top:84px;align-self:start;max-height:calc(100vh - 110px);overflow:auto}
+.toc-mobile{display:none}
+}
 .table-wrap{overflow-x:auto;margin:0 0 1em}
 table{border-collapse:collapse;min-width:50%}
 th,td{padding:6px 12px;border:1px solid var(--line)}
@@ -254,6 +269,9 @@ th{background:var(--card)}
 .al-l{text-align:left}.al-r{text-align:right}.al-c{text-align:center}
 .img-alt{color:var(--muted);font-style:italic}
 .media{display:block;max-width:100%;margin:0 auto;border-radius:8px}
+img.media{cursor:zoom-in}
+img.media.zoomed{max-width:none;cursor:zoom-out}
+main:has(img.media.zoomed){max-width:none;overflow-x:auto}
 iframe.media{width:100%;height:80vh;border:1px solid var(--line)}
 audio.media,video.media{width:100%}
 .card{text-align:center;padding:48px 20px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
@@ -263,9 +281,43 @@ audio.media,video.media{width:100%}
 .center h1{font-size:22px;margin:0 0 10px}
 .center p{color:var(--muted)}
 footer{max-width:920px;margin:0 auto;padding:16px 20px 32px;color:var(--muted);font-size:12px}
+main.wide+footer{max-width:1180px}
+.hljs-keyword,.hljs-selector-tag,.hljs-meta .hljs-keyword,.hljs-doctag,.hljs-template-tag{color:var(--hl-kw)}
+.hljs-string,.hljs-regexp,.hljs-meta .hljs-string,.hljs-char.escape_{color:var(--hl-str)}
+.hljs-number,.hljs-literal,.hljs-attr,.hljs-attribute,.hljs-variable,.hljs-template-variable,.hljs-selector-attr,.hljs-selector-class,.hljs-selector-id,.hljs-meta,.hljs-symbol,.hljs-link{color:var(--hl-num)}
+.hljs-comment,.hljs-code,.hljs-formula,.hljs-quote{color:var(--hl-com);font-style:italic}
+.hljs-title,.hljs-title.function_,.hljs-section,.hljs-name{color:var(--hl-fn)}
+.hljs-built_in,.hljs-type,.hljs-title.class_,.hljs-params,.hljs-property,.hljs-bullet{color:var(--hl-type)}
+.hljs-addition{background:var(--hl-add)}.hljs-deletion{background:var(--hl-del)}
+.hljs-emphasis{font-style:italic}.hljs-strong{font-weight:600}
+@media (max-width:640px){
+.bar{padding:10px 14px;flex-wrap:wrap;position:static}
+.actions{width:100%;justify-content:space-between}
+main{padding:16px 14px}
+footer{padding:12px 14px 24px}
+.fm{grid-template-columns:minmax(0,1fr);gap:0}
+.fm dt{margin-top:6px}
+.fm .fm{gap:2px 12px}
+.fm .fm dt{margin-top:0}
+article th,article td{white-space:nowrap}
+article{font-size:16px}
+article h1{font-size:1.6em}article h2{font-size:1.3em}
+}
+@media print{
+:root,:root[data-theme]{color-scheme:light;${LIGHT}}
+body{font-size:11pt}
+.bar{position:static}
+.actions,.doc-tools,.toc,.toc-mobile,.copy,.anchor,footer,.note{display:none!important}
+main,main.wide{max-width:none;padding:0}
+.doc.has-toc{display:block}
+.code-block pre,pre{white-space:pre-wrap;overflow:visible}
+article a[href^="http"]::after{content:" (" attr(href) ")";font-size:.85em;color:var(--muted);overflow-wrap:anywhere}
+article :is(h1,h2,h3){break-after:avoid}
+.code-block,.callout,.mermaid-block,table,.frontmatter{break-inside:avoid}
+}
 `;
 
-function shell(title: string, body: string): string {
+function shell(title: string, body: string, opts: { scripts?: boolean } = {}): string {
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -273,12 +325,13 @@ function shell(title: string, body: string): string {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
 <title>${escapeHtml(title)}</title>
-<style>${STYLE}</style>
+${opts.scripts ? `<script>${THEME_INIT_SCRIPT}</script>\n` : ""}<style>${STYLE}</style>
 </head>
 <body>
 ${body}
-</body>
+${opts.scripts ? `<script>${PAGE_SCRIPT}</script>\n` : ""}</body>
 </html>
 `;
 }
@@ -321,7 +374,7 @@ export function renderPreviewBotPage(): string {
 }
 
 export type ShareBody =
-  | { kind: "markdown"; html: string }
+  | { kind: "markdown"; doc: MarkdownDocument; source: string }
   | { kind: "text"; text: string }
   | { kind: "embed"; tag: "img" | "iframe" | "audio" | "video"; src: string }
   | { kind: "none"; reason: string };
@@ -358,16 +411,51 @@ function renderEmbed(tag: "img" | "iframe" | "audio" | "video", rawSrc: string, 
   return `<video class="media" src="${src}" controls preload="metadata"></video>`;
 }
 
+/** Shown only when there are enough sections to be worth navigating. */
+const MIN_TOC_ENTRIES = 3;
+
+function renderTocList(doc: MarkdownDocument): string {
+  const top = Math.min(...doc.toc.map((e) => e.level));
+  const items = doc.toc.map(
+    (e) => `<li class="t${e.level - top + 1}"><a href="#${escapeHtml(e.id)}">${escapeHtml(e.text)}</a></li>`
+  );
+  return `<ol>${items.join("")}</ol>`;
+}
+
+function renderMarkdownBody(doc: MarkdownDocument, source: string): string {
+  const hasToc = doc.toc.length >= MIN_TOC_ENTRIES;
+  const list = hasToc ? renderTocList(doc) : "";
+  return `<div class="doc${hasToc ? " has-toc" : ""}">
+${hasToc ? `<details class="toc-mobile"><summary>Contents</summary>${list}</details>` : ""}
+<div class="doc-tools js-only"><button type="button" class="tool source-toggle" aria-pressed="false">View source</button><button type="button" class="tool copy-md">Copy markdown</button></div>
+<div class="doc-body">
+${doc.frontmatter ?? ""}
+<article>${doc.html}</article>
+</div>
+<pre class="source" hidden>${escapeHtml(source)}</pre>
+${hasToc ? `<nav class="toc" aria-label="Contents"><p class="toc-title">Contents</p>${list}</nav>` : ""}
+</div>`;
+}
+
 function renderBody(input: SharePageInput): string {
   const { body, filename } = input;
-  if (body.kind === "markdown") return `<article>${body.html}</article>`;
+  if (body.kind === "markdown") return renderMarkdownBody(body.doc, body.source);
   if (body.kind === "text") return `<pre>${escapeHtml(body.text)}</pre>`;
   if (body.kind === "embed") return renderEmbed(body.tag, body.src, filename);
   return `<div class="card"><h2>No preview available</h2><p>${escapeHtml(body.reason)}</p></div>`;
 }
 
+/** "4 min read" at a typical 220 words a minute. */
+export function formatReadingTime(words: number): string {
+  return `${Math.max(1, Math.round(words / 220))} min read`;
+}
+
+const THEME_PICKER = `<select class="theme-select js-only" aria-label="Theme">
+<option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+</select>`;
+
 export function renderSharePage(input: SharePageInput): string {
-  const { token, filename, size, mime, expiresAt, now, viewsLeft } = input;
+  const { token, filename, size, mime, expiresAt, now, viewsLeft, body } = input;
   const remaining = formatRemaining(expiresAt.getTime() - now.getTime());
   const expiry = `Expires <time datetime="${expiresAt.toISOString()}">${escapeHtml(
     expiresAt.toISOString().replace("T", " ").slice(0, 16)
@@ -382,39 +470,71 @@ export function renderSharePage(input: SharePageInput): string {
   }
 
   const type = mime === "application/octet-stream" ? "" : `${escapeHtml(mime)} · `;
+  const reading = body.kind === "markdown" ? `${formatReadingTime(body.doc.words)} · ` : "";
+  const wide = body.kind === "markdown" && body.doc.toc.length >= MIN_TOC_ENTRIES;
   return shell(
     `${filename} · agent-fs`,
     `<header class="bar">
-<div>
+<div class="bar-title">
 <h1>${escapeHtml(filename)}</h1>
-<p class="sub">${type}${escapeHtml(formatBytes(size))} · ${expiry}</p>
+<p class="sub">${type}${escapeHtml(formatBytes(size))} · ${reading}${expiry}</p>
 </div>
+<div class="actions">
+${THEME_PICKER}
 <a class="btn" href="/share/${token}/download${grantQuery(input.grant)}">Download</a>
+</div>
 </header>
-<main>
+<main${wide ? ` class="wide"` : ""}>
 ${viewsNote}
 ${renderBody(input)}
 </main>
-<footer>Shared with agent-fs</footer>`
+<footer>Shared with agent-fs</footer>`,
+    { scripts: true }
   );
+}
+
+/** Scripts the page body needs, which decides what its CSP lets it load. */
+export function pageScripts(body: ShareBody): PageScripts {
+  return body.kind === "markdown" ? { ...body.doc.features } : {};
 }
 
 // --- Headers ---
 
+export interface PageScripts {
+  mermaid?: boolean;
+  math?: boolean;
+  highlight?: boolean;
+}
+
 /**
- * Deny by default; open only what the page actually uses. No script-src at all,
- * so nothing can execute even if the escaping above had a hole. `embedSource`
- * is where the embed loads from (`'self'` or one origin); null when the page
+ * Deny by default; open only what the page actually uses. `embedSource` is
+ * where the embed loads from (`'self'` or one origin); null when the page
  * embeds nothing.
+ *
+ * `scripts` is set only for the preview page. It allows the page's two inline
+ * scripts by hash (never 'unsafe-inline', so nothing injected into the markup
+ * could run even if the escaping had a hole) and, when the document needs
+ * them, the exact version-pinned CDN files of the renderers, which the page
+ * loads with Subresource Integrity. Pages without it carry no script-src.
  */
-export function buildCsp(embedSource: string | null): string {
+export function buildCsp(embedSource: string | null, scripts?: PageScripts | null): string {
+  const styles = ["'unsafe-inline'"];
+  if (scripts?.math) styles.push(SHARE_ASSETS.katexCss.src);
   const directives = [
     "default-src 'none'",
-    "style-src 'unsafe-inline'",
+    `style-src ${styles.join(" ")}`,
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
   ];
+  if (scripts) {
+    const sources = [THEME_INIT_HASH, PAGE_SCRIPT_HASH];
+    if (scripts.highlight) sources.push(SHARE_ASSETS.highlight.src);
+    if (scripts.math) sources.push(SHARE_ASSETS.katex.src);
+    if (scripts.mermaid) sources.push(SHARE_ASSETS.mermaid.src);
+    directives.push(`script-src ${sources.join(" ")}`);
+    if (scripts.math) directives.push(`font-src ${SHARE_ASSETS.katexFonts}`);
+  }
   if (embedSource) {
     directives.push(
       `img-src ${embedSource}`,
