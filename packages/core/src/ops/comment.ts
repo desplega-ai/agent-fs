@@ -304,15 +304,14 @@ export async function commentList(
   if (params.pathPrefix !== undefined) {
     const prefix = normalizePrefix(params.pathPrefix);
     if (prefix !== "/") {
-      const escapedPrefix = prefix.replace(/[\\%_]/g, "\\$&");
       const relativePrefix = prefix.slice(1);
-      const escapedRelativePrefix = relativePrefix.replace(/[\\%_]/g, "\\$&");
+      // "0" is the BINARY-collation upper bound after a trailing "/".
+      const prefixUpper = prefix.slice(0, -1) + "0";
+      const relativePrefixUpper = relativePrefix.slice(0, -1) + "0";
       conditions.push(sql`(
-        (${schema.comments.path} LIKE ${escapedPrefix + "%"} ESCAPE '\\'
-          AND substr(${schema.comments.path}, 1, length(${prefix})) = ${prefix})
+        (${schema.comments.path} >= ${prefix} AND ${schema.comments.path} < ${prefixUpper})
         OR
-        (${schema.comments.path} LIKE ${escapedRelativePrefix + "%"} ESCAPE '\\'
-          AND substr(${schema.comments.path}, 1, length(${relativePrefix})) = ${relativePrefix})
+        (${schema.comments.path} >= ${relativePrefix} AND ${schema.comments.path} < ${relativePrefixUpper})
       )`);
     }
   }

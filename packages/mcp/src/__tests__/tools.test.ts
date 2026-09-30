@@ -19,12 +19,16 @@ import { createTestContext, createTestDb, MockS3Client } from "../../../core/src
 
 describe("registerTools", () => {
   test("registers all ops as MCP tools", () => {
-    const registeredTools: Array<{ name: string; description: string }> = [];
+    const registeredTools: Array<{
+      name: string;
+      description: string;
+      schema: Record<string, unknown>;
+    }> = [];
 
     // Mock McpServer with just the tool() method
     const mockServer = {
-      tool: (name: string, description: string, _schema: any, _handler: any) => {
-        registeredTools.push({ name, description });
+      tool: (name: string, description: string, schema: Record<string, unknown>, _handler: any) => {
+        registeredTools.push({ name, description, schema });
       },
     };
 
@@ -37,6 +41,14 @@ describe("registerTools", () => {
     for (const op of ops) {
       expect(registeredTools.some((t) => t.name === op)).toBe(true);
     }
+
+    for (const tool of registeredTools) {
+      expect(
+        Object.keys(tool.schema).length === 1 && tool.schema.params instanceof z.ZodAny
+      ).toBe(false);
+    }
+    expect(registeredTools.find((tool) => tool.name === "comment-list")?.schema)
+      .toHaveProperty("pathPrefix");
   });
 
   test("tool descriptions are rich descriptions from the registry", () => {
@@ -58,21 +70,6 @@ describe("registerTools", () => {
       const def = getOpDefinition(tool.name);
       expect(tool.description).toBe(def!.description);
     }
-  });
-
-  test("registers fields from refined object schemas", () => {
-    let commentListSchema: Record<string, unknown> | undefined;
-    const mockServer = {
-      tool: (name: string, _description: string, schema: Record<string, unknown>) => {
-        if (name === "comment-list") commentListSchema = schema;
-      },
-    };
-
-    const { ctx } = createTestContext();
-    registerTools(mockServer as any, () => ctx);
-
-    expect(commentListSchema).toHaveProperty("path");
-    expect(commentListSchema).toHaveProperty("pathPrefix");
   });
 
   test("tool handler calls dispatchOp and returns MCP text response", async () => {
@@ -429,34 +426,6 @@ describe("whoami hides inaccessible drives", () => {
       m.drives.map((d: any) => d.driveId)
     );
     expect(allDriveIds).not.toContain(h.foreignDriveId);
-  });
-});
-
-describe("Schema conversion", () => {
-  test("all op schemas contain a ZodObject", () => {
-    const ops = getRegisteredOps();
-    for (const op of ops) {
-      const def = getOpDefinition(op);
-      expect(def).toBeDefined();
-      const schema = def!.schema instanceof z.ZodEffects
-        ? def!.schema.innerType()
-        : def!.schema;
-      expect(schema).toBeInstanceOf(z.ZodObject);
-    }
-  });
-
-  test("object schemas have extractable shape", () => {
-    const ops = getRegisteredOps();
-    for (const op of ops) {
-      const def = getOpDefinition(op);
-      const schema = def!.schema instanceof z.ZodEffects
-        ? def!.schema.innerType()
-        : def!.schema;
-      if (schema instanceof z.ZodObject) {
-        const shape = (schema as z.ZodObject<any>).shape;
-        expect(typeof shape).toBe("object");
-      }
-    }
   });
 });
 

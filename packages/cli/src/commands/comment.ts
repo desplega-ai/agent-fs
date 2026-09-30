@@ -87,6 +87,9 @@ export function commentCommands(
     .description("List comments")
     .action(async (path: string | undefined, opts: any) => {
       try {
+        if (path && opts.prefix !== undefined) {
+          throw new Error("Use either <path> or --prefix, not both");
+        }
         const params: Record<string, any> = {};
         if (path) params.path = path;
         if (opts.prefix !== undefined) params.pathPrefix = opts.prefix;

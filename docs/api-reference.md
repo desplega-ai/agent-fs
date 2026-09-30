@@ -140,7 +140,8 @@ All 26 operations are dispatched through `POST /orgs/{orgId}/ops`. Each expects 
 | **Version Control** | `log`, `diff`, `revert` |
 | **Search** | `grep`, `fts`, `search` |
 | **Maintenance** | `recent`, `reindex` |
-| **Comments** | `comment-add`, `comment-list`, `comment-get`, `comment-update`, `comment-delete`, `comment-resolve` |
+| **Comments** | `comment-add`, `comment-list` (supports `pathPrefix`), `comment-get`, `comment-update`, `comment-delete`, `comment-resolve` |
+| **Drive Members** | `drive-members` |
 | **Sharing** | `signed-url`, `share-create`, `share-revoke` |
 
 For parameter details, see the [OpenAPI spec](./openapi.json).

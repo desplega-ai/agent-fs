@@ -265,6 +265,11 @@ describe("commentList", () => {
       body: "resolved",
     });
     await commentResolve(ctx, { id: resolved.id, resolved: true });
+    const outsideResolved = await commentAdd(ctx, {
+      path: "/outside-resolved/a.md",
+      body: "outside resolved",
+    });
+    await commentResolve(ctx, { id: outsideResolved.id, resolved: true });
 
     const defaultList = await commentList(ctx, { pathPrefix: "prefix-resolved/" });
     expect(defaultList.comments.map((comment) => comment.id)).toEqual([unresolved.id]);
@@ -274,6 +279,7 @@ describe("commentList", () => {
       resolved: true,
     });
     expect(withResolved.comments.map((comment) => comment.id)).toContain(resolved.id);
+    expect(withResolved.comments.map((comment) => comment.id)).not.toContain(outsideResolved.id);
 
     const rootList = await commentList(ctx, { pathPrefix: "/" });
     expect(rootList.comments.map((comment) => comment.id)).toContain(unresolved.id);

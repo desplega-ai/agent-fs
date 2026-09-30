@@ -112,7 +112,7 @@ describe("drive-members formatter", () => {
   test("prints a table without roles", () => {
     const result = {
       members: [
-        { userId: "user-1", email: "a@example.com", displayName: "Alice" },
+        { userId: "user-1", email: "a@example.com", displayName: "Alice", role: "admin" },
         { userId: "user-2", email: "b@example.com", displayName: null },
       ],
     };

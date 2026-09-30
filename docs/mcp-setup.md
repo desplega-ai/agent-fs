@@ -113,11 +113,12 @@ The server advertises tools via the standard MCP `tools/list` method.
 | Tool | Description |
 |------|-------------|
 | `comment-add` | Add a comment to a file. Supports line ranges and threading. |
-| `comment-list` | List comments on a file with inline replies. Filter by path, resolved state, or parent. |
+| `comment-list` | List comments on a file with inline replies. Filter by path, `pathPrefix`, resolved state, or parent. |
 | `comment-get` | Get a single comment by ID with all replies. |
 | `comment-update` | Update a comment's body (author only). |
 | `comment-delete` | Soft-delete a comment (author only). |
 | `comment-resolve` | Resolve or reopen a root comment. |
+| `drive-members` | List the active drive's member emails and display names. |
 
 ### Identity & Member Management
 
