@@ -1,8 +1,18 @@
 import { getConfig } from "@/core";
 
+const DEFAULT_HTTP_TIMEOUT_MS = 60_000;
+const MAX_RETRIES = 2;
+const READ_ONLY_OPS = new Set([
+  "cat", "ls", "stat", "reveal", "tail", "log", "diff", "recent",
+  "grep", "fts", "search", "vec-search", "tree", "glob", "sql",
+  "signed-url", "comment-list", "comment-get", "comment-notification-list",
+  "drive-members",
+]);
+
 export class ApiClient {
   private baseUrl: string;
   private apiKey: string;
+  private timeoutMs: number;
 
   constructor() {
     const config = getConfig();
@@ -14,23 +24,21 @@ export class ApiClient {
       process.env.AGENT_FS_API_KEY ??
       config.apiKey ??
       config.auth.apiKey;
+    this.timeoutMs = getTimeoutMs(process.env.AGENT_FS_HTTP_TIMEOUT_MS);
   }
 
-  private async request(path: string, opts?: RequestInit): Promise<any> {
+  private async request(
+    path: string,
+    opts?: RequestInit,
+    retryTimeout = (opts?.method ?? "GET").toUpperCase() === "GET"
+  ): Promise<any> {
     const headers = new Headers(opts?.headers);
     if (this.apiKey) {
       headers.set("Authorization", `Bearer ${this.apiKey}`);
     }
     headers.set("Content-Type", "application/json");
 
-    let res: Response;
-    try {
-      res = await fetch(`${this.baseUrl}${path}`, { ...opts, headers });
-    } catch (err) {
-      throw new Error(
-        `Cannot connect to agent-fs daemon at ${this.baseUrl}. Is it running? Start with: agent-fs daemon start`
-      );
-    }
+    const res = await this.fetchWithTimeout(`${this.baseUrl}${path}`, { ...opts, headers }, retryTimeout);
 
     let body: any;
     try {
@@ -70,7 +78,11 @@ export class ApiClient {
   }
 
   async callOp(orgId: string, op: string, params: Record<string, any>): Promise<any> {
-    return this.post(`/orgs/${orgId}/ops`, { op, ...params });
+    return this.request(
+      `/orgs/${orgId}/ops`,
+      { method: "POST", body: JSON.stringify({ op, ...params }) },
+      READ_ONLY_OPS.has(op)
+    );
   }
 
   async getMe(): Promise<{ userId: string; email: string; defaultOrgId: string | null; defaultDriveId: string | null }> {
@@ -154,16 +166,13 @@ export class ApiClient {
     const encoded = encodeURI(path.replace(/^\/+/, ""));
     const url = `${this.baseUrl}/orgs/${orgId}/drives/${driveId}/files/${encoded}/raw`;
 
-    let res: Response;
-    try {
-      // Cast the Uint8Array body via BufferSource — fetch's lib.dom type is
-      // tighter than the runtime accepts (Bun handles it directly).
-      res = await fetch(url, { method: "PUT", headers, body: bytes as BodyInit });
-    } catch (err) {
-      throw new Error(
-        `Cannot connect to agent-fs daemon at ${this.baseUrl}. Is it running? Start with: agent-fs daemon start`
-      );
-    }
+    // Cast the Uint8Array body via BufferSource. fetch's lib.dom type is
+    // tighter than the runtime accepts. Bun handles it directly.
+    const res = await this.fetchWithTimeout(
+      url,
+      { method: "PUT", headers, body: bytes as BodyInit },
+      false
+    );
 
     let body: any;
     const text = await res.text();
@@ -205,14 +214,7 @@ export class ApiClient {
     const encoded = encodeURI(path.replace(/^\/+/, ""));
     const url = `${this.baseUrl}/orgs/${orgId}/drives/${driveId}/files/${encoded}/raw`;
 
-    let res: Response;
-    try {
-      res = await fetch(url, { method: "GET", headers });
-    } catch (err) {
-      throw new Error(
-        `Cannot connect to agent-fs daemon at ${this.baseUrl}. Is it running? Start with: agent-fs daemon start`
-      );
-    }
+    const res = await this.fetchWithTimeout(url, { method: "GET", headers }, true);
 
     if (!res.ok) {
       let body: any;
@@ -236,6 +238,42 @@ export class ApiClient {
       contentHash: res.headers.get("X-Agent-FS-Content-Hash"),
     };
   }
+
+  private async fetchWithTimeout(
+    url: string,
+    opts: RequestInit,
+    retryTimeout: boolean
+  ): Promise<Response> {
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        return await fetch(url, {
+          ...opts,
+          signal: AbortSignal.timeout(this.timeoutMs),
+        });
+      } catch (err) {
+        const timedOut = (err as { name?: string }).name === "TimeoutError";
+        if ((timedOut && !retryTimeout) || attempt === MAX_RETRIES) {
+          if (timedOut) {
+            throw new Error(`agent-fs did not answer within ${formatSeconds(this.timeoutMs)} s`);
+          }
+          throw new Error(
+            `Cannot connect to agent-fs daemon at ${this.baseUrl}. Is it running? Start with: agent-fs daemon start`
+          );
+        }
+        await Bun.sleep(100 * 2 ** attempt);
+      }
+    }
+    throw new Error("Unreachable");
+  }
+}
+
+function getTimeoutMs(value: string | undefined): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_HTTP_TIMEOUT_MS;
+}
+
+function formatSeconds(milliseconds: number): string {
+  return String(milliseconds / 1_000);
 }
 
 function parseOptionalInt(value: string | null): number | null {

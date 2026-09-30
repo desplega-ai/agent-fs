@@ -32,6 +32,10 @@ export type {
   HeadObjectResult,
 } from "../storage/adapter.js";
 
+const S3_CONNECTION_TIMEOUT_MS = 5_000;
+const S3_SOCKET_TIMEOUT_MS = 30_000;
+const S3_MAX_ATTEMPTS = 3;
+
 export class AgentS3Client implements StorageAdapter {
   private client: S3Client;
   private presignClient: S3Client;
@@ -49,11 +53,18 @@ export class AgentS3Client implements StorageAdapter {
       accessKeyId: config.accessKeyId,
       secretAccessKey: config.secretAccessKey,
     };
+    // socketTimeout only closes an idle socket. requestTimeout measures the
+    // entire request, including a streaming upload, so it would cap large uploads.
     this.client = new S3Client({
       region: config.region,
       endpoint: config.endpoint,
       credentials,
       forcePathStyle: true, // Required for MinIO and most S3-compatible providers
+      requestHandler: {
+        connectionTimeout: S3_CONNECTION_TIMEOUT_MS,
+        socketTimeout: S3_SOCKET_TIMEOUT_MS,
+      },
+      maxAttempts: S3_MAX_ATTEMPTS,
     });
     this.presignClient = new S3Client({
       region: config.region,

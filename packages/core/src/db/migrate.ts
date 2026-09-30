@@ -16,7 +16,14 @@ export function runMigrations(sqlite: Database): void {
     sqlite.exec("ALTER TABLE users ADD COLUMN display_name TEXT");
   }
 
-  // Migration 1: add file_versions.content_hash column (Phase 1 of FUSE mount).
+  // Migration 1: authenticate with an indexed API key hash.
+  // Fresh databases create this in CREATE_TABLES_SQL. The index is not UNIQUE
+  // on purpose: a duplicate hash in an old database must never stop boot.
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_users_api_key_hash ON users(api_key_hash)"
+  );
+
+  // Migration 2: add file_versions.content_hash column (Phase 1 of FUSE mount).
   //
   // CREATE_TABLES_SQL already declares `content_hash TEXT` on fresh DBs, so
   // this only fires for DBs created before the column existed.
@@ -28,7 +35,7 @@ export function runMigrations(sqlite: Database): void {
     sqlite.exec("ALTER TABLE file_versions ADD COLUMN content_hash TEXT");
   }
 
-  // Migration 2: add UNIQUE(path, drive_id, version) on file_versions.
+  // Migration 3: add UNIQUE(path, drive_id, version) on file_versions.
   //
   // CREATE_TABLES_SQL already creates this for fresh DBs (via the same
   // statement), so this is the same statement re-run for safety.
@@ -37,7 +44,7 @@ export function runMigrations(sqlite: Database): void {
       "ON file_versions(path, drive_id, version)"
   );
 
-  // Migration 2b: add the comment text-quote anchor columns. All nullable, so
+  // Migration 3b: add the comment text-quote anchor columns. All nullable, so
   // existing rows keep resolving through line_start/line_end + quoted_content.
   const commentCols = sqlite
     .prepare("PRAGMA table_info(comments)")
@@ -48,7 +55,7 @@ export function runMigrations(sqlite: Database): void {
     }
   }
 
-  // Migration 3: backfill explicit drive memberships (multi-tenant RBAC).
+  // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //
   // Drive visibility is strict explicit membership: drives with zero
   // `drive_members` rows are visible to no one. Older DBs may contain
