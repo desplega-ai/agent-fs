@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { eq } from "drizzle-orm";
 import { createDatabase, schema } from "../../db/index.js";
+import { MockS3Client } from "../../test-utils.js";
 import type { OpContext } from "../types.js";
 import {
   commentAdd,
@@ -13,6 +14,7 @@ import {
   commentDelete,
   commentResolve,
 } from "../comment.js";
+import { write } from "../write.js";
 import { dispatchOp } from "../index.js";
 import { NotFoundError, ValidationError, PermissionDeniedError } from "../../errors.js";
 
@@ -94,6 +96,36 @@ describe("commentAdd", () => {
 
     expect(result.lineStart).toBe(10);
     expect(result.lineEnd).toBe(20);
+  });
+
+  test("captures the current file version for both path forms", async () => {
+    const originalS3 = ctx.s3;
+    ctx.s3 = new MockS3Client();
+
+    try {
+      const file = await write(ctx, {
+        path: "/docs/a.md",
+        content: "Current content",
+      });
+      const relative = await commentAdd(ctx, {
+        path: "docs/a.md",
+        body: "Relative path comment",
+      });
+      const absolute = await commentAdd(ctx, {
+        path: "/docs/a.md",
+        body: "Absolute path comment",
+      });
+
+      const relativeComment = await commentGet(ctx, { id: relative.id });
+      const absoluteComment = await commentGet(ctx, { id: absolute.id });
+
+      expect(relativeComment.comment.path).toBe("docs/a.md");
+      expect(relativeComment.comment.fileVersion).toBe(file.version);
+      expect(absoluteComment.comment.path).toBe("/docs/a.md");
+      expect(absoluteComment.comment.fileVersion).toBe(file.version);
+    } finally {
+      ctx.s3 = originalS3;
+    }
   });
 
   test("creates a reply and resolves path from parent", async () => {

@@ -19,7 +19,7 @@ import type {
   CommentQuote,
 } from "./types.js";
 import { NotFoundError, ValidationError, PermissionDeniedError } from "../errors.js";
-import { normalizePrefix } from "./paths.js";
+import { normalizePath, normalizePrefix } from "./paths.js";
 import { publishDriveEvent, type DriveEvent } from "../events/bus.js";
 import {
   COMMENT_MENTION_EVENT,
@@ -247,7 +247,7 @@ export async function commentAdd(
     .from(schema.fileVersions)
     .where(
       and(
-        eq(schema.fileVersions.path, path),
+        eq(schema.fileVersions.path, normalizePath(path)),
         eq(schema.fileVersions.driveId, ctx.driveId)
       )
     )
