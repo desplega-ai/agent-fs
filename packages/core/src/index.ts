@@ -60,6 +60,7 @@ export {
   commentUpdate,
   commentDelete,
   commentResolve,
+  driveMembers,
 } from "./ops/index.js";
 export {
   getS3Key,
@@ -114,6 +115,9 @@ export type {
   CommentDeleteResult,
   CommentResolveParams,
   CommentResolveResult,
+  DriveMembersParams,
+  DriveMember,
+  DriveMembersResult,
 } from "./ops/types.js";
 export {
   createUser,
@@ -137,6 +141,7 @@ export {
   getDrive,
   setDriveMember,
   listDriveMembers,
+  listDriveMembersPublic,
   updateDriveMemberRole,
   removeDriveMember,
   checkPermission,

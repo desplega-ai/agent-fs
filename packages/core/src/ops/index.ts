@@ -40,6 +40,7 @@ import {
   commentNotificationList,
   commentNotificationRead,
 } from "./comment-notification.js";
+import { driveMembers } from "./drive-members.js";
 
 export interface OpDefinition {
   description: string;
@@ -297,16 +298,22 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-list": {
-    description: "List comments on a file. Filter by path, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with inline replies.",
+    description: "List comments on a file or below a path prefix. Filter by path, pathPrefix, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with inline replies.",
     handler: commentList,
-    schema: z.object({
-      path: z.string().optional(),
-      parentId: z.string().optional(),
-      resolved: z.boolean().optional(),
-      orgId: z.string().optional(),
-      limit: z.number().int().min(1).optional(),
-      offset: z.number().int().min(0).optional(),
-    }),
+    schema: z
+      .object({
+        path: z.string().optional(),
+        pathPrefix: z.string().optional(),
+        parentId: z.string().optional(),
+        resolved: z.boolean().optional(),
+        orgId: z.string().optional(),
+        limit: z.number().int().min(1).optional(),
+        offset: z.number().int().min(0).optional(),
+      })
+      .refine(
+        ({ path, pathPrefix }) => path === undefined || pathPrefix === undefined,
+        { message: "path and pathPrefix cannot be used together" }
+      ),
   },
   "comment-get": {
     description: "Get a single comment by ID with all its replies. Returns { comment, replies }.",
@@ -354,6 +361,11 @@ const opRegistry: Record<string, OpDefinition> = {
       ids: z.array(z.string()).min(1).max(100).optional(),
       all: z.literal(true).optional(),
     }),
+  },
+  "drive-members": {
+    description: "List members of the active drive. Returns { members } with userId, email, and displayName. Membership roles are not included.",
+    handler: driveMembers,
+    schema: z.object({}),
   },
 };
 
@@ -403,5 +415,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead };
+export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers };
 export type * from "./types.js";

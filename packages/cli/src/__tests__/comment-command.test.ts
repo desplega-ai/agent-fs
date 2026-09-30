@@ -39,4 +39,24 @@ describe("comment commands", () => {
       },
     ]);
   });
+
+  test("maps --prefix to pathPrefix", async () => {
+    const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
+    const client = {
+      callOp: async (_orgId: string, op: string, params: Record<string, unknown>) => {
+        calls.push({ op, params });
+        return { comments: [] };
+      },
+    } as Pick<ApiClient, "callOp"> as ApiClient;
+
+    const command = commentCommands(client, () => "org-1", () => "drive-2");
+    await command.parseAsync(["list", "--prefix", "docs/"], { from: "user" });
+
+    expect(calls).toEqual([
+      {
+        op: "comment-list",
+        params: { pathPrefix: "docs/", driveId: "drive-2" },
+      },
+    ]);
+  });
 });

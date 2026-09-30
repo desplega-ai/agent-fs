@@ -283,6 +283,7 @@ export interface CommentAddResult {
 
 export interface CommentListParams {
   path?: string;
+  pathPrefix?: string;
   parentId?: string;
   resolved?: boolean;
   orgId?: string;
@@ -392,6 +393,20 @@ export interface CommentNotificationReadParams {
 
 export interface CommentNotificationReadResult {
   markedRead: number;
+}
+
+// --- Drive member types ---
+
+export interface DriveMembersParams {}
+
+export interface DriveMember {
+  userId: string;
+  email: string;
+  displayName: string | null;
+}
+
+export interface DriveMembersResult {
+  members: DriveMember[];
 }
 
 // --- Tree types ---

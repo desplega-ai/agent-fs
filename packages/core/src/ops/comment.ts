@@ -19,6 +19,7 @@ import type {
   CommentQuote,
 } from "./types.js";
 import { NotFoundError, ValidationError, PermissionDeniedError } from "../errors.js";
+import { normalizePrefix } from "./paths.js";
 
 // --- Event helper ---
 
@@ -153,7 +154,8 @@ function toCommentEntry(row: any): CommentEntry {
   };
 }
 
-// Only display names leave this lookup. Membership roles and emails remain private.
+// This lookup adds display names to comments. Member emails are available through
+// drive-members, while membership roles remain private to admin surfaces.
 function addAuthorNames<T extends { author: string; authorDisplayName?: string }>(ctx: OpContext, entries: T[]): T[] {
   const ids = [...new Set(entries.map((entry) => entry.author))];
   if (!ids.length) return entries;
@@ -297,6 +299,22 @@ export async function commentList(
 
   if (params.path) {
     conditions.push(eq(schema.comments.path, params.path));
+  }
+
+  if (params.pathPrefix !== undefined) {
+    const prefix = normalizePrefix(params.pathPrefix);
+    if (prefix !== "/") {
+      const escapedPrefix = prefix.replace(/[\\%_]/g, "\\$&");
+      const relativePrefix = prefix.slice(1);
+      const escapedRelativePrefix = relativePrefix.replace(/[\\%_]/g, "\\$&");
+      conditions.push(sql`(
+        (${schema.comments.path} LIKE ${escapedPrefix + "%"} ESCAPE '\\'
+          AND substr(${schema.comments.path}, 1, length(${prefix})) = ${prefix})
+        OR
+        (${schema.comments.path} LIKE ${escapedRelativePrefix + "%"} ESCAPE '\\'
+          AND substr(${schema.comments.path}, 1, length(${relativePrefix})) = ${relativePrefix})
+      )`);
+    }
   }
 
   if (params.parentId) {

@@ -60,6 +60,21 @@ describe("registerTools", () => {
     }
   });
 
+  test("registers fields from refined object schemas", () => {
+    let commentListSchema: Record<string, unknown> | undefined;
+    const mockServer = {
+      tool: (name: string, _description: string, schema: Record<string, unknown>) => {
+        if (name === "comment-list") commentListSchema = schema;
+      },
+    };
+
+    const { ctx } = createTestContext();
+    registerTools(mockServer as any, () => ctx);
+
+    expect(commentListSchema).toHaveProperty("path");
+    expect(commentListSchema).toHaveProperty("pathPrefix");
+  });
+
   test("tool handler calls dispatchOp and returns MCP text response", async () => {
     let capturedHandler: ((params: any) => Promise<any>) | null = null;
 
@@ -418,22 +433,27 @@ describe("whoami hides inaccessible drives", () => {
 });
 
 describe("Schema conversion", () => {
-  test("all op schemas are ZodObject instances", () => {
+  test("all op schemas contain a ZodObject", () => {
     const ops = getRegisteredOps();
     for (const op of ops) {
       const def = getOpDefinition(op);
       expect(def).toBeDefined();
-      // All our op schemas should be ZodObject
-      expect(def!.schema).toBeInstanceOf(z.ZodObject);
+      const schema = def!.schema instanceof z.ZodEffects
+        ? def!.schema.innerType()
+        : def!.schema;
+      expect(schema).toBeInstanceOf(z.ZodObject);
     }
   });
 
-  test("ZodObject schemas have extractable shape", () => {
+  test("object schemas have extractable shape", () => {
     const ops = getRegisteredOps();
     for (const op of ops) {
       const def = getOpDefinition(op);
-      if (def!.schema instanceof z.ZodObject) {
-        const shape = (def!.schema as z.ZodObject<any>).shape;
+      const schema = def!.schema instanceof z.ZodEffects
+        ? def!.schema.innerType()
+        : def!.schema;
+      if (schema instanceof z.ZodObject) {
+        const shape = (schema as z.ZodObject<any>).shape;
         expect(typeof shape).toBe("object");
       }
     }

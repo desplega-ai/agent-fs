@@ -202,7 +202,7 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 |---------|-------|-------------|
 | `comment add` | `agent-fs comment add <path> --body <text> [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits; prefix/suffix pick the right occurrence when the text repeats |
 | `comment reply` | `agent-fs comment reply <comment-id> --body <text>` | Reply to a comment |
-| `comment list` | `agent-fs comment list [path]` | List comments (with inline replies) |
+| `comment list` | `agent-fs comment list [path] [--prefix <path>]` | List comments with inline replies. Use `--prefix` for all comments below a directory. Do not combine a positional path with `--prefix`. |
 | `comment get` | `agent-fs comment get <id>` | Get a comment with its replies |
 | `comment update` | `agent-fs comment update <id> --body <text>` | Update a comment (author only) |
 | `comment delete` | `agent-fs comment delete <id>` | Soft-delete a comment (author only) |
@@ -224,6 +224,7 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 | Command | Usage | Description |
 |---------|-------|-------------|
+| `members` | `agent-fs members` | List the active drive's members with user ID, email, and display name. Available to every drive member. Roles are omitted. |
 | `member list` | `agent-fs member list` | List org members (use `--drive <id>` for drive members) |
 | `member invite` | `agent-fs member invite <email> --role <role>` | Invite user to org (viewer/editor/admin) |
 | `member update-role` | `agent-fs member update-role <email> --role <role>` | Update org role (use `--drive <id>` for drive role) |
@@ -232,7 +233,7 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 The `--drive` flag is a global option — place it before the subcommand: `agent-fs --drive <id> member list`.
 
-Member commands are admin-gated: org-scoped commands require org `admin`; drive-scoped commands (`--drive <id>`) require drive `admin` or admin of the owning org, and the drive must belong to the current org. Non-admins get a permission error; org/drive IDs outside your memberships return "not found".
+`members` is viewer-accessible and returns no roles. The `member` management commands remain admin-gated. Org-scoped commands require org `admin`. Drive-scoped commands (`--drive <id>`) require drive `admin` or admin of the owning org, and the drive must belong to the current org. Non-admins get a permission error. Org or drive IDs outside your memberships return "not found".
 
 ### Drive Management
 
@@ -353,6 +354,9 @@ agent-fs comment reply <comment-id> --body "Added in v3"
 # List comments
 agent-fs comment list docs/spec.md
 
+# List unresolved comments below a directory
+agent-fs comment list --prefix docs/
+
 # Check unread notifications (the returned IDs are notification event IDs)
 agent-fs comment notifications --unread --limit 20
 
@@ -382,6 +386,9 @@ agent-fs drive current
 ### Manage members
 
 ```bash
+# List active-drive members without exposing roles
+agent-fs members
+
 # List org members
 agent-fs member list
 
@@ -525,4 +532,5 @@ who can read your comments. Only your authenticated profile can be edited.
 HTTP: `GET /auth/profile`, `PATCH /auth/profile` with `{ "displayName": "Taras" }`
 (or `null` to clear). MCP: `profile-get`, `profile-set` with `displayName`.
 The web account menu has **Edit profile**. Comment responses include
-`authorDisplayName` when set; emails and member roles remain admin-only.
+`authorDisplayName` when set. Every drive member can list member emails and
+display names with `agent-fs members`. Member roles remain admin-only.

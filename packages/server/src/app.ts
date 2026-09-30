@@ -17,6 +17,7 @@ import { orgRoutes } from "./routes/orgs.js";
 import { docsRoutes } from "./routes/docs.js";
 import { fileRoutes } from "./routes/files.js";
 import { shareRoutes } from "./routes/share.js";
+import { SERVER_FEATURES } from "./features.js";
 
 export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null) {
   const app = new Hono<AppEnv>();
@@ -69,7 +70,7 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   // Health check
   // `features` lets clients (the live UI) detect newer capabilities without
   // probing: an older server simply omits the field.
-  app.get("/health", (c) => c.json({ ok: true, version: VERSION, maxUploadBytes, features: ["share-links"] }));
+  app.get("/health", (c) => c.json({ ok: true, version: VERSION, maxUploadBytes, features: [...SERVER_FEATURES] }));
 
   // MCP endpoint — per-request stateless transport
   app.all("/mcp", async (c) => {

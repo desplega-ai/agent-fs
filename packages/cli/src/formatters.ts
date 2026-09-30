@@ -309,6 +309,24 @@ function formatShareRevoke(result: any): string {
     : `Revoked ${result.revoked} share link${result.revoked === 1 ? "" : "s"}.`;
 }
 
+function formatDriveMembers(result: any): string {
+  const members: any[] = result.members ?? [];
+  if (members.length === 0) return "(no members)";
+
+  const rows = members.map((member) => [
+    member.displayName ?? "-",
+    member.email,
+    member.userId,
+  ]);
+  const headers = ["DISPLAY NAME", "EMAIL", "USER ID"];
+  const widths = headers.map((header, index) =>
+    Math.max(header.length, ...rows.map((row) => String(row[index]).length))
+  );
+  return [headers, ...rows]
+    .map((row) => row.map((cell, index) => padRight(String(cell), widths[index])).join("  "))
+    .join("\n");
+}
+
 // --- Formatter registry ---
 
 const formatters: Record<string, (result: any) => string> = {
@@ -337,6 +355,7 @@ const formatters: Record<string, (result: any) => string> = {
   "signed-url": formatSignedUrl,
   "share-create": formatShareCreate,
   "share-revoke": formatShareRevoke,
+  "drive-members": formatDriveMembers,
 };
 
 function formatResult(opName: string, result: any): string {

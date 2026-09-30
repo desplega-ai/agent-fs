@@ -80,6 +80,7 @@ export function commentCommands(
   cmd
     .command("list")
     .argument("[path]", "File path to list comments for")
+    .option("--prefix <path>", "Directory path prefix to list comments below")
     .option("--resolved", "Show resolved comments")
     .option("--limit <n>", "Max results")
     .option("--offset <n>", "Skip N results")
@@ -88,6 +89,7 @@ export function commentCommands(
       try {
         const params: Record<string, any> = {};
         if (path) params.path = path;
+        if (opts.prefix !== undefined) params.pathPrefix = opts.prefix;
         if (opts.resolved) params.resolved = true;
         if (opts.limit) params.limit = parseInt(opts.limit);
         if (opts.offset) params.offset = parseInt(opts.offset);

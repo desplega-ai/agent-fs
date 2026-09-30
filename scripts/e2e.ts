@@ -1401,6 +1401,24 @@ async function runStandardTests(daemonUrl: string) {
     assert(typeof found?.fileVersion, "number", "Expected the anchor version number in comment list");
   });
 
+  await test("comment list --prefix includes nested paths and excludes sibling prefixes", () => {
+    for (const path of [
+      "prefix-e2e/docs/a.md",
+      "prefix-e2e/docs/sub/b.md",
+      "prefix-e2e/docs-old/c.md",
+    ]) {
+      runJson(`write ${path} --content "prefix fixture"`);
+      JSON.parse(run(`comment add ${path} --body "comment on ${path}"`));
+    }
+
+    const result = JSON.parse(run("comment list --prefix prefix-e2e/docs"));
+    const paths = result.comments.map((comment: any) => comment.path).sort();
+    assert(
+      JSON.stringify(paths),
+      JSON.stringify(["prefix-e2e/docs/a.md", "prefix-e2e/docs/sub/b.md"]),
+    );
+  });
+
   // -- recent --
 
   await test("recent", () => {
@@ -1750,9 +1768,11 @@ async function runStandardTests(daemonUrl: string) {
   const shareBase = `http://127.0.0.1:${daemonPort}`;
   const tokenFrom = (url: string) => url.split("/share/")[1];
 
-  await test("/health advertises share-links", async () => {
+  await test("/health advertises server capabilities", async () => {
     const health = await (await fetch(`${daemonUrl}/health`)).json() as any;
     assert(health.features?.includes("share-links"), true, `Expected share-links in ${JSON.stringify(health)}`);
+    assert(health.features?.includes("comment-path-prefix"), true, `Expected comment-path-prefix in ${JSON.stringify(health)}`);
+    assert(health.features?.includes("drive-members"), true, `Expected drive-members in ${JSON.stringify(health)}`);
   });
 
   runJson('write /share-e2e.md --content "# Shared heading\n\nHello <script>alert(1)</script> from **agent-fs**."');
@@ -2952,6 +2972,45 @@ async function runStandardTests(daemonUrl: string) {
       body: JSON.stringify({ email: "user3@e2e.local", role: "viewer" }),
     });
     assert(res.ok, true, `Expected 200, got ${res.status}`);
+  });
+
+  await test("drive-members works for viewers over HTTP and CLI without roles", async () => {
+    const apiRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/ops`, {
+      method: "POST",
+      headers: authed(user3ApiKey),
+      body: JSON.stringify({ op: "drive-members", driveId: secondDriveId }),
+    });
+    assert(apiRes.status, 200, `Expected 200, got ${apiRes.status}`);
+    const apiMembers = ((await apiRes.json()) as any).members;
+    assert(apiMembers.some((member: any) => member.email === "user3@e2e.local"), true);
+    assert(apiMembers.some((member: any) => "role" in member), false, "drive-members must not expose roles");
+    assert(apiMembers.every((member: any) => "displayName" in member), true, "Expected displayName on every member");
+
+    const cli = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} members`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    assert(cli.members.length, apiMembers.length);
+    assert(cli.members.some((member: any) => "role" in member), false, "CLI must not expose roles");
+  });
+
+  await test("drive-members works over MCP", async () => {
+    const response = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(user3ApiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "drive-members", arguments: {} },
+      }),
+    });
+    assert(response.ok, true, `MCP drive-members failed: ${response.status}`);
+    const body = await response.json() as any;
+    assert(body.result?.isError === true, false, "MCP drive-members returned an operation error");
+    const members = JSON.parse(body.result.content[0].text).members;
+    assert(members.some((member: any) => member.email === "user3@e2e.local"), true);
+    assert(members.some((member: any) => "role" in member), false, "MCP must not expose roles");
   });
 
   let rbacDriveId = "";

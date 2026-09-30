@@ -118,6 +118,22 @@ export function listDriveMembers(
     .all();
 }
 
+export function listDriveMembersPublic(
+  db: DB,
+  driveId: string
+): Array<{ userId: string; email: string; displayName: string | null }> {
+  return db
+    .select({
+      userId: schema.users.id,
+      email: schema.users.email,
+      displayName: schema.users.displayName,
+    })
+    .from(schema.driveMembers)
+    .innerJoin(schema.users, eq(schema.driveMembers.userId, schema.users.id))
+    .where(eq(schema.driveMembers.driveId, driveId))
+    .all();
+}
+
 export function updateDriveMemberRole(
   db: DB,
   params: { driveId: string; userId: string; role: "viewer" | "editor" | "admin" }

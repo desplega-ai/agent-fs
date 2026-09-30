@@ -1368,7 +1368,7 @@
                   {
                     "type": "object",
                     "title": "comment-list",
-                    "description": "List comments on a file. Filter by path, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with inline replies.",
+                    "description": "List comments on a file or below a path prefix. Filter by path, pathPrefix, resolved state, or parentId. Defaults to unresolved root comments. Returns { comments } with inline replies.",
                     "required": [
                       "op"
                     ],
@@ -1382,6 +1382,9 @@
                         "description": "Target drive ID (optional, uses default drive)"
                       },
                       "path": {
+                        "type": "string"
+                      },
+                      "pathPrefix": {
                         "type": "string"
                       },
                       "parentId": {
@@ -1564,6 +1567,25 @@
                         "enum": [
                           true
                         ]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "drive-members",
+                    "description": "List members of the active drive. Returns { members } with userId, email, and displayName. Membership roles are not included.",
+                    "required": [
+                      "op"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "drive-members"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
                       }
                     },
                     "additionalProperties": false
