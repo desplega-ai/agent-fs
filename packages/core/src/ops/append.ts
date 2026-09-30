@@ -9,16 +9,18 @@ import { NotFoundError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
 import { indexFile } from "../search/fts.js";
 import { scheduleEmbedding } from "../search/pipeline.js";
+import { normalizePath } from "./paths.js";
 
 export async function append(
   ctx: OpContext,
   params: AppendParams
 ): Promise<AppendResult> {
-  const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
+  const path = normalizePath(params.path);
+  const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
 
   // Optimistic concurrency check before reading current content.
   if (params.expectedVersion !== undefined) {
-    await assertExpectedVersion(ctx, params.path, params.expectedVersion);
+    await assertExpectedVersion(ctx, path, params.expectedVersion);
   }
 
   // 1. Get current content
@@ -28,8 +30,8 @@ export async function append(
     currentContent = new TextDecoder().decode(result.body);
   } catch (err: any) {
     if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
-      throw new NotFoundError(`File not found: ${params.path}`, {
-        path: params.path,
+      throw new NotFoundError(`File not found: ${path}`, {
+        path,
       });
     }
     throw err;
@@ -38,14 +40,14 @@ export async function append(
   // 2. Append and write back
   const newContent = currentContent + params.content;
   const size = Buffer.byteLength(newContent);
-  const contentType = detectMimeType(params.path);
+  const contentType = detectMimeType(path);
   const contentHash = createHash("sha256").update(newContent).digest("hex");
 
   const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
 
   // 3. Create version
   const version = await createVersion(ctx, {
-    path: params.path,
+    path,
     s3VersionId: s3Result.versionId ?? "",
     operation: "append",
     message: params.message,
@@ -56,11 +58,11 @@ export async function append(
   });
 
   // FTS5 index (sync)
-  indexFile(ctx.db, { path: params.path, driveId: ctx.driveId, content: newContent });
+  indexFile(ctx.db, { path, driveId: ctx.driveId, content: newContent });
 
   // Embedding index (async)
   scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
-    path: params.path,
+    path,
     driveId: ctx.driveId,
     content: newContent,
   });

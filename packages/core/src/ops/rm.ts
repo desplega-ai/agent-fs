@@ -9,16 +9,18 @@ import {
 } from "./versioning.js";
 import { removeFromIndex } from "../search/fts.js";
 import { publishDriveEvent } from "../events/bus.js";
+import { normalizePath } from "./paths.js";
 
 export async function rm(
   ctx: OpContext,
   params: RmParams
 ): Promise<RmResult> {
-  const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
+  const path = normalizePath(params.path);
+  const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
 
   // Optimistic concurrency: assert the head version we are deleting.
   if (params.expectedVersion !== undefined) {
-    await assertExpectedVersion(ctx, params.path, params.expectedVersion);
+    await assertExpectedVersion(ctx, path, params.expectedVersion);
   }
 
   // 1. Delete from S3 (creates delete marker if versioning enabled)
@@ -26,13 +28,13 @@ export async function rm(
 
   // 2. Create version record
   await createVersion(ctx, {
-    path: params.path,
+    path,
     s3VersionId: "",
     operation: "delete",
   });
 
   // 3. Remove from FTS5 index
-  removeFromIndex(ctx.db, { path: params.path, driveId: ctx.driveId });
+  removeFromIndex(ctx.db, { path, driveId: ctx.driveId });
 
   // 4. Remove chunks + vectors
   const oldChunks = ctx.db
@@ -40,7 +42,7 @@ export async function rm(
     .from(schema.contentChunks)
     .where(
       and(
-        eq(schema.contentChunks.filePath, params.path),
+        eq(schema.contentChunks.filePath, path),
         eq(schema.contentChunks.driveId, ctx.driveId)
       )
     )
@@ -56,7 +58,7 @@ export async function rm(
       .delete(schema.contentChunks)
       .where(
         and(
-          eq(schema.contentChunks.filePath, params.path),
+          eq(schema.contentChunks.filePath, path),
           eq(schema.contentChunks.driveId, ctx.driveId)
         )
       )
@@ -69,7 +71,7 @@ export async function rm(
     .from(schema.comments)
     .where(
       and(
-        eq(schema.comments.path, params.path),
+        eq(schema.comments.path, path),
         eq(schema.comments.driveId, ctx.driveId),
         isNull(schema.comments.parentId),
         eq(schema.comments.isDeleted, false)
@@ -82,7 +84,7 @@ export async function rm(
     .set({ isDeleted: true, updatedAt: now })
     .where(
       and(
-        eq(schema.comments.path, params.path),
+        eq(schema.comments.path, path),
         eq(schema.comments.driveId, ctx.driveId)
       )
     )
@@ -101,5 +103,5 @@ export async function rm(
     });
   }
 
-  return { path: params.path, deleted: true };
+  return { path, deleted: true };
 }

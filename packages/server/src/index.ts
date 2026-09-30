@@ -7,6 +7,10 @@ import {
   createEmbeddingProviderFromEnv,
   prepareFtsMigration,
   runFtsMigration,
+  getQueuedPathReindexes,
+  replaceQueuedPathReindexes,
+  takePathNormalizationMigrationReport,
+  reindex,
   startServerTelemetry,
 } from "@/core";
 import type { Database } from "bun:sqlite";
@@ -20,6 +24,17 @@ const config = getConfig();
 // Initialize database
 const db = createDatabase();
 const sqlite = (db as any).$client as Database;
+const pathMigrationReport = takePathNormalizationMigrationReport(sqlite);
+if (pathMigrationReport) {
+  console.log(
+    "file path migration: " +
+      `${pathMigrationReport.renamedPaths} renamed, ` +
+      `${pathMigrationReport.mergedPaths} merged, ` +
+      `${pathMigrationReport.versionsRenumbered} versions renumbered, ` +
+      `${pathMigrationReport.commentsRemapped} comments remapped, ` +
+      `${pathMigrationReport.reindexPaths} paths queued for reindex`
+  );
+}
 
 // Databases from before 0.13.1 carry the old full-text index layout. Swap the
 // name over now (instant DDL) so every write from here on lands in the new
@@ -68,11 +83,56 @@ const server = Bun.serve({
 
 console.log(`agent-fs daemon running on http://${server.hostname}:${server.port}`);
 
-if (ftsMigrationPending) {
-  runFtsMigration(sqlite, { log: (msg) => console.log(msg) }).catch((err) => {
-    console.error("search index migration failed (will resume on next start):", err);
-  });
+async function runStartupDataWork(): Promise<void> {
+  if (ftsMigrationPending) {
+    try {
+      await runFtsMigration(sqlite, { log: (msg) => console.log(msg) });
+    } catch (err) {
+      console.error("search index migration failed (will resume on next start):", err);
+    }
+  }
+
+  const queued = getQueuedPathReindexes(sqlite);
+  if (queued.length === 0) return;
+
+  const remaining: typeof queued = [];
+  for (const target of queued) {
+    const drive = sqlite
+      .prepare("SELECT org_id AS orgId FROM drives WHERE id = ?")
+      .get(target.driveId) as { orgId: string } | null;
+    if (!drive) {
+      remaining.push(target);
+      console.error(`file path reindex skipped missing drive ${target.driveId}`);
+      continue;
+    }
+
+    try {
+      const result = await reindex(
+        {
+          db,
+          s3,
+          orgId: drive.orgId,
+          driveId: target.driveId,
+          userId: "path-normalization-migration",
+          embeddingProvider,
+        },
+        { path: target.path }
+      );
+      if (result.failed > 0) {
+        remaining.push(target);
+      } else {
+        console.log(`file path migration reindexed ${target.driveId}:${target.path}`);
+      }
+    } catch (err) {
+      remaining.push(target);
+      console.error(`file path migration reindex failed for ${target.driveId}:${target.path}`, err);
+    }
+  }
+
+  replaceQueuedPathReindexes(sqlite, remaining);
 }
+
+void runStartupDataWork();
 
 // Anonymized telemetry: `server.started` now, `server.heartbeat` every 24h
 // and once more on graceful shutdown.

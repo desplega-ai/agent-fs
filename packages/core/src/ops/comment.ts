@@ -69,7 +69,7 @@ function publishCommentChange(
   publishDriveEvent({
     type: "comment.changed",
     driveId: ctx.driveId,
-    path: comment.path,
+    path: normalizePath(comment.path),
     commentId: comment.id,
     parentId: comment.parentId ?? null,
     action,
@@ -146,7 +146,7 @@ function toCommentEntry(row: any): CommentEntry {
   return {
     id: row.id,
     parentId: row.parentId ?? undefined,
-    path: row.path,
+    path: normalizePath(row.path),
     lineStart: row.lineStart ?? undefined,
     lineEnd: row.lineEnd ?? undefined,
     quotedContent: row.quotedContent ?? undefined,
@@ -235,6 +235,7 @@ export async function commentAdd(
       field: "path",
     });
   }
+  path = normalizePath(path);
 
   const mentionUserIds = params.mentions
     ? resolveMentions(ctx, params.mentions)
@@ -247,11 +248,11 @@ export async function commentAdd(
     .from(schema.fileVersions)
     .where(
       and(
-        eq(schema.fileVersions.path, normalizePath(path)),
+        eq(schema.fileVersions.path, path),
         eq(schema.fileVersions.driveId, ctx.driveId)
       )
     )
-    .orderBy(desc(schema.fileVersions.id))
+    .orderBy(desc(schema.fileVersions.version))
     .limit(1)
     .get();
 
@@ -327,7 +328,7 @@ export async function commentList(
   ];
 
   if (params.path) {
-    conditions.push(eq(schema.comments.path, params.path));
+    conditions.push(eq(schema.comments.path, normalizePath(params.path)));
   }
 
   if (params.pathPrefix !== undefined) {

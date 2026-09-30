@@ -1045,6 +1045,20 @@ async function runStandardTests(daemonUrl: string) {
     assert(cat.content, "Hello, agent-fs!");
   });
 
+  await test("bare write shares metadata with slash-form stat and log", () => {
+    const written = runJson('write bare-path-e2e.md --content "canonical metadata"');
+    assert(written.path, "/bare-path-e2e.md");
+
+    const fileStat = runJson("stat /bare-path-e2e.md");
+    assert(fileStat.path, "/bare-path-e2e.md");
+    assert(fileStat.currentVersion, 1);
+    assert(fileStat.author === "unknown", false, "Expected the stored author");
+
+    const history = runJson("log /bare-path-e2e.md");
+    assert(history.versions.length, 1);
+    assert(history.versions[0].version, 1);
+  });
+
   await test("download returns exact bytes for a deeply nested path", () => {
     const content = "name,company\nAda,Analytical Engines\n";
     const fixDir = mkdtempSync(join(tmpdir(), "agent-fs-e2e-download-"));
@@ -1454,7 +1468,7 @@ async function runStandardTests(daemonUrl: string) {
     const paths = result.comments.map((comment: any) => comment.path).sort();
     assert(
       JSON.stringify(paths),
-      JSON.stringify(["prefix-e2e/docs/a.md", "prefix-e2e/docs/sub/b.md"]),
+      JSON.stringify(["/prefix-e2e/docs/a.md", "/prefix-e2e/docs/sub/b.md"]),
     );
   });
 

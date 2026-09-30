@@ -150,23 +150,11 @@ function findFileByPath(
   return row ?? null;
 }
 
-/**
- * Look up a file by drive path, tolerant of the leading-`/` inconsistency:
- * `write` stores `params.path` verbatim (never normalized), so a row's
- * `path` may or may not have kept the `/` the original caller sent, while
- * `collectBindings` always normalizes its input to `/foo` before calling
- * here. Try the given (normalized) path first, then the other convention —
- * this is the only op that does an exact-match lookup against a normalized
- * path, so it's the only place that needs to bridge the two forms.
- */
 function findFile(
   ctx: OpContext,
   path: string
 ): { path: string; size: number } | null {
-  const exact = findFileByPath(ctx, path);
-  if (exact) return exact;
-  const alt = path.startsWith("/") ? path.slice(1) : "/" + path;
-  return findFileByPath(ctx, alt);
+  return findFileByPath(ctx, path);
 }
 
 function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {

@@ -207,7 +207,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   reindex: {
-    description: "Re-index files with failed or missing FTS5/embedding entries. Optionally scope to a path prefix. Use after bulk writes or provider changes.",
+    description: "Re-index files with failed or missing FTS5/embedding entries. Optionally scope to one file or a directory. Use after bulk writes or provider changes.",
     handler: reindex,
     schema: z.object({
       path: z.string().optional(),

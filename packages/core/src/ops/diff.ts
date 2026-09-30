@@ -4,18 +4,20 @@ import { schema } from "../db/index.js";
 import type { OpContext, DiffParams, DiffResult, DiffChange } from "./types.js";
 import { getS3Key } from "./versioning.js";
 import { NotFoundError } from "../errors.js";
+import { normalizePath } from "./paths.js";
 
 export async function diff(
   ctx: OpContext,
   params: DiffParams
 ): Promise<DiffResult> {
+  const path = normalizePath(params.path);
   // Get version records
   const v1Record = ctx.db
     .select()
     .from(schema.fileVersions)
     .where(
       and(
-        eq(schema.fileVersions.path, params.path),
+        eq(schema.fileVersions.path, path),
         eq(schema.fileVersions.driveId, ctx.driveId),
         eq(schema.fileVersions.version, params.v1)
       )
@@ -27,7 +29,7 @@ export async function diff(
     .from(schema.fileVersions)
     .where(
       and(
-        eq(schema.fileVersions.path, params.path),
+        eq(schema.fileVersions.path, path),
         eq(schema.fileVersions.driveId, ctx.driveId),
         eq(schema.fileVersions.version, params.v2)
       )
@@ -36,8 +38,8 @@ export async function diff(
 
   if (!v1Record || !v2Record) {
     throw new NotFoundError(
-      `Version ${!v1Record ? params.v1 : params.v2} not found for ${params.path}`,
-      { path: params.path }
+      `Version ${!v1Record ? params.v1 : params.v2} not found for ${path}`,
+      { path }
     );
   }
 
@@ -47,7 +49,7 @@ export async function diff(
   // without versioning skips the doomed version-handle fetch and falls back to
   // the stored `diffSummary` below — it must never throw UnsupportedOperation.
   if (ctx.s3.capabilities.versioning && v1Record.s3VersionId && v2Record.s3VersionId) {
-    const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
+    const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
 
     try {
       const [content1, content2] = await Promise.all([
@@ -59,8 +61,8 @@ export async function diff(
       const text2 = new TextDecoder().decode(content2.body);
 
       const patch = structuredPatch(
-        params.path,
-        params.path,
+        path,
+        path,
         text1,
         text2
       );
@@ -86,7 +88,7 @@ export async function diff(
 
       return { changes };
     } catch (err) {
-      console.warn(`[diff] S3 content fetch failed for ${params.path}, falling back to diffSummary:`, err);
+      console.warn(`[diff] S3 content fetch failed for ${path}, falling back to diffSummary:`, err);
     }
   }
 

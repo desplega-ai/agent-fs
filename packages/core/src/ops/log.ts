@@ -1,19 +1,21 @@
 import { eq, and, desc } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext, LogParams, LogResult } from "./types.js";
+import { normalizePath } from "./paths.js";
 
 export async function log(
   ctx: OpContext,
   params: LogParams
 ): Promise<LogResult> {
   const limit = params.limit ?? 50;
+  const path = normalizePath(params.path);
 
   const rows = ctx.db
     .select()
     .from(schema.fileVersions)
     .where(
       and(
-        eq(schema.fileVersions.path, params.path),
+        eq(schema.fileVersions.path, path),
         eq(schema.fileVersions.driveId, ctx.driveId)
       )
     )

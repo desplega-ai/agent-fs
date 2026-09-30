@@ -11,11 +11,13 @@ import { NotFoundError, AgentFSError } from "../errors.js";
 import { assertCapability } from "../storage/capabilities.js";
 import { detectMimeType } from "./mime.js";
 import { indexBytesForSearch } from "./search-index.js";
+import { normalizePath } from "./paths.js";
 
 export async function revert(
   ctx: OpContext,
   params: RevertParams
 ): Promise<RevertResult> {
+  const path = normalizePath(params.path);
   // Capability gate: a backend without object versioning can never retrieve
   // old content by version handle, so fail fast with a typed, friendly error
   // rather than a raw S3/FS error later. (The narrower VERSIONING_REQUIRED
@@ -25,7 +27,7 @@ export async function revert(
   // Optimistic concurrency: head must match expectedVersion before
   // a new revert version is created on top of it.
   if (params.expectedVersion !== undefined) {
-    await assertExpectedVersion(ctx, params.path, params.expectedVersion);
+    await assertExpectedVersion(ctx, path, params.expectedVersion);
   }
 
   // 1. Find the target version
@@ -34,7 +36,7 @@ export async function revert(
     .from(schema.fileVersions)
     .where(
       and(
-        eq(schema.fileVersions.path, params.path),
+        eq(schema.fileVersions.path, path),
         eq(schema.fileVersions.driveId, ctx.driveId),
         eq(schema.fileVersions.version, params.version)
       )
@@ -43,8 +45,8 @@ export async function revert(
 
   if (!targetVersion) {
     throw new NotFoundError(
-      `Version ${params.version} not found for ${params.path}`,
-      { path: params.path }
+      `Version ${params.version} not found for ${path}`,
+      { path }
     );
   }
 
@@ -57,9 +59,9 @@ export async function revert(
   }
 
   // 2. Get the old content from S3 using versionId
-  const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
+  const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
   const oldContent = await ctx.s3.getObject(s3Key, targetVersion.s3VersionId);
-  const contentType = detectMimeType(params.path);
+  const contentType = detectMimeType(path);
 
   // 3. Write it as the new current version
   const s3Result = await ctx.s3.putObject(s3Key, oldContent.body, undefined, contentType);
@@ -68,7 +70,7 @@ export async function revert(
 
   // 4. Create version record
   const version = await createVersion(ctx, {
-    path: params.path,
+    path,
     s3VersionId: s3Result.versionId ?? "",
     operation: "revert",
     message: `Reverted to version ${params.version}`,
@@ -78,7 +80,7 @@ export async function revert(
     contentHash,
   });
 
-  indexBytesForSearch(ctx, params.path, oldContent.body, contentType);
+  indexBytesForSearch(ctx, path, oldContent.body, contentType);
 
   return { version, revertedTo: params.version };
 }
