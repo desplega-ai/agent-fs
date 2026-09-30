@@ -79,7 +79,8 @@ export const toast = Object.assign(
   (message: string, opts?: ToastOptions) => store.add(message, opts),
   {
     success: (message: string, opts?: ToastOptions) => store.add(message, { ...opts, variant: "success" }),
-    error: (message: string, opts?: ToastOptions) => store.add(message, { ...opts, variant: "error" }),
+    // Errors stay until dismissed so they can be read; pass `duration` to override.
+    error: (message: string, opts?: ToastOptions) => store.add(message, { duration: 0, ...opts, variant: "error" }),
     dismiss: (id: number) => store.dismiss(id),
   },
 )
