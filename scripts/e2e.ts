@@ -1795,13 +1795,17 @@ async function runStandardTests(daemonUrl: string) {
     assertIncludes(res.headers.get("content-type") ?? "", "text/html");
     assert(res.headers.get("x-content-type-options"), "nosniff");
     assert(res.headers.get("cache-control"), "no-store");
-    assertIncludes(res.headers.get("content-security-policy") ?? "", "default-src 'none'");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    assertIncludes(csp, "default-src 'none'");
+    // Only the page's own scripts run, allowed by hash: never inline-anything.
+    const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("script-src ")) ?? "";
+    assert(/^script-src 'sha256-[^']+' 'sha256-[^']+'$/.test(scriptSrc), true, `Unexpected script-src: ${scriptSrc}`);
     const body = await res.text();
     assertIncludes(body, "<h1>share-e2e.md</h1>");
-    assertIncludes(body, "<h1>Shared heading</h1>");
+    assertIncludes(body, '<h1 id="shared-heading">Shared heading');
     assertIncludes(body, "<strong>agent-fs</strong>");
     assertIncludes(body, `/share/${tokenFrom(r.url)}/download`);
-    assert(body.includes("<script"), false, "Page must not contain a script tag");
+    assert((body.match(/<script\b/g) ?? []).length, 2, "Page must carry only its own two scripts");
     assert(body.includes(apiKey), false, "Page must not contain the API key");
     assert(body.includes(personalOrgId), false, "Page must not contain the org id");
   });

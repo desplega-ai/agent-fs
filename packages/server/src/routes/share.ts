@@ -19,8 +19,8 @@ import {
   isEmbeddable,
   isLinkPreviewBot,
   isMarkdownSafeToRender,
+  pageScripts,
   renderExpiredPage,
-  renderMarkdownSafe,
   renderPreviewBotPage,
   renderSharePage,
   renderUnavailablePage,
@@ -28,6 +28,7 @@ import {
   shareSecurityHeaders,
 } from "../share/render.js";
 import type { ShareBody, ShareFileType } from "../share/render.js";
+import { renderMarkdownDocument } from "../share/markdown.js";
 
 /** Largest text/markdown file rendered into the page; bigger ones are download-only. */
 const MAX_PREVIEW_BYTES = 1024 * 1024;
@@ -170,7 +171,7 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
         grant,
         body,
       }),
-      buildCsp(embedSource)
+      buildCsp(embedSource, pageScripts(body))
     );
   });
 
@@ -378,7 +379,7 @@ async function buildBody(args: {
       };
     }
     if (type.kind === "markdown" && isMarkdownSafeToRender(text)) {
-      return { body: { kind: "markdown", html: renderMarkdownSafe(text) }, embedSource: null };
+      return { body: { kind: "markdown", doc: renderMarkdownDocument(text), source: text }, embedSource: null };
     }
     return { body: { kind: "text", text }, embedSource: null };
   }

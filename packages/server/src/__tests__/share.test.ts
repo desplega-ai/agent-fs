@@ -4,6 +4,7 @@ import { createUser, setDriveMember } from "../../../core/src/index.js";
 import { generateShareToken, hashShareToken } from "../../../core/src/ops/share.js";
 import { AgentS3Client } from "../../../core/src/s3/client.js";
 import { createApp } from "../app.js";
+import { PAGE_SCRIPT, THEME_INIT_SCRIPT } from "../share/client.js";
 
 // One app per harness, and this file makes far more than the default 120
 // requests a minute from a single "IP". The limiter has its own tests below,
@@ -64,6 +65,27 @@ const setShare = (h: Harness, id: string, column: "expires_at" | "last_viewed_at
   sqlite(h).prepare(`UPDATE shares SET ${column} = ? WHERE id = ?`).run(Math.floor(date.getTime() / 1000), id);
 
 const get = (h: Harness, path: string, headers?: Record<string, string>) => h.app.request(path, { headers });
+
+/**
+ * The page may run only its own two inline scripts (by hash) and exact,
+ * version-pinned renderer files: never 'unsafe-inline', eval, a wildcard or a
+ * bare host.
+ */
+function expectPinnedScripts(csp: string, what = "csp") {
+  const directive = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("script-src "));
+  if (!directive) return;
+  const sources = directive.split(/\s+/).slice(1);
+  for (const source of sources) {
+    expect(source, what).toMatch(
+      /^('sha256-[A-Za-z0-9+/]+=*'|https:\/\/cdn\.jsdelivr\.net\/npm\/(@[a-z-]+\/)?[a-z-]+@\d+\.\d+\.\d+\/[\w/.-]+\.js)$/
+    );
+  }
+  expect(csp, what).not.toContain("unsafe-eval");
+  expect(csp, what).not.toContain("strict-dynamic");
+}
+
+/** Every <script> in the page, which must be exactly the two static ones. */
+const scriptsOf = (page: string) => [...page.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]);
 
 /** The grant a view-limited page hands to its Download link (`?g=`), or null. */
 const grantOf = (page: string) => /\/download\?g=([A-Za-z0-9_-]{43})"/.exec(page)?.[1] ?? null;
@@ -155,17 +177,18 @@ describe("GET /share/:token — page", () => {
     const csp = res.headers.get("content-security-policy")!;
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
-    expect(csp).not.toContain("script-src");
-    expect(csp).not.toContain("unsafe-eval");
+    expectPinnedScripts(csp);
+    // a plain document loads no renderer at all
+    expect(csp).not.toContain("https://");
 
     const body = await res.text();
     expect(body).toContain("<h1>readme.md</h1>");
-    expect(body).toContain("<h1>Title</h1>");
+    expect(body).toContain('<h1 id="title">Title<a class="anchor" href="#title"');
     expect(body).toContain("<strong>bold</strong>");
     expect(body).toContain('href="https://example.com"');
     expect(body).toContain(`href="/share/${s.token}/download"`);
     expect(body).toContain("Expires");
-    expect(body).not.toContain("<script");
+    expect(scriptsOf(body)).toEqual([THEME_INIT_SCRIPT, PAGE_SCRIPT]);
   });
 
   test("leaks no credentials, org or member details", async () => {
@@ -852,7 +875,9 @@ describe("every share response carries the security baseline", () => {
     expect(csp, `${what}: content-security-policy`).toBeTruthy();
     expect(csp, what).toContain("default-src 'none'");
     expect(csp, what).toContain("frame-ancestors 'none'");
-    expect(csp, what).not.toContain("script-src");
+    // Only the preview page runs scripts, and only its own pinned ones.
+    if (what.startsWith("page 200")) expectPinnedScripts(csp!, what);
+    else expect(csp, what).not.toContain("script-src");
     expect(csp, what).not.toContain("unsafe-eval");
     for (const name of BASELINE) expect(res.headers.get(name), `${what}: ${name}`).toBeTruthy();
     expect(res.headers.get("x-content-type-options"), what).toBe("nosniff");

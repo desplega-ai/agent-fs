@@ -449,7 +449,7 @@ agent-fs share-revoke <id>
 agent-fs share-revoke --path docs/report.pdf
 ```
 
-`share-create` returns a URL on the **API host** (`https://<server>/share/<token>`), not the web app, so it works for anyone without signing in. Unlike `signed-url` the recipient gets a rendered page: markdown becomes sanitized HTML, text and code are shown escaped, images, PDF, audio and video are embedded, and every other type shows a no-preview card. Each page has the filename, size, expiry and a Download button. HTML and SVG files are never rendered, only downloaded.
+`share-create` returns a URL on the **API host** (`https://<server>/share/<token>`), not the web app, so it works for anyone without signing in. Unlike `signed-url` the recipient gets a rendered page: markdown becomes sanitized HTML (frontmatter card, table of contents, callouts, task lists, footnotes, math, mermaid diagrams, highlighted code, light/dark/system theme, view-source and copy), text and code are shown escaped, images, PDF, audio and video are embedded, and every other type shows a no-preview card. Each page has the filename, size, expiry and a Download button. HTML and SVG files are never rendered, only downloaded.
 
 Things worth knowing before you share:
 
