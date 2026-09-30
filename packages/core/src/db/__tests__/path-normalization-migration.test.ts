@@ -21,16 +21,17 @@ function insertFile(
   path: string,
   author: string,
   modifiedAt: number,
-  size = 1
+  size = 1,
+  embeddingStatus: "pending" | "indexed" | "failed" | null = "indexed"
 ): void {
   sqlite
     .query(
       `INSERT INTO files (
          path, drive_id, size, content_type, author, current_version_id,
          created_at, modified_at, is_deleted, embedding_status
-       ) VALUES (?, ?, ?, 'text/markdown', ?, '1', ?, ?, 0, 'indexed')`
+       ) VALUES (?, ?, ?, 'text/markdown', ?, '1', ?, ?, 0, ?)`
     )
-    .run(path, driveId, size, author, modifiedAt, modifiedAt);
+    .run(path, driveId, size, author, modifiedAt, modifiedAt, embeddingStatus);
 }
 
 function insertVersion(
@@ -482,7 +483,75 @@ describe("file path normalization migration", () => {
     });
   });
 
-  test("skips trailing-slash and repeated-slash paths and logs each path", () => {
+  test("keeps a binary winner unindexed when its form has no index rows", () => {
+    const { db, driveId, userId } = createTestContext();
+    const sqlite = rawDb(db);
+    insertVersion(sqlite, {
+      driveId,
+      path: "/binary.dat",
+      storageVersionId: "canonical-v1",
+      author: userId,
+      createdAt: 10,
+    });
+    insertVersion(sqlite, {
+      driveId,
+      path: "binary.dat",
+      storageVersionId: "binary-v1",
+      author: userId,
+      createdAt: 20,
+    });
+    insertFile(sqlite, driveId, "/binary.dat", userId, 10);
+    insertFile(sqlite, driveId, "binary.dat", userId, 20, 1, null);
+    sqlite
+      .query("INSERT INTO files_fts_docs(drive_id, path, content) VALUES (?, '/binary.dat', 'stale')")
+      .run(driveId);
+
+    runPathNormalizationMigration(sqlite);
+
+    expect(sqlite.query("SELECT embedding_status AS status FROM files").get()).toEqual({
+      status: null,
+    });
+  });
+
+  test("keeps the newest files form indexes when neither form has versions", () => {
+    const { db, driveId, userId } = createTestContext();
+    const sqlite = rawDb(db);
+    insertFile(sqlite, driveId, "/metadata-only.md", userId, 10);
+    insertFile(sqlite, driveId, "metadata-only.md", userId, 20);
+    const canonicalChunk = sqlite
+      .query(
+        "INSERT INTO content_chunks(file_path, drive_id, chunk_index, content, char_offset, token_count) VALUES ('/metadata-only.md', ?, 0, 'stale', 0, 1)"
+      )
+      .run(driveId).lastInsertRowid;
+    const bareChunk = sqlite
+      .query(
+        "INSERT INTO content_chunks(file_path, drive_id, chunk_index, content, char_offset, token_count) VALUES ('metadata-only.md', ?, 0, 'current', 0, 1)"
+      )
+      .run(driveId).lastInsertRowid;
+    sqlite
+      .query("INSERT INTO chunk_vectors(chunk_id, embedding) VALUES (?, ?)")
+      .run(canonicalChunk, new Float32Array(768));
+    sqlite
+      .query("INSERT INTO chunk_vectors(chunk_id, embedding) VALUES (?, ?)")
+      .run(bareChunk, new Float32Array(768));
+    sqlite
+      .query("INSERT INTO files_fts_docs(drive_id, path, content) VALUES (?, '/metadata-only.md', 'stale')")
+      .run(driveId);
+    sqlite
+      .query("INSERT INTO files_fts_docs(drive_id, path, content) VALUES (?, 'metadata-only.md', 'current')")
+      .run(driveId);
+
+    runPathNormalizationMigration(sqlite);
+
+    expect(sqlite.query("SELECT id, file_path AS path, content FROM content_chunks").all()).toEqual([
+      { id: bareChunk, path: "/metadata-only.md", content: "current" },
+    ]);
+    expect(sqlite.query("SELECT chunk_id AS chunkId FROM chunk_vectors").all()).toEqual([
+      { chunkId: bareChunk },
+    ]);
+  });
+
+  test("skips trailing-slash and repeated-slash paths with one summary log", () => {
     const { db, driveId, userId } = createTestContext();
     const sqlite = rawDb(db);
     for (const path of ["dir/", "a//b"]) {
@@ -504,8 +573,10 @@ describe("file path normalization migration", () => {
       { path: "a//b" },
       { path: "dir/" },
     ]);
-    expect(messages.some((message) => message.includes('"a//b"'))).toBe(true);
-    expect(messages.some((message) => message.includes('"dir/"'))).toBe(true);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toContain("skipped 2 unsafe bare paths");
+    expect(messages[0]).toContain('"a//b"');
+    expect(messages[0]).toContain('"dir/"');
   });
 
   test("rolls back every change when a trigger fails midway", () => {

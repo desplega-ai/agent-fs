@@ -162,6 +162,24 @@ describe("exact file operation path normalization", () => {
     expectOnlyCanonicalRows(rawDb(db));
   });
 
+  test("mv rejects normalized self moves without deleting the source", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/notes.md", content: "keep me" });
+
+    for (const [from, to] of [
+      ["notes.md", "/notes.md"],
+      ["/notes.md", "notes.md/"],
+      ["/notes.md", "/notes.md"],
+    ]) {
+      await expect(dispatchOp(ctx, "mv", { from, to })).rejects.toThrow(
+        "Source and destination are the same path"
+      );
+      expect((await dispatchOp(ctx, "cat", { path: "/notes.md" }) as any).content).toBe(
+        "keep me"
+      );
+    }
+  });
+
   test("cp normalizes both source and destination into one destination row", async () => {
     const { ctx, db } = createTestContext();
     await dispatchOp(ctx, "write", { path: "/source.md", content: "one" });
@@ -176,6 +194,18 @@ describe("exact file operation path normalization", () => {
       { path: "/source.md", version: "1" },
     ]);
     expectOnlyCanonicalRows(rawDb(db));
+  });
+
+  test("cp rejects normalized self copies without changing the source", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/notes.md", content: "keep me" });
+
+    await expect(
+      dispatchOp(ctx, "cp", { from: "notes.md", to: "/notes.md" })
+    ).rejects.toThrow("Source and destination are the same path");
+    expect((await dispatchOp(ctx, "cat", { path: "/notes.md" }) as any).content).toBe(
+      "keep me"
+    );
   });
 
   test("revert writes both path forms to one history", async () => {
@@ -291,6 +321,24 @@ describe("directory-prefix operation path normalization", () => {
     };
     expect(result.entries.map((row) => row.path)).toEqual(["/docs/a.md"]);
   });
+
+  for (const op of ["fts", "recent"] as const) {
+    test(`${op} adds a leading slash without changing prefix semantics`, async () => {
+      const { ctx } = createTestContext();
+      await seedPrefixes(ctx);
+      await dispatchOp(ctx, "write", { path: "/notes.md", content: "normalized note" });
+      const params = op === "fts" ? { pattern: "normalized" } : {};
+      const bare = await dispatchOp(ctx, op, { path: "docs", ...params }) as any;
+      const slash = await dispatchOp(ctx, op, { path: "/docs", ...params }) as any;
+      const exact = await dispatchOp(ctx, op, { path: "/notes.md", ...params }) as any;
+      const rows = (result: any) => result.matches ?? result.entries;
+
+      expect(rows(bare).map((row: any) => row.path)).toEqual(
+        rows(slash).map((row: any) => row.path)
+      );
+      expect(rows(exact).map((row: any) => row.path)).toContain("/notes.md");
+    });
+  }
 
   test("reindex normalizes a bare directory prefix without changing prefix scope", async () => {
     const { ctx } = createTestContext();

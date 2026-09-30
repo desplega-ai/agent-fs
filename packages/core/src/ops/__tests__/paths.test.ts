@@ -1,5 +1,10 @@
 import { describe, test, expect } from "bun:test";
-import { normalizePath, normalizePrefix, stripLeadingSlash } from "../paths.js";
+import {
+  normalizePath,
+  normalizePrefix,
+  stripLeadingSlash,
+  withLeadingSlash,
+} from "../paths.js";
 
 describe("normalizePath", () => {
   test("adds leading slash if missing", () => {
@@ -42,6 +47,17 @@ describe("normalizePrefix", () => {
 
   test("handles nested prefixes", () => {
     expect(normalizePrefix("a/b")).toBe("/a/b/");
+  });
+});
+
+describe("withLeadingSlash", () => {
+  test("adds leading slash if missing", () => {
+    expect(withLeadingSlash("docs")).toBe("/docs");
+  });
+
+  test("keeps the rest of the prefix as given", () => {
+    expect(withLeadingSlash("/docs/")).toBe("/docs/");
+    expect(withLeadingSlash("/notes.md")).toBe("/notes.md");
   });
 });
 

@@ -25,6 +25,11 @@ export function normalizePrefix(path: string): string {
   return p;
 }
 
+/** Ensure a search prefix starts with `/`; keep the rest as given. */
+export function withLeadingSlash(path: string): string {
+  return path.startsWith("/") ? path : "/" + path;
+}
+
 /** Strip leading `/` for S3 key construction. */
 export function stripLeadingSlash(path: string): string {
   return path.startsWith("/") ? path.slice(1) : path;

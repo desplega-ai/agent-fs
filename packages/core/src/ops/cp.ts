@@ -9,6 +9,7 @@ import { detectMimeType } from "./mime.js";
 import { indexBytesForSearch } from "./search-index.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { normalizePath } from "./paths.js";
+import { ValidationError } from "../errors.js";
 
 export async function cp(
   ctx: OpContext,
@@ -16,6 +17,9 @@ export async function cp(
 ): Promise<CpResult> {
   const from = normalizePath(params.from);
   const to = normalizePath(params.to);
+  if (from === to) {
+    throw new ValidationError("Source and destination are the same path");
+  }
   const fromKey = getS3Key(ctx.orgId, ctx.driveId, from);
   const toKey = getS3Key(ctx.orgId, ctx.driveId, to);
 

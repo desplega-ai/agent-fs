@@ -102,12 +102,15 @@ function hasFileHistory(sqlite: Database, driveId: string, path: string): boolea
 }
 
 function deleteChunks(sqlite: Database, driveId: string, path: string): void {
-  sqlite
+  const chunks = sqlite
     .query(
-      "DELETE FROM chunk_vectors WHERE chunk_id IN " +
-        "(SELECT id FROM content_chunks WHERE drive_id = ? AND file_path = ?)"
+      "SELECT id FROM content_chunks WHERE drive_id = ? AND file_path = ?"
     )
-    .run(driveId, path);
+    .all(driveId, path) as Array<{ id: number }>;
+  const deleteVector = sqlite.prepare("DELETE FROM chunk_vectors WHERE chunk_id = ?");
+  for (const chunk of chunks) {
+    deleteVector.run(chunk.id);
+  }
   sqlite
     .query("DELETE FROM content_chunks WHERE drive_id = ? AND file_path = ?")
     .run(driveId, path);
@@ -421,7 +424,9 @@ function mergeSplitPath(
     ...files.map((row) => row.createdAt),
     ...versions.map((row) => row.createdAt)
   );
-  const fileCreatedAt = Number.isFinite(createdAt) ? createdAt : Date.now();
+  const fileCreatedAt = Number.isFinite(createdAt)
+    ? createdAt
+    : Math.floor(Date.now() / 1000);
   const size = latestVersion?.size ?? sourceFile?.size ?? 0;
   const author = latestVersion?.author ?? sourceFile?.author ?? "unknown";
   const modifiedAt = latestVersion?.createdAt ?? sourceFile?.modifiedAt ?? fileCreatedAt;
@@ -429,11 +434,12 @@ function mergeSplitPath(
     ? Number(latestVersion.operation === "delete")
     : sourceFile?.isDeleted ?? 0;
 
-  let embeddingStatus = sourceFile?.embeddingStatus ?? "pending";
+  let embeddingStatus = sourceFile ? sourceFile.embeddingStatus : "pending";
   if (isDeleted) {
     deleteAllIndexRows(sqlite, fts, driveId, barePath, canonicalPath);
   } else {
-    const preferCanonical = latestVersion?.path === canonicalPath;
+    const preferCanonical =
+      (latestVersion?.path ?? sourceFile?.path) === canonicalPath;
     const hasChunks = reconcileChunks(
       sqlite,
       driveId,
@@ -449,7 +455,9 @@ function mergeSplitPath(
       canonicalPath,
       preferCanonical
     );
-    if (!hasChunks || !hasFts) embeddingStatus = "pending";
+    if ((!hasChunks || !hasFts) && embeddingStatus !== null) {
+      embeddingStatus = "pending";
+    }
   }
 
   sqlite
@@ -537,9 +545,13 @@ export function runPathNormalizationMigration(
   });
 
   const summary = migrate.immediate();
-  for (const row of skipped) {
+  if (skipped.length > 0) {
+    const examples = skipped
+      .slice(0, 10)
+      .map((row) => `${JSON.stringify(row.path)} in drive ${row.driveId}`)
+      .join(", ");
     opts.log?.(
-      `file path migration: skipped unsafe bare path ${JSON.stringify(row.path)} in drive ${row.driveId}`
+      `file path migration: skipped ${skipped.length} unsafe bare paths: ${examples}`
     );
   }
   return summary;
