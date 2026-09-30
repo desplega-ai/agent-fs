@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { publishDriveEvent, subscribeDrive, type DriveEvent } from "../bus.js";
 
 function event(driveId: string): DriveEvent {
@@ -33,13 +33,16 @@ describe("drive event bus", () => {
   test("continues after a listener throws", () => {
     const driveId = crypto.randomUUID();
     const received: DriveEvent[] = [];
+    const error = spyOn(console, "error").mockImplementation(() => {});
     const first = subscribeDrive(driveId, () => { throw new Error("Listener failed"); });
     const second = subscribeDrive(driveId, (e) => received.push(e));
     try {
       const change = event(driveId);
       expect(() => publishDriveEvent(change)).not.toThrow();
       expect(received).toEqual([change]);
+      expect(error).toHaveBeenCalledWith(expect.any(Error));
     } finally {
+      error.mockRestore();
       first();
       second();
     }

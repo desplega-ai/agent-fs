@@ -25,8 +25,9 @@ export function publishDriveEvent(event: DriveEvent): void {
   for (const listener of [...(listeners.get(event.driveId) ?? [])]) {
     try {
       listener(event);
-    } catch {
+    } catch (error) {
       // A listener must not interrupt the mutation or other listeners.
+      console.error(error);
     }
   }
 }

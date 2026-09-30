@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as core from "@/core";
 import { createTestContext } from "../../../core/src/test-utils.js";
 import { createApp } from "../app.js";
-import { SSEStreamingApi } from "hono/streaming";
+import { Hono } from "hono";
+import { authMiddleware } from "../middleware/auth.js";
+import { eventRoutes } from "../routes/events.js";
+import type { AppEnv } from "../types.js";
 
 function trackSubscriptions() {
   const subscribe = core.subscribeDrive;
@@ -69,13 +72,14 @@ describe("drive stream over HTTP", () => {
   });
 
   afterEach(async () => {
-    for (const controller of controllers ?? []) controller.abort();
-    if (subscriptions) {
-      await waitForCleanup(subscriptions.listeners);
-      subscriptions.restore();
+    try {
+      for (const controller of controllers ?? []) controller.abort();
+      if (subscriptions) await waitForCleanup(subscriptions.listeners);
+    } finally {
+      subscriptions?.restore();
+      server?.stop(true);
+      server = undefined;
     }
-    server?.stop(true);
-    server = undefined;
   });
 
   function open(key = fixture.apiKey) {
@@ -171,6 +175,7 @@ describe("drive stream over HTTP", () => {
     expect(await frames(replacement).next()).toStartWith("event: ready\n");
     expect(subscriptions.listeners.size).toBe(8);
   });
+
 });
 
 describe("drive stream cleanup without sockets", () => {
@@ -239,26 +244,24 @@ describe("drive stream cleanup without sockets", () => {
     }
   });
 
-  test("an event write error removes the listener and releases its slot", async () => {
+  test("membership revocation closes the stream on the next heartbeat", async () => {
     const fixture = createTestContext();
-    const app = createApp(fixture.db, fixture.s3);
     const subscriptions = trackSubscriptions();
-    const path = `/orgs/${fixture.orgId}/drives/${fixture.driveId}/events`;
-    const headers = { Authorization: `Bearer ${fixture.apiKey}` };
-    const response = await app.request(path, { headers });
-    const stream = frames(response);
-    await stream.next();
-    const write = spyOn(SSEStreamingApi.prototype, "writeSSE").mockRejectedValue(new Error("Test stream error"));
+    const app = new Hono<AppEnv>();
+    app.use("*", authMiddleware(fixture.db));
+    app.route("/orgs", eventRoutes(fixture.db, 5));
     try {
-      core.publishDriveEvent({
-        type: "file.changed", driveId: fixture.driveId, path: "/a.md", version: 1,
-        operation: "write", actor: fixture.userId, at: new Date().toISOString(),
+      const response = await app.request(`/orgs/${fixture.orgId}/drives/${fixture.driveId}/events`, {
+        headers: { Authorization: `Bearer ${fixture.apiKey}` },
       });
+      const stream = frames(response);
+      expect(await stream.next()).toStartWith("event: ready\n");
+      core.removeDriveMember(fixture.db, { driveId: fixture.driveId, userId: fixture.userId });
+      expect((await stream.reader.read()).done).toBe(true);
       await waitForCleanup(subscriptions.listeners);
     } finally {
-      write.mockRestore();
-      await stream.reader.cancel().catch(() => {});
       subscriptions.restore();
     }
   });
+
 });

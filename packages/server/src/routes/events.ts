@@ -1,18 +1,19 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { resolveContext, subscribeDrive } from "@/core";
+import { getUserByApiKey, resolveContext, subscribeDrive } from "@/core";
 import type { DB } from "@/core";
 import type { AppEnv } from "../types.js";
 
 const MAX_STREAMS_PER_USER = 8;
 const HEARTBEAT_MS = 5000;
 
-export function eventRoutes(db: DB) {
+export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS) {
   const router = new Hono<AppEnv>();
   const streams = new Map<string, number>();
 
   router.get("/:orgId/drives/:driveId/events", (c) => {
     const userId = c.get("user").id;
+    const apiKey = c.req.header("Authorization")!.slice(7);
     const { driveId } = resolveContext(db, {
       userId,
       orgId: c.req.param("orgId"),
@@ -33,51 +34,60 @@ export function eventRoutes(db: DB) {
       else streams.set(userId, remaining);
     };
 
-    try {
-      return streamSSE(c, async (stream) => {
-        let unsubscribe = () => {};
-        let timer: ReturnType<typeof setInterval> | undefined;
-        let finish!: () => void;
-        const done = new Promise<void>((resolve) => { finish = resolve; });
-        const abort = () => stream.abort();
-        const cleanup = () => {
-          unsubscribe();
-          clearInterval(timer);
-          c.req.raw.signal.removeEventListener("abort", abort);
-          release();
-          finish();
-        };
-        stream.onAbort(cleanup);
-        c.req.raw.signal.addEventListener("abort", abort, { once: true });
+    return streamSSE(c, async (stream) => {
+      let unsubscribe = () => {};
+      let timer: ReturnType<typeof setInterval> | undefined;
+      let finish!: () => void;
+      let cleaned = false;
+      const done = new Promise<void>((resolve) => { finish = resolve; });
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        unsubscribe();
+        clearInterval(timer);
+        c.req.raw.signal.removeEventListener("abort", abort);
+        release();
+        finish();
+      };
+      const abort = () => {
+        stream.abort();
+        cleanup();
+      };
+      stream.onAbort(cleanup);
+      c.req.raw.signal.addEventListener("abort", abort, { once: true });
 
-        try {
-          if (c.req.raw.signal.aborted || stream.aborted) {
+      try {
+        if (c.req.raw.signal.aborted || stream.aborted) {
+          abort();
+          return;
+        }
+        let pending = stream.writeSSE({
+          event: "ready",
+          data: JSON.stringify({ driveId, at: new Date().toISOString() }),
+        });
+        unsubscribe = subscribeDrive(driveId, (event) => {
+          pending = pending.then(() => stream.writeSSE({
+            event: event.type,
+            data: JSON.stringify(event),
+          }));
+        });
+        timer = setInterval(() => {
+          const user = getUserByApiKey(db, apiKey);
+          try {
+            if (!user || user.id !== userId) throw new Error("Event stream authorization revoked");
+            resolveContext(db, { userId, orgId: c.req.param("orgId"), driveId });
+          } catch {
             abort();
             return;
           }
-          let pending = stream.writeSSE({
-            event: "ready",
-            data: JSON.stringify({ driveId, at: new Date().toISOString() }),
-          });
-          unsubscribe = subscribeDrive(driveId, (event) => {
-            pending = pending.then(() => stream.writeSSE({
-              event: event.type,
-              data: JSON.stringify(event),
-            })).catch(abort);
-          });
-          timer = setInterval(() => {
-            pending = pending.then(async () => { await stream.write(": ping\n\n"); }).catch(abort);
-          }, HEARTBEAT_MS);
-          await pending;
-          await done;
-        } finally {
-          cleanup();
-        }
-      });
-    } catch (err) {
-      release();
-      throw err;
-    }
+          pending = pending.then(async () => { await stream.write(": ping\n\n"); });
+        }, heartbeatMs);
+        await pending;
+        await done;
+      } finally {
+        cleanup();
+      }
+    });
   });
 
   return router;

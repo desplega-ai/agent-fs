@@ -34,6 +34,7 @@ test("watch parses chunked events as JSON and ignores heartbeats", async () => {
     return "drive";
   }));
   const log = spyOn(console, "log").mockImplementation(() => {});
+  const error = spyOn(console, "error").mockImplementation(() => {});
   const sigintCount = process.listenerCount("SIGINT");
   const sigtermCount = process.listenerCount("SIGTERM");
   try {
@@ -42,9 +43,13 @@ test("watch parses chunked events as JSON and ignores heartbeats", async () => {
       { type: "ready", ...ready }, change,
     ]);
     expect(signal?.aborted).toBe(true);
+    expect(error).toHaveBeenCalledWith("Error: event stream closed");
+    expect(process.exitCode).toBe(1);
     expect(process.listenerCount("SIGINT")).toBe(sigintCount);
     expect(process.listenerCount("SIGTERM")).toBe(sigtermCount);
   } finally {
     log.mockRestore();
+    error.mockRestore();
+    process.exitCode = 0;
   }
 });
