@@ -5,6 +5,7 @@ import { ValidationError } from "../../errors.js";
 import { createTestDb } from "../../test-utils.js";
 import { commentNotificationList, commentNotificationRead } from "../comment-notification.js";
 import { commentAdd, commentGet, commentList, commentUpdate } from "../comment.js";
+import { dispatchOp } from "../index.js";
 import type { OpContext } from "../types.js";
 
 const ORG_ID = "mention-org";
@@ -100,6 +101,17 @@ describe("comment mentions", () => {
         .where(eq(schema.commentMentions.commentId, comment.id))
         .get()?.userId
     ).toBe(MEMBER_B_ID);
+    expect(
+      db.select({ createdAt: schema.events.createdAt })
+        .from(schema.events)
+        .where(eq(schema.events.type, "comment_mention"))
+        .get()?.createdAt
+    ).toEqual(
+      db.select({ createdAt: schema.comments.createdAt })
+        .from(schema.comments)
+        .where(eq(schema.comments.id, comment.id))
+        .get()?.createdAt
+    );
   });
 
   test("rejects an email that case-insensitively matches multiple members", async () => {
@@ -168,6 +180,19 @@ describe("comment mentions", () => {
     expect(db.select().from(schema.comments).all()).toEqual([]);
   });
 
+  test("rejects more than 20 mentions through dispatchOp", async () => {
+    const { db, author } = createFixture();
+
+    await expect(
+      dispatchOp(author, "comment-add", {
+        path: "/too-many.md",
+        body: "Too many mentions",
+        mentions: Array(21).fill(MEMBER_B_ID),
+      })
+    ).rejects.toThrow();
+    expect(db.select().from(schema.comments).all()).toEqual([]);
+  });
+
   test("drops mentions of the comment author", async () => {
     const { db, author } = createFixture();
     const comment = await commentAdd(author, {
@@ -212,10 +237,20 @@ describe("comment mentions", () => {
     ]);
 
     const defaultInbox = await commentNotificationList(memberB, {});
+    expect(defaultInbox.unreadCount).toBe(1);
     expect(defaultInbox.notifications).toEqual([
       expect.objectContaining({ kind: "comment", commentId: comment.id }),
     ]);
     expect(defaultInbox.notifications.some((entry) => entry.kind === "mention")).toBe(false);
+
+    const combinedInbox = await commentNotificationList(memberB, {
+      kinds: ["comment", "mention"],
+    });
+    expect(combinedInbox.unreadCount).toBe(2);
+    expect(combinedInbox.notifications.map((entry) => entry.kind).sort()).toEqual([
+      "comment",
+      "mention",
+    ]);
 
     expect(
       await commentNotificationRead(memberB, {
@@ -225,6 +260,26 @@ describe("comment mentions", () => {
     expect(
       await commentNotificationList(memberB, { kinds: ["mention"] })
     ).toMatchObject({ unreadCount: 0 });
+  });
+
+  test("read all defaults to comments and can explicitly clear mentions", async () => {
+    const { author, memberB } = createFixture();
+    await commentAdd(author, {
+      path: "/read-all.md",
+      body: "Please decide",
+      mentions: [MEMBER_B_ID],
+    });
+
+    expect(await commentNotificationRead(memberB, { all: true })).toEqual({ markedRead: 1 });
+    expect(await commentNotificationList(memberB, { kinds: ["mention"] })).toMatchObject({
+      unreadCount: 1,
+    });
+    expect(
+      await commentNotificationRead(memberB, { all: true, kinds: ["mention"] })
+    ).toEqual({ markedRead: 1 });
+    expect(await commentNotificationList(memberB, { kinds: ["mention"] })).toMatchObject({
+      unreadCount: 0,
+    });
   });
 
   test("updates the mention set and notifies only newly added members", async () => {
@@ -275,6 +330,67 @@ describe("comment mentions", () => {
         .all()
     ).toEqual([{ userId: MEMBER_C_ID }]);
     expect(mentionEvents()).toHaveLength(2);
+    expect(mentionEvents().find((event) => event.target === MEMBER_B_ID)?.status).toBe("deleted");
+  });
+
+  test("validates updates before changing the body", async () => {
+    const { db, author } = createFixture();
+    const comment = await commentAdd(author, {
+      path: "/update-invalid.md",
+      body: "Original body",
+    });
+
+    await expect(
+      commentUpdate(author, {
+        id: comment.id,
+        body: "Changed body",
+        mentions: [OUTSIDER_ID],
+      })
+    ).rejects.toThrow(ValidationError);
+    expect(
+      db.select({ body: schema.comments.body })
+        .from(schema.comments)
+        .where(eq(schema.comments.id, comment.id))
+        .get()
+    ).toEqual({ body: "Original body" });
+  });
+
+  test("clears mentions and drops self-mentions on update", async () => {
+    const { db, author } = createFixture();
+    const comment = await commentAdd(author, {
+      path: "/update-clear.md",
+      body: "Initial",
+      mentions: [MEMBER_B_ID, MEMBER_C_ID],
+    });
+
+    await commentUpdate(author, {
+      id: comment.id,
+      body: "Self mention only",
+      mentions: [AUTHOR_ID],
+    });
+    expect(
+      db.select({ userId: schema.commentMentions.userId })
+        .from(schema.commentMentions)
+        .where(eq(schema.commentMentions.commentId, comment.id))
+        .all()
+    ).toEqual([]);
+
+    await commentUpdate(author, {
+      id: comment.id,
+      body: "Re-add B",
+      mentions: [MEMBER_B_ID],
+    });
+    await commentUpdate(author, {
+      id: comment.id,
+      body: "Clear all",
+      mentions: [],
+    });
+    expect(
+      db.select({ userId: schema.commentMentions.userId })
+        .from(schema.commentMentions)
+        .where(eq(schema.commentMentions.commentId, comment.id))
+        .all()
+    ).toEqual([]);
   });
 
   test("returns mention profiles for roots and replies", async () => {

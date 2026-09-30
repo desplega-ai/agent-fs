@@ -9,10 +9,14 @@ import type {
   CommentNotificationReadResult,
   OpContext,
 } from "./types.js";
+import {
+  COMMENT_MENTION_EVENT,
+  COMMENT_NOTIFICATION_EVENT,
+} from "./comment-mentions.js";
 
 const NOTIFICATION_TYPES = {
-  comment: "comment_notification",
-  mention: "comment_mention",
+  comment: COMMENT_NOTIFICATION_EVENT,
+  mention: COMMENT_MENTION_EVENT,
 } as const;
 const DEFAULT_LIMIT = 50;
 const READ_BATCH_SIZE = 500;
@@ -128,8 +132,11 @@ export async function commentNotificationRead(
     });
   }
 
+  const types = params.all
+    ? (params.kinds ?? ["comment"]).map((kind) => NOTIFICATION_TYPES[kind])
+    : Object.values(NOTIFICATION_TYPES);
   const conditions = [
-    ...notificationScope(ctx, Object.values(NOTIFICATION_TYPES)),
+    ...notificationScope(ctx, types),
     eq(schema.events.status, "created"),
   ];
 
@@ -169,7 +176,7 @@ export async function commentNotificationRead(
           inArray(schema.events.id, batch),
           eq(schema.events.orgId, ctx.orgId),
           eq(schema.events.target, ctx.userId),
-          inArray(schema.events.type, Object.values(NOTIFICATION_TYPES)),
+          inArray(schema.events.type, types),
           eq(schema.events.status, "created")
         )
       )

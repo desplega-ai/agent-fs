@@ -2,6 +2,7 @@ import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
 import { getConfig, getOpDefinition } from "@/core";
 import { outputResult } from "../formatters.js";
+import { collect } from "./collect.js";
 
 const FORMATS = new Set(["csv", "tsv", "parquet", "xlsx", "json", "ndjson", "sqlite", "duckdb"]);
 
@@ -43,7 +44,7 @@ export function sqlCommand(
     .option(
       "-t, --table <name=path[:format]>",
       "Bind a document as a named table (repeatable). Append :format to override detection, e.g. logs=/raw/data.txt:csv",
-      (value: string, prev: string[]) => [...prev, value],
+      collect,
       [] as string[]
     )
     .option("--max-rows <n>", "Max rows to return (default: 1000, max: 10000)")

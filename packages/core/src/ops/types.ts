@@ -396,8 +396,10 @@ export interface CommentNotificationListResult {
 export interface CommentNotificationReadParams {
   /** Mark only these notification event IDs as read. */
   ids?: string[];
-  /** Mark every unread comment notification in the active drive as read. */
+  /** Mark every unread notification of these kinds in the active drive as read. */
   all?: boolean;
+  /** Defaults to comment when all is true. Ignored for explicit IDs. */
+  kinds?: Array<"comment" | "mention">;
 }
 
 export interface CommentNotificationReadResult {

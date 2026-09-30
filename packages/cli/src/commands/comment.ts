@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
+import { collect } from "./collect.js";
 
 export function commentCommands(
   client: ApiClient,
@@ -40,7 +41,7 @@ export function commentCommands(
     .option(
       "--mention <user-id-or-email>",
       "Mention a drive member (repeatable)",
-      (value: string, prev: string[]) => [...prev, value],
+      collect,
       [] as string[]
     )
     .description("Add a comment to a file")
@@ -73,7 +74,7 @@ export function commentCommands(
     .option(
       "--mention <user-id-or-email>",
       "Mention a drive member (repeatable)",
-      (value: string, prev: string[]) => [...prev, value],
+      collect,
       [] as string[]
     )
     .description("Reply to a comment")
@@ -140,14 +141,19 @@ export function commentCommands(
     .option(
       "--mention <user-id-or-email>",
       "Replace mentions with drive members (repeatable)",
-      (value: string, prev: string[]) => [...prev, value],
+      collect,
       [] as string[]
     )
+    .option("--clear-mentions", "Remove every mention")
     .description("Update a comment")
     .action(async (id: string, opts: any) => {
       try {
         const params: Record<string, any> = { id, body: opts.body };
-        if (opts.mention.length > 0) params.mentions = opts.mention;
+        if (opts.clearMentions && opts.mention.length > 0) {
+          throw new Error("Use --clear-mentions or --mention, not both");
+        }
+        if (opts.clearMentions) params.mentions = [];
+        else if (opts.mention.length > 0) params.mentions = opts.mention;
         const result = await callOp("comment-update", params);
         console.log(JSON.stringify(result, null, 2));
       } catch (err: any) {
@@ -204,7 +210,7 @@ export function commentCommands(
     .option(
       "--kind <comment|mention>",
       "Notification kind (repeatable; default: comment)",
-      (value: string, prev: string[]) => [...prev, value],
+      collect,
       [] as string[]
     )
     .option("--limit <n>", "Max results (1-100)")
@@ -233,6 +239,12 @@ export function commentCommands(
     .command("read")
     .argument("[ids...]", "Notification event IDs")
     .option("--all", "Mark all notifications in the active drive as read")
+    .option(
+      "--kind <comment|mention>",
+      "Notification kind for --all (repeatable; default: comment)",
+      collect,
+      [] as string[]
+    )
     .description("Mark comment notifications as read")
     .action(async (ids: string[] | undefined, opts: any) => {
       try {
@@ -243,12 +255,15 @@ export function commentCommands(
         if (!opts.all && notificationIds.length === 0) {
           throw new Error("Provide one or more notification IDs or --all");
         }
+        if (!opts.all && opts.kind.length > 0) {
+          throw new Error("Use --kind only with --all");
+        }
         if (notificationIds.length > 100) {
           throw new Error("At most 100 notification IDs can be marked read at once");
         }
 
         const params = opts.all
-          ? { all: true }
+          ? { all: true, ...(opts.kind.length > 0 ? { kinds: opts.kind } : {}) }
           : { ids: notificationIds };
         const result = await callOp("comment-notification-read", params);
         console.log(JSON.stringify(result, null, 2));

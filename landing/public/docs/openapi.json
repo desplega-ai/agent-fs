@@ -1311,7 +1311,7 @@
                   {
                     "type": "object",
                     "title": "comment-add",
-                    "description": "Add a comment to a file. Supports line ranges, a text-quote anchor ({ exact, prefix, suffix }), and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
+                    "description": "Add a comment to a file. Supports line ranges, a text-quote anchor ({ exact, prefix, suffix }), mentions by drive-member user ID or email, and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
                     "required": [
                       "op",
                       "body"
@@ -1333,6 +1333,14 @@
                       },
                       "parentId": {
                         "type": "string"
+                      },
+                      "mentions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "maxItems": 20
                       },
                       "lineStart": {
                         "type": "integer"
@@ -1433,7 +1441,7 @@
                   {
                     "type": "object",
                     "title": "comment-update",
-                    "description": "Update a comment's body. Only the original author can update. Returns { id, body, updatedAt }.",
+                    "description": "Update a comment's body and optionally replace its mentions. Mentions accept drive-member user IDs or emails. Only the original author can update. Returns { id, body, updatedAt }.",
                     "required": [
                       "op",
                       "id",
@@ -1453,6 +1461,14 @@
                       },
                       "body": {
                         "type": "string"
+                      },
+                      "mentions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "maxItems": 20
                       }
                     },
                     "additionalProperties": false
@@ -1510,7 +1526,7 @@
                   {
                     "type": "object",
                     "title": "comment-notification-list",
-                    "description": "List comment notifications for the current user in the active drive. Returns { notifications, unreadCount }.",
+                    "description": "List comment or mention notifications for the current user in the active drive. Defaults to comment notifications. Returns { notifications, unreadCount }.",
                     "required": [
                       "op"
                     ],
@@ -1525,6 +1541,17 @@
                       },
                       "unreadOnly": {
                         "type": "boolean"
+                      },
+                      "kinds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "comment",
+                            "mention"
+                          ]
+                        },
+                        "minItems": 1
                       },
                       "limit": {
                         "type": "integer",
@@ -1541,7 +1568,7 @@
                   {
                     "type": "object",
                     "title": "comment-notification-read",
-                    "description": "Mark selected comment notification IDs, or all comment notifications in the active drive, as read. Returns { markedRead }.",
+                    "description": "Mark selected comment or mention notification IDs, or all notifications of the selected kinds in the active drive, as read. All defaults to comment notifications. Returns { markedRead }.",
                     "required": [
                       "op"
                     ],
@@ -1567,6 +1594,17 @@
                         "enum": [
                           true
                         ]
+                      },
+                      "kinds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "comment",
+                            "mention"
+                          ]
+                        },
+                        "minItems": 1
                       }
                     },
                     "additionalProperties": false
