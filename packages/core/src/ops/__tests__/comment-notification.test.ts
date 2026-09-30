@@ -126,6 +126,7 @@ describe("comment notifications", () => {
     expect(recipient.notifications).toEqual([
       expect.objectContaining({
         id: events[0].id,
+        kind: "comment",
         commentId: comment.id,
         path: "/docs/notification.md",
         body: "Please review this",

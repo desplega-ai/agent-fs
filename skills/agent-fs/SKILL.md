@@ -200,14 +200,14 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `comment add` | `agent-fs comment add <path> --body <text> [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits; prefix/suffix pick the right occurrence when the text repeats |
-| `comment reply` | `agent-fs comment reply <comment-id> --body <text>` | Reply to a comment |
+| `comment add` | `agent-fs comment add <path> --body <text> [--mention <user-id-or-email>]... [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits. Repeat `--mention` to notify drive members. |
+| `comment reply` | `agent-fs comment reply <comment-id> --body <text> [--mention <user-id-or-email>]...` | Reply to a comment and optionally mention drive members |
 | `comment list` | `agent-fs comment list [path] [--prefix <path>]` | List comments with inline replies. Use `--prefix` for all comments below a directory. Do not combine a positional path with `--prefix`. |
 | `comment get` | `agent-fs comment get <id>` | Get a comment with its replies |
-| `comment update` | `agent-fs comment update <id> --body <text>` | Update a comment (author only) |
+| `comment update` | `agent-fs comment update <id> --body <text> [--mention <user-id-or-email>]...` | Update a comment and optionally replace its mentions (author only) |
 | `comment delete` | `agent-fs comment delete <id>` | Soft-delete a comment (author only) |
 | `comment resolve` | `agent-fs comment resolve <id>` | Resolve a comment |
-| `comment notifications` | `agent-fs comment notifications [--unread] [--limit <n>]` | List comment notifications for the current user in the active drive |
+| `comment notifications` | `agent-fs comment notifications [--kind <comment\|mention>]... [--unread] [--limit <n>]` | List notifications for the current user. The default kind is `comment`. |
 | `comment read` | `agent-fs comment read [ids...] [--all]` | Mark selected notification event IDs, or all active-drive notifications, as read |
 
 ### Setup & Auth
@@ -345,6 +345,9 @@ agent-fs revert docs/spec.md --version 2
 # Add a comment to a file
 agent-fs comment add docs/spec.md --body "Needs more detail on auth"
 
+# Ask a human for a decision and send a targeted mention notification
+agent-fs comment add docs/spec.md --body "Which option should we use?" --mention human@example.com
+
 # Anchor a comment to exact text (survives edits above it; the MCP/API param is quote: { exact, prefix, suffix })
 agent-fs comment add docs/spec.md --body "Which provider?" --quote "OAuth login" --quote-suffix " flow"
 
@@ -359,6 +362,9 @@ agent-fs comment list --prefix docs/
 
 # Check unread notifications (the returned IDs are notification event IDs)
 agent-fs comment notifications --unread --limit 20
+
+# Check targeted mention notifications
+agent-fs comment notifications --kind mention --unread
 
 # Mark selected notifications as read
 agent-fs comment read <notification-id> [<notification-id>...]

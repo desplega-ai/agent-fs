@@ -161,6 +161,24 @@ export const comments = sqliteTable("comments", {
   isDeleted: integer("is_deleted", { mode: "boolean" }).notNull().default(false),
 });
 
+// comment_mentions (targeted comment mentions)
+export const commentMentions = sqliteTable(
+  "comment_mentions",
+  {
+    commentId: text("comment_id")
+      .notNull()
+      .references(() => comments.id),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.commentId, table.userId] }),
+    userIdx: index("idx_comment_mentions_user").on(table.userId),
+  })
+);
+
 // events (generic event/notification table)
 export const events = sqliteTable(
   "events",
