@@ -6,6 +6,9 @@ import type { CommentEntry, OpContext } from "./types.js";
 
 type Mention = NonNullable<CommentEntry["mentions"]>[number];
 
+export const COMMENT_NOTIFICATION_EVENT = "comment_notification";
+export const COMMENT_MENTION_EVENT = "comment_mention";
+
 export function resolveMentions(ctx: OpContext, raw: string[]): string[] {
   const members = listDriveMembersPublic(ctx.db, ctx.driveId);
   const byId = new Map(members.map((member) => [member.userId, member.userId]));
@@ -74,38 +77,55 @@ export function emitMentionNotifications(
     path: string;
     parentId?: string;
     userIds: string[];
+    createdAt: Date;
+  }
+): void {
+  emitCommentNotificationEvents(ctx, {
+    eventType: COMMENT_MENTION_EVENT,
+    commentId: params.commentId,
+    userIds: params.userIds,
+    metadata: { path: params.path, parentId: params.parentId },
+    createdAt: params.createdAt,
+  });
+}
+
+export function emitCommentNotificationEvents(
+  ctx: OpContext,
+  params: {
+    eventType: typeof COMMENT_NOTIFICATION_EVENT | typeof COMMENT_MENTION_EVENT;
+    commentId: string;
+    userIds: string[];
+    metadata: Record<string, unknown>;
+    createdAt: Date;
   }
 ): void {
   if (params.userIds.length === 0) return;
 
-  const createdAt = new Date();
   ctx.db
     .insert(schema.events)
     .values(
       params.userIds.map((userId) => ({
         id: crypto.randomUUID(),
         orgId: ctx.orgId,
-        type: "comment_mention",
+        type: params.eventType,
         resourceType: "comment",
         resourceId: params.commentId,
         actor: ctx.userId,
         target: userId,
         status: "created" as const,
-        metadata: JSON.stringify({
-          path: params.path,
-          parentId: params.parentId,
-        }),
-        createdAt,
+        metadata: JSON.stringify(params.metadata),
+        createdAt: params.createdAt,
       }))
     )
     .run();
 }
 
-export function loadMentions(
+export function addMentions<T extends { id: string; mentions?: CommentEntry["mentions"] }>(
   ctx: OpContext,
-  commentIds: string[]
-): Map<string, Mention[]> {
-  if (commentIds.length === 0) return new Map();
+  entries: T[]
+): T[] {
+  const commentIds = entries.map((entry) => entry.id);
+  if (commentIds.length === 0) return entries;
 
   const rows = ctx.db
     .select({
@@ -130,5 +150,9 @@ export function loadMentions(
     });
     mentions.set(row.commentId, entries);
   }
-  return mentions;
+  for (const entry of entries) {
+    const commentMentions = mentions.get(entry.id);
+    if (commentMentions?.length) entry.mentions = commentMentions;
+  }
+  return entries;
 }

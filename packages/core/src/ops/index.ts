@@ -358,11 +358,12 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-notification-read": {
-    description: "Mark selected comment notification IDs, or all comment notifications in the active drive, as read. Returns { markedRead }.",
+    description: "Mark selected comment or mention notification IDs, or all notifications of the selected kinds in the active drive, as read. All defaults to comment notifications. Returns { markedRead }.",
     handler: commentNotificationRead,
     schema: z.object({
       ids: z.array(z.string()).min(1).max(100).optional(),
       all: z.literal(true).optional(),
+      kinds: z.array(z.enum(["comment", "mention"])).min(1).optional(),
     }),
   },
   "drive-members": {

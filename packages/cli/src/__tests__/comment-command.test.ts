@@ -178,4 +178,40 @@ describe("comment commands", () => {
       },
     ]);
   });
+
+  test("maps clear mentions and read-all kinds", async () => {
+    const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
+    const client = {
+      callOp: async (_orgId: string, op: string, params: Record<string, unknown>) => {
+        calls.push({ op, params });
+        return {};
+      },
+    } as Pick<ApiClient, "callOp"> as ApiClient;
+    const command = commentCommands(client, () => "org-1", () => "drive-2");
+
+    await command.parseAsync([
+      "update",
+      "comment-1",
+      "--body",
+      "Clear mentions",
+      "--clear-mentions",
+    ], { from: "user" });
+    await command.parseAsync([
+      "read",
+      "--all",
+      "--kind",
+      "mention",
+    ], { from: "user" });
+
+    expect(calls).toEqual([
+      {
+        op: "comment-update",
+        params: { id: "comment-1", body: "Clear mentions", mentions: [], driveId: "drive-2" },
+      },
+      {
+        op: "comment-notification-read",
+        params: { all: true, kinds: ["mention"], driveId: "drive-2" },
+      },
+    ]);
+  });
 });

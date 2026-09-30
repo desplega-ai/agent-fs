@@ -1568,7 +1568,7 @@
                   {
                     "type": "object",
                     "title": "comment-notification-read",
-                    "description": "Mark selected comment notification IDs, or all comment notifications in the active drive, as read. Returns { markedRead }.",
+                    "description": "Mark selected comment or mention notification IDs, or all notifications of the selected kinds in the active drive, as read. All defaults to comment notifications. Returns { markedRead }.",
                     "required": [
                       "op"
                     ],
@@ -1594,6 +1594,17 @@
                         "enum": [
                           true
                         ]
+                      },
+                      "kinds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "comment",
+                            "mention"
+                          ]
+                        },
+                        "minItems": 1
                       }
                     },
                     "additionalProperties": false
