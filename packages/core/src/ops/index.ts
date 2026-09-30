@@ -278,12 +278,13 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-add": {
-    description: "Add a comment to a file. Supports line ranges, a text-quote anchor ({ exact, prefix, suffix }), and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
+    description: "Add a comment to a file. Supports line ranges, a text-quote anchor ({ exact, prefix, suffix }), mentions by drive-member user ID or email, and threading via parentId. Replies auto-resolve path from parent. Returns { id, path, body, author, createdAt }.",
     handler: commentAdd,
     schema: z.object({
       path: z.string().optional(),
       body: z.string(),
       parentId: z.string().optional(),
+      mentions: z.array(z.string().min(1)).max(20).optional(),
       lineStart: z.number().int().optional(),
       lineEnd: z.number().int().optional(),
       quotedContent: z.string().optional(),
@@ -323,11 +324,12 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-update": {
-    description: "Update a comment's body. Only the original author can update. Returns { id, body, updatedAt }.",
+    description: "Update a comment's body and optionally replace its mentions. Mentions accept drive-member user IDs or emails. Only the original author can update. Returns { id, body, updatedAt }.",
     handler: commentUpdate,
     schema: z.object({
       id: z.string(),
       body: z.string(),
+      mentions: z.array(z.string().min(1)).max(20).optional(),
     }),
   },
   "comment-delete": {
@@ -346,20 +348,22 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "comment-notification-list": {
-    description: "List comment notifications for the current user in the active drive. Returns { notifications, unreadCount }.",
+    description: "List comment or mention notifications for the current user in the active drive. Defaults to comment notifications. Returns { notifications, unreadCount }.",
     handler: commentNotificationList,
     schema: z.object({
       unreadOnly: z.boolean().optional(),
+      kinds: z.array(z.enum(["comment", "mention"])).min(1).optional(),
       limit: z.number().int().min(1).max(100).optional(),
       offset: z.number().int().min(0).optional(),
     }),
   },
   "comment-notification-read": {
-    description: "Mark selected comment notification IDs, or all comment notifications in the active drive, as read. Returns { markedRead }.",
+    description: "Mark selected comment or mention notification IDs, or all notifications of the selected kinds in the active drive, as read. All defaults to comment notifications. Returns { markedRead }.",
     handler: commentNotificationRead,
     schema: z.object({
       ids: z.array(z.string()).min(1).max(100).optional(),
       all: z.literal(true).optional(),
+      kinds: z.array(z.enum(["comment", "mention"])).min(1).optional(),
     }),
   },
   "drive-members": {

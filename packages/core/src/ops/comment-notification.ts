@@ -9,15 +9,22 @@ import type {
   CommentNotificationReadResult,
   OpContext,
 } from "./types.js";
+import {
+  COMMENT_MENTION_EVENT,
+  COMMENT_NOTIFICATION_EVENT,
+} from "./comment-mentions.js";
 
-const NOTIFICATION_TYPE = "comment_notification";
+const NOTIFICATION_TYPES = {
+  comment: COMMENT_NOTIFICATION_EVENT,
+  mention: COMMENT_MENTION_EVENT,
+} as const;
 const DEFAULT_LIMIT = 50;
 const READ_BATCH_SIZE = 500;
 
-function notificationScope(ctx: OpContext) {
+function notificationScope(ctx: OpContext, types: string[]) {
   return [
     eq(schema.events.orgId, ctx.orgId),
-    eq(schema.events.type, NOTIFICATION_TYPE),
+    inArray(schema.events.type, types),
     eq(schema.events.resourceType, "comment"),
     eq(schema.events.target, ctx.userId),
     eq(schema.comments.orgId, ctx.orgId),
@@ -30,8 +37,11 @@ export async function commentNotificationList(
   ctx: OpContext,
   params: CommentNotificationListParams
 ): Promise<CommentNotificationListResult> {
+  const types = (params.kinds ?? ["comment"]).map(
+    (kind) => NOTIFICATION_TYPES[kind]
+  );
   const conditions = [
-    ...notificationScope(ctx),
+    ...notificationScope(ctx, types),
     ne(schema.events.status, "deleted"),
   ];
 
@@ -42,6 +52,7 @@ export async function commentNotificationList(
   const rows = ctx.db
     .select({
       id: schema.events.id,
+      type: schema.events.type,
       commentId: schema.comments.id,
       parentId: schema.comments.parentId,
       path: schema.comments.path,
@@ -81,7 +92,7 @@ export async function commentNotificationList(
     )
     .where(
       and(
-        ...notificationScope(ctx),
+        ...notificationScope(ctx, types),
         eq(schema.events.status, "created")
       )
     )
@@ -89,6 +100,7 @@ export async function commentNotificationList(
 
   const notifications: CommentNotificationEntry[] = rows.map((row) => ({
     id: row.id,
+    kind: row.type === NOTIFICATION_TYPES.mention ? "mention" : "comment",
     commentId: row.commentId,
     parentId: row.parentId ?? undefined,
     path: row.path,
@@ -120,8 +132,11 @@ export async function commentNotificationRead(
     });
   }
 
+  const types = params.all
+    ? (params.kinds ?? ["comment"]).map((kind) => NOTIFICATION_TYPES[kind])
+    : Object.values(NOTIFICATION_TYPES);
   const conditions = [
-    ...notificationScope(ctx),
+    ...notificationScope(ctx, types),
     eq(schema.events.status, "created"),
   ];
 
@@ -161,7 +176,7 @@ export async function commentNotificationRead(
           inArray(schema.events.id, batch),
           eq(schema.events.orgId, ctx.orgId),
           eq(schema.events.target, ctx.userId),
-          eq(schema.events.type, NOTIFICATION_TYPE),
+          inArray(schema.events.type, types),
           eq(schema.events.status, "created")
         )
       )

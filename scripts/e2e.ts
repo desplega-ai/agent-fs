@@ -1773,6 +1773,7 @@ async function runStandardTests(daemonUrl: string) {
     assert(health.features?.includes("share-links"), true, `Expected share-links in ${JSON.stringify(health)}`);
     assert(health.features?.includes("comment-path-prefix"), true, `Expected comment-path-prefix in ${JSON.stringify(health)}`);
     assert(health.features?.includes("drive-members"), true, `Expected drive-members in ${JSON.stringify(health)}`);
+    assert(health.features?.includes("comment-mentions"), true, `Expected comment-mentions in ${JSON.stringify(health)}`);
   });
 
   runJson('write /share-e2e.md --content "# Shared heading\n\nHello <script>alert(1)</script> from **agent-fs**."');
@@ -3285,6 +3286,52 @@ async function runStandardTests(daemonUrl: string) {
     const readNotification = afterRead.notifications.find((entry: any) => entry.id === notification.id);
     assert(!!readNotification, true, "Expected acknowledged notification in the full list");
     assert(readNotification.read, true, "Expected notification to be marked read");
+  });
+
+  await test("comment mentions work through CLI add, list, notifications, and read", () => {
+    const add = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment add /rbac-probe.txt --body "mention e2e" --mention USER3@E2E.LOCAL`,
+      { AGENT_FS_API_KEY: apiKey },
+    ));
+    assert(typeof add.id, "string", "Expected comment ID");
+
+    const comments = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment list /rbac-probe.txt`,
+      { AGENT_FS_API_KEY: apiKey },
+    ));
+    const comment = comments.comments.find((entry: any) => entry.id === add.id);
+    assert(comment?.mentions?.[0]?.email, "user3@e2e.local", "Expected resolved mention profile");
+
+    const mentionInbox = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment notifications --kind mention`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    const mention = mentionInbox.notifications.find((entry: any) => entry.commentId === add.id);
+    assert(!!mention, true, "Expected targeted mention notification");
+    assert(mention.kind, "mention");
+    assert(mention.read, false);
+
+    const defaultInbox = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment notifications`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    const broadcast = defaultInbox.notifications.find((entry: any) => entry.commentId === add.id);
+    assert(!!broadcast, true, "Expected existing broadcast notification by default");
+    assert(broadcast.kind, "comment");
+
+    JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment read ${mention.id}`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    const afterRead = JSON.parse(runWithEnv(
+      `--json --org ${secondOrgId} --drive ${secondDriveId} comment notifications --kind mention --unread`,
+      { AGENT_FS_API_KEY: user3ApiKey },
+    ));
+    assert(
+      afterRead.notifications.some((entry: any) => entry.id === mention.id),
+      false,
+      "Expected the read mention to leave the unread inbox",
+    );
   });
 
   await test("rbac: comment IDs are org/drive scoped (cross-tenant 404)", async () => {

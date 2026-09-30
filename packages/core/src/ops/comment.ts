@@ -1,4 +1,4 @@
-import { eq, and, sql, desc, ne, inArray } from "drizzle-orm";
+import { eq, and, sql, desc, ne, inArray, notInArray } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type {
   OpContext,
@@ -20,6 +20,15 @@ import type {
 } from "./types.js";
 import { NotFoundError, ValidationError, PermissionDeniedError } from "../errors.js";
 import { normalizePrefix } from "./paths.js";
+import {
+  COMMENT_MENTION_EVENT,
+  COMMENT_NOTIFICATION_EVENT,
+  addMentions,
+  emitCommentNotificationEvents,
+  emitMentionNotifications,
+  resolveMentions,
+  saveMentions,
+} from "./comment-mentions.js";
 
 // --- Event helper ---
 
@@ -67,26 +76,13 @@ function emitCommentNotifications(
 
   if (recipients.length === 0) return;
 
-  ctx.db
-    .insert(schema.events)
-    .values(
-      recipients.map(({ userId }) => ({
-        id: crypto.randomUUID(),
-        orgId: ctx.orgId,
-        type: "comment_notification",
-        resourceType: "comment",
-        resourceId: params.commentId,
-        actor: ctx.userId,
-        target: userId,
-        status: "created" as const,
-        metadata: JSON.stringify({
-          path: params.path,
-          parentId: params.parentId,
-        }),
-        createdAt: params.createdAt,
-      }))
-    )
-    .run();
+  emitCommentNotificationEvents(ctx, {
+    eventType: COMMENT_NOTIFICATION_EVENT,
+    commentId: params.commentId,
+    userIds: recipients.map(({ userId }) => userId),
+    metadata: { path: params.path, parentId: params.parentId },
+    createdAt: params.createdAt,
+  });
 }
 
 // --- Helpers ---
@@ -221,6 +217,9 @@ export async function commentAdd(
     });
   }
 
+  const mentionUserIds = params.mentions
+    ? resolveMentions(ctx, params.mentions)
+    : [];
   const quote = normalizeQuote(params.quote);
 
   // Capture current file version ID
@@ -237,41 +236,51 @@ export async function commentAdd(
     .limit(1)
     .get();
 
-  ctx.db
-    .insert(schema.comments)
-    .values({
-      id,
-      parentId: params.parentId ?? null,
-      orgId: ctx.orgId,
-      driveId: ctx.driveId,
-      path,
-      lineStart: params.lineStart ?? null,
-      lineEnd: params.lineEnd ?? null,
-      quotedContent: params.quotedContent ?? null,
-      quoteExact: quote?.exact ?? null,
-      quotePrefix: quote?.prefix ?? null,
-      quoteSuffix: quote?.suffix ?? null,
-      fileVersionId: currentVersion?.id ?? null,
-      body: params.body,
-      author: ctx.userId,
-      resolved: false,
-      createdAt: now,
-      updatedAt: now,
-      isDeleted: false,
-    })
-    .run();
+  ctx.db.transaction((tx) => {
+    const txCtx = { ...ctx, db: tx as unknown as typeof ctx.db };
+    tx.insert(schema.comments)
+      .values({
+        id,
+        parentId: params.parentId ?? null,
+        orgId: ctx.orgId,
+        driveId: ctx.driveId,
+        path,
+        lineStart: params.lineStart ?? null,
+        lineEnd: params.lineEnd ?? null,
+        quotedContent: params.quotedContent ?? null,
+        quoteExact: quote?.exact ?? null,
+        quotePrefix: quote?.prefix ?? null,
+        quoteSuffix: quote?.suffix ?? null,
+        fileVersionId: currentVersion?.id ?? null,
+        body: params.body,
+        author: ctx.userId,
+        resolved: false,
+        createdAt: now,
+        updatedAt: now,
+        isDeleted: false,
+      })
+      .run();
 
-  emitEvent(ctx, {
-    type: "comment_created",
-    resourceType: "comment",
-    resourceId: id,
-    metadata: { path, parentId: params.parentId },
-  });
-  emitCommentNotifications(ctx, {
-    commentId: id,
-    path,
-    parentId: params.parentId,
-    createdAt: now,
+    const newMentionUserIds = saveMentions(txCtx, id, mentionUserIds);
+    emitMentionNotifications(txCtx, {
+      commentId: id,
+      path,
+      parentId: params.parentId,
+      userIds: newMentionUserIds,
+      createdAt: now,
+    });
+    emitEvent(txCtx, {
+      type: "comment_created",
+      resourceType: "comment",
+      resourceId: id,
+      metadata: { path, parentId: params.parentId },
+    });
+    emitCommentNotifications(txCtx, {
+      commentId: id,
+      path,
+      parentId: params.parentId,
+      createdAt: now,
+    });
   });
 
   return addAuthorNames(ctx, [{
@@ -367,7 +376,9 @@ export async function commentList(
     };
   });
 
-  addAuthorNames(ctx, comments.flatMap((comment) => [comment, ...comment.replies]));
+  const entries = comments.flatMap((comment) => [comment, ...comment.replies]);
+  addAuthorNames(ctx, entries);
+  addMentions(ctx, entries);
   addFileVersions(ctx, comments);
   return { comments };
 }
@@ -420,7 +431,9 @@ export async function commentGet(
 
   const replies = replyRows.map((r) => toCommentEntry({ ...r, replyCount: 0 }));
 
-  addAuthorNames(ctx, [comment, ...replies]);
+  const entries = [comment, ...replies];
+  addAuthorNames(ctx, entries);
+  addMentions(ctx, entries);
   addFileVersions(ctx, [comment]);
   return { comment, replies };
 }
@@ -443,18 +456,63 @@ export async function commentUpdate(
     });
   }
 
+  const mentionUserIds = params.mentions === undefined
+    ? undefined
+    : resolveMentions(ctx, params.mentions);
   const now = new Date();
-  ctx.db
-    .update(schema.comments)
-    .set({ body: params.body, updatedAt: now })
-    .where(
-      and(
-        eq(schema.comments.id, params.id),
-        eq(schema.comments.orgId, ctx.orgId),
-        eq(schema.comments.driveId, ctx.driveId)
+  ctx.db.transaction((tx) => {
+    const txCtx = { ...ctx, db: tx as unknown as typeof ctx.db };
+    tx.update(schema.comments)
+      .set({ body: params.body, updatedAt: now })
+      .where(
+        and(
+          eq(schema.comments.id, params.id),
+          eq(schema.comments.orgId, ctx.orgId),
+          eq(schema.comments.driveId, ctx.driveId)
+        )
       )
-    )
-    .run();
+      .run();
+
+    if (mentionUserIds !== undefined) {
+      const removeCondition = mentionUserIds.length > 0
+        ? and(
+            eq(schema.commentMentions.commentId, params.id),
+            notInArray(schema.commentMentions.userId, mentionUserIds)
+          )
+        : eq(schema.commentMentions.commentId, params.id);
+      const removedUserIds = tx.select({ userId: schema.commentMentions.userId })
+        .from(schema.commentMentions)
+        .where(removeCondition)
+        .all()
+        .map(({ userId }) => userId);
+      tx.delete(schema.commentMentions).where(removeCondition).run();
+
+      if (removedUserIds.length > 0) {
+        tx.update(schema.events)
+          .set({ status: "deleted" })
+          .where(
+            and(
+              eq(schema.events.orgId, txCtx.orgId),
+              eq(schema.events.type, COMMENT_MENTION_EVENT),
+              eq(schema.events.resourceType, "comment"),
+              eq(schema.events.resourceId, params.id),
+              inArray(schema.events.target, removedUserIds),
+              eq(schema.events.status, "created")
+            )
+          )
+          .run();
+      }
+
+      const newMentionUserIds = saveMentions(txCtx, params.id, mentionUserIds);
+      emitMentionNotifications(txCtx, {
+        commentId: params.id,
+        path: row.path,
+        parentId: row.parentId ?? undefined,
+        userIds: newMentionUserIds,
+        createdAt: now,
+      });
+    }
+  });
 
   return { id: params.id, body: params.body, updatedAt: now };
 }
