@@ -1,37 +1,29 @@
 import { describe, expect, test } from "bun:test"
-import { createElement } from "react"
-import { renderToStaticMarkup } from "react-dom/server"
 import type { DiffResult } from "@/api/types"
-import { DiffResultView } from "@/components/viewers/DiffResultView"
 import { resolveAnchor, sourceTextSpace } from "../comment-anchor"
-import { anchorDiffChanges } from "../diff-source"
+import { anchorDiffChanges, diffOutcome } from "../diff-source"
 
-const render = (diff: DiffResult) => renderToStaticMarkup(createElement(DiffResultView, { diff }))
-
+// DiffResultView renders straight from diffOutcome: "identical" is the only
+// branch that says "No changes between these versions."
 describe("version history diff panel", () => {
   test("two different writes on a backend without object versions do not read as unchanged", () => {
     // What the server returns for write v1 -> write v2 when it can't fetch content.
-    const html = render({ changes: [], source: "none" })
-    expect(html).not.toContain("No changes between these versions")
-    expect(html).toContain("Comparison unavailable")
+    expect(diffOutcome({ changes: [], source: "none" })).toEqual({ kind: "unavailable" })
   })
 
   test("an empty content comparison is the only empty result that claims equality", () => {
-    expect(render({ changes: [], source: "content" })).toContain("No changes between these versions")
+    expect(diffOutcome({ changes: [], source: "content" })).toEqual({ kind: "identical" })
+    expect(diffOutcome({ changes: [], source: "summary" })).toEqual({ kind: "unavailable" })
   })
 
   test("an empty result from a server that predates source never claims equality", () => {
-    const html = render({ changes: [] })
-    expect(html).not.toContain("No changes between these versions")
-    expect(html).toContain("Comparison unavailable")
+    expect(diffOutcome({ changes: [] })).toEqual({ kind: "unavailable" })
   })
 
   test("summary hunks are labeled as stored snippets, content hunks are not", () => {
     const changes = [{ type: "remove" as const, content: "old" }, { type: "add" as const, content: "new" }]
-    const summary = render({ changes, source: "summary" })
-    expect(summary).toContain("Stored operation snippets, not a full diff")
-    expect(summary).toContain("new")
-    expect(render({ changes, source: "content" })).not.toContain("Stored operation snippets")
+    expect(diffOutcome({ changes, source: "summary" })).toEqual({ kind: "changes", changes, partial: true })
+    expect(diffOutcome({ changes, source: "content" })).toEqual({ kind: "changes", changes, partial: false })
   })
 })
 
