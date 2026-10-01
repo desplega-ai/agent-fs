@@ -5,7 +5,6 @@ import { useFileStat } from "@/hooks/use-file-stat"
 import {
   anchorNeedsDiff,
   commentAnchorInput,
-  diffHasLineNumbers,
   resolveAnchor,
   resolveAnchorInView,
   sourceTextSpace,
@@ -14,6 +13,7 @@ import {
   type AnchorResolution,
   type TextSpace,
 } from "@/lib/comment-anchor"
+import { anchorDiffChanges } from "@/lib/diff-source"
 import { commentAnchors, type AnchorInfo } from "@/stores/comment-anchors"
 import type { CommentListEntry, DiffResult } from "@/api/types"
 
@@ -88,8 +88,8 @@ export function useCommentAnchors(
     neededVersions.forEach((v, i) => {
       const q = diffs[i]
       if (q?.isPending && q.fetchStatus !== "idle") byVersion.set(v, "pending")
-      else if (q?.data && diffHasLineNumbers(q.data.changes)) byVersion.set(v, q.data.changes)
-      else byVersion.set(v, null) // failed, old server, or no versioning: resolve without
+      // null: failed, not a line-by-line comparison, or old server: resolve without
+      else byVersion.set(v, q?.data ? anchorDiffChanges(q.data) : null)
     })
     const out = new Map(firstPass)
     for (const { id, version, input } of inputs) {

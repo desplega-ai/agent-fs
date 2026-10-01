@@ -5,7 +5,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { UserName } from "@/components/UserName"
 import { Kbd } from "@/components/ui/kbd"
 import { useDiff } from "@/hooks/use-diff"
-import { DiffViewer } from "./viewers/DiffViewer"
+import { DiffResultView } from "./viewers/DiffResultView"
 import { cn } from "@/lib/utils"
 
 interface VersionHistoryProps {
@@ -101,11 +101,9 @@ export function VersionHistory({ path }: VersionHistoryProps) {
                 <p className="px-4 py-3 text-xs text-destructive">
                   Failed to load diff: {(diffError as Error).message}
                 </p>
-              ) : diffData?.changes.length ? (
-                <DiffViewer changes={diffData.changes} className="max-h-80" />
-              ) : (
-                <p className="px-4 py-3 text-xs text-muted-foreground">No changes between these versions.</p>
-              )}
+              ) : diffData ? (
+                <DiffResultView diff={diffData} className="max-h-80" />
+              ) : null}
             </div>
           )}
         </div>

@@ -77,8 +77,19 @@ export interface DiffChange {
   newLine?: number
 }
 
+/**
+ * Which path produced a DiffResult:
+ * - "content": both versions were compared line by line.
+ * - "summary": not compared; `changes` is v2's stored edit snippet.
+ * - "none": not compared and no stored summary; empty `changes` does NOT mean
+ *   the versions are identical.
+ */
+export type DiffSource = "content" | "summary" | "none"
+
 export interface DiffResult {
   changes: DiffChange[]
+  /** Absent on servers that predate it; never read its absence as "content". */
+  source?: DiffSource
 }
 
 export interface RecentEntry extends VersionEntry {
