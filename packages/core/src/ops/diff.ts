@@ -86,13 +86,15 @@ export async function diff(
         }
       }
 
-      return { changes };
+      return { changes, source: "content" };
     } catch (err) {
       console.warn(`[diff] S3 content fetch failed for ${path}, falling back to diffSummary:`, err);
     }
   }
 
-  // Fallback: use stored diffSummary
+  // Fallback: use stored diffSummary. The versions were not compared, so the
+  // result says so via `source`: `write` stores no summary, and an empty
+  // `changes` here must not read as "identical".
   const changes: DiffChange[] = [];
   if (v2Record.diffSummary) {
     try {
@@ -104,5 +106,5 @@ export async function diff(
     }
   }
 
-  return { changes };
+  return { changes, source: changes.length > 0 ? "summary" : "none" };
 }

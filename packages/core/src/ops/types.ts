@@ -229,8 +229,19 @@ export interface DiffChange {
   newLine?: number;
 }
 
+/**
+ * Which path produced a DiffResult:
+ * - "content": both versions were fetched and compared line by line.
+ * - "summary": the versions were not compared; `changes` comes from the
+ *   stored edit summary of v2 (old/new snippet only).
+ * - "none": the versions were not compared and v2 has no usable summary, so
+ *   `changes` is empty. This is NOT evidence that the versions are identical.
+ */
+export type DiffSource = "content" | "summary" | "none";
+
 export interface DiffResult {
   changes: DiffChange[];
+  source: DiffSource;
 }
 
 export interface RevertResult {

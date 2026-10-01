@@ -148,7 +148,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   diff: {
-    description: "Show the diff between two versions of a file. Specify v1 and v2 version numbers. Returns { changes } as add/remove/context hunks; when file content was diffed each change carries oldLine/newLine.",
+    description: "Show the diff between two versions of a file. Specify v1 and v2 version numbers. Returns { changes, source } as add/remove/context hunks; when file content was diffed each change carries oldLine/newLine. source is 'content' when both versions were compared, 'summary' when changes come from the stored edit summary, or 'none' when the versions were not compared at all. Only source 'content' with empty changes means the versions are identical.",
     handler: diff,
     schema: z.object({
       path: z.string(),

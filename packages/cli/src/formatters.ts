@@ -220,6 +220,28 @@ function formatDiff(result: any): string {
     .join("\n");
 }
 
+/**
+ * stderr warning for a diff whose versions were not compared line by line, or
+ * null when they were. An empty change list from the summary fallback looks
+ * exactly like two identical versions, so the CLI must say which it is.
+ */
+export function diffSourceWarning(result: any): string | null {
+  switch (result?.source) {
+    case "content":
+      return null;
+    case "summary":
+      return "warning: versions were not compared; changes come from the stored edit summary only (storage backend has no usable object versions)";
+    case "none":
+      return "warning: versions were not compared and no stored summary exists; empty changes do NOT mean the versions are identical (storage backend has no usable object versions)";
+    default:
+      // Older server without `source`: an empty result is ambiguous.
+      if ((result?.changes ?? []).length === 0) {
+        return "warning: server did not report whether the versions were compared; empty changes may mean they were not";
+      }
+      return null;
+  }
+}
+
 function formatTail(result: any): string {
   // tail returns CatResult, same format as cat
   return formatCat(result);

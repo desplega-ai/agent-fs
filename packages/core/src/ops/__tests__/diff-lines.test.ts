@@ -28,6 +28,54 @@ describe("diff line numbers", () => {
   });
 });
 
+describe("diff source", () => {
+  test("content path reports source=content", async () => {
+    const { ctx } = createTestContext({ versioningEnabled: true });
+    await dispatchOp(ctx, "write", { path: "/s.txt", content: "alpha" });
+    await dispatchOp(ctx, "write", { path: "/s.txt", content: "beta" });
+
+    const result = await diff(ctx, { path: "/s.txt", v1: 1, v2: 2 });
+    expect(result.source).toBe("content");
+    expect(result.changes.length).toBeGreaterThan(0);
+  });
+
+  test("write pair without versioning reports none, not a clean diff", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/w.txt", content: "alpha" });
+    await dispatchOp(ctx, "write", { path: "/w.txt", content: "beta" });
+
+    const result = await diff(ctx, { path: "/w.txt", v1: 1, v2: 2 });
+    expect(result.source).toBe("none");
+    expect(result.changes).toEqual([]);
+  });
+
+  test("write pair whose content fetch throws reports none", async () => {
+    const { ctx, s3 } = createTestContext({ versioningEnabled: true });
+    await dispatchOp(ctx, "write", { path: "/f.txt", content: "alpha" });
+    await dispatchOp(ctx, "write", { path: "/f.txt", content: "beta" });
+    s3.getObject = async () => {
+      throw new Error("NoSuchVersion");
+    };
+
+    const result = await diff(ctx, { path: "/f.txt", v1: 1, v2: 2 });
+    expect(result.source).toBe("none");
+    expect(result.changes).toEqual([]);
+  });
+
+  test("edit without versioning reports the stored summary", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/e.txt", content: "alpha" });
+    await dispatchOp(ctx, "edit", { path: "/e.txt", old_string: "alpha", new_string: "beta" });
+
+    const result = await diff(ctx, { path: "/e.txt", v1: 1, v2: 2 });
+    expect(result.source).toBe("summary");
+    expect(result.changes.map((c) => [c.type, c.content])).toEqual([
+      ["remove", "alpha"],
+      ["add", "beta"],
+    ]);
+  });
+});
+
 describe("comment quote anchors", () => {
   test("stores the quote and reports the anchor version number", async () => {
     const { ctx } = createTestContext({ versioningEnabled: true });

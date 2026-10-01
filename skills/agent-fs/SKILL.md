@@ -154,7 +154,9 @@ symlinks are unsupported and throw `EPERM`.
 | `diff` | `agent-fs diff <path> --v1 <n> --v2 <n>` | Diff between versions |
 | `revert` | `agent-fs revert <path> --version <n>` | Revert to a previous version |
 
-`log` works on every backend (version metadata is in SQLite). `revert` and historical `diff` (comparing two stored versions) need a **full-tier** backend — S3/MinIO and local-filesystem both qualify. On a basic-tier backend without object versioning, `revert` and historical `diff` fail cleanly with `UNSUPPORTED_OPERATION` (HTTP 422); `diff` then degrades to the stored summary instead of full content.
+`log` works on every backend (version metadata is in SQLite). `revert` and historical `diff` (comparing two stored versions) need a **full-tier** backend — S3/MinIO and local-filesystem both qualify. On a basic-tier backend without object versioning, `revert` fails cleanly with `UNSUPPORTED_OPERATION` (HTTP 422), and `diff` degrades instead of comparing content.
+
+Every `diff` result carries `source`: `content` (both versions compared), `summary` (not compared; `changes` is the stored edit snippet), or `none` (not compared and no summary; `write` stores none). **Only `source: "content"` with empty `changes` means the versions are identical.** The CLI prints a "versions were not compared" warning on stderr for the other two. To verify an in-place edit when `source` is not `content`, `cat` the current file and check the edited text directly.
 
 ### Search & Discovery
 

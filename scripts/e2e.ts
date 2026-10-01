@@ -3564,6 +3564,7 @@ async function coreOpsSuite(b: Backend) {
     const d = rj(`diff ${P}/hello.txt --v1 1 --v2 2`);
     assert(Array.isArray(d.changes), true);
     assert(d.changes.length > 0, true, "expected real content diff between v1 and v2");
+    assert(d.source, "content");
   });
 
   // -- Tier: revert restores prior content AS A NEW VERSION (not a rewind) --
@@ -3628,6 +3629,16 @@ async function unsupportedOpSuite() {
     const body = (await res.json()) as any;
     assert(body.error, "UNSUPPORTED_OPERATION");
     assert(body.operation, "revert");
+  });
+
+  await test(`[capped] diff of a write pair reports source=none and warns on stderr`, () => {
+    runJsonOn(capped, `write /cap.txt --content "v2"`);
+    const d = runJsonOn(capped, `diff /cap.txt --v1 1 --v2 2`);
+    assert(d.source, "none");
+    assert(d.changes.length, 0);
+    // Only stderr: the warning must not contaminate the JSON on stdout.
+    const stderr = runOn(capped, `--json diff /cap.txt --v1 1 --v2 2 2>&1 1>/dev/null`);
+    assertIncludes(stderr, "not compared", "expected a not-compared warning on stderr");
   });
 }
 

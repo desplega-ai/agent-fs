@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { outputResult } from "../formatters.js";
+import { diffSourceWarning, outputResult } from "../formatters.js";
 import { stdio } from "../stdio.js";
 
 // Capture stdio.writeStdout output (outputResult writes via a flush-safe
@@ -123,5 +123,21 @@ describe("drive-members formatter", () => {
     expect(output).toContain("a@example.com");
     expect(output).toContain("user-2");
     expect(output).not.toContain("role");
+  });
+});
+
+describe("diff source warning", () => {
+  test("no warning when the versions were compared", () => {
+    expect(diffSourceWarning({ changes: [], source: "content" })).toBeNull();
+  });
+
+  test("warns that the versions were not compared for summary and none", () => {
+    expect(diffSourceWarning({ changes: [{ type: "add", content: "x" }], source: "summary" })).toContain("not compared");
+    expect(diffSourceWarning({ changes: [], source: "none" })).toContain("not compared");
+  });
+
+  test("warns on an empty result from a server that omits source", () => {
+    expect(diffSourceWarning({ changes: [] })).toContain("may mean they were not");
+    expect(diffSourceWarning({ changes: [{ type: "add", content: "x" }] })).toBeNull();
   });
 });
