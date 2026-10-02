@@ -1,16 +1,7 @@
 import { Mail, Hash } from "lucide-react"
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 import { useUserResolver } from "@/hooks/use-org-members"
-
-function formatDisplay(author: string): string {
-  if (author.includes("@")) {
-    const [local, domain] = author.split("@")
-    if (local.length > 8) return `${local.slice(0, 3)}...@${domain}`
-    return author
-  }
-  if (author.length > 16 && author.includes("-")) return author.slice(0, 8)
-  return author
-}
+import { formatUserDisplay } from "@/lib/user-display"
 
 interface UserNameProps {
   userId: string
@@ -19,9 +10,7 @@ interface UserNameProps {
 }
 
 export function UserName({ userId, displayName, className }: UserNameProps) {
-  const resolve = useUserResolver()
-  const email = resolve(userId)
-  const display = displayName || formatDisplay(email ?? userId)
+  const { display, email } = useDisplayName(userId, displayName)
 
   return (
     <Tooltip>
@@ -50,7 +39,6 @@ export function UserName({ userId, displayName, className }: UserNameProps) {
 
 export function useDisplayName(userId: string, displayName?: string): { display: string; email: string | null } {
   const resolve = useUserResolver()
-  const email = resolve(userId)
-  const display = displayName || formatDisplay(email ?? userId)
-  return { display, email }
+  const entry = resolve(userId)
+  return { display: formatUserDisplay(userId, displayName, entry), email: entry?.email ?? null }
 }

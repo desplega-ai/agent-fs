@@ -545,5 +545,6 @@ who can read your comments. Only your authenticated profile can be edited.
 HTTP: `GET /auth/profile`, `PATCH /auth/profile` with `{ "displayName": "Taras" }`
 (or `null` to clear). MCP: `profile-get`, `profile-set` with `displayName`.
 The web account menu has **Edit profile**. Comment responses include
-`authorDisplayName` when set. Every drive member can list member emails and
+`authorDisplayName` when set, and notification responses include
+`actorDisplayName`. Every drive member can list member emails and
 display names with `agent-fs members`. Member roles remain admin-only.

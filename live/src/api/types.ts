@@ -189,6 +189,7 @@ export interface CommentNotificationEntry {
   path: string
   body: string
   actor: string
+  actorDisplayName?: string
   createdAt: string
   read: boolean
 }
@@ -304,6 +305,16 @@ export interface OrgMember {
 
 export interface OrgMembersResult {
   members: OrgMember[]
+}
+
+export interface DriveMember {
+  userId: string
+  email: string
+  displayName: string | null
+}
+
+export interface DriveMembersResult {
+  members: DriveMember[]
 }
 
 export interface MeResponse {

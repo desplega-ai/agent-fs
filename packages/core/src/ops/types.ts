@@ -395,6 +395,7 @@ export interface CommentNotificationEntry {
   path: string;
   body: string;
   actor: string;
+  actorDisplayName?: string;
   createdAt: Date;
   read: boolean;
 }

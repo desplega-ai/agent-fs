@@ -1,6 +1,8 @@
 import { useMemo } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth"
+import type { DriveMembersResult } from "@/api/types"
+import { buildUserDirectory, type UserDirectoryEntry } from "@/lib/user-display"
 
 export function useOrgMembers() {
   const { client, orgId } = useAuth()
@@ -13,17 +15,34 @@ export function useOrgMembers() {
   })
 }
 
-export function useUserResolver(): (userId: string) => string | null {
-  const { data } = useOrgMembers()
+/** Members of the active drive. Unlike the org list, every drive member can read it. */
+export function useDriveMembers() {
+  const { client, orgId, driveId } = useAuth()
+
+  return useQuery({
+    queryKey: ["drive-members", orgId, driveId],
+    queryFn: () =>
+      client.callOp<DriveMembersResult>(orgId!, "drive-members", {}, driveId),
+    enabled: !!orgId && !!driveId,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  })
+}
+
+export function useUserResolver(): (userId: string) => UserDirectoryEntry | null {
+  const { data: driveMembers } = useDriveMembers()
+  const { data: orgMembers } = useOrgMembers()
   const { user } = useAuth()
 
-  const map = useMemo(() => {
-    if (!data?.members) return {}
-    return data.members.reduce<Record<string, string>>((acc, m) => {
-      acc[m.userId] = m.email
-      return acc
-    }, {})
-  }, [data?.members])
+  const directory = useMemo(
+    () =>
+      buildUserDirectory([
+        user ? [user] : [],
+        driveMembers?.members,
+        orgMembers?.members,
+      ]),
+    [user, driveMembers?.members, orgMembers?.members],
+  )
 
-  return (userId: string) => map[userId] ?? (userId === user?.userId ? user.email : null)
+  return (userId: string) => directory.get(userId) ?? null
 }
