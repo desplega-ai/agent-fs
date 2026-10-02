@@ -43,15 +43,20 @@ export function memberCommands(
     .command("invite")
     .argument("<email>", "User email to invite")
     .requiredOption("--role <role>", "Role: viewer, editor, or admin")
-    .description("Invite a user to the current org")
+    .description("Invite a user to the current org (or drive if --drive is set)")
     .action(async (email: string, opts: { role: string }) => {
+      const driveId = cmd.parent?.opts().drive;
       try {
         const orgId = await getOrgId();
-        await client.post(`/orgs/${orgId}/members/invite`, {
+        const path = driveId
+          ? `/orgs/${orgId}/drives/${driveId}/members`
+          : `/orgs/${orgId}/members/invite`;
+        await client.post(path, {
           email,
           role: opts.role,
         });
-        console.log(`Invited ${email} as ${opts.role}`);
+        const scope = driveId ? ` to drive ${driveId}` : "";
+        console.log(`Invited ${email} as ${opts.role}${scope}`);
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
         process.exit(1);
