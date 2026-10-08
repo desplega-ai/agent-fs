@@ -78,3 +78,36 @@ jobs:
   # Phase 5 will extend this with `bun run scripts/e2e.ts ... --fuse-only`
   # once the e2e harness gains a --fuse-only flag. For Phase 4 the Docker
   # smoke above is the single FUSE regression check.
+
+  # Live UI image: build it and check what nginx serves. On PRs it runs only when
+  # its inputs change.
+  live-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect live image changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qE '^(live/|Dockerfile\.live|package\.json$|scripts/smoke-live-image\.sh$|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/setup-buildx-action@v3
+        if: steps.changes.outputs.run == 'true'
+      - uses: docker/build-push-action@v6
+        if: steps.changes.outputs.run == 'true'
+        with:
+          context: .
+          file: Dockerfile.live
+          load: true
+          tags: agent-fs-live:ci
+          cache-from: type=gha,scope=live
+      - name: Smoke test
+        if: steps.changes.outputs.run == 'true'
+        run: bash scripts/smoke-live-image.sh agent-fs-live:ci
