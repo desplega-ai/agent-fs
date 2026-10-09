@@ -3,7 +3,7 @@ date: 2026-10-09T15:50:42Z
 topic: "HTML Rendering and HTML Sites"
 author: Claude (with Taras)
 planner: Claude
-status: ready
+status: in-progress
 autonomy: autopilot
 ---
 
@@ -202,19 +202,19 @@ The daemon serves folders at `/site/<token>/<path>`. `share-create` accepts a fo
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Types check: `bun run typecheck`
-- [ ] New route tests pass: `bun test packages/server/src/__tests__/site.test.ts`
-- [ ] Existing share tests still pass: `bun test packages/server/src/__tests__/share.test.ts`
-- [ ] Full suite passes: `bun run test`
-- [ ] No stale `.js` in src: `find packages/*/src -maxdepth 1 -name "*.js"` prints nothing
+- [x] Types check: `bun run typecheck`
+- [x] New route tests pass: `bun test packages/server/src/__tests__/site.test.ts`
+- [x] Existing share tests still pass: `bun test packages/server/src/__tests__/share.test.ts`
+- [x] Full suite passes: `bun run test`
+- [x] No stale `.js` in src: `find packages/*/src -maxdepth 1 -name "*.js"` prints nothing
 
 #### Automated QA:
-- [ ] Start a local daemon with the S3 variables cleared, because the repo `.env` points at R2 (see the memory note).
+- [x] Start a local daemon with the S3 variables cleared, because the repo `.env` points at R2 (see the memory note).
   - Write `qa-site/index.html` (with `<img src="pic.png">` and `fetch("data.json")`), `qa-site/pic.png` and `qa-site/data.json` with the CLI.
   - Run `share-create qa-site`.
   - Run `curl -sI` on the returned URL and `curl -s <url>data.json`.
   - Confirm 200, `text/html`, the CSP header and the JSON body.
-- [ ] `curl -s -o /dev/null -w '%{http_code}' '<url>..%2F..%2Fsecret.txt'` returns 400 or 404.
+- [x] `curl -s -o /dev/null -w '%{http_code}' '<url>..%2F..%2Fsecret.txt'` returns 400 or 404.
 
 #### Manual Verification:
 - [ ] Taras reviews the security header list and the decision to proxy every response (no presigned redirects).

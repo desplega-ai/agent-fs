@@ -5,7 +5,7 @@ import type { DB } from "../db/index.js";
 import type { OpContext } from "./types.js";
 import type { StorageAdapter } from "../storage/adapter.js";
 import { getS3Key } from "./versioning.js";
-import { assertPathInsideDrive, normalizePath } from "./paths.js";
+import { assertPathInsideDrive, normalizePath, normalizePrefix } from "./paths.js";
 import { NotFoundError, PermissionDeniedError, ValidationError } from "../errors.js";
 import { getUserDriveRole, getUserOrgRole } from "../identity/rbac.js";
 
@@ -41,12 +41,13 @@ export function hashShareToken(token: string): string {
 }
 
 /**
- * Accept a bare token or a full share URL (`https://host/share/<token>?x=1`)
- * and return the token, or null when the input is not a well-formed token.
+ * Accept a bare token or a full share or site URL (`https://host/share/<token>?x=1`,
+ * `https://host/site/<token>/`) and return the token, or null when the input is
+ * not a well-formed token.
  */
 export function extractShareToken(input: string): string | null {
   const trimmed = input.trim();
-  const match = /\/share\/([^/?#]+)/.exec(trimmed);
+  const match = /\/(?:share|site)\/([^/?#]+)/.exec(trimmed);
   const candidate = match ? match[1] : trimmed;
   return isWellFormedShareToken(candidate) ? candidate : null;
 }
@@ -55,7 +56,9 @@ export interface ShareRecord {
   id: string;
   orgId: string;
   driveId: string;
+  /** For a site share, the folder (normalized like a file path: `/site`, or `/` for the drive root). */
   path: string;
+  kind: ShareKind;
   expiresAt: Date;
   maxViews: number | null;
   views: number;
@@ -65,6 +68,9 @@ export interface ShareRecord {
   revokedAt: Date | null;
 }
 
+/** `file`: one file, opened at /share/<token>. `site`: a folder, served at /site/<token>/. */
+export type ShareKind = "file" | "site";
+
 export type ShareState = "active" | "revoked" | "expired" | "exhausted";
 
 function toRecord(row: typeof schema.shares.$inferSelect): ShareRecord {
@@ -73,6 +79,7 @@ function toRecord(row: typeof schema.shares.$inferSelect): ShareRecord {
     orgId: row.orgId,
     driveId: row.driveId,
     path: row.path,
+    kind: row.kind === "site" ? "site" : "file",
     expiresAt: row.expiresAt,
     maxViews: row.maxViews,
     views: row.views,
@@ -324,6 +331,31 @@ export function shareStorageKey(share: ShareRecord): string | null {
 }
 
 /**
+ * Storage key of `rest` inside a site share's folder, or null when it is not a
+ * path the share may serve. `rest` is the still-encoded part of the request
+ * path after `/site/<token>/`: it is decoded exactly once here and checked
+ * after the decode, so `%2e%2e` (decodes to `..`) is refused and `%252e%252e`
+ * (decodes to the literal name `%2e%2e`) stays a plain file name.
+ */
+export function siteObjectKey(share: ShareRecord, rest: string): string | null {
+  if (share.kind !== "site") return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+  try {
+    assertPathInsideDrive(share.path);
+    assertPathInsideDrive(decoded);
+  } catch {
+    return null;
+  }
+  const relative = decoded.replace(/^\/+/, "");
+  return getS3Key(share.orgId, share.driveId, normalizePrefix(share.path) + relative);
+}
+
+/**
  * Audit trail: one `share_viewed` event per counted view. The viewer is
  * anonymous, so the event is attributed to the user who minted the link and
  * flagged `anonymous`. Best effort: a failure here must never block the view.
@@ -364,13 +396,15 @@ export interface ShareCreateParams {
 
 export interface ShareCreateResult {
   id: string;
+  /** `site` when `path` is a folder: the link serves its files, `index.html` first. */
+  kind: ShareKind;
   /**
    * Public link. Absolute when the server knows its own public address
    * (`AGENT_FS_PUBLIC_URL`, or derived from the request), otherwise the same
    * as `sharePath` and the client must resolve it against the API endpoint.
    */
   url: string;
-  /** Host-relative link, always `/share/<token>`. */
+  /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
   sharePath: string;
   path: string;
   expiresIn: number;
@@ -389,14 +423,35 @@ export async function shareCreate(
   assertPathInsideDrive(normalizedPath);
   const key = getS3Key(ctx.orgId, ctx.driveId, normalizedPath);
 
-  // Only mint links for files that exist right now.
-  try {
-    await ctx.s3.headObject(key);
-  } catch (err: any) {
-    if (err?.name === "NotFound" || err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
-      throw new NotFoundError(`File not found: ${normalizedPath}`, { path: normalizedPath });
+  // Only mint links for files or folders that exist right now. A folder is an
+  // implicit prefix with no object of its own; one level of listing is enough
+  // to tell it exists. The listing also runs when the object exists, because
+  // the local backend answers headObject for a directory as well.
+  let isFile = false;
+  if (normalizedPath !== "/") {
+    try {
+      await ctx.s3.headObject(key);
+      isFile = true;
+    } catch (err: any) {
+      if (!(err?.name === "NotFound" || err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404)) {
+        throw err;
+      }
     }
-    throw err;
+  }
+  const level = await ctx.s3.listObjects(getS3Key(ctx.orgId, ctx.driveId, normalizePrefix(normalizedPath)), {
+    delimiter: "/",
+  });
+  const isFolder = level.objects.length > 0 || level.prefixes.length > 0;
+  if (!isFile && !isFolder) {
+    throw new NotFoundError(`File or folder not found: ${normalizedPath}`, { path: normalizedPath });
+  }
+  const kind: ShareKind = isFolder ? "site" : "file";
+  if (kind === "site" && params.maxViews !== undefined) {
+    // One page load fetches many files, so a view count has no clear meaning.
+    throw new ValidationError("maxViews is not supported when sharing a folder", {
+      field: "maxViews",
+      suggestion: "Leave out maxViews; use expiresIn and share-revoke to limit a site link",
+    });
   }
 
   const expiresIn = params.expiresIn ?? SHARE_DEFAULT_TTL_SECONDS;
@@ -415,6 +470,7 @@ export async function shareCreate(
       orgId: ctx.orgId,
       driveId: ctx.driveId,
       path: normalizedPath,
+      kind,
       tokenHash: hashShareToken(token),
       expiresAt,
       maxViews: params.maxViews ?? null,
@@ -424,9 +480,10 @@ export async function shareCreate(
     })
     .run();
 
-  const sharePath = `/share/${token}`;
+  const sharePath = kind === "site" ? `/site/${token}/` : `/share/${token}`;
   return {
     id,
+    kind,
     url: ctx.apiUrl ? `${ctx.apiUrl.replace(/\/+$/, "")}${sharePath}` : sharePath,
     sharePath,
     path: normalizedPath,
@@ -456,7 +513,7 @@ export async function shareRevoke(
   const given = [params.id, params.token, params.path].filter((v) => v !== undefined);
   if (given.length !== 1) {
     throw new ValidationError("Provide exactly one of: id, token (or the share URL), path", {
-      suggestion: "Use the id or url returned by share-create, or a file path to revoke all of its links",
+      suggestion: "Use the id or url returned by share-create, or a file or folder path to revoke all of its links",
     });
   }
 
@@ -474,6 +531,8 @@ export async function shareRevoke(
       .where(and(eq(schema.shares.tokenHash, hashShareToken(token)), eq(schema.shares.driveId, ctx.driveId)))
       .all();
   } else {
+    // Same normalization as share-create for files and folders alike, so
+    // `site/` and `site` both name the folder share stored as `/site`.
     rows = ctx.db.select().from(schema.shares)
       .where(and(eq(schema.shares.path, normalizePath(params.path!)), eq(schema.shares.driveId, ctx.driveId)))
       .all();

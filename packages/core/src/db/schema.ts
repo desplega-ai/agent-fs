@@ -241,6 +241,8 @@ export const shares = sqliteTable(
     orgId: text("org_id").notNull(),
     driveId: text("drive_id").notNull(),
     path: text("path").notNull(),
+    /** `file` = one file at `path`; `site` = the folder at `path`, served under /site/<token>/. */
+    kind: text("kind", { enum: ["file", "site"] }).notNull().default("file"),
     tokenHash: text("token_hash").notNull(),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     maxViews: integer("max_views"),

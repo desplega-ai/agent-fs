@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS shares (
   org_id TEXT NOT NULL,
   drive_id TEXT NOT NULL,
   path TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'file',
   token_hash TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
   max_views INTEGER,

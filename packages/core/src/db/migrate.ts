@@ -55,6 +55,15 @@ export function runMigrations(sqlite: Database): void {
     }
   }
 
+  // Migration 3c: add shares.kind ('file' | 'site'). The default makes every
+  // existing row a file share, which is what they all are.
+  const shareCols = sqlite
+    .prepare("PRAGMA table_info(shares)")
+    .all() as Array<{ name: string }>;
+  if (!shareCols.some((c) => c.name === "kind")) {
+    sqlite.exec("ALTER TABLE shares ADD COLUMN kind TEXT NOT NULL DEFAULT 'file'");
+  }
+
   // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //
   // Drive visibility is strict explicit membership: drives with zero

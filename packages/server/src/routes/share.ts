@@ -109,6 +109,9 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
 
     if (!share || getShareState(share, new Date()) !== "active") return expired(share);
 
+    // A shared folder is a site, served by its own route. No view is counted.
+    if (share.kind === "site") return redirect(`/site/${token}/`);
+
     // HEAD probes and link-preview crawlers must not spend a view.
     if (c.req.raw.method === "HEAD") return html(200, "");
     if (isLinkPreviewBot(c.req.header("user-agent"))) return html(200, renderPreviewBotPage());
@@ -190,6 +193,7 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
     const access = authorizeBytes(c);
     if (!access.ok) return deniedBytes(access);
     const share = access.share;
+    if (share.kind === "site") return plain(404, "Not found");
 
     const type = classifyShareFile(share.path);
     // Only types the page embeds. Everything else, including HTML and SVG, is
@@ -224,6 +228,7 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
     const access = authorizeBytes(c);
     if (!access.ok) return deniedBytes(access);
     const share = access.share;
+    if (share.kind === "site") return plain(404, "Not found");
 
     const type = classifyShareFile(share.path);
     const key = shareStorageKey(share);
