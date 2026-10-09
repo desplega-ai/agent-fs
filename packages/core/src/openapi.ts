@@ -100,6 +100,7 @@ export function generateOpenAPISpec() {
           ],
           responses: {
             "200": { description: "The share page", content: { "text/html": { schema: { type: "string" } } } },
+            "302": { description: "The share is a folder (kind \"site\"): redirect to /site/{token}/" },
             "404": { description: "Unknown token or file no longer available", content: { "text/html": { schema: { type: "string" } } } },
             "410": { description: "Link expired, revoked or used up", content: { "text/html": { schema: { type: "string" } } } },
             "429": { description: "Too many requests from this address" },
@@ -141,6 +142,35 @@ export function generateOpenAPISpec() {
             "302": { description: "Redirect to a short-lived presigned URL" },
             "404": { description: "File no longer available" },
             "410": { description: "Link expired, revoked or used up" },
+          },
+        },
+      },
+      "/site/{token}/{path}": {
+        get: {
+          summary: "File of a shared folder (site share)",
+          description:
+            "Serves a file from a folder shared with the share-create op (kind \"site\"). An empty path or one ending in '/' serves that folder's index.html; a folder named without its trailing slash redirects (301) to the slash form when it has an index.html. `/site/{token}` redirects to `/site/{token}/`. The token is the only credential. Every response is proxied through this server (no presigned redirects) and carries `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals; frame-ancestors *` (an opaque origin: no cookies or storage), `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and `Access-Control-Allow-Origin: *`. Files over 25 MB are refused. Does not count views. `/site/*` has its own per-IP rate limit (`AGENT_FS_SITE_RATE_LIMIT`, default 600/min).",
+          operationId: "siteFile",
+          tags: ["Share"],
+          security: [],
+          parameters: [
+            { name: "token", in: "path", required: true, schema: { type: "string", minLength: 43, maxLength: 43 } },
+            {
+              name: "path",
+              in: "path",
+              required: true,
+              description: "Path inside the shared folder; may contain '/'. Empty for index.html.",
+              schema: { type: "string" },
+            },
+          ],
+          responses: {
+            "200": { description: "File bytes, with the content type of the file name" },
+            "301": { description: "Redirect to the folder form with a trailing slash" },
+            "400": { description: "Path is not valid inside the folder ('.', '..', NUL, bad encoding)" },
+            "404": { description: "Unknown token, not a site share, or no such file" },
+            "410": { description: "Link expired or revoked" },
+            "413": { description: "File is larger than 25 MB" },
+            "429": { description: "Too many requests from this address" },
           },
         },
       },

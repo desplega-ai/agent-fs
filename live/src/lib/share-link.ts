@@ -59,11 +59,14 @@ async function mintAndCopy(client: AgentFsClient, orgId: string, driveId: string
   return result
 }
 
-/** Copy a fresh 24-hour share link for `path` and report the outcome as a toast. */
+/**
+ * Copy a fresh 24-hour share link for `path` and report the outcome as a toast.
+ * For a folder the server returns a site share, and `sharePath` is `/site/<token>/`.
+ */
 export async function copyShareLink(client: AgentFsClient, orgId: string, driveId: string, path: string): Promise<boolean> {
   try {
     const result = await mintAndCopy(client, orgId, driveId, path)
-    toast.success("Share link copied", {
+    toast.success(result.kind === "site" ? "Site link copied" : "Share link copied", {
       description: `Anyone with the link can view it for ${describeExpiry(result.expiresIn)}`,
     })
     return true

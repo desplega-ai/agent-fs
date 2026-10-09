@@ -5,7 +5,8 @@ description: >-
   an agent-first filesystem backed by S3. Triggers on: "save this to agent-fs",
   "find that file", "store this document", "search agent-fs", "list my files",
   "show version history", "revert file", "set up agent-fs", "get a signed url",
-  "share this file", "share link", "public link", "one-off link", "revoke a share link", "manage members", "invite user", "list members", "remove member",
+  "share this file", "share link", "public link", "one-off link", "revoke a share link",
+  "publish a site", "host this html", "share a folder", "manage members", "invite user", "list members", "remove member",
   "update role", "reset api key", "rotate api key", "lost my api key",
   "watch drive changes", "stream file changes", file
   persistence for agents, shared agent filesystem, or any
@@ -139,8 +140,8 @@ symlinks are unsupported and throw `EPERM`.
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
 | `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>] [--inline]` | Generate a download URL. On S3/MinIO: a presigned URL (default 24h, max 7 days, `kind: "presigned"`). On local-FS: an authenticated in-app link (`kind: "app"`, requires sign-in, non-expiring). By default the URL forces a download; `--inline` makes the browser render the file instead (PDF, image). |
-| `share-create` | `agent-fs share-create <path> [--expires-in <seconds>] [--max-views <n>] [--one-off]` | Create a public `/share/<token>` link on the API host: a read-only page with a preview (markdown, text/code, image, PDF, audio, video) and a Download button. Default 24h, max 7 days; `--one-off` (= `--max-views 1`) makes it single-use. Returns `{ id, url, sharePath, expiresAt, maxViews }`. |
-| `share-revoke` | `agent-fs share-revoke [<id>] [--token <token-or-url>] [--path <path>]` | Kill share links immediately. Exactly one selector: the `id` from `share-create`, the token/URL, or a file path (every link to that file). Creator or drive admin only. |
+| `share-create` | `agent-fs share-create <path> [--expires-in <seconds>] [--max-views <n>] [--one-off]` | Create a public link for a file or folder. A file gets a `/share/<token>` page on the API host: a read-only preview (markdown, text/code, image, PDF, audio, video) and a Download button. A folder becomes an HTML site at `/site/<token>/` (`kind: "site"`, no view limits). Default 24h, max 7 days; `--one-off` (= `--max-views 1`) makes a file link single-use. Returns `{ id, kind, url, sharePath, expiresAt, maxViews }`. |
+| `share-revoke` | `agent-fs share-revoke [<id>] [--token <token-or-url>] [--path <path>]` | Kill share links immediately. Exactly one selector: the `id` from `share-create`, the token/URL, or a file or folder path (every link to it). Creator or drive admin only. |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
 | `watch` | `agent-fs watch [--json]` | Stream active-drive changes until Ctrl+C. Bearer endpoint: `GET /orgs/:orgId/drives/:driveId/events` emits `ready`, `file.changed`, and `comment.changed`. |
 
@@ -481,6 +482,27 @@ Things worth knowing before you share:
 - Set `AGENT_FS_PUBLIC_URL` when the server sits behind a proxy that does not forward `Host` / `X-Forwarded-*`, so returned links point at the right address.
 
 **MIME types on upload:** `write`, `edit`, `append`, and `revert` automatically detect and set the correct `Content-Type` on S3 objects based on file extension. The content type is also stored in the database and visible in `stat` output via the `contentType` field. Raw stdin and `--file` uploads preserve bytes exactly; text search/indexing is applied only when the payload is valid, indexable UTF-8 text.
+
+### Publish an HTML site from a folder
+
+```bash
+# The folder needs an index.html; the link is the site's front page
+agent-fs write report-site/index.html --content '<!doctype html><link rel="stylesheet" href="style.css"><img src="chart.png"><script src="app.js"></script>'
+agent-fs share-create report-site --expires-in 86400
+# Site: https://<server>/site/<token>/
+
+# Take the site down
+agent-fs share-revoke --path report-site
+```
+
+`share-create` on a folder returns `kind: "site"` and a `/site/<token>/` URL on the API host. Anyone with the link can open it without signing in.
+
+- **`index.html` is the entry point.** `/site/<token>/` serves the folder's `index.html`, and `sub/` serves `sub/index.html`. A folder with no `index.html` returns 404; there is no directory listing.
+- **Relative paths work.** `<img src="chart.png">`, `<link href="style.css">`, `<script src="app.js">`, module scripts, `fetch("data.json")` and CSS `url()` all resolve inside the folder. External CDNs and fonts load too.
+- **Pages run in a sandbox with an opaque origin.** Scripts, forms, popups and alerts work, but there is no `localStorage`, `sessionStorage` or cookies.
+- **No view limits.** One page load fetches many files, so `--max-views` and `--one-off` are rejected for folders, and site views record no `share_viewed` events. Use `--expires-in` (max 7 days) and `share-revoke --path <folder>` instead.
+- **A page can read every file under its folder while the link is valid.** Do not put secrets next to HTML you publish, and do not publish a folder whose HTML you did not write. The live UI renders `.html` files the same way, with a 15-minute site link for the file's folder.
+- Each file is served up to 25 MB. Larger files return 413.
 
 ### App URL in responses
 

@@ -72,6 +72,46 @@ describe("signed-url formatter", () => {
   });
 });
 
+describe("share-create formatter", () => {
+  test("file share prints the URL and the view limit", () => {
+    const result = {
+      id: "share-1",
+      kind: "file",
+      url: "http://127.0.0.1:7433/share/tok",
+      sharePath: "/share/tok",
+      path: "/notes.md",
+      expiresIn: 3600,
+      expiresAt: "2026-03-19T13:00:00.000Z",
+      maxViews: 1,
+    };
+
+    const output = captureOutput(() => outputResult("share-create", result, false));
+    expect(output.split("\n")[0]).toBe("http://127.0.0.1:7433/share/tok");
+    expect(output).toContain("Views:   one-off (1 view)");
+    expect(output).not.toContain("Site:");
+    expect(output).toContain("share-revoke share-1");
+  });
+
+  test("site share prints Site: <url> and no Views line", () => {
+    const result = {
+      id: "share-2",
+      kind: "site",
+      url: "http://127.0.0.1:7433/site/tok/",
+      sharePath: "/site/tok/",
+      path: "/site-e2e",
+      expiresIn: 3600,
+      expiresAt: "2026-03-19T13:00:00.000Z",
+      maxViews: null,
+    };
+
+    const output = captureOutput(() => outputResult("share-create", result, false));
+    expect(output.split("\n")[0]).toBe("Site: http://127.0.0.1:7433/site/tok/");
+    expect(output).not.toContain("Views:");
+    expect(output).toContain("Expires:");
+    expect(output).toContain("share-revoke share-2");
+  });
+});
+
 describe("stat formatter with appUrl", () => {
   test("includes App URL when present in stat result", () => {
     const result = {

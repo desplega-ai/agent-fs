@@ -2040,6 +2040,147 @@ async function runStandardTests(daemonUrl: string) {
     assert(parsed.maxViews, 1);
   });
 
+  // -- site shares (a shared folder served at /site/:token/) --
+
+  await test("/health advertises html-sites", async () => {
+    const health = await (await fetch(`${daemonUrl}/health`)).json() as any;
+    assert(health.features?.includes("html-sites"), true, `Expected html-sites in ${JSON.stringify(health)}`);
+  });
+
+  runJson(`write /site-e2e/index.html --content '<!doctype html><title>Site E2E</title><script src="app.js"></script><p>site-e2e-index</p>'`);
+  runJson(`write /site-e2e/app.js --content 'fetch("data.json").then((r) => r.json()).then((d) => console.log(d.ok));'`);
+  runJson(`write /site-e2e/data.json --content '{"ok":true}'`);
+  runJson(`write /site-e2e/sub/index.html --content '<!doctype html><p>site-e2e-sub</p>'`);
+
+  await test("share-create on a folder returns a site share", () => {
+    const r = runJson("share-create site-e2e");
+    assert(r.kind, "site");
+    assertIncludes(r.url, "/site/", `Expected a /site/ URL, got ${r.url}`);
+    assert(r.url.startsWith(`${shareBase}/site/`), true, `Expected an API-host URL, got ${r.url}`);
+    assert(r.url.endsWith("/"), true, `Expected a trailing slash, got ${r.url}`);
+    assert(r.maxViews, null);
+  });
+
+  await test("GET /site/:token/ serves index.html with the sandbox CSP, no credentials", async () => {
+    const r = runJson("share-create site-e2e");
+    const res = await fetch(r.url); // no Authorization header
+    assert(res.status, 200);
+    assertIncludes(res.headers.get("content-type") ?? "", "text/html");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    assertIncludes(csp, "sandbox allow-scripts");
+    assert(csp.includes("allow-same-origin"), false, `CSP must not allow same origin: ${csp}`);
+    assert(res.headers.get("referrer-policy"), "no-referrer");
+    assert(res.headers.get("x-content-type-options"), "nosniff");
+    assert(res.headers.get("access-control-allow-origin"), "*");
+    assert(res.headers.get("x-frame-options"), null);
+    assertIncludes(await res.text(), "site-e2e-index");
+  });
+
+  await test("site assets resolve inside the folder", async () => {
+    const r = runJson("share-create site-e2e");
+    const js = await fetch(`${r.url}app.js`);
+    assert(js.status, 200);
+    assertIncludes(js.headers.get("content-type") ?? "", "javascript");
+    assertIncludes(await js.text(), 'fetch("data.json")');
+
+    const data = await fetch(`${r.url}data.json`);
+    assert(data.status, 200);
+    assertIncludes(data.headers.get("content-type") ?? "", "application/json");
+    assert((await data.json() as any).ok, true);
+
+    const sub = await fetch(`${r.url}sub`, { redirect: "manual" });
+    assert(sub.status, 301);
+    assert((sub.headers.get("location") ?? "").endsWith("/sub/"), true, `Expected a redirect to sub/, got ${sub.headers.get("location")}`);
+    const subIndex = await fetch(`${r.url}sub/`);
+    assert(subIndex.status, 200);
+    assertIncludes(await subIndex.text(), "site-e2e-sub");
+  });
+
+  await test("site paths cannot climb out of the shared folder", async () => {
+    const r = runJson("share-create site-e2e");
+    for (const rest of ["..%2Fshare-e2e.md", "%2e%2e%2Fshare-e2e.md", "%252e%252e%252Fshare-e2e.md", "sub%2F..%2F..%2Fshare-e2e.md"]) {
+      const res = await fetch(`${r.url}${rest}`, { redirect: "manual" });
+      const body = await res.text();
+      assert([400, 404].includes(res.status), true, `Expected 400 or 404 for ${rest}, got ${res.status}`);
+      assert(body.includes("Shared heading"), false, `${rest} leaked bytes from outside the folder`);
+    }
+  });
+
+  await test("share-create rejects --max-views on a folder", () => {
+    let failed = false;
+    try {
+      run("share-create site-e2e --max-views 1");
+    } catch {
+      failed = true;
+    }
+    assert(failed, true, "Expected share-create --max-views on a folder to fail");
+  });
+
+  await test("share-revoke --path on a folder stops the site", async () => {
+    const r = runJson("share-create site-e2e");
+    assert((await fetch(r.url)).status, 200);
+    const revoked = runJson("share-revoke --path site-e2e");
+    assert(revoked.revoked >= 1, true, `Expected at least one revoked share, got ${JSON.stringify(revoked)}`);
+    const res = await fetch(r.url);
+    assert(res.status, 410);
+    assert((await fetch(`${r.url}app.js`)).status, 410);
+  });
+
+  await test("site views write no share_viewed events", async () => {
+    const r = runJson("share-create site-e2e");
+    await fetch(r.url);
+    await fetch(`${r.url}app.js`);
+    const db = shareDb();
+    const events = db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'share_viewed' AND resource_id = ?").get(r.id) as { n: number };
+    const row = db.prepare("SELECT views FROM shares WHERE id = ?").get(r.id) as { views: number };
+    db.close();
+    assert(events.n, 0);
+    assert(row.views, 0);
+  });
+
+  await test("site share-create via API and MCP", async () => {
+    const apiRes = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({ op: "share-create", path: "/site-e2e", expiresIn: 3600 }),
+    });
+    assert(apiRes.status, 200);
+    const api = await apiRes.json() as any;
+    assert(api.kind, "site");
+    assert(api.sharePath.startsWith("/site/"), true, `Expected a /site/ sharePath, got ${api.sharePath}`);
+    assert(api.expiresIn, 3600);
+    assert((await fetch(api.url)).status, 200);
+
+    const bad = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({ op: "share-create", path: "/site-e2e", maxViews: 1 }),
+    });
+    assert(bad.ok, false, "maxViews on a folder must be rejected");
+
+    await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 1, method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "e2e-site", version: "1.0.0" } },
+      }),
+    });
+    const mcp = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 2, method: "tools/call",
+        params: { name: "share-create", arguments: { path: "/site-e2e" } },
+      }),
+    });
+    const mcpBody = await mcp.json() as any;
+    const parsed = JSON.parse(mcpBody.result.content[0].text);
+    assert(parsed.kind, "site");
+    assert(parsed.url.startsWith(`${shareBase}/site/`), true, `Expected a /site/ URL from MCP, got ${parsed.url}`);
+    assert((await fetch(parsed.url)).status, 200);
+  });
+
   // Daemon /raw route must declare a charset on text responses, or the
   // browser's anchor-download path falls back to a locale default (cp1252 on
   // Windows) and mojibakes every multibyte character. Assert bytes, not

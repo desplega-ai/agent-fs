@@ -17,9 +17,11 @@ export type SignedUrlDisposition = "inline" | "attachment"
 /** Result of the core `share-create` op. */
 export interface ShareCreateResult {
   id: string
+  /** `site` when `path` is a folder. Absent on servers older than site shares. */
+  kind?: "file" | "site"
   /** Absolute when the server knows its public address, otherwise the same as `sharePath`. */
   url: string
-  /** Host-relative link, always `/share/<token>`. */
+  /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
   sharePath: string
   path: string
   expiresIn: number

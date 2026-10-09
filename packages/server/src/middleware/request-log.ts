@@ -1,9 +1,9 @@
 import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../types.js";
 
-/** The share token is the credential for /share/:token, so it never reaches the logs. */
+/** The token is the credential for /share/:token and /site/:token, so it never reaches the logs. */
 function redactShareToken(path: string): string {
-  return path.replace(/^\/share\/[^/]+/, "/share/<token>");
+  return path.replace(/^\/(share|site)\/[^/]+/, "/$1/<token>");
 }
 
 /**

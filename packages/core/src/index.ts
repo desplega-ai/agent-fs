@@ -80,6 +80,7 @@ export {
   consumeShareView,
   openShareView,
   shareStorageKey,
+  siteObjectKey,
   capUrlTtlSeconds,
   presignShareUrl,
   presignedUrlDeadline,
@@ -92,6 +93,7 @@ export {
 } from "./ops/share.js";
 export type {
   ShareRecord,
+  ShareKind,
   ShareState,
   ShareCreateResult,
   ShareRevokeResult,

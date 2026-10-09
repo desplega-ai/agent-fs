@@ -4,4 +4,5 @@ export const SERVER_FEATURES = [
   "drive-members",
   "comment-mentions",
   "change-stream",
+  "html-sites",
 ] as const;

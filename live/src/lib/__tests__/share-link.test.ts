@@ -86,6 +86,20 @@ describe("copyShareLink", () => {
     expect(shown.description).toContain("24 hours")
   })
 
+  test("a folder copies the site link from sharePath", async () => {
+    const written = stubClipboard()
+    const site = { ...result, kind: "site" as const, url: "http://internal-host:7433/site/tok/", sharePath: "/site/tok/", path: "/reports" }
+    const paths: string[] = []
+    const client = {
+      endpoint: "https://api.example",
+      createShare: async (_org: string, _drive: string, path: string) => (paths.push(path), site),
+    } as any
+    expect(await copyShareLink(client, "org", "drive", "reports")).toBe(true)
+    expect(paths).toEqual(["reports"])
+    expect(written).toEqual(["https://api.example/site/tok/"])
+    expect(toasts.at(-1)!.message).toBe("Site link copied")
+  })
+
   test("an older server produces a clear message instead of a crash", async () => {
     const written = stubClipboard()
     const client = {

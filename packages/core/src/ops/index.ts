@@ -260,7 +260,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "share-create": {
-    description: "Create a public share link for a file: an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video) and a Download button. Default expiry is 24 hours (max 7 days); set maxViews to limit how often the page can be opened (maxViews=1 is a one-off link). Anyone with the link can open it, so share deliberately. Returns { id, url, sharePath, path, expiresIn, expiresAt, maxViews }. The link is shown only once; keep the id to revoke it.",
+    description: "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page, relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. Default expiry is 24 hours (max 7 days); set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, sharePath, path, expiresIn, expiresAt, maxViews }. The link is shown only once; keep the id to revoke it.",
     handler: shareCreate,
     schema: z.object({
       path: z.string(),
@@ -269,7 +269,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "share-revoke": {
-    description: "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share URL), or path (revokes every link to that file). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
+    description: "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share URL), or path (revokes every link to that file or folder). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
     handler: shareRevoke,
     schema: z.object({
       id: z.string().optional(),

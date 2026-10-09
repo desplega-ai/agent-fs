@@ -18,6 +18,7 @@ import { docsRoutes } from "./routes/docs.js";
 import { fileRoutes } from "./routes/files.js";
 import { eventRoutes } from "./routes/events.js";
 import { shareRoutes } from "./routes/share.js";
+import { siteRoutes } from "./routes/site.js";
 import { SERVER_FEATURES } from "./features.js";
 
 export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null) {
@@ -26,13 +27,11 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
 
   const maxUploadBytes = config.server.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
 
-  // CORS — configurable origins
+  // CORS — configurable origins. /site sets its own CORS headers (pages run in
+  // an opaque origin, so they need `*` whatever this list says).
   const origins = config.server?.cors?.origins ?? ["*"];
-  if (origins.length === 1 && origins[0] === "*") {
-    app.use("*", cors());
-  } else {
-    app.use("*", cors({ origin: origins }));
-  }
+  const corsMiddleware = origins.length === 1 && origins[0] === "*" ? cors() : cors({ origin: origins });
+  app.use("*", (c, next) => (isSitePath(c.req.path) ? next() : corsMiddleware(c, next)));
 
   app.use("*", requestLogMiddleware());
   app.use("*", (c, next) => {
@@ -53,6 +52,12 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   // authMiddleware and brings its own per-IP rate limit.
   app.route("/share", shareRoutes(db, s3, {
     requestsPerMinute: config.server?.shareRateLimit?.requestsPerMinute ?? 120,
+  }));
+
+  // Public site shares (a shared folder served at /site/<token>/): same idea,
+  // with a higher limit because one page load fetches many files.
+  app.route("/site", siteRoutes(db, s3, {
+    requestsPerMinute: config.server?.siteRateLimit?.requestsPerMinute ?? 600,
   }));
 
   app.use("*", authMiddleware(db));
@@ -110,4 +115,8 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   app.route("/orgs", eventRoutes(db));
 
   return app;
+}
+
+function isSitePath(path: string): boolean {
+  return path === "/site" || path.startsWith("/site/");
 }

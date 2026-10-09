@@ -1,7 +1,10 @@
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef, type MutableRefObject } from "react"
 import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid, Type } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router"
+import { useQuery } from "@tanstack/react-query"
 import { isQueryablePath } from "@/lib/sql-engine/types"
+import { isHtmlPath, supportsHtmlSites } from "@/lib/html-view"
+import { healthQueryOptions } from "@/lib/upload-limit"
 import { useAuth } from "@/contexts/auth"
 import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
 import { useFileActions } from "@/hooks/use-file-actions"
@@ -23,6 +26,7 @@ import { MarkdownViewer } from "./MarkdownViewer"
 import { ImageViewer } from "./ImageViewer"
 import { VideoViewer } from "./VideoViewer"
 import { PdfViewer } from "./PdfViewer"
+import { HtmlViewer } from "./HtmlViewer"
 import { FallbackViewer } from "./FallbackViewer"
 import { TablePreviewViewer } from "./TablePreviewViewer"
 import { DatabasePreviewViewer } from "./DatabasePreviewViewer"
@@ -107,7 +111,7 @@ function isPdf(path: string): boolean {
 
 const TEXT_EXTS = new Set([
   "txt", "ts", "tsx", "js", "jsx", "json", "jsonl", "ndjson", "md", "mdx", "css", "scss",
-  "html", "xml", "yaml", "yml", "toml", "sh", "bash", "py", "rb", "rs",
+  "html", "htm", "xml", "yaml", "yml", "toml", "sh", "bash", "py", "rb", "rs",
   "go", "java", "c", "cpp", "h", "hpp", "sql", "graphql", "env", "cfg",
   "ini", "conf", "log", "csv", "tsv", "dockerfile", "makefile", "lock",
 ])
@@ -132,14 +136,20 @@ interface FileViewerProps {
 
 export function FileViewer({ path, className, showExpandButton = true, showHeader = true, onScrollToCommentRef, onOutlineChange }: FileViewerProps) {
   const navigate = useNavigate()
-  const { orgId, driveId } = useAuth()
+  const { client, orgId, driveId } = useAuth()
   const { data: stat, refetch: refetchStat } = useFileStat(path)
   const { data: commentsData } = useComments(path)
+  const { data: health } = useQuery(healthQueryOptions(client))
   const isImg = isImage(path)
   const isVid = isVideo(path)
   const isMd = isMarkdown(path)
+  // Rendered in a sandboxed frame only when the server serves site shares;
+  // older servers keep showing the source.
+  const isHtml = isHtmlPath(path) && supportsHtmlSites(health)
   const commentCount = commentsData?.comments.length ?? 0
   const [showRaw, setShowRaw] = useState(false)
+  // Bumped on every save so the rendered HTML frame reloads.
+  const [saveCount, setSaveCount] = useState(0)
 
   // Editing state
   const [isEditing, setIsEditing] = useState(false)
@@ -163,6 +173,8 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     }
     setIsEditing(false)
     setMdEditView(defaultMdEditView)
+    // Each file opens rendered (markdown preview, HTML page, table grid).
+    setShowRaw(false)
   }, [path]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // `?edit=1` (set by the New file dialog) opens the file straight into edit
@@ -224,6 +236,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       // Keep the cached text in step with the write so Cancel and the preview
       // show the saved content without a reload.
       setContent(path, text)
+      setSaveCount((n) => n + 1)
       refetchStat()
       return true
     } catch {
@@ -242,8 +255,9 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   // File-scoped shortcuts: only live while a file is open, so they're naturally
   // context-scoped (can't collide with list/folder views). Same actions as the
-  // header buttons. The `e` source/preview toggle only exists for markdown
-  // (JSON's Format/Raw toggle is handled in TextViewer).
+  // header buttons. The `e` source/preview toggle only exists for markdown,
+  // tabular text and rendered HTML (JSON's Format/Raw toggle is handled in
+  // TextViewer).
   const fileActions = useFileActions(path)
   const fileShortcuts: ShortcutMap = {
     n: (e) => {
@@ -264,7 +278,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       fileActions.download()
     },
   }
-  if (isMd || isTabTxt) {
+  if (isMd || isTabTxt || isHtml) {
     fileShortcuts.e = (e) => {
       e.preventDefault()
       setShowRaw((v) => !v)
@@ -411,8 +425,8 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     )
   }
 
-  // For markdown-like files: show raw/preview toggle in header.
-  const viewingRaw = isMd ? showRaw : true
+  // For markdown-like and HTML files: show raw/preview toggle in header.
+  const viewingRaw = isMd || isHtml ? showRaw : true
 
   // Determine what to show for markdown in edit mode
   const editingMarkdown = isEditing && isMd
@@ -427,7 +441,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)}
           onQuery={onQuery}
           commentCount={commentCount}
-          showViewToggle={isMd && !isEditing}
+          showViewToggle={(isMd || isHtml) && !isEditing}
           showRaw={showRaw}
           onToggleRaw={() => setShowRaw(!showRaw)}
           isEditable={textable}
@@ -481,6 +495,16 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           comments={commentsData?.comments}
           className="flex-1 min-h-0"
           onScrollToCommentRef={onScrollToCommentRef}
+        />
+      ) : isHtml ? (
+        <HtmlViewer
+          // Per drive too: the drive-root confirm must not carry over to
+          // the same path in another drive.
+          key={`${orgId}/${driveId}/${path}`}
+          path={path}
+          className="flex-1 min-h-0"
+          reloadKey={saveCount}
+          onShowSource={() => setShowRaw(true)}
         />
       ) : (
         <MarkdownViewer
