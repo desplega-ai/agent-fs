@@ -411,9 +411,10 @@ A new version is on npm, Fly (daemon) and Vercel (live UI). Taras's `radar.html`
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Version targets agree: `bun run scripts/sync-versions.ts --check`
-- [ ] Lockfile is in sync: `bun install --frozen-lockfile`
-- [ ] CI is green on the PR: `gh pr checks <pr-number>`
+- [x] Version targets agree: `bun run scripts/sync-versions.ts --check`
+- [x] Lockfile is in sync: `bun install --frozen-lockfile`
+- [x] CI is green on the PR: `gh pr checks <pr-number>`
+- _Release ran on the branch only: `./scripts/release.sh 0.15.3` committed the bump (a3ef914). `sync-versions --check`: every target at 0.15.3. `bun install --frozen-lockfile`: no changes. PR #80 checks: ci, e2e, fuse-smoke, live-image, both Vercel previews pass. The post-merge Automated QA below is for after Taras merges._
 
 #### Automated QA:
 - [ ] After the merge, `curl -s https://<prod-daemon>/health | jq .features` includes `html-sites`.
