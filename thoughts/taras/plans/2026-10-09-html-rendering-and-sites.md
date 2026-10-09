@@ -286,20 +286,21 @@ The daemon serves folders at `/site/<token>/<path>`. `share-create` accepts a fo
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Types check: `bun run typecheck`
-- [ ] Unit tests pass: `bun test live/src/lib/__tests__/html-view.test.ts`
-- [ ] Full suite passes: `bun run test`
-- [ ] Live UI builds: `cd live && pnpm build`
-- [ ] Playwright spec passes: `cd live && pnpm test:e2e tests/html-viewer.spec.ts`
+- [x] Types check: `bun run typecheck`
+- [x] Unit tests pass: `bun test live/src/lib/__tests__/html-view.test.ts`
+- [x] Full suite passes: `bun run test`
+- [x] Live UI builds: `cd live && pnpm build`
+- [x] Playwright spec passes: `cd live && pnpm test:e2e tests/html-viewer.spec.ts`
 
 #### Automated QA:
-- [ ] Use `agent-browser` against `pnpm dev` and a local MinIO daemon (see the memory note on live UI browser E2E).
+- [x] Use `agent-browser` against `pnpm dev` and a local MinIO daemon (see the memory note on live UI browser E2E).
   - Seed `qa-site/` from phase 1 and open `qa-site/index.html`.
   - Take a screenshot. Confirm that the image and the fetched JSON show.
-- [ ] Press `e` and confirm Monaco source shows. Press `e` again and confirm the rendered view returns.
-- [ ] Edit the HTML and save. Confirm the iframe shows the new content.
-- [ ] In the iframe, run a script that reads `parent.localStorage` and `localStorage`. Confirm both throw (opaque origin).
-- [ ] Point the UI at a daemon without `html-sites` (an older build or a stubbed `/health`). Confirm `.html` shows source with no toggle.
+- [x] Press `e` and confirm Monaco source shows. Press `e` again and confirm the rendered view returns.
+- [x] Edit the HTML and save. Confirm the iframe shows the new content.
+- [x] In the iframe, run a script that reads `parent.localStorage` and `localStorage`. Confirm both throw (opaque origin).
+- [x] Point the UI at a daemon without `html-sites` (an older build or a stubbed `/health`). Confirm `.html` shows source with no toggle.
+- _QA ran against an S3-compatible moto server, not MinIO: the MinIO community binary is no longer published (410) and the AIStor build refuses S3 operations without a license. Vite was started directly (`vite --host 127.0.0.1`) because `pnpm dev` wraps it in `portless`. The older server was a proxy that strips `html-sites` from `/health`._
 
 #### Manual Verification:
 - [ ] Taras checks that the rendered view looks right and the toggle placement feels natural.
