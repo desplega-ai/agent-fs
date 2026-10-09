@@ -7,7 +7,9 @@ import "@fontsource/jetbrains-mono/400.css"
 import "./index.css"
 import App from "./App"
 import { trackSessionStart } from "./lib/telemetry"
+import { installStaleChunkReload } from "./lib/stale-chunk"
 
+installStaleChunkReload()
 trackSessionStart()
 
 createRoot(document.getElementById("root")!).render(
