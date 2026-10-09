@@ -17,6 +17,7 @@ import { treeExpansionStore } from "@/stores/tree-expansion"
 import { toast } from "@/stores/toast"
 import { downloadFile } from "@/lib/download"
 import { copyShareLink, supportsShareLinks } from "@/lib/share-link"
+import { supportsHtmlSites } from "@/lib/html-view"
 import { healthQueryOptions } from "@/lib/upload-limit"
 import {
   ContextMenuContent,
@@ -110,7 +111,10 @@ export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null 
     void downloadFile(client, orgId!, driveId!, fullPath, name)
   }
 
-  const canShareLink = !isDir && !!orgId && !!driveId && supportsShareLinks(health)
+  // A folder share is an HTML site (/site/<token>/), so folders need a server
+  // that serves sites. copyShareLink uses the returned sharePath either way.
+  const canShareLink =
+    !!orgId && !!driveId && supportsShareLinks(health) && (!isDir || supportsHtmlSites(health))
   const handleCopyShareLink = () => {
     if (canShareLink) void copyShareLink(client, orgId!, driveId!, fullPath)
   }
@@ -129,7 +133,7 @@ export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null 
         {canShareLink && (
           <ContextMenuItem onClick={handleCopyShareLink}>
             <Share2 className="h-4 w-4" />
-            Copy share link
+            {isDir ? "Copy site link" : "Copy share link"}
           </ContextMenuItem>
         )}
         <ContextMenuItem onClick={handleDownload} disabled={!canDownload}>

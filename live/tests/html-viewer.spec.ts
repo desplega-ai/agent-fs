@@ -5,7 +5,12 @@ import { resolve } from "node:path"
 const html = "<!doctype html><title>QA page</title><h1 id=\"hello\">Hello from the page</h1>"
 
 // Production app shell against deterministic API fixtures; no live account.
-async function installFixture(page: Page, minted: string[], features = ["share-links", "html-sites"]) {
+async function installFixture(
+  page: Page,
+  minted: string[],
+  features = ["share-links", "html-sites"],
+  rootEntries: Array<{ name: string; type: "file" | "directory"; size: number }> = [],
+) {
   await page.addInitScript(() => {
     localStorage.setItem("agent-fs-credentials", JSON.stringify([
       { id: "qa", name: "QA", endpoint: "http://fixture.test", apiKey: "fixture" },
@@ -40,7 +45,7 @@ async function installFixture(page: Page, minted: string[], features = ["share-l
         }
         case "comment-list": json = { comments: [] }; break
         case "comment-notification-list": json = { notifications: [], unreadCount: 0 }; break
-        case "ls": json = { entries: [] }; break
+        case "ls": json = { entries: path ? [] : rootEntries }; break
         case "tree": json = { tree: [] }; break
         // Side panels (reveal, recent, ...) degrade gracefully; these tests only need the viewer.
         default: return route.abort()
@@ -120,4 +125,34 @@ test("a server without html-sites shows the source with no toggle", async ({ pag
   await expect(page.getByRole("button", { name: "Preview" })).toHaveCount(0)
   await expect(page.locator("iframe")).toHaveCount(0)
   expect(minted).toEqual([])
+})
+
+test("right-clicking a folder copies a site link", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" })
+  const minted: string[] = []
+  await installFixture(page, minted, ["share-links", "html-sites"], [
+    { name: "reports", type: "directory", size: 0 },
+    { name: "notes.md", type: "file", size: 5 },
+  ])
+  await page.goto("/")
+
+  // A file keeps the plain share link label.
+  await page.locator('[data-tree-path="notes.md"]').click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Copy share link" })).toBeVisible()
+  await page.keyboard.press("Escape")
+
+  await page.locator('[data-tree-path="reports"]').click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Copy share link" })).toHaveCount(0)
+  await page.getByRole("menuitem", { name: "Copy site link" }).click()
+  await expect(page.getByText("Site link copied")).toBeVisible()
+  expect(minted).toEqual(["reports"])
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("http://fixture.test/site/tok1/")
+})
+
+test("a server without html-sites offers no share link on folders", async ({ page }) => {
+  await installFixture(page, [], ["share-links"], [{ name: "reports", type: "directory", size: 0 }])
+  await page.goto("/")
+  await page.locator('[data-tree-path="reports"]').click({ button: "right" })
+  await expect(page.getByRole("menuitem", { name: "Copy link", exact: true })).toBeVisible()
+  await expect(page.getByRole("menuitem", { name: /Copy (site|share) link/ })).toHaveCount(0)
 })

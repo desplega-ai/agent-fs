@@ -369,19 +369,20 @@ Users and agents publish a folder as a site from the CLI, MCP and the live UI fi
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Types check: `bun run typecheck`
-- [ ] Full suite passes: `bun run test`
-- [ ] MCP tests pass: `bun test packages/mcp/src/__tests__/tools.test.ts`
-- [ ] Local E2E passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only`
+- [x] Types check: `bun run typecheck`
+- [x] Full suite passes: `bun run test`
+- [x] MCP tests pass: `bun test packages/mcp/src/__tests__/tools.test.ts`
+- [x] Local E2E passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only`
 - [ ] Full E2E passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`
-- [ ] Live UI builds: `cd live && pnpm build`
+- [x] Live UI builds: `cd live && pnpm build`
 
 #### Automated QA:
-- [ ] CLI walkthrough on a local daemon:
+- [x] CLI walkthrough on a local daemon:
   - `share-create qa-site` prints `Site: http://127.0.0.1:<port>/site/<token>/`.
   - Open the URL with `agent-browser`, with no login.
   - Take a screenshot that shows the page with its assets loaded.
-- [ ] `agent-browser` on the live UI: right-click a folder and click "Copy site link". Confirm the copied URL contains `/site/`.
+- [x] `agent-browser` on the live UI: right-click a folder and click "Copy site link". Confirm the copied URL contains `/site/`.
+- _Full E2E not run: `docker` is not installed in this container (`/bin/sh: 1: docker: not found` at the MinIO `docker run` in `setup`). QA used an isolated daemon on a moto S3 emulator and Vite started directly, as in Phase 2. Clipboard reads are denied in the headless browser, so the copied URL was captured from the page's `navigator.clipboard.write` call; it contained `/site/<token>/` and served `index.html` with 200._
 
 #### Manual Verification:
 - [ ] Taras reads the new skill section and the docs paragraph.

@@ -316,6 +316,13 @@ function formatSignedUrl(result: any): string {
 }
 
 function formatShareCreate(result: any): string {
+  if (result.kind === "site") {
+    // Site shares (a folder) have no view limit, so there is no Views line.
+    let out = `Site: ${result.url}\n\nExpires: ${formatDate(result.expiresAt)} (${result.expiresIn}s)`;
+    out += `\nID:      ${result.id}  (revoke: agent-fs share-revoke ${result.id})`;
+    if (result.appUrl) out += `\nApp:     ${result.appUrl}`;
+    return out;
+  }
   const views = result.maxViews === null || result.maxViews === undefined
     ? "unlimited"
     : result.maxViews === 1 ? "one-off (1 view)" : `up to ${result.maxViews}`;
