@@ -39,6 +39,13 @@ function plain(status: number, message: string): Response {
   });
 }
 
+function tooLarge(): Response {
+  return plain(
+    413,
+    `This file is larger than ${SITE_MAX_OBJECT_BYTES / 1024 / 1024} MB and cannot be served from a site link`
+  );
+}
+
 function redirect(location: string): Response {
   return new Response(null, { status: 301, headers: siteSecurityHeaders({ Location: location }) });
 }
@@ -127,6 +134,9 @@ export function siteRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinute
 
     let body: Uint8Array;
     try {
+      // `getObject` buffers the whole body: refuse an oversized file from its
+      // size alone, before reading a byte of it.
+      if ((await s3.headObject(key)).size > SITE_MAX_OBJECT_BYTES) return tooLarge();
       body = (await s3.getObject(key)).body;
     } catch (err: any) {
       if (!isMissing(err)) throw err;
@@ -142,9 +152,8 @@ export function siteRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinute
       return plain(404, "Not found");
     }
 
-    if (body.length > SITE_MAX_OBJECT_BYTES) {
-      return plain(413, `This file is larger than ${SITE_MAX_OBJECT_BYTES / 1024 / 1024} MB and cannot be served from a site link`);
-    }
+    // The object may have grown between the size check and the read.
+    if (body.length > SITE_MAX_OBJECT_BYTES) return tooLarge();
 
     // Reading storage took time: the link may have been revoked or run out
     // meanwhile. Check again against the clock as it is now.

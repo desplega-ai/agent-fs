@@ -498,7 +498,9 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
         />
       ) : isHtml ? (
         <HtmlViewer
-          key={path}
+          // Per drive too: the drive-root confirm must not carry over to
+          // the same path in another drive.
+          key={`${orgId}/${driveId}/${path}`}
           path={path}
           className="flex-1 min-h-0"
           reloadKey={saveCount}

@@ -370,7 +370,21 @@ for (const { label, make } of backends) {
     test("an object over 25 MB is refused with 413", async () => {
       const key = `${h.orgId}/drives/${h.driveId}/site/big.bin`;
       await h.s3.putObject(key, new Uint8Array(SITE_MAX_OBJECT_BYTES + 1));
-      const res = await get(h, `/site/${site.token}/big.bin`);
+      // Refused from its size: the body is never buffered.
+      const s3 = h.s3 as any;
+      const original = s3.getObject.bind(s3);
+      const reads: string[] = [];
+      s3.getObject = async (k: string, ...rest: unknown[]) => {
+        reads.push(k);
+        return original(k, ...rest);
+      };
+      let res: Response;
+      try {
+        res = await get(h, `/site/${site.token}/big.bin`);
+      } finally {
+        s3.getObject = original;
+      }
+      expect(reads).not.toContain(key);
       expect(res.status).toBe(413);
       expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
       expectSiteHeaders(res);
