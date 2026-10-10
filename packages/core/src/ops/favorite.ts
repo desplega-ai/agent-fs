@@ -155,40 +155,57 @@ async function dropVanishedFolders(ctx: OpContext, path: string): Promise<void> 
   }
 }
 
+/**
+ * Favorites cleanup runs after rm/mv already changed storage, versions and the
+ * index. A failure here must not report a completed rm/mv as failed, so it is
+ * logged instead: the worst case is a star left on a path that no longer exists.
+ */
+async function bestEffort(what: string, cleanup: () => Promise<void>): Promise<void> {
+  try {
+    await cleanup();
+  } catch (err) {
+    console.warn(`[favorites] ${what} failed:`, err);
+  }
+}
+
 /** Called by rm: the file at `path` is gone for every user. */
 export async function favoritesAfterRemove(ctx: OpContext, path: string): Promise<void> {
-  ctx.db
-    .delete(schema.favorites)
-    .where(
-      and(
-        eq(schema.favorites.driveId, ctx.driveId),
-        eq(schema.favorites.path, path),
-        eq(schema.favorites.kind, "file")
+  await bestEffort(`cleanup after rm ${path}`, async () => {
+    ctx.db
+      .delete(schema.favorites)
+      .where(
+        and(
+          eq(schema.favorites.driveId, ctx.driveId),
+          eq(schema.favorites.path, path),
+          eq(schema.favorites.kind, "file")
+        )
       )
-    )
-    .run();
-  await dropVanishedFolders(ctx, path);
+      .run();
+    await dropVanishedFolders(ctx, path);
+  });
 }
 
 /** Called by mv: every user's star on the file at `from` moves to `to`. */
 export async function favoritesAfterMove(ctx: OpContext, from: string, to: string): Promise<void> {
-  const f = schema.favorites;
-  // A user who had already starred `to` keeps that one star.
-  ctx.db
-    .delete(f)
-    .where(
-      and(
-        eq(f.driveId, ctx.driveId),
-        eq(f.path, from),
-        eq(f.kind, "file"),
-        sql`${f.userId} IN (SELECT user_id FROM favorites WHERE drive_id = ${ctx.driveId} AND path = ${to})`
+  await bestEffort(`move ${from} -> ${to}`, async () => {
+    const f = schema.favorites;
+    // A user who had already starred `to` keeps that one star.
+    ctx.db
+      .delete(f)
+      .where(
+        and(
+          eq(f.driveId, ctx.driveId),
+          eq(f.path, from),
+          eq(f.kind, "file"),
+          sql`${f.userId} IN (SELECT user_id FROM favorites WHERE drive_id = ${ctx.driveId} AND path = ${to})`
+        )
       )
-    )
-    .run();
-  ctx.db
-    .update(f)
-    .set({ path: to })
-    .where(and(eq(f.driveId, ctx.driveId), eq(f.path, from), eq(f.kind, "file")))
-    .run();
-  await dropVanishedFolders(ctx, from);
+      .run();
+    ctx.db
+      .update(f)
+      .set({ path: to })
+      .where(and(eq(f.driveId, ctx.driveId), eq(f.path, from), eq(f.kind, "file")))
+      .run();
+    await dropVanishedFolders(ctx, from);
+  });
 }

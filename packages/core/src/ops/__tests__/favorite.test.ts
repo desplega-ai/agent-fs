@@ -1,10 +1,18 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import type { Database } from "bun:sqlite";
 import { createUser } from "../../identity/users.js";
 import { setDriveMember } from "../../identity/drives.js";
 import { NotFoundError, PermissionDeniedError, ValidationError } from "../../errors.js";
 import { createTestContext } from "../../test-utils.js";
 import { dispatchOp } from "../index.js";
-import type { OpContext, FavoriteAddResult, FavoriteListResult, FavoriteRemoveResult } from "../types.js";
+import type {
+  OpContext,
+  FavoriteAddResult,
+  FavoriteListResult,
+  FavoriteRemoveResult,
+  MvResult,
+  RmResult,
+} from "../types.js";
 
 /** Owner context plus a second drive member ("bob") in the same drive. */
 async function setup() {
@@ -16,6 +24,13 @@ async function setup() {
   await dispatchOp(t.ctx, "write", { path: "/docs/b.md", content: "b" });
   await dispatchOp(t.ctx, "write", { path: "/notes.md", content: "n" });
   return { ...t, bobCtx, bobId: bob.user.id };
+}
+
+/** Make every UPDATE and DELETE on favorites fail, as a broken favorites table would. */
+function breakFavoritesWrites(db: ReturnType<typeof createTestContext>["db"]): void {
+  const sqlite = (db as any).$client as Database;
+  sqlite.run("CREATE TRIGGER favorites_no_update BEFORE UPDATE ON favorites BEGIN SELECT RAISE(ABORT, 'favorites update broken'); END");
+  sqlite.run("CREATE TRIGGER favorites_no_delete BEFORE DELETE ON favorites BEGIN SELECT RAISE(ABORT, 'favorites delete broken'); END");
 }
 
 async function list(ctx: OpContext): Promise<string[]> {
@@ -179,5 +194,36 @@ describe("favorites", () => {
       .run();
     const r = (await dispatchOp(ctx, "favorite-remove", { path: "/ghost" })) as FavoriteRemoveResult;
     expect(r.removed).toBe(true);
+  });
+
+  test("mv still succeeds when moving the stars fails", async () => {
+    const { ctx, db } = await setup();
+    await dispatchOp(ctx, "favorite-add", { path: "/docs/a.md" });
+    breakFavoritesWrites(db);
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const r = (await dispatchOp(ctx, "mv", { from: "/docs/a.md", to: "/archive/a.md" })) as MvResult;
+      expect(r).toMatchObject({ from: "/docs/a.md", to: "/archive/a.md" });
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+    await expect(dispatchOp(ctx, "stat", { path: "/archive/a.md" })).resolves.toBeDefined();
+    await expect(dispatchOp(ctx, "stat", { path: "/docs/a.md" })).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("rm still succeeds when dropping the stars fails", async () => {
+    const { ctx, db } = await setup();
+    await dispatchOp(ctx, "favorite-add", { path: "/notes.md" });
+    breakFavoritesWrites(db);
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const r = (await dispatchOp(ctx, "rm", { path: "/notes.md" })) as RmResult;
+      expect(r).toMatchObject({ path: "/notes.md", deleted: true });
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+    await expect(dispatchOp(ctx, "stat", { path: "/notes.md" })).rejects.toBeInstanceOf(NotFoundError);
   });
 });
