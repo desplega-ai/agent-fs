@@ -7,6 +7,7 @@ import { useBrowser } from "@/contexts/browser"
 import { FileTreeNode } from "./FileTreeNode"
 import { FileTreeContextMenu, type TreeMenuTarget } from "./FileTreeContextMenu"
 import { FileSearchPanel } from "./FileSearchPanel"
+import { useFavorites } from "@/hooks/use-favorites"
 import { treeExpansionStore, useExpandedPaths, useFocusedPath } from "@/stores/tree-expansion"
 import { useSearchInput } from "@/contexts/search-input"
 import { describeRequestError } from "@/lib/request-errors"
@@ -200,6 +201,12 @@ interface VirtualTreeProps {
  * scroll re-renders this list, not the listing queries and flattening above.
  */
 function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualTreeProps) {
+  const favorites = useFavorites()
+  const { toggleFavorite } = favorites
+  const toggleTreeFavorite = useCallback(
+    (path: string, isDir: boolean) => toggleFavorite(path, isDir ? "directory" : "file"),
+    [toggleFavorite],
+  )
   const { selectedFile } = useBrowser()
   const focusedPath = useFocusedPath()
   const { focus: focusSearchInput } = useSearchInput()
@@ -459,6 +466,8 @@ function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualT
                       isSelected={selectedPath === row.path}
                       tabIndex={row.path === tabStopPath ? 0 : -1}
                       tooltip={tooltip}
+                      favorited={favorites.supported && favorites.isFavorite(row.path)}
+                      onToggleFavorite={favorites.supported ? toggleTreeFavorite : undefined}
                     />
                   ) : (
                     <p
@@ -476,7 +485,9 @@ function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualT
         </ContextMenu>
         <Tooltip handle={tooltip}>
           {({ payload }) => (
-            <TooltipContent side="right" align="center">
+            // Rows anchor the tooltip on their label; clear the row's star so
+            // the tooltip never sits on top of it.
+            <TooltipContent side="right" align="center" sideOffset={favorites.supported ? 32 : undefined}>
               {String(payload ?? "")}
             </TooltipContent>
           )}

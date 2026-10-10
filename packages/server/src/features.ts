@@ -5,4 +5,5 @@ export const SERVER_FEATURES = [
   "comment-mentions",
   "change-stream",
   "html-sites",
+  "favorites",
 ] as const;

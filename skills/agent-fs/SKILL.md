@@ -8,7 +8,8 @@ description: >-
   "share this file", "share link", "public link", "one-off link", "revoke a share link",
   "publish a site", "host this html", "share a folder", "manage members", "invite user", "list members", "remove member",
   "update role", "reset api key", "rotate api key", "lost my api key",
-  "watch drive changes", "stream file changes", file
+  "watch drive changes", "stream file changes", "star this file",
+  "add to favorites", "my favorites", file
   persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
   manage org/drive members, generate presigned URLs, check recent activity, or use
@@ -214,6 +215,18 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 | `comment resolve` | `agent-fs comment resolve <id>` | Resolve a comment |
 | `comment notifications` | `agent-fs comment notifications [--kind <comment\|mention>]... [--unread] [--limit <n>]` | List notifications for the current user. The default kind is `comment`. |
 | `comment read` | `agent-fs comment read [ids...] [--all [--kind <comment\|mention>]...]` | Mark selected notification event IDs, or all active-drive notification kinds, as read. `--all` defaults to `comment`. |
+
+### Favorites
+
+Favorites are per user: each user stars files and folders in a drive and only sees their own stars. The server takes the user from the API key; no command accepts a user id. Viewer role is enough.
+
+| Command | Usage | Description |
+|---------|-------|-------------|
+| `favorite-add` | `agent-fs favorite-add <path>` | Star a file or folder. Starring twice is a no-op. Returns `{ path, kind, createdAt, favorited }`. |
+| `favorite-remove` | `agent-fs favorite-remove <path>` | Remove your star. Works even when the path is gone. Returns `{ path, removed }`. |
+| `favorite-list` | `agent-fs favorite-list` | Your favorites in the active drive, sorted by path. Folders print with a trailing `/`. |
+
+Stars follow files: `mv` moves every user's star on the file to the new path, `rm` removes it, and a folder's star is removed once the folder is gone (its last file deleted or moved out).
 
 ### Setup & Auth
 

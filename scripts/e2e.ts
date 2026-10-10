@@ -1827,6 +1827,42 @@ async function runStandardTests(daemonUrl: string) {
     assert(health.features?.includes("comment-path-prefix"), true, `Expected comment-path-prefix in ${JSON.stringify(health)}`);
     assert(health.features?.includes("drive-members"), true, `Expected drive-members in ${JSON.stringify(health)}`);
     assert(health.features?.includes("comment-mentions"), true, `Expected comment-mentions in ${JSON.stringify(health)}`);
+    assert(health.features?.includes("favorites"), true, `Expected favorites in ${JSON.stringify(health)}`);
+  });
+
+  // -- favorites (per user; isolation between users is covered by the core and server tests) --
+
+  runJson('write /fav-e2e/a.md --content "a"');
+  runJson('write /fav-e2e/b.md --content "b"');
+
+  await test("favorite-add / favorite-list / favorite-remove round-trip", () => {
+    const file = runJson("favorite-add /fav-e2e/a.md");
+    assert(file.kind, "file");
+    assert(file.favorited, true);
+    const folder = runJson("favorite-add fav-e2e");
+    assert(folder.kind, "directory");
+    const list = runJson("favorite-list");
+    assert(list.favorites.map((f: any) => f.path).join(","), "/fav-e2e,/fav-e2e/a.md");
+    assertIncludes(run("favorite-list"), "/fav-e2e/");
+    assert(runJson("favorite-remove /fav-e2e").removed, true);
+    assert(runJson("favorite-remove /fav-e2e").removed, false);
+  });
+
+  await test("favorite-add fails for a missing path", () => {
+    let failed = false;
+    try {
+      run("favorite-add /fav-e2e/nope.md");
+    } catch {
+      failed = true;
+    }
+    assert(failed, true, "Expected favorite-add to fail for a missing path");
+  });
+
+  await test("a star follows mv and goes away on rm", () => {
+    runJson("mv /fav-e2e/a.md /fav-e2e/renamed.md");
+    assert(runJson("favorite-list").favorites.map((f: any) => f.path).join(","), "/fav-e2e/renamed.md");
+    runJson("rm /fav-e2e/renamed.md");
+    assert(runJson("favorite-list").favorites.length, 0);
   });
 
   runJson('write /share-e2e.md --content "# Shared heading\n\nHello <script>alert(1)</script> from **agent-fs**."');

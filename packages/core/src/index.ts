@@ -61,6 +61,9 @@ export {
   commentDelete,
   commentResolve,
   driveMembers,
+  favoriteAdd,
+  favoriteRemove,
+  favoriteList,
 } from "./ops/index.js";
 export {
   getS3Key,

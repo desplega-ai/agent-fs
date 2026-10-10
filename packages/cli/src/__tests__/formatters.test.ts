@@ -166,6 +166,26 @@ describe("drive-members formatter", () => {
   });
 });
 
+describe("favorite formatters", () => {
+  test("list marks folders with a trailing slash", () => {
+    const result = {
+      favorites: [
+        { path: "/docs", kind: "directory", createdAt: "2026-10-10T10:00:00.000Z" },
+        { path: "/notes.md", kind: "file", createdAt: "2026-10-10T10:00:00.000Z" },
+      ],
+    };
+    const output = captureOutput(() => outputResult("favorite-list", result, false));
+    expect(output).toContain("/docs/");
+    expect(output).toContain("/notes.md");
+    expect(captureOutput(() => outputResult("favorite-list", { favorites: [] }, false))).toContain("(no favorites)");
+  });
+
+  test("remove says when there was no star", () => {
+    expect(captureOutput(() => outputResult("favorite-remove", { path: "/a.md", removed: true }, false))).toContain("Unstarred /a.md");
+    expect(captureOutput(() => outputResult("favorite-remove", { path: "/a.md", removed: false }, false))).toContain("was not starred");
+  });
+});
+
 describe("diff source warning", () => {
   test("no warning when the versions were compared", () => {
     expect(diffSourceWarning({ changes: [], source: "content" })).toBeNull();

@@ -354,3 +354,14 @@ export interface RmResult {
   path: string
   deleted: boolean
 }
+
+export interface Favorite {
+  /** Server form: leading slash, no trailing slash. */
+  path: string
+  kind: "file" | "directory"
+  createdAt: string
+}
+
+export interface FavoriteListResult {
+  favorites: Favorite[]
+}

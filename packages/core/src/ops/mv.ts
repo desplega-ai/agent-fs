@@ -13,6 +13,7 @@ import { clearSearchData } from "./search-index.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { normalizePath } from "./paths.js";
 import { ValidationError } from "../errors.js";
+import { favoritesAfterMove } from "./favorite.js";
 
 export async function mv(
   ctx: OpContext,
@@ -86,6 +87,9 @@ export async function mv(
       )
       .run();
   }
+
+  // Stars follow the file.
+  await favoritesAfterMove(ctx, from, to);
 
   return { from, to, version };
 }

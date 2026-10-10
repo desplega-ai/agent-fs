@@ -432,6 +432,39 @@ export interface DriveMembersResult {
   members: DriveMember[];
 }
 
+// --- Favorite types ---
+
+export type FavoriteKind = "file" | "directory";
+
+export interface FavoriteAddParams {
+  path: string;
+}
+
+export interface FavoriteRemoveParams {
+  path: string;
+}
+
+export interface FavoriteListParams {}
+
+export interface Favorite {
+  path: string;
+  kind: FavoriteKind;
+  createdAt: string;
+}
+
+export interface FavoriteAddResult extends Favorite {
+  favorited: true;
+}
+
+export interface FavoriteRemoveResult {
+  path: string;
+  removed: boolean;
+}
+
+export interface FavoriteListResult {
+  favorites: Favorite[];
+}
+
 // --- Tree types ---
 
 export interface TreeParams {

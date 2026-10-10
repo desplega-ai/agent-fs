@@ -10,6 +10,7 @@ import {
 import { removeFromIndex } from "../search/fts.js";
 import { publishDriveEvent } from "../events/bus.js";
 import { normalizePath } from "./paths.js";
+import { favoritesAfterRemove } from "./favorite.js";
 
 export async function rm(
   ctx: OpContext,
@@ -102,6 +103,9 @@ export async function rm(
       at: now.toISOString(),
     });
   }
+
+  // 6. Drop every user's star on the file (and on folders it emptied)
+  await favoritesAfterRemove(ctx, path);
 
   return { path, deleted: true };
 }

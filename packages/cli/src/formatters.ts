@@ -356,6 +356,22 @@ function formatDriveMembers(result: any): string {
     .join("\n");
 }
 
+function formatFavoriteAdd(result: any): string {
+  return `Starred ${result.path}${result.kind === "directory" ? "/" : ""}`;
+}
+
+function formatFavoriteRemove(result: any): string {
+  return result.removed ? `Unstarred ${result.path}` : `${result.path} was not starred`;
+}
+
+function formatFavoriteList(result: any): string {
+  const favorites: any[] = result.favorites ?? [];
+  if (favorites.length === 0) return "(no favorites)";
+  return favorites
+    .map((f) => (f.kind === "directory" ? `${f.path}/` : f.path))
+    .join("\n");
+}
+
 // --- Formatter registry ---
 
 const formatters: Record<string, (result: any) => string> = {
@@ -385,6 +401,9 @@ const formatters: Record<string, (result: any) => string> = {
   "share-create": formatShareCreate,
   "share-revoke": formatShareRevoke,
   "drive-members": formatDriveMembers,
+  "favorite-add": formatFavoriteAdd,
+  "favorite-remove": formatFavoriteRemove,
+  "favorite-list": formatFavoriteList,
 };
 
 function formatResult(opName: string, result: any): string {

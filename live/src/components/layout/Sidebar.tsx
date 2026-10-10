@@ -1,26 +1,29 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { FileTree } from "@/components/file-tree/FileTree"
 import { RecentFiles } from "@/components/file-tree/RecentFiles"
+import { FavoriteFiles } from "@/components/file-tree/FavoriteFiles"
 import { FolderActions } from "@/components/file-mutations/FolderActions"
 import { SearchBar } from "@/components/search/SearchBar"
 import { Button } from "@/components/ui/button"
 import { useBrowser } from "@/contexts/browser"
 import { cleanPath, parentOf } from "@/lib/paths"
 import { useFileSearch } from "@/hooks/use-file-search"
+import { useFavorites } from "@/hooks/use-favorites"
 
-type SidebarView = "tree" | "recent"
+type SidebarView = "tree" | "recent" | "favorites"
 
 export function Sidebar({ children }: { children?: React.ReactNode }) {
   const [view, setView] = useState<SidebarView>("tree")
   const { selectedFile, selectFile } = useBrowser()
   const search = useFileSearch()
+  const { supported: favoritesSupported } = useFavorites()
   const tabsId = useId()
   const searchActive = search.query.length > 0
-  const activeView: SidebarView = searchActive ? "tree" : view
-  const treeTabId = `${tabsId}-tree-tab`
-  const recentTabId = `${tabsId}-recent-tab`
-  const treePanelId = `${tabsId}-tree-panel`
-  const recentPanelId = `${tabsId}-recent-panel`
+  const activeView: SidebarView =
+    searchActive || (view === "favorites" && !favoritesSupported) ? "tree" : view
+  const tabId = (v: SidebarView) => `${tabsId}-${v}-tab`
+  const panelId = (v: SidebarView) => `${tabsId}-${v}-panel`
+  const views: SidebarView[] = favoritesSupported ? ["tree", "recent", "favorites"] : ["tree", "recent"]
 
   // URL-driven file opens should always reveal the selected row in the tree.
   // A user may still switch back to Recent afterward without changing files.
@@ -45,7 +48,7 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
   }, [selectedFile])
 
   const selectTab = (next: SidebarView) => {
-    if (next === "recent" && searchActive) return
+    if (next !== "tree" && searchActive) return
     setView(next)
   }
 
@@ -53,16 +56,19 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
     event: KeyboardEvent<HTMLButtonElement>,
     current: SidebarView,
   ) => {
+    // Search pins the Tree tab; the others are disabled until it clears.
+    const enabled = searchActive ? ["tree" as const] : views
+    const index = enabled.indexOf(current)
     let next: SidebarView | null = null
-    if (event.key === "ArrowLeft" || event.key === "Home") next = "tree"
-    if (event.key === "ArrowRight" || event.key === "End") {
-      next = searchActive ? "tree" : "recent"
-    }
+    if (event.key === "Home") next = enabled[0]
+    if (event.key === "End") next = enabled[enabled.length - 1]
+    if (event.key === "ArrowLeft") next = enabled[Math.max(0, index - 1)]
+    if (event.key === "ArrowRight") next = enabled[Math.min(enabled.length - 1, index + 1)]
     if (!next || next === current) return
 
     event.preventDefault()
     selectTab(next)
-    const nextId = next === "tree" ? treeTabId : recentTabId
+    const nextId = tabId(next)
     requestAnimationFrame(() => document.getElementById(nextId)?.focus())
   }
 
@@ -70,6 +76,11 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
     setView("tree")
     selectFile(path)
   }
+
+  // Same as Recent: show the opened file or folder in the tree.
+  const handleOpenFavorite = handleOpenRecent
+
+  const tabLabels: Record<SidebarView, string> = { tree: "Tree", recent: "Recent", favorites: "Favorites" }
 
   return (
     <aside className="flex h-full w-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
@@ -81,60 +92,46 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
           aria-label="File navigation"
           className="flex flex-1 rounded-md border border-sidebar-border bg-sidebar-accent/30 p-0.5"
         >
-          <Button
-            id={treeTabId}
-            type="button"
-            role="tab"
-            aria-selected={activeView === "tree"}
-            aria-controls={treePanelId}
-            tabIndex={activeView === "tree" ? 0 : -1}
-            variant={activeView === "tree" ? "default" : "ghost"}
-            size="xs"
-            className={
-              activeView === "tree"
-                ? "flex-1 bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                : "flex-1 text-muted-foreground"
-            }
-            onClick={() => selectTab("tree")}
-            onKeyDown={(event) => handleTabKeyDown(event, "tree")}
-          >
-            Tree
-          </Button>
-          <Button
-            id={recentTabId}
-            type="button"
-            role="tab"
-            aria-selected={activeView === "recent"}
-            aria-controls={recentPanelId}
-            tabIndex={activeView === "recent" ? 0 : -1}
-            variant={activeView === "recent" ? "default" : "ghost"}
-            size="xs"
-            className={
-              activeView === "recent"
-                ? "flex-1 bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
-                : "flex-1 text-muted-foreground"
-            }
-            disabled={searchActive}
-            title={searchActive ? "Clear search to view recent files" : undefined}
-            onClick={() => selectTab("recent")}
-            onKeyDown={(event) => handleTabKeyDown(event, "recent")}
-          >
-            Recent
-          </Button>
+          {views.map((v) => (
+            <Button
+              key={v}
+              id={tabId(v)}
+              type="button"
+              role="tab"
+              aria-selected={activeView === v}
+              aria-controls={panelId(v)}
+              tabIndex={activeView === v ? 0 : -1}
+              variant={activeView === v ? "default" : "ghost"}
+              size="xs"
+              className={
+                activeView === v
+                  ? "flex-1 bg-sidebar-primary text-sidebar-primary-foreground shadow-sm"
+                  : "flex-1 text-muted-foreground"
+              }
+              disabled={v !== "tree" && searchActive}
+              title={v !== "tree" && searchActive ? `Clear search to view ${tabLabels[v].toLowerCase()}` : undefined}
+              onClick={() => selectTab(v)}
+              onKeyDown={(event) => handleTabKeyDown(event, v)}
+            >
+              {tabLabels[v]}
+            </Button>
+          ))}
         </div>
         <FolderActions folder={contextFolder} size="icon-xs" />
       </div>
       <div
         ref={panelRef}
-        id={activeView === "tree" ? treePanelId : recentPanelId}
+        id={panelId(activeView)}
         role="tabpanel"
-        aria-labelledby={activeView === "tree" ? treeTabId : recentTabId}
+        aria-labelledby={tabId(activeView)}
         className="flex-1 overflow-y-auto"
       >
         {activeView === "tree" ? (
           <FileTree />
-        ) : (
+        ) : activeView === "recent" ? (
           <RecentFiles onOpenFile={handleOpenRecent} />
+        ) : (
+          <FavoriteFiles onOpen={handleOpenFavorite} />
         )}
       </div>
     </aside>

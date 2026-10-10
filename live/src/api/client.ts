@@ -5,6 +5,7 @@ import type {
   OrgMembersResult,
   RegisterResponse,
   RmResult,
+  FavoriteListResult,
   SqlResult,
   SqlTableBinding,
   WriteParams,
@@ -193,6 +194,15 @@ export class AgentFsClient {
     options?: { expiresIn?: number; maxViews?: number },
   ): Promise<ShareCreateResult> {
     return this.callOp<ShareCreateResult>(orgId, "share-create", { path, ...options }, driveId)
+  }
+
+  async listFavorites(orgId: string, driveId: string, opts?: { signal?: AbortSignal }): Promise<FavoriteListResult> {
+    return this.callOp<FavoriteListResult>(orgId, "favorite-list", {}, driveId, opts)
+  }
+
+  /** Star or unstar `path` for the signed-in user. The server takes the user from the API key. */
+  async setFavorite(orgId: string, driveId: string, path: string, favorite: boolean): Promise<void> {
+    await this.callOp(orgId, favorite ? "favorite-add" : "favorite-remove", { path }, driveId)
   }
 
   async sqlQuery(

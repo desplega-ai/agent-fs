@@ -9,6 +9,8 @@ import {
   FilePlus,
   FolderPlus,
   Pencil,
+  Star,
+  StarOff,
   Trash2,
 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
@@ -19,6 +21,7 @@ import { downloadFile } from "@/lib/download"
 import { copyShareLink, supportsShareLinks } from "@/lib/share-link"
 import { supportsHtmlSites } from "@/lib/html-view"
 import { healthQueryOptions } from "@/lib/upload-limit"
+import { useFavorites } from "@/hooks/use-favorites"
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -48,6 +51,7 @@ export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null 
   const { selectFile } = useBrowser()
   const { data: health } = useQuery(healthQueryOptions(client))
   const [dialog, setDialog] = useState<NodeDialog | null>(null)
+  const favorites = useFavorites()
   const closeDialog = (open: boolean) => {
     if (!open) setDialog(null)
   }
@@ -115,6 +119,8 @@ export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null 
   // that serves sites. copyShareLink uses the returned sharePath either way.
   const canShareLink =
     !!orgId && !!driveId && supportsShareLinks(health) && (!isDir || supportsHtmlSites(health))
+  const favorited = favorites.isFavorite(fullPath)
+
   const handleCopyShareLink = () => {
     if (canShareLink) void copyShareLink(client, orgId!, driveId!, fullPath)
   }
@@ -134,6 +140,12 @@ export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null 
           <ContextMenuItem onClick={handleCopyShareLink}>
             <Share2 className="h-4 w-4" />
             {isDir ? "Copy site link" : "Copy share link"}
+          </ContextMenuItem>
+        )}
+        {favorites.supported && (
+          <ContextMenuItem onClick={() => favorites.toggleFavorite(fullPath, isDir ? "directory" : "file")}>
+            {favorited ? <StarOff className="h-4 w-4" /> : <Star className="h-4 w-4" />}
+            {favorited ? "Remove from favorites" : "Add to favorites"}
           </ContextMenuItem>
         )}
         <ContextMenuItem onClick={handleDownload} disabled={!canDownload}>
