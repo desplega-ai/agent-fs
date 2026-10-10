@@ -244,6 +244,26 @@ describe("exact file operation path normalization", () => {
     expectOnlyCanonicalRows(rawDb(db));
   });
 
+  test("favorite-add stores both path forms as one canonical row", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/starred.md", content: "one" });
+    await dispatchOp(ctx, "favorite-add", { path: "starred.md" });
+    await dispatchOp(ctx, "favorite-add", { path: "/starred.md" });
+    expect(rawDb(db).query("SELECT path FROM favorites").all()).toEqual([
+      { path: "/starred.md" },
+    ]);
+  });
+
+  test("favorite-remove resolves both path forms to the canonical row", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/starred.md", content: "one" });
+    await dispatchOp(ctx, "favorite-add", { path: "/starred.md" });
+    expect(await dispatchOp(ctx, "favorite-remove", { path: "starred.md" })).toMatchObject({ removed: true });
+    await dispatchOp(ctx, "favorite-add", { path: "starred.md" });
+    expect(await dispatchOp(ctx, "favorite-remove", { path: "/starred.md" })).toMatchObject({ removed: true });
+    expect(rawDb(db).query("SELECT path FROM favorites").all()).toEqual([]);
+  });
+
   test("comment-add stores both path forms canonically", async () => {
     const { ctx, db } = createTestContext();
     await dispatchOp(ctx, "write", { path: "/commented.md", content: "one" });
@@ -381,6 +401,8 @@ test("every registered top-level path, from, or to parameter has normalization c
     "cp",
     "diff",
     "edit",
+    "favorite-add",
+    "favorite-remove",
     "fts",
     "glob",
     "grep",

@@ -258,6 +258,22 @@ export const shares = sqliteTable(
   })
 );
 
+// favorites: per-user stars on files and folders. See raw.ts.
+export const favorites = sqliteTable(
+  "favorites",
+  {
+    userId: text("user_id").notNull(),
+    driveId: text("drive_id").notNull(),
+    path: text("path").notNull(),
+    kind: text("kind", { enum: ["file", "directory"] }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.driveId, table.path] }),
+    drivePathIdx: index("idx_favorites_drive_path").on(table.driveId, table.path),
+  })
+);
+
 // share_view_grants: the credential a counted page view of a view-limited
 // share hands to that page for its byte fetches (/raw, /download). Only the
 // SHA-256 of the grant is stored. No FKs, same reasoning as `shares`.

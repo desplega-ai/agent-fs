@@ -6,6 +6,7 @@ import type { OpContext } from "./types.js";
 import type { StorageAdapter } from "../storage/adapter.js";
 import { getS3Key } from "./versioning.js";
 import { assertPathInsideDrive, normalizePath, normalizePrefix } from "./paths.js";
+import { resolvePathKind } from "./path-kind.js";
 import { NotFoundError, PermissionDeniedError, ValidationError } from "../errors.js";
 import { getUserDriveRole, getUserOrgRole } from "../identity/rbac.js";
 
@@ -421,31 +422,12 @@ export async function shareCreate(
   // Before storage is touched and before anything is stored: a public link must
   // not be able to name a file outside the drive the caller is authorized for.
   assertPathInsideDrive(normalizedPath);
-  const key = getS3Key(ctx.orgId, ctx.driveId, normalizedPath);
-
-  // Only mint links for files or folders that exist right now. A folder is an
-  // implicit prefix with no object of its own; one level of listing is enough
-  // to tell it exists. The listing also runs when the object exists, because
-  // the local backend answers headObject for a directory as well.
-  let isFile = false;
-  if (normalizedPath !== "/") {
-    try {
-      await ctx.s3.headObject(key);
-      isFile = true;
-    } catch (err: any) {
-      if (!(err?.name === "NotFound" || err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404)) {
-        throw err;
-      }
-    }
-  }
-  const level = await ctx.s3.listObjects(getS3Key(ctx.orgId, ctx.driveId, normalizePrefix(normalizedPath)), {
-    delimiter: "/",
-  });
-  const isFolder = level.objects.length > 0 || level.prefixes.length > 0;
-  if (!isFile && !isFolder) {
+  // Only mint links for files or folders that exist right now.
+  const pathKind = await resolvePathKind(ctx, normalizedPath);
+  if (!pathKind) {
     throw new NotFoundError(`File or folder not found: ${normalizedPath}`, { path: normalizedPath });
   }
-  const kind: ShareKind = isFolder ? "site" : "file";
+  const kind: ShareKind = pathKind === "directory" ? "site" : "file";
   if (kind === "site" && params.maxViews !== undefined) {
     // One page load fetches many files, so a view count has no clear meaning.
     throw new ValidationError("maxViews is not supported when sharing a folder", {

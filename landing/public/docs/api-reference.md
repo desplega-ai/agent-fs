@@ -142,6 +142,9 @@ All 26 operations are dispatched through `POST /orgs/{orgId}/ops`. Each expects 
 | **Maintenance** | `recent`, `reindex` |
 | **Comments** | `comment-add`, `comment-list` (supports `pathPrefix`), `comment-get`, `comment-update`, `comment-delete`, `comment-resolve` |
 | **Drive Members** | `drive-members` |
+| **Favorites** | `favorite-add`, `favorite-remove`, `favorite-list` (per user, see below) |
 | **Sharing** | `signed-url`, `share-create`, `share-revoke` |
+
+**Favorites.** Each user stars files and folders for themselves: `favorite-add {path}`, `favorite-remove {path}` and `favorite-list {}`. The user is always the one the API key belongs to; the ops take no user id, and one user never sees another's favorites. Favorites are kept per drive and need viewer role. `favorite-add` returns `404` for a path that does not exist. Moving or renaming a file moves every user's star with it, deleting a file removes the stars on it, and a folder's star is removed once the folder is gone. Servers that support favorites list `favorites` in the `/health` `features` array.
 
 For parameter details, see the [OpenAPI spec](./openapi.json).

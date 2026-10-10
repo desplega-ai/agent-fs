@@ -166,6 +166,23 @@ CREATE TABLE IF NOT EXISTS share_view_grants (
 CREATE INDEX IF NOT EXISTS idx_share_view_grants_share ON share_view_grants(share_id);
 CREATE INDEX IF NOT EXISTS idx_share_view_grants_expiry ON share_view_grants(expires_at);
 
+-- Per-user favorites (stars). Keyed by (user, drive, path), so one user's
+-- stars never show up for another. kind is what the path named when it was
+-- starred. No foreign keys, same reasoning as shares: a star must never block
+-- deleting a user or drive. rm and mv keep rows in step with the files they
+-- name (see ops/favorite.ts).
+CREATE TABLE IF NOT EXISTS favorites (
+  user_id TEXT NOT NULL,
+  drive_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK(kind IN ('file', 'directory')),
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (user_id, drive_id, path)
+);
+
+-- rm and mv find every user's star on a path through this.
+CREATE INDEX IF NOT EXISTS idx_favorites_drive_path ON favorites(drive_id, path);
+
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT NOT NULL,

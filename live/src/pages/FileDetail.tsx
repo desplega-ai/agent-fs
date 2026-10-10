@@ -8,6 +8,7 @@ import { MainWithComments } from "@/components/layout/MainWithComments"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { CopyShareLinkButton } from "@/components/CopyShareLinkButton"
+import { FileFavoriteButton } from "@/components/FavoriteToggle"
 import {
   Tooltip,
   TooltipContent,
@@ -95,6 +96,7 @@ export function FileDetailPage() {
                 <TooltipContent>Query with SQL</TooltipContent>
               </Tooltip>
             )}
+            <FileFavoriteButton path={filePath} />
             <Tooltip>
               <TooltipTrigger
                 render={

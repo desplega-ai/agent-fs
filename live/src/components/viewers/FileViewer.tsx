@@ -15,6 +15,7 @@ import { sidePanelStore } from "@/stores/side-panel"
 import { toast } from "@/stores/toast"
 import { Kbd } from "@/components/ui/kbd"
 import { CopyShareLinkButton } from "@/components/CopyShareLinkButton"
+import { FileFavoriteButton } from "@/components/FavoriteToggle"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import type { OutlineItem } from "@/lib/outline"
 import { useFileContent } from "@/hooks/use-file-content"
@@ -794,6 +795,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
             <div className="w-px h-4 bg-border mx-0.5" />
           </>
         )}
+        <FileFavoriteButton path={path} />
         <Tooltip>
           <TooltipTrigger
             render={

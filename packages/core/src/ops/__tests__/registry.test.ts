@@ -9,11 +9,12 @@ describe("Op Registry", () => {
     "comment-add", "comment-list", "comment-get", "comment-update", "comment-delete", "comment-resolve",
     "comment-notification-list", "comment-notification-read",
     "drive-members",
+    "favorite-add", "favorite-remove", "favorite-list",
   ];
 
-  test("getRegisteredOps returns all 35 ops", () => {
+  test("getRegisteredOps returns all 38 ops", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(35);
+    expect(ops.length).toBe(38);
     for (const op of expectedOps) {
       expect(ops).toContain(op);
     }

@@ -5,6 +5,7 @@ describe("getRequiredRole", () => {
   const viewerOps = [
     "ls", "cat", "tail", "stat", "reveal", "grep", "fts", "search", "log", "diff", "recent", "signed-url", "share-create", "share-revoke",
     "comment-notification-list", "comment-notification-read",
+    "favorite-add", "favorite-remove", "favorite-list",
   ];
   const editorOps = ["write", "edit", "append", "rm", "mv", "cp", "revert"];
   const adminOps = ["reindex"];

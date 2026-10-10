@@ -82,6 +82,9 @@ const OP_COMMANDS: OpCommandDef[] = [
       { flag: "--path <path>", description: "Revoke every share link of this file" },
     ],
   },
+  { name: "favorite-add", args: [{ name: "path", required: true }], options: [] },
+  { name: "favorite-remove", args: [{ name: "path", required: true }], options: [] },
+  { name: "favorite-list", args: [], options: [] },
 ];
 
 export function registerOpCommands(

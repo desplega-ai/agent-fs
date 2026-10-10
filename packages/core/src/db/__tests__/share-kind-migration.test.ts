@@ -10,7 +10,7 @@ test("an existing DB without shares.kind gets the column, and old rows read as f
   const raw = new Database(":memory:");
   try {
     const oldSql = CREATE_TABLES_SQL.replace("  kind TEXT NOT NULL DEFAULT 'file',\n", "");
-    expect(oldSql).not.toContain("kind TEXT");
+    expect(oldSql).not.toContain("kind TEXT NOT NULL DEFAULT 'file'");
     raw.exec(oldSql);
     const token = generateShareToken();
     raw

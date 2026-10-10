@@ -41,6 +41,7 @@ import {
   commentNotificationRead,
 } from "./comment-notification.js";
 import { driveMembers } from "./drive-members.js";
+import { favoriteAdd, favoriteRemove, favoriteList } from "./favorite.js";
 
 export interface OpDefinition {
   description: string;
@@ -371,6 +372,21 @@ const opRegistry: Record<string, OpDefinition> = {
     handler: driveMembers,
     schema: z.object({}),
   },
+  "favorite-add": {
+    description: "Star a file or folder for the current user. Favorites are personal: no other user sees them. Starring twice is a no-op. Moving or renaming a starred file keeps the star; deleting it removes the star, and a folder's star goes away once the folder is gone. Returns { path, kind, createdAt, favorited }.",
+    handler: favoriteAdd,
+    schema: z.object({ path: z.string() }),
+  },
+  "favorite-remove": {
+    description: "Remove the current user's star from a file or folder. Works even when the path no longer exists. Returns { path, removed } where removed is false when there was no star.",
+    handler: favoriteRemove,
+    schema: z.object({ path: z.string() }),
+  },
+  "favorite-list": {
+    description: "List the current user's favorites in the active drive, sorted by path. Returns { favorites } with path, kind (file/directory), and createdAt.",
+    handler: favoriteList,
+    schema: z.object({}),
+  },
 };
 
 export async function dispatchOp(
@@ -419,5 +435,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers };
+export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList };
 export type * from "./types.js";
