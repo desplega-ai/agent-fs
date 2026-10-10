@@ -8,8 +8,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --build",
-    "test": "bun test packages/*/src/ live/src/lib/",
-    "test:coverage": "bun test --coverage packages/*/src/ live/src/lib/",
+    "test": "bun test packages/*/src/ live/src/lib/ live/src/hooks/",
+    "test:coverage": "bun test --coverage packages/*/src/ live/src/lib/ live/src/hooks/",
     "build": "cd packages/cli && bun run build:npm",
     "install-local": "bun run build && cd packages/cli && bun link",
     "uninstall-local": "bun remove -g @desplega.ai/agent-fs && rm -f ~/.bun/bin/agent-fs",

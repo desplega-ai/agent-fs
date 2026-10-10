@@ -22,7 +22,7 @@ function alreadyExists(path: string): Error {
  * invalidates the listings and stat entries the change affects.
  */
 export function useFileMutations() {
-  const { client, orgId, driveId } = useAuth()
+  const { credential, client, orgId, driveId } = useAuth()
   const queryClient = useQueryClient()
 
   /**
@@ -106,9 +106,9 @@ export function useFileMutations() {
       invalidateForPath(queryClient, orgId, driveId, from)
       invalidateForPath(queryClient, orgId, driveId, to)
       // The server moved the star with the file.
-      void queryClient.invalidateQueries({ queryKey: favoritesQueryKey(client.endpoint, orgId, driveId) })
+      void queryClient.invalidateQueries({ queryKey: favoritesQueryKey(credential.id, client.endpoint, orgId, driveId) })
     },
-    [client, orgId, driveId, queryClient],
+    [credential.id, client, orgId, driveId, queryClient],
   )
 
   const deleteFile = useCallback(
@@ -117,9 +117,9 @@ export function useFileMutations() {
       await client.rm(orgId, driveId, { path })
       invalidateForPath(queryClient, orgId, driveId, path)
       // The server dropped the star with the file.
-      void queryClient.invalidateQueries({ queryKey: favoritesQueryKey(client.endpoint, orgId, driveId) })
+      void queryClient.invalidateQueries({ queryKey: favoritesQueryKey(credential.id, client.endpoint, orgId, driveId) })
     },
-    [client, orgId, driveId, queryClient],
+    [credential.id, client, orgId, driveId, queryClient],
   )
 
   return { createFile, createFolder, exists, renameFile, deleteFile }

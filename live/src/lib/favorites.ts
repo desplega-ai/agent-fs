@@ -9,9 +9,17 @@ export function supportsFavorites(health?: HealthResponse): boolean {
   return health?.features?.includes(FAVORITES_FEATURE) === true
 }
 
-/** One cache entry per drive. The server scopes the list to the signed-in user. */
-export function favoritesQueryKey(endpoint: string, orgId: string | null, driveId: string | null) {
-  return ["favorites", endpoint, orgId, driveId] as const
+/**
+ * One cache entry per account and drive. The server scopes the list to the
+ * signed-in user, so two accounts on the same drive must never share an entry.
+ */
+export function favoritesQueryKey(
+  accountId: string,
+  endpoint: string,
+  orgId: string | null,
+  driveId: string | null,
+) {
+  return ["favorites", accountId, endpoint, orgId, driveId] as const
 }
 
 /** UI form of a path (no leading or trailing slash), so tree, folder and file paths compare equal. */
