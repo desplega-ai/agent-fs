@@ -2151,7 +2151,7 @@ async function runStandardTests(daemonUrl: string) {
     assertIncludes(await subIndex.text(), "site-e2e-sub");
   });
 
-  await test("a site folder without index.html opens its lone page or lists its files", async () => {
+  await test("a site folder without index.html opens its lone page or lists its pages", async () => {
     runJson(`write /site-e2e-lone/radar.html --content '<p>site-e2e-radar</p>'`);
     runJson(`write /site-e2e-lone/chart.png --content 'fake-png'`);
     const lone = runJson("share-create site-e2e-lone");
@@ -2166,6 +2166,7 @@ async function runStandardTests(daemonUrl: string) {
     const body = await listing.text();
     assertIncludes(body, '<a href="radar.html">radar.html</a>');
     assertIncludes(body, '<a href="other.html">other.html</a>');
+    assert(body.includes("chart.png"), false, "Only HTML pages are listed");
   });
 
   await test("site paths cannot climb out of the shared folder", async () => {

@@ -54,24 +54,26 @@ const INDEX = "index.html";
 
 const isHtmlName = (name: string) => /\.html?$/i.test(name);
 
-/** The direct children of a folder, by storage key prefix (ends with `/`). */
-async function listFolder(s3: StorageAdapter, prefix: string): Promise<{ files: string[]; folders: string[] }> {
-  const { objects, prefixes } = await s3.listObjects(prefix, { delimiter: "/" });
-  const names = (keys: string[]) =>
-    keys
-      .map((k) => k.slice(prefix.length).replace(/\/$/, ""))
-      .filter((n) => n && !n.includes("/"))
-      .sort((a, b) => a.localeCompare(b));
-  return { files: names(objects.map((o) => o.key)), folders: names(prefixes) };
+/**
+ * The HTML pages directly inside a folder, by storage key prefix (ends with
+ * `/`). Only pages: other files and sub-folders are never enumerated, so a
+ * link holder still has to know their names, as before listings existed.
+ */
+async function htmlPagesIn(s3: StorageAdapter, prefix: string): Promise<string[]> {
+  const { objects } = await s3.listObjects(prefix, { delimiter: "/" });
+  return objects
+    .map((o) => o.key.slice(prefix.length))
+    .filter((n) => n && !n.includes("/") && isHtmlName(n))
+    .sort((a, b) => a.localeCompare(b));
 }
 
-/** A plain listing for a folder with no index.html. Every name is escaped. */
-function listingPage(rest: string, folder: { files: string[]; folders: string[] }): Response {
+/** A plain listing of a folder's HTML pages, when it has no index.html. Every name is escaped. */
+function listingPage(rest: string, pages: string[]): Response {
   // `rest` already decoded once inside `siteObjectKey`, so this cannot throw.
   const title = escapeHtml(`/${decodeURIComponent(rest)}`);
-  const link = (name: string, slash: string) =>
-    `<li><a href="${escapeHtml(encodeURIComponent(name))}${slash}">${escapeHtml(name)}${slash}</a></li>`;
-  const items = [...folder.folders.map((n) => link(n, "/")), ...folder.files.map((n) => link(n, ""))].join("");
+  const items = pages
+    .map((n) => `<li><a href="${escapeHtml(encodeURIComponent(n))}">${escapeHtml(n)}</a></li>`)
+    .join("");
   const body = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title>
@@ -103,7 +105,7 @@ const isLive = (share: ShareRecord | null): share is ShareRecord =>
 /**
  * Public site shares: `GET /site/:token/<path>` serves the files of a shared
  * folder, `index.html` for the folder itself. A folder without one redirects
- * to its only HTML page, or else lists its files. Registered before
+ * to its only HTML page, or else lists its HTML pages. Registered before
  * `authMiddleware`: the token is the only credential, and the org, drive and
  * folder come from the stored share, never from the request.
  *
@@ -176,23 +178,23 @@ export function siteRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinute
       if (!isMissing(err)) throw err;
       if (wantsIndex) {
         // No index.html: a lone HTML page opens directly (other files can sit
-        // next to it), anything else gets a listing. An empty folder is a 404.
-        const folder = await listFolder(s3, key.slice(0, -INDEX.length));
-        if (folder.files.length > 0 || folder.folders.length > 0) {
+        // next to it), several get a listing of the pages. No page is a 404.
+        const pages = await htmlPagesIn(s3, key.slice(0, -INDEX.length));
+        if (pages.length > 0) {
           if (!isLive(findShareByToken(db, token))) return plain(410, "This link has expired");
-          const pages = folder.files.filter(isHtmlName);
           // Relative to this folder's URL, which ends with a slash. 302: the
           // folder's contents can change, so browsers must not cache it.
           if (pages.length === 1) return redirect(`${encodeURIComponent(pages[0])}${url.search}`, 302);
-          return listingPage(rest, folder);
+          return listingPage(rest, pages);
         }
       } else {
-        // A folder named without its slash: send the browser to `rest/`.
-        // Built from the raw path, so the encoding of the request is kept.
+        // A folder named without its slash: send the browser to `rest/` when
+        // that serves a page (its index.html or another HTML file). Built from
+        // the raw path, so the encoding of the request is kept.
         const indexKey = siteObjectKey(share, `${rest}/${INDEX}`);
         if (indexKey) {
-          const folder = await listFolder(s3, indexKey.slice(0, -INDEX.length));
-          if (folder.files.length > 0 || folder.folders.length > 0) {
+          const pages = await htmlPagesIn(s3, indexKey.slice(0, -INDEX.length));
+          if (pages.length > 0) {
             if (!isLive(findShareByToken(db, token))) return plain(410, "This link has expired");
             return redirect(`${url.pathname}/${url.search}`);
           }

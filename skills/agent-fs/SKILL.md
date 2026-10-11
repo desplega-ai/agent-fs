@@ -500,7 +500,7 @@ Things worth knowing before you share:
 ### Publish an HTML site from a folder
 
 ```bash
-# index.html is the site's front page (without one, a lone .html page opens, or else a file listing)
+# index.html is the site's front page (without one, a lone .html page opens, or else a list of the HTML pages)
 agent-fs write report-site/index.html --content '<!doctype html><link rel="stylesheet" href="style.css"><img src="chart.png"><script src="app.js"></script>'
 agent-fs share-create report-site --expires-in 86400
 # Site: https://<server>/site/<token>/
@@ -511,7 +511,7 @@ agent-fs share-revoke --path report-site
 
 `share-create` on a folder returns `kind: "site"` and a `/site/<token>/` URL on the API host. Anyone with the link can open it without signing in.
 
-- **`index.html` is the entry point.** `/site/<token>/` serves the folder's `index.html`, and `sub/` serves `sub/index.html`. A folder with no `index.html` opens its only `.html` file (for example `radar.html`), or else lists its files. An empty folder returns 404.
+- **`index.html` is the entry point.** `/site/<token>/` serves the folder's `index.html`, and `sub/` serves `sub/index.html`. A folder with no `index.html` opens its only `.html` file (for example `radar.html`), or else lists its HTML pages (never other files or sub-folders). A folder with no HTML page returns 404.
 - **Relative paths work.** `<img src="chart.png">`, `<link href="style.css">`, `<script src="app.js">`, module scripts, `fetch("data.json")` and CSS `url()` all resolve inside the folder. External CDNs and fonts load too.
 - **Pages run in a sandbox with an opaque origin.** Scripts, forms, popups and alerts work, but there is no `localStorage`, `sessionStorage` or cookies.
 - **No view limits.** One page load fetches many files, so `--max-views` and `--one-off` are rejected for folders, and site views record no `share_viewed` events. Use `--expires-in` (max 7 days) and `share-revoke --path <folder>` instead.

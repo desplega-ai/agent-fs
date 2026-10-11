@@ -204,26 +204,31 @@ for (const { label, make } of backends) {
         expect(await page.text()).toBe("<p>radar</p>");
       });
 
-      test("a folder without index.html and no single page lists its entries, escaped", async () => {
+      test("a folder without index.html and several pages lists only the pages, escaped", async () => {
         const res = await get(h, `/site/${site.token}/multi/`);
         expect(res.status).toBe(200);
         expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
         expectSiteHeaders(res);
         const body = await res.text();
-        expect(body).toContain('<a href="deeper/">deeper/</a>');
         expect(body).toContain('<a href="a.html">a.html</a>');
         expect(body).toContain('<a href="%3Cb%3E%26.html">&lt;b&gt;&amp;.html</a>');
         expect(body).not.toContain("<b>&");
-
-        const noindex = await get(h, `/site/${site.token}/noindex/`);
-        expect(noindex.status).toBe(200);
-        expect(await noindex.text()).toContain('<a href="readme.txt">readme.txt</a>');
+        // Sub-folders and other files are never enumerated.
+        expect(body).not.toContain("deeper");
       });
 
-      test("a folder without index.html named without its slash redirects to the slash", async () => {
-        const res = await get(h, `/site/${site.token}/noindex`);
+      test("a folder without any HTML page is 404, with or without the slash", async () => {
+        for (const path of ["noindex", "noindex/"]) {
+          const res = await get(h, `/site/${site.token}/${path}`);
+          expect(res.status, path).toBe(404);
+          expectSiteHeaders(res, path);
+        }
+      });
+
+      test("a folder with a page named without its slash redirects to the slash", async () => {
+        const res = await get(h, `/site/${site.token}/multi`);
         expect(res.status).toBe(301);
-        expect(res.headers.get("location")).toBe(`/site/${site.token}/noindex/`);
+        expect(res.headers.get("location")).toBe(`/site/${site.token}/multi/`);
       });
 
       test("serves JSON, JavaScript and encoded names", async () => {
