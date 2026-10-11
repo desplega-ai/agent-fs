@@ -3,6 +3,7 @@ import { findShareByToken, getShareState, isWellFormedShareToken, siteObjectKey 
 import type { DB, StorageAdapter, ShareRecord } from "@/core";
 import { detectMimeType, withUtf8Charset } from "@/core/ops/mime.js";
 import { ipRateLimitMiddleware } from "../middleware/ip-rate-limit.js";
+import { escapeHtml, HTML_SANDBOX } from "../share/render.js";
 
 /** `getObject` buffers the whole body, so anything bigger is refused. */
 export const SITE_MAX_OBJECT_BYTES = 25 * 1024 * 1024;
@@ -12,8 +13,7 @@ export const SITE_MAX_OBJECT_BYTES = 25 * 1024 * 1024;
  * the live UI's storage or cookies, and every fetch it makes is cross-origin.
  * No `default-src` limit, so pages can load fonts and scripts from CDNs.
  */
-export const SITE_CSP =
-  "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals; frame-ancestors *";
+export const SITE_CSP = `sandbox ${HTML_SANDBOX}; frame-ancestors *`;
 
 /**
  * Sent on every /site response. No `X-Frame-Options`: the live UI, on another
@@ -46,8 +46,41 @@ function tooLarge(): Response {
   );
 }
 
-function redirect(location: string): Response {
-  return new Response(null, { status: 301, headers: siteSecurityHeaders({ Location: location }) });
+function redirect(location: string, status: 301 | 302 = 301): Response {
+  return new Response(null, { status, headers: siteSecurityHeaders({ Location: location }) });
+}
+
+const INDEX = "index.html";
+
+const isHtmlName = (name: string) => /\.html?$/i.test(name);
+
+/** The direct children of a folder, by storage key prefix (ends with `/`). */
+async function listFolder(s3: StorageAdapter, prefix: string): Promise<{ files: string[]; folders: string[] }> {
+  const { objects, prefixes } = await s3.listObjects(prefix, { delimiter: "/" });
+  const names = (keys: string[]) =>
+    keys
+      .map((k) => k.slice(prefix.length).replace(/\/$/, ""))
+      .filter((n) => n && !n.includes("/"))
+      .sort((a, b) => a.localeCompare(b));
+  return { files: names(objects.map((o) => o.key)), folders: names(prefixes) };
+}
+
+/** A plain listing for a folder with no index.html. Every name is escaped. */
+function listingPage(rest: string, folder: { files: string[]; folders: string[] }): Response {
+  // `rest` already decoded once inside `siteObjectKey`, so this cannot throw.
+  const title = escapeHtml(`/${decodeURIComponent(rest)}`);
+  const link = (name: string, slash: string) =>
+    `<li><a href="${escapeHtml(encodeURIComponent(name))}${slash}">${escapeHtml(name)}${slash}</a></li>`;
+  const items = [...folder.folders.map((n) => link(n, "/")), ...folder.files.map((n) => link(n, ""))].join("");
+  const body = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>body{font:15px/1.6 system-ui,sans-serif;max-width:720px;margin:40px auto;padding:0 16px}ul{padding-left:20px}</style>
+</head><body><h1>${title}</h1><ul>${items}</ul></body></html>`;
+  return new Response(body, {
+    status: 200,
+    headers: siteSecurityHeaders({ "Content-Type": "text/html; charset=utf-8" }),
+  });
 }
 
 /**
@@ -69,7 +102,8 @@ const isLive = (share: ShareRecord | null): share is ShareRecord =>
 
 /**
  * Public site shares: `GET /site/:token/<path>` serves the files of a shared
- * folder, `index.html` for the folder itself. Registered before
+ * folder, `index.html` for the folder itself. A folder without one redirects
+ * to its only HTML page, or else lists its files. Registered before
  * `authMiddleware`: the token is the only credential, and the org, drive and
  * folder come from the stored share, never from the request.
  *
@@ -129,7 +163,7 @@ export function siteRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinute
 
     const rest = tail.slice(1);
     const wantsIndex = rest === "" || rest.endsWith("/");
-    const key = siteObjectKey(share, wantsIndex ? `${rest}index.html` : rest);
+    const key = siteObjectKey(share, wantsIndex ? `${rest}${INDEX}` : rest);
     if (!key) return plain(400, "Bad path");
 
     let body: Uint8Array;
@@ -140,13 +174,28 @@ export function siteRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinute
       body = (await s3.getObject(key)).body;
     } catch (err: any) {
       if (!isMissing(err)) throw err;
-      if (!wantsIndex) {
+      if (wantsIndex) {
+        // No index.html: a lone HTML page opens directly (other files can sit
+        // next to it), anything else gets a listing. An empty folder is a 404.
+        const folder = await listFolder(s3, key.slice(0, -INDEX.length));
+        if (folder.files.length > 0 || folder.folders.length > 0) {
+          if (!isLive(findShareByToken(db, token))) return plain(410, "This link has expired");
+          const pages = folder.files.filter(isHtmlName);
+          // Relative to this folder's URL, which ends with a slash. 302: the
+          // folder's contents can change, so browsers must not cache it.
+          if (pages.length === 1) return redirect(`${encodeURIComponent(pages[0])}${url.search}`, 302);
+          return listingPage(rest, folder);
+        }
+      } else {
         // A folder named without its slash: send the browser to `rest/`.
         // Built from the raw path, so the encoding of the request is kept.
-        const indexKey = siteObjectKey(share, `${rest}/index.html`);
-        if (indexKey && (await exists(s3, indexKey))) {
-          if (!isLive(findShareByToken(db, token))) return plain(410, "This link has expired");
-          return redirect(`${url.pathname}/${url.search}`);
+        const indexKey = siteObjectKey(share, `${rest}/${INDEX}`);
+        if (indexKey) {
+          const folder = await listFolder(s3, indexKey.slice(0, -INDEX.length));
+          if (folder.files.length > 0 || folder.folders.length > 0) {
+            if (!isLive(findShareByToken(db, token))) return plain(410, "This link has expired");
+            return redirect(`${url.pathname}/${url.search}`);
+          }
         }
       }
       return plain(404, "Not found");
@@ -176,14 +225,4 @@ export function siteRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinute
   );
 
   return router;
-}
-
-async function exists(s3: StorageAdapter, key: string): Promise<boolean> {
-  try {
-    await s3.headObject(key);
-    return true;
-  } catch (err: any) {
-    if (isMissing(err)) return false;
-    throw err;
-  }
 }

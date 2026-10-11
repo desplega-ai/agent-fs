@@ -2015,15 +2015,34 @@ async function runStandardTests(daemonUrl: string) {
     assertIncludes(await res.text(), "This link has expired");
   });
 
-  await test("HTML and SVG files are download-only, never previewed", async () => {
+  await test("SVG files are download-only, never previewed", async () => {
+    runJson(`write /share-e2e.svg --content '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'`);
+    const r = runJson("share-create /share-e2e.svg");
+    const res = await fetch(r.url);
+    assert(res.status, 200);
+    const body = await res.text();
+    assertIncludes(body, "No preview available");
+    assert(body.includes("alert(1)"), false, "SVG source must not be rendered into the page");
+    assert((await fetch(`${r.url}/raw`)).status, 404);
+  });
+
+  await test("HTML files render in a sandboxed frame served by /raw", async () => {
     runJson('write /share-e2e.html --content "<html><script>alert(1)</script></html>"');
     const r = runJson("share-create /share-e2e.html");
     const res = await fetch(r.url);
     assert(res.status, 200);
     const body = await res.text();
-    assertIncludes(body, "No preview available");
-    assert(body.includes("alert(1)"), false, "HTML source must not be rendered into the page");
-    assert((await fetch(`${r.url}/raw`)).status, 404);
+    assert(body.includes("alert(1)"), false, "HTML source must not be inlined into the page");
+    assertIncludes(body, `src="${new URL(r.url).pathname}/raw"`);
+    assertIncludes(res.headers.get("content-security-policy") ?? "", "frame-src 'self'");
+    // Proxied on every backend (no presigned redirect): only this host can add the sandbox.
+    const raw = await fetch(`${r.url}/raw`, { redirect: "manual" });
+    assert(raw.status, 200);
+    assertIncludes(raw.headers.get("content-type") ?? "", "text/html");
+    const csp = raw.headers.get("content-security-policy") ?? "";
+    assertIncludes(csp, "sandbox allow-scripts");
+    assert(csp.includes("allow-same-origin"), false, "HTML must get an opaque origin");
+    assertIncludes(await raw.text(), "alert(1)");
   });
 
   await test("every share view is recorded as a share_viewed event", async () => {
@@ -2130,6 +2149,23 @@ async function runStandardTests(daemonUrl: string) {
     const subIndex = await fetch(`${r.url}sub/`);
     assert(subIndex.status, 200);
     assertIncludes(await subIndex.text(), "site-e2e-sub");
+  });
+
+  await test("a site folder without index.html opens its lone page or lists its files", async () => {
+    runJson(`write /site-e2e-lone/radar.html --content '<p>site-e2e-radar</p>'`);
+    runJson(`write /site-e2e-lone/chart.png --content 'fake-png'`);
+    const lone = runJson("share-create site-e2e-lone");
+    const redirect = await fetch(lone.url, { redirect: "manual" });
+    assert(redirect.status, 302);
+    assert(redirect.headers.get("location"), "radar.html");
+    assertIncludes(await (await fetch(lone.url)).text(), "site-e2e-radar");
+
+    runJson(`write /site-e2e-lone/other.html --content '<p>other</p>'`);
+    const listing = await fetch(lone.url, { redirect: "manual" });
+    assert(listing.status, 200);
+    const body = await listing.text();
+    assertIncludes(body, '<a href="radar.html">radar.html</a>');
+    assertIncludes(body, '<a href="other.html">other.html</a>');
   });
 
   await test("site paths cannot climb out of the shared folder", async () => {

@@ -5,6 +5,7 @@ import { generateShareToken, hashShareToken } from "../../../core/src/ops/share.
 import { AgentS3Client } from "../../../core/src/s3/client.js";
 import { createApp } from "../app.js";
 import { PAGE_SCRIPT, THEME_INIT_SCRIPT } from "../share/client.js";
+import { SHARE_HTML_MAX_BYTES } from "../share/render.js";
 
 // One app per harness, and this file makes far more than the default 120
 // requests a minute from a single "IP". The limiter has its own tests below,
@@ -268,8 +269,8 @@ describe("GET /share/:token — page", () => {
     expect(bin).toContain('href="/share/');
   });
 
-  test("HTML and SVG are never previewed: no-preview card and download only", async () => {
-    for (const path of ["/notes/page.html", "/notes/logo.svg"]) {
+  test("SVG is never previewed: no-preview card and download only", async () => {
+    for (const path of ["/notes/logo.svg"]) {
       const s = await share(h, path);
       const res = await get(h, s.sharePath);
       expect(res.status).toBe(200);
@@ -283,6 +284,59 @@ describe("GET /share/:token — page", () => {
       // the raw route refuses them
       expect((await get(h, `${s.sharePath}/raw`)).status).toBe(404);
     }
+  });
+
+  test("HTML renders in a sandboxed frame from /raw, never inlined into the page", async () => {
+    const s = await share(h, "/notes/page.html");
+    const res = await get(h, s.sharePath);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).not.toContain("alert(1)");
+    expect(body).toContain(`<iframe class="media page" src="/share/${s.token}/raw"`);
+    const sandbox = /<iframe class="media page"[^>]* sandbox="([^"]*)"/.exec(body)?.[1];
+    expect(sandbox).toContain("allow-scripts");
+    expect(sandbox).not.toContain("allow-same-origin");
+    expect(body).toContain(`href="/share/${s.token}/raw" target="_blank" rel="noopener noreferrer">Open full page`);
+    expect(res.headers.get("content-security-policy")).toContain("frame-src 'self'");
+  });
+
+  test("HTML /raw is proxied with a sandbox CSP, even on a presigning backend", async () => {
+    expect(h.s3.capabilities.presignedUrls).toBe(true);
+    const s = await share(h, "/notes/page.html");
+    const raw = await get(h, `${s.sharePath}/raw`);
+    expect(raw.status).toBe(200);
+    expect(raw.headers.get("location")).toBeNull();
+    expect(raw.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    const csp = raw.headers.get("content-security-policy")!;
+    expect(csp).toMatch(/^sandbox /);
+    expect(csp).toContain("allow-scripts");
+    expect(csp).not.toContain("allow-same-origin");
+    expect(csp).toContain("frame-ancestors 'self'");
+    expect(raw.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(await raw.text()).toBe("<html><script>alert(1)</script></html>");
+  });
+
+  test("HTML /raw of a one-off link needs the view's grant", async () => {
+    const s = await share(h, "/notes/page.html", { maxViews: 1 });
+    expect((await get(h, `${s.sharePath}/raw`)).status).toBe(403);
+    const page = await (await get(h, s.sharePath)).text();
+    const grant = grantOf(page);
+    expect(grant).not.toBeNull();
+    expect(page).toContain(`/share/${s.token}/raw?g=${grant}`);
+    expect((await get(h, withGrant(`${s.sharePath}/raw`, grant))).status).toBe(200);
+  });
+
+  test("an HTML page over the size cap is not framed and /raw refuses it", async () => {
+    const big = await setup();
+    const res = await op(big, { op: "write", path: "/big.html", content: "<p>x</p>" });
+    expect(res.status).toBe(200);
+    const s = await share(big, "/big.html");
+    const key = `${big.orgId}/drives/${big.driveId}/big.html`;
+    await big.s3.putObject(key, new Uint8Array(SHARE_HTML_MAX_BYTES + 1));
+    const page = await (await get(big, s.sharePath)).text();
+    expect(page).toContain("too large to render");
+    expect(page).not.toContain("<iframe");
+    expect((await get(big, `${s.sharePath}/raw`)).status).toBe(413);
   });
 
   test("images, PDFs and video embed a short-lived presigned URL and open only that origin in the CSP", async () => {

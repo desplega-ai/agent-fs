@@ -92,6 +92,11 @@ async function seed(h: Harness) {
   await write(h, "/site/app.js", "console.log(1)");
   await write(h, "/site/sub/index.html", "<p>sub index</p>");
   await write(h, "/site/noindex/readme.txt", "no index here");
+  await write(h, "/site/lone/radar.html", "<p>radar</p>");
+  await write(h, "/site/lone/chart.png", "fake-png");
+  await write(h, "/site/multi/a.html", "<p>a</p>");
+  await write(h, "/site/multi/<b>&.html", "<p>b</p>");
+  await write(h, "/site/multi/deeper/x.txt", "x");
   await write(h, "/site/a b/c#d.txt", "spaced");
   await write(h, "/site/%2e%2e/other.txt", "literal dots folder");
   await write(h, "/other.txt", "SECRET-OUTSIDE");
@@ -182,12 +187,43 @@ for (const { label, make } of backends) {
         expect(await index.text()).toBe("<p>sub index</p>");
       });
 
-      test("a folder without index.html is 404, with or without the slash", async () => {
-        for (const path of ["noindex", "noindex/", "missing.html", "missing/"]) {
+      test("a missing file or folder is 404, with or without the slash", async () => {
+        for (const path of ["missing.html", "missing/", "missing"]) {
           const res = await get(h, `/site/${site.token}/${path}`);
           expect(res.status, path).toBe(404);
           expectSiteHeaders(res, path);
         }
+      });
+
+      test("a folder without index.html and one HTML page redirects to that page", async () => {
+        const res = await get(h, `/site/${site.token}/lone/?x=1`);
+        expect(res.status).toBe(302);
+        expect(res.headers.get("location")).toBe("radar.html?x=1");
+        expectSiteHeaders(res);
+        const page = await get(h, `/site/${site.token}/lone/radar.html`);
+        expect(await page.text()).toBe("<p>radar</p>");
+      });
+
+      test("a folder without index.html and no single page lists its entries, escaped", async () => {
+        const res = await get(h, `/site/${site.token}/multi/`);
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+        expectSiteHeaders(res);
+        const body = await res.text();
+        expect(body).toContain('<a href="deeper/">deeper/</a>');
+        expect(body).toContain('<a href="a.html">a.html</a>');
+        expect(body).toContain('<a href="%3Cb%3E%26.html">&lt;b&gt;&amp;.html</a>');
+        expect(body).not.toContain("<b>&");
+
+        const noindex = await get(h, `/site/${site.token}/noindex/`);
+        expect(noindex.status).toBe(200);
+        expect(await noindex.text()).toContain('<a href="readme.txt">readme.txt</a>');
+      });
+
+      test("a folder without index.html named without its slash redirects to the slash", async () => {
+        const res = await get(h, `/site/${site.token}/noindex`);
+        expect(res.status).toBe(301);
+        expect(res.headers.get("location")).toBe(`/site/${site.token}/noindex/`);
       });
 
       test("serves JSON, JavaScript and encoded names", async () => {
