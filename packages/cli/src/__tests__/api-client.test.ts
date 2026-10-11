@@ -100,6 +100,21 @@ describe("ApiClient", () => {
     expect(get.contentHash).toBe(put.contentHash);
   });
 
+  test("putRaw() keeps markdown link warnings from the server", async () => {
+    const client = await makeClient();
+
+    const put = await client.putRaw(
+      orgId,
+      driveId,
+      "/reports/cli-links.md",
+      new TextEncoder().encode("![x](reports/missing.png)\n")
+    );
+    expect(put.warnings?.map((w) => w.resolvedPath)).toEqual(["/reports/reports/missing.png"]);
+
+    const clean = await client.putRaw(orgId, driveId, "/cli-plain.md", new TextEncoder().encode("no links"));
+    expect("warnings" in clean).toBe(false);
+  });
+
   test("putRaw() with a non-ASCII message does not throw and round-trips", async () => {
     // Headers.set() throws on a raw non-Latin-1 value (e.g. an em dash);
     // putRaw() must percent-encode the message before setting the header.

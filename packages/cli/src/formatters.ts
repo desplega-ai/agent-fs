@@ -242,6 +242,17 @@ export function diffSourceWarning(result: any): string | null {
   }
 }
 
+/**
+ * stderr lines for a write whose markdown links point at paths missing from
+ * the drive. The write itself succeeded; this only flags likely broken links.
+ */
+export function writeLinkWarnings(result: any): string[] {
+  if (!Array.isArray(result?.warnings)) return [];
+  return result.warnings.map(
+    (w: any) => `warning: link not found at write time: ${w.link} -> ${w.resolvedPath}`
+  );
+}
+
 function formatTail(result: any): string {
   // tail returns CatResult, same format as cat
   return formatCat(result);

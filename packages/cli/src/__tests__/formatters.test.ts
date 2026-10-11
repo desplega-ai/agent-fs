@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { diffSourceWarning, outputResult } from "../formatters.js";
+import { diffSourceWarning, outputResult, writeLinkWarnings } from "../formatters.js";
 import { stdio } from "../stdio.js";
 
 // Capture stdio.writeStdout output (outputResult writes via a flush-safe
@@ -199,5 +199,18 @@ describe("diff source warning", () => {
   test("warns on an empty result from a server that omits source", () => {
     expect(diffSourceWarning({ changes: [] })).toContain("may mean they were not");
     expect(diffSourceWarning({ changes: [{ type: "add", content: "x" }] })).toBeNull();
+  });
+});
+
+describe("write link warnings", () => {
+  test("one stderr line per missing target", () => {
+    const lines = writeLinkWarnings({
+      warnings: [{ link: "reports/x.png", resolvedPath: "/reports/reports/x.png", message: "m" }],
+    });
+    expect(lines).toEqual(["warning: link not found at write time: reports/x.png -> /reports/reports/x.png"]);
+  });
+
+  test("nothing when the result has no warnings", () => {
+    expect(writeLinkWarnings({ version: 1, path: "/a.md" })).toEqual([]);
   });
 });

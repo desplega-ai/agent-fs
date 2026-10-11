@@ -160,6 +160,8 @@ symlinks are unsupported and throw `EPERM`.
 
 Every `diff` result carries `source`: `content` (both versions compared), `summary` (not compared; `changes` is the stored edit snippet), or `none` (not compared and no summary; `write` stores none). **Only `source: "content"` with empty `changes` means the versions are identical.** The CLI prints a "versions were not compared" warning on stderr for the other two. To verify an in-place edit when `source` is not `content`, `cat` the current file and check the edited text directly.
 
+**Broken-link warnings on markdown writes.** When `write` stores a `.md`/`.mdx` file, it checks each link and image target against the same drive. Relative targets resolve from the file's own folder, like GitHub and the live viewer: in `/reports/a.md`, `img/x.png` means `/reports/img/x.png`, and `/img/x.png` means the drive root. External URLs (`https:`, `mailto:`, `data:`) and `#anchor` links are skipped. Missing targets come back as `warnings: [{ link, resolvedPath, message }]`, a field that is only present when something is missing; the CLI prints them on stderr. The write still succeeds. A warning only means "not found at write time", so upload the images first, or ignore warnings for files you upload next.
+
 ### Search & Discovery
 
 | Command | Usage | Description |

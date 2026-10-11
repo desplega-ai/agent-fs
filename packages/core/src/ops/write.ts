@@ -13,6 +13,7 @@ import { requireDriveRole } from "../identity/rbac.js";
 import { recordOp } from "../telemetry.js";
 import { indexBytesForSearch, indexTextForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
+import { findMissingLinkTargets } from "./md-links.js";
 
 /** Max file size: 10 MB. Protects SQLite FTS indexing and embedding costs. */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -94,13 +95,13 @@ async function writeInternal(
     if (currentVersion > 0) {
       const headHash = await getHeadContentHash(ctx, path);
       if (headHash !== null && headHash === contentHash) {
-        return {
+        return withLinkWarnings(ctx, params, {
           version: currentVersion,
           path,
           size,
           contentHash,
           deduped: true,
-        };
+        });
       }
     }
   }
@@ -127,5 +128,28 @@ async function writeInternal(
     indexBytesForSearch(ctx, path, bytes, contentType);
   }
 
-  return { version, path, size, contentHash, deduped: false };
+  return withLinkWarnings(ctx, params, { version, path, size, contentHash, deduped: false });
+}
+
+/**
+ * Adds `warnings` for markdown links whose target is missing from the drive.
+ * Runs after the write so a link to the file itself resolves. The field is
+ * omitted when there is nothing to report.
+ */
+function withLinkWarnings(
+  ctx: OpContext,
+  params: WriteRawParams & { indexableText?: string },
+  result: WriteResult
+): WriteResult {
+  if (detectMimeType(result.path) !== "text/markdown") return result;
+  let text = params.indexableText;
+  if (text === undefined) {
+    try {
+      text = new TextDecoder("utf-8", { fatal: true }).decode(params.bytes);
+    } catch {
+      return result;
+    }
+  }
+  const warnings = findMissingLinkTargets(ctx, result.path, text);
+  return warnings.length > 0 ? { ...result, warnings } : result;
 }

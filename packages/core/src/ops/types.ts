@@ -126,6 +126,19 @@ export interface WriteResult {
   contentHash?: string;
   /** True when the write was a no-op because head already had identical content. */
   deduped?: boolean;
+  /**
+   * Markdown only, present only when non-empty: links and images whose target
+   * was not in the drive at write time. Non-fatal; the write succeeded.
+   */
+  warnings?: WriteLinkWarning[];
+}
+
+export interface WriteLinkWarning {
+  /** The link target exactly as written in the markdown. */
+  link: string;
+  /** Drive path the target resolves to, relative to the file's own folder. */
+  resolvedPath: string;
+  message: string;
 }
 
 export interface CatResult {

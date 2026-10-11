@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
 import { getConfig, getOpDefinition } from "@/core";
-import { diffSourceWarning, outputResult } from "../formatters.js";
+import { diffSourceWarning, outputResult, writeLinkWarnings } from "../formatters.js";
 import { stdio } from "../stdio.js";
 
 interface OpCommandDef {
@@ -236,11 +236,17 @@ export function registerOpCommands(
             ifMatch: params.expectedVersion,
             message: params.message,
           });
+          for (const warning of writeLinkWarnings(result)) console.error(warning);
           outputResult(def.name, result, program.opts().json);
           return;
         }
 
         const result = await client.callOp(orgId, def.name, params);
+
+        if (def.name === "write") {
+          // stderr even in --json mode: stdout stays the result document.
+          for (const warning of writeLinkWarnings(result)) console.error(warning);
+        }
 
         if (def.name === "cat" && result?.truncated) {
           // Always surfaced on stderr — even in --json mode — so a

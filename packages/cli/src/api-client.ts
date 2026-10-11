@@ -140,6 +140,7 @@ export class ApiClient {
     deduped: boolean;
     contentHash: string | null;
     size: number;
+    warnings?: Array<{ link: string; resolvedPath: string; message: string }>;
   }> {
     const headers = new Headers();
     headers.set("Content-Type", "application/octet-stream");
@@ -194,6 +195,7 @@ export class ApiClient {
       deduped: Boolean(body.deduped),
       contentHash: res.headers.get("X-Agent-FS-Content-Hash") ?? body.contentHash ?? null,
       size: body.size ?? bytes.length,
+      ...(Array.isArray(body.warnings) && body.warnings.length > 0 && { warnings: body.warnings }),
     };
   }
 
