@@ -2,7 +2,7 @@ import { useCallback, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth"
 import { downloadFile } from "@/lib/download"
-import { copyShareLink as copyShareLinkToClipboard, supportsShareLinks } from "@/lib/share-link"
+import { supportsShareLinks } from "@/lib/share-link"
 import { healthQueryOptions } from "@/lib/upload-limit"
 import { toast } from "@/stores/toast"
 
@@ -15,7 +15,6 @@ export function useFileActions(path: string) {
   const { client, orgId, driveId } = useAuth()
   const [copiedPath, setCopiedPath] = useState(false)
   const [copiedLink, setCopiedLink] = useState(false)
-  const [copiedShare, setCopiedShare] = useState(false)
   const { data: health } = useQuery(healthQueryOptions(client))
   const filename = path.split("/").pop() ?? path
   const canShare = !!orgId && !!driveId
@@ -45,14 +44,6 @@ export function useFileActions(path: string) {
     }
   }, [path, orgId, driveId])
 
-  const copyShareLink = useCallback(async () => {
-    if (!orgId || !driveId) return
-    if (await copyShareLinkToClipboard(client, orgId, driveId, path)) {
-      setCopiedShare(true)
-      setTimeout(() => setCopiedShare(false), 1500)
-    }
-  }, [client, orgId, driveId, path])
-
   const download = useCallback(() => {
     if (!orgId || !driveId) return
     void downloadFile(client, orgId, driveId, path, filename, { newWindow: true })
@@ -61,5 +52,5 @@ export function useFileActions(path: string) {
   // Hidden on servers that cannot mint share links (older `/health`, or unreachable).
   const canShareLink = canShare && supportsShareLinks(health)
 
-  return { copyPath, copyLink, copyShareLink, download, copiedPath, copiedLink, copiedShare, canShare, canShareLink }
+  return { copyPath, copyLink, download, copiedPath, copiedLink, canShare, canShareLink }
 }

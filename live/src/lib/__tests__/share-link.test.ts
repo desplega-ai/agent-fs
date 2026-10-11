@@ -79,7 +79,7 @@ describe("copyShareLink", () => {
   test("copies the link built from the endpoint and reports success", async () => {
     const written = stubClipboard()
     const client = { endpoint: "https://api.example", createShare: async () => result } as any
-    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBe(true)
+    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBe("https://api.example/share/tok")
     expect(written).toEqual(["https://api.example/share/tok"])
     const shown = toasts.at(-1)!
     expect(shown.message).toBe("Share link copied")
@@ -94,10 +94,22 @@ describe("copyShareLink", () => {
       endpoint: "https://api.example",
       createShare: async (_org: string, _drive: string, path: string) => (paths.push(path), site),
     } as any
-    expect(await copyShareLink(client, "org", "drive", "reports")).toBe(true)
+    expect(await copyShareLink(client, "org", "drive", "reports")).toBe("https://api.example/site/tok/")
     expect(paths).toEqual(["reports"])
     expect(written).toEqual(["https://api.example/site/tok/"])
     expect(toasts.at(-1)!.message).toBe("Site link copied")
+  })
+
+  test("passes the chosen expiry to the server, and none by default", async () => {
+    stubClipboard()
+    const calls: unknown[] = []
+    const client = {
+      endpoint: "https://api.example",
+      createShare: async (_org: string, _drive: string, _path: string, options?: unknown) => (calls.push(options), result),
+    } as any
+    await copyShareLink(client, "org", "drive", "/a.md", { expiresIn: 3600 })
+    await copyShareLink(client, "org", "drive", "/a.md")
+    expect(calls).toEqual([{ expiresIn: 3600 }, undefined])
   })
 
   test("an older server produces a clear message instead of a crash", async () => {
@@ -108,7 +120,7 @@ describe("copyShareLink", () => {
         throw new Error("Unknown operation: share-create")
       },
     } as any
-    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBe(false)
+    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBeNull()
     expect(written).toEqual([])
     expect(toasts.at(-1)!.message).toBe("This server doesn't support share links yet")
   })
@@ -121,7 +133,7 @@ describe("copyShareLink", () => {
         throw new Error("File not found: /a.md")
       },
     } as any
-    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBe(false)
+    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBeNull()
     const shown = toasts.at(-1)!
     expect(shown.message).toBe("Couldn't create a share link")
     expect(shown.description).toBe("File not found: /a.md")

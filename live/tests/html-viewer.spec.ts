@@ -127,7 +127,7 @@ test("a server without html-sites shows the source with no toggle", async ({ pag
   expect(minted).toEqual([])
 })
 
-test("right-clicking a folder copies a site link", async ({ page, context }) => {
+test("right-clicking a folder shares it as a site with the chosen expiry", async ({ page, context }, testInfo) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" })
   const minted: string[] = []
   await installFixture(page, minted, ["share-links", "html-sites"], [
@@ -136,17 +136,36 @@ test("right-clicking a folder copies a site link", async ({ page, context }) => 
   ])
   await page.goto("/")
 
-  // A file keeps the plain share link label.
+  // A file keeps the plain share label.
   await page.locator('[data-tree-path="notes.md"]').click({ button: "right" })
-  await expect(page.getByRole("menuitem", { name: "Copy share link" })).toBeVisible()
+  await expect(page.getByRole("menuitem", { name: "Share…" })).toBeVisible()
   await page.keyboard.press("Escape")
 
   await page.locator('[data-tree-path="reports"]').click({ button: "right" })
-  await expect(page.getByRole("menuitem", { name: "Copy share link" })).toHaveCount(0)
-  await page.getByRole("menuitem", { name: "Copy site link" }).click()
+  await expect(page.getByRole("menuitem", { name: "Share…" })).toHaveCount(0)
+  await page.getByRole("menuitem", { name: "Share as site…" }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog).toContainText("Every file in it is public")
+  await dialog.getByRole("button", { name: "7 days" }).click()
+  const request = page.waitForRequest((req) => req.url().endsWith("/ops") && req.postDataJSON()?.op === "share-create")
+  await dialog.getByRole("button", { name: "Copy link" }).click()
+  expect((await request).postDataJSON()).toMatchObject({ op: "share-create", path: "reports", expiresIn: 604800 })
   await expect(page.getByText("Site link copied")).toBeVisible()
   expect(minted).toEqual(["reports"])
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("http://fixture.test/site/tok1/")
+  await expect(dialog.getByRole("textbox", { name: "Share link" })).toHaveValue("http://fixture.test/site/tok1/")
+  await page.screenshot({ path: testInfo.outputPath("share-dialog.png") })
+})
+
+test("a row's ... button opens the same menu as right-click", async ({ page }, testInfo) => {
+  await installFixture(page, [], ["share-links", "html-sites"], [{ name: "notes.md", type: "file", size: 5 }])
+  await page.goto("/")
+  await page.locator('[data-tree-path="notes.md"]').hover()
+  await page.getByRole("button", { name: "More actions for notes.md" }).click()
+  await expect(page.getByRole("menuitem", { name: "Share…" })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath("row-menu.png") })
+  await page.getByRole("menuitem", { name: "Share…" }).click()
+  await expect(page.getByRole("dialog")).toContainText("Share notes.md")
 })
 
 test("a server without html-sites offers no share link on folders", async ({ page }) => {
@@ -154,5 +173,5 @@ test("a server without html-sites offers no share link on folders", async ({ pag
   await page.goto("/")
   await page.locator('[data-tree-path="reports"]').click({ button: "right" })
   await expect(page.getByRole("menuitem", { name: "Copy link", exact: true })).toBeVisible()
-  await expect(page.getByRole("menuitem", { name: /Copy (site|share) link/ })).toHaveCount(0)
+  await expect(page.getByRole("menuitem", { name: /^Share/ })).toHaveCount(0)
 })

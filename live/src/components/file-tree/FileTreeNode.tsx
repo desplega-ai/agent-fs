@@ -1,5 +1,5 @@
 import { memo } from "react"
-import { Folder, FolderOpen, ChevronRight, ChevronDown } from "lucide-react"
+import { Folder, FolderOpen, ChevronRight, ChevronDown, MoreHorizontal } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useBrowser } from "@/contexts/browser"
 import { treeExpansionStore } from "@/stores/tree-expansion"
@@ -8,7 +8,10 @@ import { isUuidLike, useUuidName } from "@/lib/uuid-resolver"
 import { glyphFor } from "@/lib/file-glyphs"
 import { TooltipTrigger, type TooltipHandle } from "@/components/ui/tooltip"
 import { FavoriteToggle } from "@/components/FavoriteToggle"
+import { Button } from "@/components/ui/button"
+import { DropdownMenuTrigger, type DropdownMenuHandle } from "@/components/ui/dropdown-menu"
 import type { LsEntry } from "@/api/types"
+import type { TreeMenuTarget } from "./FileTreeContextMenu"
 
 interface FileTreeNodeProps {
   entry: LsEntry
@@ -26,6 +29,8 @@ interface FileTreeNodeProps {
   favorited: boolean
   /** Absent when the server has no favorites: the row shows no star. */
   onToggleFavorite?: (path: string, isDir: boolean) => void
+  /** The tree's one row menu; the row's "..." button is a detached trigger for it. */
+  rowMenu: DropdownMenuHandle<TreeMenuTarget>
 }
 
 /**
@@ -45,6 +50,7 @@ export const FileTreeNode = memo(function FileTreeNode({
   tooltip,
   favorited,
   onToggleFavorite,
+  rowMenu,
 }: FileTreeNodeProps) {
   const { selectFile } = useBrowser()
   const isUuidDir = isDir && isUuidLike(entry.name)
@@ -82,10 +88,10 @@ export const FileTreeNode = memo(function FileTreeNode({
       ? `${resolvedUuidName} (${entry.name})`
       : entry.name
 
-  // The star is a sibling of the row button, never inside it, so a click on
-  // it cannot open the file or toggle the folder. It stays out of the tab
-  // order (the tree uses a roving tabindex); keyboard users star from the
-  // context menu or the file header.
+  // The star and the "..." button are siblings of the row button, never inside
+  // it, so a click on them cannot open the file or toggle the folder. They
+  // stay out of the tab order (the tree uses a roving tabindex); keyboard
+  // users reach the same actions from the context menu or the file header.
   return (
     <div className="group/row relative">
       <button
@@ -100,7 +106,7 @@ export const FileTreeNode = memo(function FileTreeNode({
           "flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-left text-sm hover:bg-sidebar-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1",
           isSelected &&
             "bg-sidebar-accent text-sidebar-accent-foreground font-medium",
-          onToggleFavorite && "pr-7",
+          onToggleFavorite ? "pr-12" : "pr-7",
         )}
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
       >
@@ -142,11 +148,30 @@ export const FileTreeNode = memo(function FileTreeNode({
           name={entry.name}
           tabIndex={-1}
           className={cn(
-            "absolute right-1 top-1/2 size-5 -translate-y-1/2",
+            "absolute right-6 top-1/2 size-5 -translate-y-1/2",
             !favorited && "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100",
           )}
         />
       )}
+      <DropdownMenuTrigger
+        handle={rowMenu}
+        payload={{ path: fullPath, parentPath, name: entry.name, isDir }}
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            tabIndex={-1}
+            aria-label={`More actions for ${entry.name}`}
+            title="More actions"
+            className={cn(
+              "absolute right-1 top-1/2 size-5 -translate-y-1/2 text-muted-foreground",
+              "opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 data-[popup-open]:opacity-100 [@media(hover:none)]:opacity-100",
+            )}
+          />
+        }
+      >
+        <MoreHorizontal />
+      </DropdownMenuTrigger>
     </div>
   )
 })

@@ -14,7 +14,7 @@ import { uiChromeStore } from "@/stores/ui-chrome"
 import { sidePanelStore } from "@/stores/side-panel"
 import { toast } from "@/stores/toast"
 import { Kbd } from "@/components/ui/kbd"
-import { CopyShareLinkButton } from "@/components/CopyShareLinkButton"
+import { ShareButton } from "@/components/ShareDialog"
 import { FileFavoriteButton } from "@/components/FavoriteToggle"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import type { OutlineItem } from "@/lib/outline"
@@ -692,7 +692,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
   splitOrientation?: SplitOrientation
   onToggleOrientation?: () => void
 }) {
-  const { copyPath, copyLink, copyShareLink, download, copiedPath, copiedLink, copiedShare, canShare, canShareLink } = actions
+  const { copyPath, copyLink, download, copiedPath, copiedLink, canShare, canShareLink } = actions
   const filename = path.split("/").pop() ?? path
 
   return (
@@ -830,7 +830,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
             <TooltipContent>Copy link <Kbd className="ml-1">⇧Y</Kbd></TooltipContent>
           </Tooltip>
         )}
-        {canShareLink && <CopyShareLinkButton onClick={copyShareLink} copied={copiedShare} />}
+        {canShareLink && <ShareButton path={path} />}
         <Tooltip>
           <TooltipTrigger
             render={

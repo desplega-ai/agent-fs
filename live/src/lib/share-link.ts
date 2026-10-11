@@ -4,6 +4,17 @@ import type { HealthResponse } from "./upload-limit"
 
 export const SHARE_LINKS_FEATURE = "share-links"
 
+/** Expiry choices offered when sharing. The server allows 60 seconds to 7 days. */
+export const SHARE_EXPIRY_CHOICES = [
+  { label: "1 hour", seconds: 3600 },
+  { label: "24 hours", seconds: 86_400 },
+  { label: "3 days", seconds: 259_200 },
+  { label: "7 days", seconds: 604_800 },
+] as const
+
+/** The server's own default, so a share without a choice behaves the same. */
+export const DEFAULT_SHARE_EXPIRY_SECONDS = 86_400
+
 /**
  * Servers that can mint public share links say so in `/health`. Older servers
  * omit the field, so an unreachable or older server hides the action instead of
@@ -41,9 +52,15 @@ export function isUnknownOpError(err: unknown): boolean {
  * inside the click's user activation, so when the browser supports it the
  * clipboard item is handed over as a promise before the request finishes.
  */
-async function mintAndCopy(client: AgentFsClient, orgId: string, driveId: string, path: string): Promise<ShareCreateResult & { link: string }> {
+async function mintAndCopy(
+  client: AgentFsClient,
+  orgId: string,
+  driveId: string,
+  path: string,
+  expiresIn?: number,
+): Promise<ShareCreateResult & { link: string }> {
   const request = client
-    .createShare(orgId, driveId, path)
+    .createShare(orgId, driveId, path, expiresIn === undefined ? undefined : { expiresIn })
     .then((result) => ({ ...result, link: resolveShareUrl(client.endpoint, result) }))
 
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
@@ -60,16 +77,24 @@ async function mintAndCopy(client: AgentFsClient, orgId: string, driveId: string
 }
 
 /**
- * Copy a fresh 24-hour share link for `path` and report the outcome as a toast.
- * For a folder the server returns a site share, and `sharePath` is `/site/<token>/`.
+ * Copy a fresh share link for `path` and report the outcome as a toast. The
+ * link lives `expiresIn` seconds, or the server's default of 24 hours. For a
+ * folder the server returns a site share, and `sharePath` is `/site/<token>/`.
+ * Returns the copied link, or null when it failed.
  */
-export async function copyShareLink(client: AgentFsClient, orgId: string, driveId: string, path: string): Promise<boolean> {
+export async function copyShareLink(
+  client: AgentFsClient,
+  orgId: string,
+  driveId: string,
+  path: string,
+  options: { expiresIn?: number } = {},
+): Promise<string | null> {
   try {
-    const result = await mintAndCopy(client, orgId, driveId, path)
+    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn)
     toast.success(result.kind === "site" ? "Site link copied" : "Share link copied", {
       description: `Anyone with the link can view it for ${describeExpiry(result.expiresIn)}`,
     })
-    return true
+    return result.link
   } catch (err) {
     if (isUnknownOpError(err)) {
       toast.error("This server doesn't support share links yet")
@@ -78,6 +103,6 @@ export async function copyShareLink(client: AgentFsClient, orgId: string, driveI
         description: err instanceof Error ? err.message : undefined,
       })
     }
-    return false
+    return null
   }
 }

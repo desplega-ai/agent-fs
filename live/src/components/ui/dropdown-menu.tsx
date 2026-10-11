@@ -4,7 +4,7 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon, CheckIcon } from "lucide-react"
 
-function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
+function DropdownMenu<Payload = unknown>({ ...props }: MenuPrimitive.Root.Props<Payload>) {
   return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
 
@@ -12,7 +12,7 @@ function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
   return <MenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
 }
 
-function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
+function DropdownMenuTrigger<Payload = unknown>({ ...props }: MenuPrimitive.Trigger.Props<Payload>) {
   return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
 }
 
@@ -247,7 +247,13 @@ function DropdownMenuShortcut({
   )
 }
 
+/** One menu shared by many detached `DropdownMenuTrigger`s (pass it as `handle`). */
+const createDropdownMenuHandle = MenuPrimitive.createHandle
+type DropdownMenuHandle<Payload> = MenuPrimitive.Handle<Payload>
+
 export {
+  createDropdownMenuHandle,
+  type DropdownMenuHandle,
   DropdownMenu,
   DropdownMenuPortal,
   DropdownMenuTrigger,
