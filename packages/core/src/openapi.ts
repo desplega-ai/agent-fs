@@ -111,7 +111,7 @@ export function generateOpenAPISpec() {
         get: {
           summary: "Inline bytes for a share embed",
           description:
-            "Serves (or redirects to a short-lived presigned URL for) the shared file inline. Only images, PDF, audio and video; HTML and SVG are never served inline. Does not count as a view.",
+            "Serves (or redirects to a short-lived presigned URL for) the shared file inline. Only images, PDF, audio, video and HTML; SVG is never served inline. An HTML page is always proxied (never presigned), at most 25 MB, with `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals; frame-ancestors 'self'`, so it runs in an opaque origin whether framed by the share page or opened on its own. Does not count as a view.",
           operationId: "shareRaw",
           tags: ["Share"],
           security: [],
@@ -149,7 +149,7 @@ export function generateOpenAPISpec() {
         get: {
           summary: "File of a shared folder (site share)",
           description:
-            "Serves a file from a folder shared with the share-create op (kind \"site\"). An empty path or one ending in '/' serves that folder's index.html; a folder named without its trailing slash redirects (301) to the slash form when it has an index.html. `/site/{token}` redirects to `/site/{token}/`. The token is the only credential. Every response is proxied through this server (no presigned redirects) and carries `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals; frame-ancestors *` (an opaque origin: no cookies or storage), `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and `Access-Control-Allow-Origin: *`. Files over 25 MB are refused. Does not count views. `/site/*` has its own per-IP rate limit (`AGENT_FS_SITE_RATE_LIMIT`, default 600/min).",
+            "Serves a file from a folder shared with the share-create op (kind \"site\"). An empty path or one ending in '/' serves that folder's index.html. A folder without index.html redirects (302) to its only .html/.htm file, or else returns an HTML listing of its entries; an empty folder is 404. A folder named without its trailing slash redirects (301) to the slash form. `/site/{token}` redirects to `/site/{token}/`. The token is the only credential. Every response is proxied through this server (no presigned redirects) and carries `Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals; frame-ancestors *` (an opaque origin: no cookies or storage), `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store` and `Access-Control-Allow-Origin: *`. Files over 25 MB are refused. Does not count views. `/site/*` has its own per-IP rate limit (`AGENT_FS_SITE_RATE_LIMIT`, default 600/min).",
           operationId: "siteFile",
           tags: ["Share"],
           security: [],

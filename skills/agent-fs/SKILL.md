@@ -141,7 +141,7 @@ symlinks are unsupported and throw `EPERM`.
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
 | `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>] [--inline]` | Generate a download URL. On S3/MinIO: a presigned URL (default 24h, max 7 days, `kind: "presigned"`). On local-FS: an authenticated in-app link (`kind: "app"`, requires sign-in, non-expiring). By default the URL forces a download; `--inline` makes the browser render the file instead (PDF, image). |
-| `share-create` | `agent-fs share-create <path> [--expires-in <seconds>] [--max-views <n>] [--one-off]` | Create a public link for a file or folder. A file gets a `/share/<token>` page on the API host: a read-only preview (markdown, text/code, image, PDF, audio, video) and a Download button. A folder becomes an HTML site at `/site/<token>/` (`kind: "site"`, no view limits). Default 24h, max 7 days; `--one-off` (= `--max-views 1`) makes a file link single-use. Returns `{ id, kind, url, sharePath, expiresAt, maxViews }`. |
+| `share-create` | `agent-fs share-create <path> [--expires-in <seconds>] [--max-views <n>] [--one-off]` | Create a public link for a file or folder. A file gets a `/share/<token>` page on the API host: a read-only preview (markdown, text/code, image, PDF, audio, video, and HTML rendered in a sandbox) and a Download button. A folder becomes an HTML site at `/site/<token>/` (`kind: "site"`, no view limits). Default 24h, max 7 days; `--one-off` (= `--max-views 1`) makes a file link single-use. Returns `{ id, kind, url, sharePath, expiresAt, maxViews }`. |
 | `share-revoke` | `agent-fs share-revoke [<id>] [--token <token-or-url>] [--path <path>]` | Kill share links immediately. Exactly one selector: the `id` from `share-create`, the token/URL, or a file or folder path (every link to it). Creator or drive admin only. |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
 | `watch` | `agent-fs watch [--json]` | Stream active-drive changes until Ctrl+C. Bearer endpoint: `GET /orgs/:orgId/drives/:driveId/events` emits `ready`, `file.changed`, and `comment.changed`. |
@@ -483,13 +483,14 @@ agent-fs share-revoke <id>
 agent-fs share-revoke --path docs/report.pdf
 ```
 
-`share-create` returns a URL on the **API host** (`https://<server>/share/<token>`), not the web app, so it works for anyone without signing in. Unlike `signed-url` the recipient gets a rendered page: markdown becomes sanitized HTML (frontmatter card, table of contents, callouts, task lists, footnotes, math, mermaid diagrams, highlighted code, light/dark/system theme, view-source and copy), text and code are shown escaped, images, PDF, audio and video are embedded, and every other type shows a no-preview card. Each page has the filename, size, expiry and a Download button. HTML and SVG files are never rendered, only downloaded.
+`share-create` returns a URL on the **API host** (`https://<server>/share/<token>`), not the web app, so it works for anyone without signing in. Unlike `signed-url` the recipient gets a rendered page: markdown becomes sanitized HTML (frontmatter card, table of contents, callouts, task lists, footnotes, math, mermaid diagrams, highlighted code, light/dark/system theme, view-source and copy), text and code are shown escaped, images, PDF, audio and video are embedded, HTML pages render in a sandboxed frame (with an "Open full page" link), and every other type shows a no-preview card. Each page has the filename, size, expiry and a Download button. SVG files are never rendered, only downloaded.
 
 Things worth knowing before you share:
 
 - **The link is a bearer secret.** Anyone who has it can open it until it expires, is revoked, or runs out of views. It is shown once and only its SHA-256 is stored, so it cannot be recovered; keep the `id` if you may need to revoke it.
 - **It shows the file's current content**, not a snapshot. If the file is edited the link shows the new version; if it is deleted or moved the link shows "file unavailable".
 - **`--one-off` / `--max-views` count page views, and the bytes go with the view.** A view-limited link never serves the file on its URL alone: the page that spent a view gets a private, short-lived credential (up to one hour, never past the link's expiry) that its embed and Download button use. Once the views are used up, nobody holding only the link can fetch the file, and revoking or expiring the link cuts every credential at once. Unlimited links need no credential. Link-preview crawlers (Slack, WhatsApp, ...) and `HEAD` requests do not spend a view.
+- **A shared HTML file is only that file.** It runs in a sandbox with an opaque origin, and relative assets next to it (`chart.png`, `app.js`) return 404. Share the folder instead (below) when the page needs them.
 - **Paths must stay inside the drive.** `share-create` rejects any path with a `.` or `..` segment (either slash direction) instead of resolving it.
 - **Viewer role is enough to create a link**, and the creator (or a drive admin) can revoke it. Every counted view is written as a `share_viewed` event.
 - Set `AGENT_FS_PUBLIC_URL` when the server sits behind a proxy that does not forward `Host` / `X-Forwarded-*`, so returned links point at the right address.
@@ -499,7 +500,7 @@ Things worth knowing before you share:
 ### Publish an HTML site from a folder
 
 ```bash
-# The folder needs an index.html; the link is the site's front page
+# index.html is the site's front page (without one, a lone .html page opens, or else a file listing)
 agent-fs write report-site/index.html --content '<!doctype html><link rel="stylesheet" href="style.css"><img src="chart.png"><script src="app.js"></script>'
 agent-fs share-create report-site --expires-in 86400
 # Site: https://<server>/site/<token>/
@@ -510,7 +511,7 @@ agent-fs share-revoke --path report-site
 
 `share-create` on a folder returns `kind: "site"` and a `/site/<token>/` URL on the API host. Anyone with the link can open it without signing in.
 
-- **`index.html` is the entry point.** `/site/<token>/` serves the folder's `index.html`, and `sub/` serves `sub/index.html`. A folder with no `index.html` returns 404; there is no directory listing.
+- **`index.html` is the entry point.** `/site/<token>/` serves the folder's `index.html`, and `sub/` serves `sub/index.html`. A folder with no `index.html` opens its only `.html` file (for example `radar.html`), or else lists its files. An empty folder returns 404.
 - **Relative paths work.** `<img src="chart.png">`, `<link href="style.css">`, `<script src="app.js">`, module scripts, `fetch("data.json")` and CSS `url()` all resolve inside the folder. External CDNs and fonts load too.
 - **Pages run in a sandbox with an opaque origin.** Scripts, forms, popups and alerts work, but there is no `localStorage`, `sessionStorage` or cookies.
 - **No view limits.** One page load fetches many files, so `--max-views` and `--one-off` are rejected for folders, and site views record no `share_viewed` events. Use `--expires-in` (max 7 days) and `share-revoke --path <folder>` instead.
