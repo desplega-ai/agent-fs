@@ -1,5 +1,5 @@
-import { describe, expect, spyOn, test } from "bun:test"
-import { DriveImageCache, type DriveImageResolution } from "../drive-image-cache"
+import { describe, expect, jest, spyOn, test } from "bun:test"
+import { DriveImageCache, IDLE_EVICT_MS, type DriveImageResolution } from "../drive-image-cache"
 
 const RES: DriveImageResolution = {
   orgId: "4fdbb8e2-f63b-4977-95be-6e18019f0e86",
@@ -98,15 +98,98 @@ describe("DriveImageCache", () => {
     })
   })
 
-  test("releasing a URL that is still cached does not revoke it", () => {
-    withRevokeSpy((revoked) => {
+  function withFakeTimers(run: () => void) {
+    jest.useFakeTimers()
+    try {
+      run()
+    } finally {
+      jest.useRealTimers()
+    }
+  }
+
+  test("releasing a URL that is still cached keeps it until the idle delay", () => {
+    withFakeTimers(() => withRevokeSpy((revoked) => {
       const cache = new DriveImageCache()
       cache.set("client-a", RES, owned("blob:live"))
       cache.hold("blob:live")
       cache.release("blob:live")
 
+      jest.advanceTimersByTime(IDLE_EVICT_MS - 1)
       expect(revoked).toEqual([])
       expect(cache.getFresh("client-a", RES)?.url).toBe("blob:live")
-    })
+    }))
+  })
+
+  test("an owned URL with no holder past the idle delay is evicted and revoked once", () => {
+    withFakeTimers(() => withRevokeSpy((revoked) => {
+      const cache = new DriveImageCache()
+      cache.set("client-a", RES, owned("blob:idle"))
+      cache.hold("blob:idle")
+      cache.release("blob:idle")
+
+      jest.advanceTimersByTime(IDLE_EVICT_MS + 1)
+      expect(revoked).toEqual(["blob:idle"])
+      expect(cache.getFresh("client-a", RES)).toBeNull()
+      expect(cache.get("client-a", RES)).toBeUndefined()
+
+      jest.advanceTimersByTime(IDLE_EVICT_MS * 2)
+      expect(revoked).toEqual(["blob:idle"])
+    }))
+  })
+
+  test("re-holding before the idle delay keeps the URL", () => {
+    withFakeTimers(() => withRevokeSpy((revoked) => {
+      const cache = new DriveImageCache()
+      cache.set("client-a", RES, owned("blob:back"))
+      cache.hold("blob:back")
+      cache.release("blob:back")
+
+      jest.advanceTimersByTime(IDLE_EVICT_MS - 1)
+      cache.hold("blob:back")
+      jest.advanceTimersByTime(IDLE_EVICT_MS * 2)
+
+      expect(revoked).toEqual([])
+      expect(cache.getFresh("client-a", RES)?.url).toBe("blob:back")
+    }))
+  })
+
+  test("an owned URL that settles after its viewer unmounted is evicted without ever being held", () => {
+    withFakeTimers(() => withRevokeSpy((revoked) => {
+      const cache = new DriveImageCache()
+      cache.set("client-a", RES, owned("blob:orphan"))
+
+      jest.advanceTimersByTime(IDLE_EVICT_MS + 1)
+      expect(revoked).toEqual(["blob:orphan"])
+      expect(cache.get("client-a", RES)).toBeUndefined()
+    }))
+  })
+
+  test("a URL replaced before the idle delay is revoked once, and its timer leaves the new entry alone", () => {
+    withFakeTimers(() => withRevokeSpy((revoked) => {
+      const cache = new DriveImageCache()
+      cache.set("client-a", RES, owned("blob:first"))
+      cache.hold("blob:first")
+      cache.release("blob:first")
+      cache.set("client-a", RES, owned("blob:second"))
+      cache.hold("blob:second")
+      expect(revoked).toEqual(["blob:first"])
+
+      jest.advanceTimersByTime(IDLE_EVICT_MS * 2)
+      expect(revoked).toEqual(["blob:first"])
+      expect(cache.getFresh("client-a", RES)?.url).toBe("blob:second")
+    }))
+  })
+
+  test("signed URLs are never evicted on idle", () => {
+    withFakeTimers(() => withRevokeSpy((revoked) => {
+      const cache = new DriveImageCache()
+      cache.set("client-a", RES, FRESH_ENTRY)
+      cache.hold(FRESH_ENTRY.url)
+      cache.release(FRESH_ENTRY.url)
+
+      jest.advanceTimersByTime(IDLE_EVICT_MS * 2)
+      expect(revoked).toEqual([])
+      expect(cache.get("client-a", RES)).toEqual(FRESH_ENTRY)
+    }))
   })
 })

@@ -6,6 +6,11 @@ const markdown = [
   "```mermaid\ngraph TD\n  A[Start] --> B[Finish]\n```",
   "![chart](http://fixture.test/chart.svg)",
 ].join("\n\n")
+// 1x1 PNG. A backend without presigned URLs (local storage) answers `signed-url`
+// with an `app` link, so the viewer reads the image through the raw route into a
+// `blob:` URL whose last path segment is a UUID.
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64")
+const localMarkdown = "# Local\n\n![pic](../pic.png)"
 
 // Production app shell against deterministic API fixtures; no live account.
 async function installFixture(page: Page) {
@@ -21,13 +26,21 @@ async function installFixture(page: Page) {
     if (url.pathname === "/auth/me") json = { userId: "qa", email: "qa@example.test", defaultOrgId: "org", defaultDriveId: "drive" }
     else if (url.pathname === "/orgs") json = { orgs: [{ id: "org", name: "QA" }] }
     else if (url.pathname.endsWith("/drives")) json = { drives: [{ id: "drive", name: "QA", orgId: "org" }] }
-    else if (url.pathname === "/content") return route.fulfill({ body: markdown, contentType: "text/plain" })
+    else if (url.pathname === "/content") {
+      const body = url.searchParams.get("path") === "docs/local.md" ? localMarkdown : markdown
+      return route.fulfill({ body, contentType: "text/plain" })
+    }
+    else if (url.pathname === "/orgs/org/drives/drive/files/pic.png/raw") return route.fulfill({ body: png, contentType: "image/png" })
     else if (url.pathname === "/chart.svg") return route.fulfill({ body: svg, contentType: "image/svg+xml" })
     else if (url.pathname.endsWith("/ops")) {
       const { op, path } = route.request().postDataJSON()
       switch (op) {
         case "stat": json = { path, size: markdown.length, contentType: "text/markdown", author: "qa", currentVersion: 1, createdAt: "2026-01-01", modifiedAt: "2026-01-01", isDeleted: false }; break
-        case "signed-url": json = { url: `http://fixture.test/content?path=${path}` }; break
+        case "signed-url":
+          json = path === "pic.png"
+            ? { url: "http://fixture.test/file/~/org/drive/pic.png", kind: "app" }
+            : { url: `http://fixture.test/content?path=${path}` }
+          break
         case "comment-list": json = { comments: [] }; break
         case "comment-notification-list": json = { notifications: [], unreadCount: 0 }; break
         case "ls": json = { entries: [] }; break
@@ -78,4 +91,17 @@ test("an enlarged svg image renders again after close and reopen", async ({ page
       await expect(dialog).toHaveCount(0)
     })
   }
+})
+
+test("an embedded image read through the raw route downloads under its drive name", async ({ page }) => {
+  await page.goto("/file/~/org/drive/docs/local.md")
+  const inline = page.locator('img[alt="pic"]')
+  await expect(inline).toHaveAttribute("src", /^blob:/)
+  await inline.click()
+
+  const dialog = page.getByRole("dialog")
+  await expect(dialog.getByText("pic.png", { exact: true })).toBeVisible()
+  const download = page.waitForEvent("download")
+  await dialog.getByRole("button", { name: "Download" }).click()
+  expect((await download).suggestedFilename()).toBe("pic.png")
 })

@@ -94,6 +94,7 @@ function DriveImage({
   return (
     <ExpandableImage
       src={url}
+      filename={path.split("/").filter(Boolean).pop()}
       alt={alt}
       title={title}
       onError={() => {

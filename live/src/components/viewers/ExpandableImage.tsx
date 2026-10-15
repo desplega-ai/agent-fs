@@ -14,6 +14,8 @@ interface ExpandableImageProps {
   alt?: string
   title?: string
   onError?: () => void
+  /** Name for downloads and the lightbox title; inferred from `src` when omitted, which is a UUID for a `blob:` URL. */
+  filename?: string
 }
 
 function inferFilename(src: string, alt?: string): string {
@@ -27,9 +29,9 @@ function inferFilename(src: string, alt?: string): string {
   return alt?.trim() || "image"
 }
 
-export function ExpandableImage({ src, alt, title, onError }: ExpandableImageProps) {
+export function ExpandableImage({ src, alt, title, onError, filename: givenFilename }: ExpandableImageProps) {
   const [open, setOpen] = useState(false)
-  const filename = inferFilename(src, alt)
+  const filename = givenFilename || inferFilename(src, alt)
 
   const handleDownload = useCallback(() => {
     void downloadUrl(src, filename)
