@@ -91,13 +91,19 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
   // we reused the inline SVG verbatim the two copies would share an id and
   // CSS would collapse onto the first one in the DOM, leaving the lightbox
   // copy unstyled (or, depending on size, invisible).
+  // Each render also gets a fresh id: mermaid.render removes any element that
+  // already has the requested id, and on reopen that is the previous lightbox
+  // SVG still on screen. Rendering the same string again would leave React
+  // nothing to update, so the modal stayed empty.
+  const lightboxRenderCount = useRef(0)
   useEffect(() => {
     if (!open) return
     let cancelled = false
+    const renderId = `${diagramId}-lightbox-${++lightboxRenderCount.current}`
     loadMermaid()
       .then(async (mermaid) => {
         mermaid.initialize({ startOnLoad: false, theme, securityLevel: "strict" })
-        const result = await mermaid.render(`${diagramId}-lightbox`, code)
+        const result = await mermaid.render(renderId, code)
         if (cancelled) return
         setLightboxSvg(result.svg)
       })
