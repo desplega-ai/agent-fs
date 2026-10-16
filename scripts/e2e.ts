@@ -3747,6 +3747,18 @@ async function coreOpsSuite(b: Backend) {
     assert(s.currentVersion >= 3, true, `expected version >= 3, got ${s.currentVersion}`);
   });
 
+  await test(`[${b.label}] stat on a folder is NOT_FOUND`, async () => {
+    // ${P}/sub is a folder (see the ls test). The local backend used to stat
+    // it as a file, so the just-bash adapter refused writes inside it.
+    const res = await fetch(`http://127.0.0.1:${b.daemonPort}/orgs/${b.orgId}/ops`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${b.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ op: "stat", driveId: b.driveId, path: `${P}/sub` }),
+    });
+    assert(res.status, 404, `expected 404, got ${res.status}`);
+    assert(((await res.json()) as any).error, "NOT_FOUND");
+  });
+
   await test(`[${b.label}] cp + cat`, () => {
     rj(`cp ${P}/hello.txt ${P}/hello-copy.txt`);
     assert(rj(`cat ${P}/hello-copy.txt`).content, "Hello, agent-fs! Edited!");

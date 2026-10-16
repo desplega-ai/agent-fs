@@ -51,6 +51,16 @@ describe("LocalStorageAdapter", () => {
     });
   });
 
+  test("head on a folder throws NoSuchKey, also once the folder is empty (S3 parity)", async () => {
+    await adapter.putObject(key("dir/sub/f.txt"), "x");
+    await expect(adapter.headObject(key("dir"))).rejects.toMatchObject({ name: "NoSuchKey" });
+    await expect(adapter.headObject(key("dir/sub"))).rejects.toMatchObject({ name: "NoSuchKey" });
+
+    // The fs backend keeps the emptied directory on disk.
+    await adapter.deleteObject(key("dir/sub/f.txt"));
+    await expect(adapter.headObject(key("dir/sub"))).rejects.toMatchObject({ name: "NoSuchKey" });
+  });
+
   test("getObject on a missing key throws name === 'NoSuchKey'", async () => {
     await expect(adapter.getObject(key("nope.txt"))).rejects.toMatchObject({
       name: "NoSuchKey",

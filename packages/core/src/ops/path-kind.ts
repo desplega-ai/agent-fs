@@ -8,8 +8,8 @@ import { normalizePrefix } from "./paths.js";
  *
  * A folder is an implicit prefix with no object of its own; one level of
  * listing is enough to tell it exists. The listing also runs when the object
- * exists, because the local backend answers headObject for a directory as
- * well, so a folder wins over a file.
+ * exists, because S3 can hold an object and a folder under one name, and a
+ * folder wins over a file.
  */
 export async function resolvePathKind(
   ctx: OpContext,
