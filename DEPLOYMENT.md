@@ -191,6 +191,14 @@ The scan runs on a worker thread with its own read-only connection, so a slow se
 
 0.16.7 had an opt-in `AGENT_FS_VECTOR_INDEX=int8` index. It was slower than the exact scan on a real disk, so 0.16.8 removes it and drops its table on start.
 
+## Upgrading to 0.17.0: explicit EMBEDDING_PROVIDER wins
+
+An explicit, non-empty `EMBEDDING_PROVIDER` now takes priority over `OPENAI_API_KEY` and `GEMINI_API_KEY`.
+The selected cloud provider uses `embedding.apiKey` first, then its own API key environment variable.
+`EMBEDDING_API_KEY` supplies `embedding.apiKey`.
+Production configurations with `EMBEDDING_PROVIDER=openai` and `EMBEDDING_API_KEY` keep the same behavior and vectors.
+Without an explicit provider, selection still tries `OPENAI_API_KEY`, `GEMINI_API_KEY`, then the configuration.
+
 ## Environment Variables Reference
 
 All environment variables supported by the server. Priority: env vars > config.json > defaults.
@@ -208,9 +216,11 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `S3_PUBLIC_ENDPOINT` | `s3.publicEndpoint` | _(falls back to `S3_ENDPOINT`)_ | Externally-reachable S3 endpoint used only when generating presigned URLs. Falls back to `S3_ENDPOINT`. |
 | `SERVER_PORT` | `server.port` | `7433` | |
 | `SERVER_HOST` | `server.host` | `127.0.0.1` | Set to `0.0.0.0` in containers |
-| `EMBEDDING_PROVIDER` | `embedding.provider` | `local` | `local`, `openai`, or `gemini` |
+| `EMBEDDING_PROVIDER` | `embedding.provider` | `local` | `local`, `openai`, or `gemini`. A non-empty value takes priority over API key variables. |
 | `EMBEDDING_MODEL` | `embedding.model` | — | Model name for the chosen provider |
-| `EMBEDDING_API_KEY` | `embedding.apiKey` | — | API key for `openai` or `gemini` providers |
+| `EMBEDDING_API_KEY` | `embedding.apiKey` | _(unset)_ | API key for `openai` or `gemini`. An explicit provider uses this key before its own API key variable. |
+| `OPENAI_API_KEY` | _(env only)_ | _(unset)_ | Selects OpenAI when `EMBEDDING_PROVIDER` is absent. Supplies the key for explicit OpenAI when `embedding.apiKey` is empty. |
+| `GEMINI_API_KEY` | _(env only)_ | _(unset)_ | Selects Gemini when the explicit provider and `OPENAI_API_KEY` are absent. Supplies the key for explicit Gemini when `embedding.apiKey` is empty. |
 | `ANONYMIZED_TELEMETRY` | _(env only)_ | `true` | Set to `false` to stop anonymous usage events. See [docs/telemetry.md](./docs/telemetry.md). |
 | `DO_NOT_TRACK` | _(env only)_ | _(unset)_ | Any value except empty, `0`, `false`, `no`, or `off` also stops telemetry. |
 | `AGENT_FS_PUBLIC_URL` | `server.publicUrl` | _(derived from the request)_ | Public address of this API server (e.g. `https://agent-fs-acme.fly.dev`), used to build absolute `/share/<token>` links. Set it when a proxy does not forward `Host` / `X-Forwarded-Proto`. |

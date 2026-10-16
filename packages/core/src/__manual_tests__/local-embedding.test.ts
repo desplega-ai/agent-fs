@@ -60,19 +60,19 @@ afterAll(async () => {
 });
 
 describe.skipIf(SKIP)("Local Embedding Provider (embeddinggemma-300M)", () => {
-  test("embed returns 768-dim vector", async () => {
-    const vec = await provider.embed("Hello world, this is a test of local embeddings.");
+  test("embedQuery returns 768-dim vector", async () => {
+    const vec = await provider.embedQuery("Hello world, this is a test of local embeddings.");
     expect(vec.length).toBe(768);
     expect(typeof vec[0]).toBe("number");
     // Values should be normalized floats
     expect(Math.abs(vec[0])).toBeLessThan(10);
   }, 120_000); // 2 min timeout for first model load
 
-  test("embedBatch returns multiple vectors", async () => {
-    const vecs = await provider.embedBatch([
+  test("embedDocuments returns multiple vectors", async () => {
+    const vecs = await provider.embedDocuments([
       "User authentication with passwords",
       "Kubernetes deployment configuration",
-    ]);
+    ], { title: "test.md" });
     expect(vecs.length).toBe(2);
     expect(vecs[0].length).toBe(768);
     expect(vecs[1].length).toBe(768);

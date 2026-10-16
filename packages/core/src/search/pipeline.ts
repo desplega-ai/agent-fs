@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { eq, and } from "drizzle-orm";
 import { Database } from "bun:sqlite";
 import { schema } from "../db/index.js";
@@ -166,7 +167,7 @@ export async function indexFileEmbeddings(
 
     // 2. Generate and validate embeddings FIRST (before any DB writes)
     const texts = chunks.map((c) => c.content);
-    const embeddings = await provider.embedBatch(texts);
+    const embeddings = await provider.embedDocuments(texts, { title: basename(params.path) });
     if (embeddings.length !== chunks.length) {
       throw new EmbeddingProviderError(
         `Embedding provider returned ${embeddings.length} vectors for ${chunks.length} chunks`

@@ -8,10 +8,10 @@ function providerReturning(vector: () => number[]): EmbeddingProvider {
   return {
     name: "bad",
     dimensions: 768,
-    async embed() {
+    async embedQuery() {
       return vector();
     },
-    async embedBatch(texts) {
+    async embedDocuments(texts) {
       return texts.map(vector);
     },
   };

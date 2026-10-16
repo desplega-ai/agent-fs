@@ -38,7 +38,7 @@ export async function vecSearch(
   const limit = params.limit ?? 10;
 
   // 1. Embed the query
-  const queryEmbedding = await provider.embed(params.query);
+  const queryEmbedding = await provider.embedQuery(params.query);
   const queryVec = toUnitVector(queryEmbedding, provider.dimensions);
 
   const results = (await findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit)).map(

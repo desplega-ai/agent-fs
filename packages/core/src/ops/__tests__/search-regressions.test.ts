@@ -15,10 +15,10 @@ QUERY_VECTOR[0] = 1;
 const PROVIDER: EmbeddingProvider = {
   name: "deterministic-test",
   dimensions: 768,
-  async embed() {
+  async embedQuery() {
     return QUERY_VECTOR;
   },
-  async embedBatch(texts) {
+  async embedDocuments(texts) {
     return texts.map(() => QUERY_VECTOR);
   },
 };

@@ -28,10 +28,10 @@ function fakeVector(text: string): number[] {
 const PROVIDER: EmbeddingProvider = {
   name: "fake",
   dimensions: 768,
-  async embed(text) {
+  async embedQuery(text) {
     return fakeVector(text);
   },
-  async embedBatch(texts) {
+  async embedDocuments(texts) {
     return texts.map(fakeVector);
   },
 };
@@ -68,7 +68,7 @@ function gatedProvider(word: string) {
   let started = false;
   const provider: EmbeddingProvider = {
     ...PROVIDER,
-    async embedBatch(texts) {
+    async embedDocuments(texts) {
       if (texts.some((t) => t.includes(word))) {
         started = true;
         await gate;
@@ -111,6 +111,29 @@ describe("vectors", () => {
 });
 
 describe("embedding migration", () => {
+  test("indexFileEmbeddings passes the file basename as the document title", async () => {
+    const { ctx, db, driveId } = createTestContext();
+    const path = "/notes/project/cats.md";
+    const content = "all about cats";
+    await write(ctx, { path, content });
+    const calls: { texts: string[]; title: string }[] = [];
+    const provider: EmbeddingProvider = {
+      ...PROVIDER,
+      async embedDocuments(texts, opts) {
+        calls.push({ texts, title: opts.title });
+        return texts.map(fakeVector);
+      },
+    };
+
+    expect(await indexFileEmbeddings(db, provider, {
+      path,
+      driveId,
+      content,
+      version: readCurrentVersion(db, { path, driveId }) ?? null,
+    })).toBe(true);
+    expect(calls).toEqual([{ texts: [content], title: "cats.md" }]);
+  });
+
   test("re-embeds indexed files once per format, as unit vectors, and search scores them as cosine", async () => {
     const { ctx, db, s3 } = createTestContext();
     await write(ctx, { path: "/cats.md", content: "all about cats" });
@@ -266,10 +289,10 @@ describe("embedding migration", () => {
     const bad: EmbeddingProvider = {
       ...PROVIDER,
       dimensions,
-      async embed() {
+      async embedQuery() {
         return vector();
       },
-      async embedBatch(texts) {
+      async embedDocuments(texts) {
         return texts.map(vector);
       },
     };
@@ -323,10 +346,10 @@ describe("oversized text", () => {
   const big = "word ".repeat(Math.ceil(MAX_EMBED_CHARS / 5) + 1);
   const refusing: EmbeddingProvider = {
     ...PROVIDER,
-    async embed() {
+    async embedQuery() {
       throw new Error("must not embed");
     },
-    async embedBatch() {
+    async embedDocuments() {
       throw new Error("must not embed");
     },
   };
