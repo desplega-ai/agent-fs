@@ -3,6 +3,7 @@ import {
   getConfig,
   DEFAULT_MAX_UPLOAD_BYTES,
   getHome,
+  getDbPath,
   createStorageAdapter,
   createEmbeddingProviderFromEnv,
   prepareFtsMigration,
@@ -10,9 +11,7 @@ import {
   prepareEmbeddingMigration,
   runPendingEmbeddings,
   migrationCpuShare,
-  prepareQuantizedIndex,
-  runQuantizedIndexBackfill,
-  vectorIndexMode,
+  startVectorSearchWorker,
   startServerTelemetry,
 } from "@/core";
 import type { Database } from "bun:sqlite";
@@ -82,19 +81,10 @@ if (ftsMigrationPending) {
   });
 }
 
-// Optional int8 vector index (AGENT_FS_VECTOR_INDEX=int8). It is
-// created before any embedding job runs, then backfilled in the background;
-// search uses the exact scan until the backfill finishes.
-if (prepareQuantizedIndex(sqlite, vectorIndexMode(process.env.AGENT_FS_VECTOR_INDEX))) {
-  runQuantizedIndexBackfill(sqlite, {
-    log: (msg) => console.log(msg),
-    cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
-  })
-    .then((n) => console.log(`vector int8 index ready: ${n} copied`))
-    .catch((err) => {
-      console.error("vector int8 index backfill failed (will resume on next start):", err);
-    });
-}
+// Vector KNN scans every stored vector and can take seconds (the first scan
+// after a restart reads the whole table from disk). Running it on a worker
+// thread keeps /health and every other request answering meanwhile.
+startVectorSearchWorker(sqlite, getDbPath());
 
 // Re-embed files whose vectors predate the current provider or vector format,
 // plus any file whose on-write embedding never ran. Background, resumable.

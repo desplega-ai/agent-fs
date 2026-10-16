@@ -214,6 +214,8 @@ export interface FtsOpMatch {
 export interface FtsResult {
   matches: FtsOpMatch[]
   hint?: string
+  /** Server time for the query, in milliseconds (servers from 0.16.8). */
+  tookMs?: number
 }
 
 // Search types (from core/ops/search.ts)
@@ -229,6 +231,8 @@ export interface SearchResultItem {
 export interface SearchResult {
   results: SearchResultItem[]
   hint?: string
+  /** Server time for the search, in milliseconds (servers from 0.16.8). */
+  tookMs?: number
 }
 
 // Grep types (from core/ops/grep.ts)
