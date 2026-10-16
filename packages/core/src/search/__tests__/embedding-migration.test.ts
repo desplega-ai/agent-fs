@@ -7,11 +7,12 @@ import { getS3Key } from "../../ops/versioning.js";
 import type { EmbeddingProvider } from "../embeddings/provider.js";
 import {
   embeddingFormat,
+  migrationCpuShare,
   prepareEmbeddingMigration,
   runPendingEmbeddings,
 } from "../embedding-migration.js";
 import { similarityFromDistance, toUnitVector } from "../vectors.js";
-import { indexFileEmbeddings, readCurrentVersion } from "../pipeline.js";
+import { MAX_EMBED_CHARS, indexFileEmbeddings, readCurrentVersion } from "../pipeline.js";
 import { reindex } from "../../ops/reindex.js";
 import { EmbeddingProviderError } from "../../errors.js";
 import { createTestContext } from "../../test-utils.js";
@@ -262,3 +263,87 @@ describe("embedding migration", () => {
     expect(vectorCount(db)).toBe(1);
   });
 });
+
+describe("embedding migration pacing", () => {
+  test("reads the CPU share from the env value and falls back to 0.25", () => {
+    for (const raw of [undefined, "", " ", "0", "-0.5", "1.5", "abc"]) {
+      expect(migrationCpuShare(raw)).toBe(0.25);
+    }
+    expect(migrationCpuShare("0.1")).toBe(0.1);
+    expect(migrationCpuShare(" 1 ")).toBe(1);
+  });
+
+  async function pausesFor(cpuShare: number): Promise<number[]> {
+    const { ctx, db, s3 } = createTestContext();
+    for (const name of ["a", "b", "c"]) await write(ctx, { path: `/${name}.md`, content: `file ${name}` });
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+
+    // Every file uses 100 ms of CPU: the clock reads 0 at its start and 100 at its end.
+    let reads = 0;
+    const pauses: number[] = [];
+    const result = await runPendingEmbeddings(db, s3, PROVIDER, {
+      cpuShare,
+      cpuMs: () => (reads++ % 2 === 0 ? 0 : 100),
+      sleep: async (ms) => {
+        pauses.push(ms);
+      },
+    });
+    expect(result.indexed).toBe(3);
+    return pauses;
+  }
+
+  test("pauses after each file so the run uses its share of CPU time", async () => {
+    expect(await pausesFor(0.25)).toEqual([300, 300, 300]);
+    expect(await pausesFor(0.5)).toEqual([100, 100, 100]);
+  });
+
+  test("does not pause at share 1 and caps a pause at 30 s", async () => {
+    expect(await pausesFor(1)).toEqual([]);
+    expect(await pausesFor(0.001)).toEqual([30_000, 30_000, 30_000]);
+  });
+});
+
+describe("oversized text", () => {
+  const big = "word ".repeat(Math.ceil(MAX_EMBED_CHARS / 5) + 1);
+  const refusing: EmbeddingProvider = {
+    ...PROVIDER,
+    async embed() {
+      throw new Error("must not embed");
+    },
+    async embedBatch() {
+      throw new Error("must not embed");
+    },
+  };
+
+  test("the migration skips it without embedding and drops its old chunks", async () => {
+    const { ctx, db, s3, driveId } = createTestContext();
+    await write(ctx, { path: "/big.md", content: "small at first" });
+    await indexFileEmbeddings(db, PROVIDER, {
+      path: "/big.md",
+      driveId,
+      content: "small at first",
+      version: readCurrentVersion(db, { path: "/big.md", driveId }) ?? null,
+    });
+    await write(ctx, { path: "/big.md", content: big });
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+
+    expect(await runPendingEmbeddings(db, s3, refusing, { cpuShare: 1 })).toEqual({
+      indexed: 0,
+      failed: 0,
+      skipped: 1,
+      superseded: 0,
+    });
+    expect(statusOf(db, "/big.md")).toBeNull();
+    expect(chunkContents(db, "/big.md")).toEqual([]);
+    expect(vectorCount(db)).toBe(0);
+  });
+
+  test("a write does not embed it either", async () => {
+    const { ctx, db } = createTestContext();
+    ctx.embeddingProvider = refusing;
+    await write(ctx, { path: "/big.md", content: big });
+    await waitFor(() => statusOf(db, "/big.md") === null);
+    expect(chunkContents(db, "/big.md")).toEqual([]);
+  });
+});
+

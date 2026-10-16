@@ -173,6 +173,10 @@ Nothing to do by hand. If you prefer the startup cost outside a traffic window, 
 
 On the first start, the daemon marks every indexed file `pending` and embeds it again in the background, one file at a time, in the same embedding slots that new writes use. Progress is logged as `embedding migration: ...`, and a restart resumes. Search keeps working meanwhile. The same re-embed runs again whenever the embedding provider changes.
 
+The re-embed pauses after each file so it uses at most a quarter of the CPU time (`AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE`, default `0.25`). Requests run during the pauses. A `shared-cpu-1x` Fly machine gets a guaranteed 1/16 of a core and runs out of burst budget during a long re-embed. The API then answers in seconds and health checks fail. On such a machine, either set `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE=0.05` or scale up for the run (`fly scale vm performance-1x`), then scale back. Set `1` to run at full speed on a dedicated host.
+
+Text files larger than 2,000,000 characters are not embedded, on write or in the re-embed. Chunking them blocked the daemon for many minutes, and their batch was over the OpenAI request limits anyway. Their status is cleared, like a binary file.
+
 ## Environment Variables Reference
 
 All environment variables supported by the server. Priority: env vars > config.json > defaults.
@@ -198,6 +202,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `AGENT_FS_PUBLIC_URL` | `server.publicUrl` | _(derived from the request)_ | Public address of this API server (e.g. `https://agent-fs-acme.fly.dev`), used to build absolute `/share/<token>` links. Set it when a proxy does not forward `Host` / `X-Forwarded-Proto`. |
 | `AGENT_FS_SHARE_RATE_LIMIT` | `server.shareRateLimit.requestsPerMinute` | `120` | Per-IP requests per minute for the public `/share/*` routes; `0` disables. Behind a reverse proxy other than Fly, all traffic shares the proxy's address, so raise it. |
 | `AGENT_FS_SITE_RATE_LIMIT` | `server.siteRateLimit.requestsPerMinute` | `600` | Per-IP requests per minute for the public `/site/*` routes (folder shares); `0` disables. One page load fetches many files, so it is higher than the share limit. |
+| `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` | _(env only)_ | `0.25` | Share of CPU time the background re-embed may use, above 0 and at most 1. It pauses after each file. `1` runs without pauses. Invalid values use the default. See [Upgrading to 0.16.5](#upgrading-to-0165-embeddings-re-embedded). |
 | `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
 
 When both `AWS_*` and `S3_*` variants are set, the `AWS_*` variant takes precedence (Tigris injects `AWS_*` automatically).
