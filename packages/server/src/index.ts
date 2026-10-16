@@ -82,7 +82,7 @@ if (ftsMigrationPending) {
 // plus any file whose on-write embedding never ran. Background, resumable.
 if (embeddingProvider && prepareEmbeddingMigration(sqlite, embeddingProvider)) {
   runPendingEmbeddings(db, s3, embeddingProvider, { log: (msg) => console.log(msg) })
-    .then((r) => console.log(`embedding migration done: ${r.indexed} embedded, ${r.failed} failed, ${r.skipped} skipped`))
+    .then((r) => console.log(`embedding migration done: ${r.indexed} embedded, ${r.failed} failed, ${r.skipped} skipped, ${r.superseded} superseded`))
     .catch((err) => {
       console.error("embedding migration failed (will resume on next start):", err);
     });

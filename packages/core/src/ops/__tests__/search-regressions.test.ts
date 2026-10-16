@@ -9,7 +9,9 @@ import { indexFile } from "../../search/fts.js";
 import type { EmbeddingProvider } from "../../search/embeddings/provider.js";
 import { createTestContext } from "../../test-utils.js";
 
+// The query is e0. A chunk stored as e0 + distance * e1 sits exactly `distance` away.
 const QUERY_VECTOR = new Array<number>(768).fill(0);
+QUERY_VECTOR[0] = 1;
 const PROVIDER: EmbeddingProvider = {
   name: "deterministic-test",
   dimensions: 768,
@@ -79,7 +81,8 @@ function addChunk(
     .returning({ id: schema.contentChunks.id })
     .get();
   const vector = new Float32Array(768);
-  vector[0] = params.distance;
+  vector[0] = 1;
+  vector[1] = params.distance;
   const raw = (db as any).$client as Database;
   raw
     .prepare("INSERT INTO chunk_vectors(chunk_id, embedding) VALUES (?, ?)")

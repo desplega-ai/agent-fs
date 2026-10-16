@@ -11,6 +11,7 @@ import {
   runPendingEmbeddings,
 } from "../embedding-migration.js";
 import { similarityFromDistance, toUnitVector } from "../vectors.js";
+import { indexFileEmbeddings } from "../pipeline.js";
 import { createTestContext } from "../../test-utils.js";
 
 // Not unit length on purpose: the local model returns vectors with a norm near 23.
@@ -40,6 +41,41 @@ function statusOf(db: DB, path: string): string | null {
   return (raw(db).prepare("SELECT embedding_status AS s FROM files WHERE path = ?").get(path) as { s: string | null }).s;
 }
 
+function chunkContents(db: DB, path: string): string[] {
+  return (
+    raw(db).prepare("SELECT content FROM content_chunks WHERE file_path = ? ORDER BY chunk_index").all(path) as {
+      content: string;
+    }[]
+  ).map((row) => row.content);
+}
+
+function vectorCount(db: DB): number {
+  return (raw(db).prepare("SELECT count(*) AS n FROM chunk_vectors").get() as { n: number }).n;
+}
+
+async function waitFor(condition: () => boolean): Promise<void> {
+  for (let i = 0; i < 500 && !condition(); i++) await new Promise((r) => setTimeout(r, 2));
+  expect(condition()).toBe(true);
+}
+
+/** Like PROVIDER, but holds any batch that contains `word` until `release()`. */
+function gatedProvider(word: string) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  let started = false;
+  const provider: EmbeddingProvider = {
+    ...PROVIDER,
+    async embedBatch(texts) {
+      if (texts.some((t) => t.includes(word))) {
+        started = true;
+        await gate;
+      }
+      return texts.map(fakeVector);
+    },
+  };
+  return { provider, release, started: () => started };
+}
+
 function storedNorms(db: DB): number[] {
   return (raw(db).prepare("SELECT embedding FROM chunk_vectors").all() as { embedding: Uint8Array }[]).map(
     ({ embedding }) => {
@@ -50,9 +86,17 @@ function storedNorms(db: DB): number[] {
 }
 
 describe("vectors", () => {
-  test("toUnitVector scales to length 1 and leaves a zero vector alone", () => {
+  test("toUnitVector scales to length 1", () => {
     expect(Math.hypot(...toUnitVector([3, 4]))).toBeCloseTo(1, 6);
-    expect(Array.from(toUnitVector([0, 0]))).toEqual([0, 0]);
+  });
+
+  test.each([
+    ["zero", [0, 0]],
+    ["NaN", [1, NaN]],
+    ["Infinity", [1, Infinity]],
+    ["Float32 overflow", [1e39, 1]],
+  ])("toUnitVector rejects a %s vector", (_, values) => {
+    expect(() => toUnitVector(values)).toThrow();
   });
 
   test("similarityFromDistance maps unit-vector L2 distance to cosine", () => {
@@ -74,7 +118,7 @@ describe("embedding migration", () => {
 
     const result = await runPendingEmbeddings(db, s3, PROVIDER);
 
-    expect(result).toEqual({ indexed: 2, failed: 0, skipped: 0 });
+    expect(result).toEqual({ indexed: 2, failed: 0, skipped: 0, superseded: 0 });
     expect(statusOf(db, "/cats.md")).toBe("indexed");
     for (const norm of storedNorms(db)) expect(norm).toBeCloseTo(1, 5);
     expect(
@@ -118,9 +162,75 @@ describe("embedding migration", () => {
 
     const result = await runPendingEmbeddings(db, s3, PROVIDER, { batchSize: 1 });
 
-    expect(result).toEqual({ indexed: 1, failed: 1, skipped: 1 });
+    expect(result).toEqual({ indexed: 1, failed: 1, skipped: 1, superseded: 0 });
     expect(statusOf(db, "/notes.md")).toBe("indexed");
     expect(statusOf(db, "/gone.md")).toBe("failed");
     expect(statusOf(db, "/song.mp3")).toBeNull();
+  });
+
+  test("a write during the run keeps its own content and status", async () => {
+    const { ctx, db, s3 } = createTestContext();
+    await write(ctx, { path: "/a.md", content: "old content" });
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+
+    const gated = gatedProvider("old content");
+    const run = runPendingEmbeddings(db, s3, gated.provider);
+    await waitFor(gated.started);
+
+    // The write lands and its own job finishes while the migration still embeds the old text.
+    ctx.embeddingProvider = gated.provider;
+    await write(ctx, { path: "/a.md", content: "new content" });
+    await waitFor(() => statusOf(db, "/a.md") === "indexed");
+    gated.release();
+
+    expect(await run).toEqual({ indexed: 0, failed: 0, skipped: 0, superseded: 1 });
+    expect(chunkContents(db, "/a.md")).toEqual(["new content"]);
+    expect(statusOf(db, "/a.md")).toBe("indexed");
+  });
+
+  test("a file queued again behind the cursor does not stop the run", async () => {
+    const { ctx, db, s3 } = createTestContext();
+    for (const name of ["a", "b", "c"]) await write(ctx, { path: `/${name}.md`, content: `file ${name}` });
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+
+    const gated = gatedProvider("file b");
+    const run = runPendingEmbeddings(db, s3, gated.provider, { batchSize: 1 });
+    await waitFor(gated.started);
+    // A write to /a.md queued it again; its own job will embed it.
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending' WHERE path = '/a.md'").run();
+    gated.release();
+
+    expect(await run).toEqual({ indexed: 3, failed: 0, skipped: 0, superseded: 0 });
+    expect(statusOf(db, "/b.md")).toBe("indexed");
+    expect(statusOf(db, "/c.md")).toBe("indexed");
+    expect(statusOf(db, "/a.md")).toBe("pending");
+  });
+
+  test.each([
+    ["zero", () => 0],
+    ["NaN", (i: number) => (i === 5 ? NaN : 1)],
+    ["Infinity", (i: number) => (i === 5 ? Infinity : 1)],
+  ])("a %s embedding fails the file and keeps its previous index", async (_, value) => {
+    const { ctx, db, s3, driveId } = createTestContext();
+    await write(ctx, { path: "/a.md", content: "all about cats" });
+    await indexFileEmbeddings(db, PROVIDER, { path: "/a.md", driveId, content: "all about cats" });
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+
+    const bad: EmbeddingProvider = {
+      ...PROVIDER,
+      async embed() {
+        return Array.from({ length: 768 }, (_, i) => value(i));
+      },
+      async embedBatch(texts) {
+        return texts.map(() => Array.from({ length: 768 }, (_, i) => value(i)));
+      },
+    };
+    expect(await runPendingEmbeddings(db, s3, bad)).toEqual({ indexed: 0, failed: 1, skipped: 0, superseded: 0 });
+    expect(statusOf(db, "/a.md")).toBe("failed");
+    expect(chunkContents(db, "/a.md")).toEqual(["all about cats"]);
+    expect(vectorCount(db)).toBe(1);
+
+    ctx.embeddingProvider = bad;
+    await expect(vecSearch(ctx, { query: "cats", limit: 1 })).rejects.toThrow();
   });
 });

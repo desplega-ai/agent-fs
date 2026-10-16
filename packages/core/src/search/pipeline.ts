@@ -52,12 +52,41 @@ export async function withEmbeddingSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+function readCurrentVersion(
+  db: DB,
+  params: { path: string; driveId: string }
+): string | null {
+  const file = db
+    .select({ currentVersionId: schema.files.currentVersionId })
+    .from(schema.files)
+    .where(
+      and(
+        eq(schema.files.path, params.path),
+        eq(schema.files.driveId, params.driveId)
+      )
+    )
+    .get();
+  return file?.currentVersionId ?? null;
+}
+
+/**
+ * Embeds `content` and replaces the file's chunks.
+ *
+ * `version` is the `files.current_version_id` that `content` was read at. When
+ * it is set and a newer write has landed since, the job changes nothing and
+ * returns `false`: the newer write owns the chunks and the status. Every
+ * statement after that check is synchronous, so no other job can run between
+ * the check and the replace.
+ */
 export async function indexFileEmbeddings(
   db: DB,
   provider: EmbeddingProvider,
-  params: { path: string; driveId: string; content: string }
-): Promise<void> {
+  params: { path: string; driveId: string; content: string; version?: string | null }
+): Promise<boolean> {
   const raw = getRawDb(db);
+  const isCurrent = () =>
+    params.version === undefined ||
+    readCurrentVersion(db, params) === params.version;
 
   // Guard: bail if the file was deleted before this async job ran
   const file = db
@@ -71,7 +100,7 @@ export async function indexFileEmbeddings(
     )
     .get();
 
-  if (!file || file.isDeleted) return;
+  if (!file || file.isDeleted) return false;
 
   try {
     // 1. Chunk content
@@ -81,6 +110,15 @@ export async function indexFileEmbeddings(
     //    If this fails, no DB state is changed — no orphaned chunks.
     const texts = chunks.map((c) => c.content);
     const embeddings = await provider.embedBatch(texts);
+    if (embeddings.length !== chunks.length) {
+      throw new Error(
+        `Embedding provider returned ${embeddings.length} vectors for ${chunks.length} chunks`
+      );
+    }
+    // Validate every vector before touching the old ones.
+    const vectors = embeddings.map(toUnitVector);
+
+    if (!isCurrent()) return false;
 
     // 3. Delete old chunks + vectors for this file
     const oldChunks = db
@@ -128,7 +166,7 @@ export async function indexFileEmbeddings(
         .returning({ id: schema.contentChunks.id })
         .get();
 
-      insertVec.run(result.id, toUnitVector(embeddings[i]));
+      insertVec.run(result.id, vectors[i]);
     }
 
     // 5. Update embedding status
@@ -141,7 +179,10 @@ export async function indexFileEmbeddings(
         )
       )
       .run();
+    return true;
   } catch (err) {
+    // A newer write is pending: its own job sets the status.
+    if (!isCurrent()) return false;
     // Mark as failed but don't block
     db.update(schema.files)
       .set({ embeddingStatus: "failed" })
@@ -174,9 +215,12 @@ export function scheduleEmbedding(
     )
     .run();
 
+  // Callers schedule after createVersion(), so this is the version of `content`.
+  const version = readCurrentVersion(db, params);
+
   embeddingSemaphore.acquire().then(async (release) => {
     try {
-      await indexFileEmbeddings(db, provider, params);
+      await indexFileEmbeddings(db, provider, { ...params, version });
     } catch (e) {
       console.error("Embedding failed", { path: params.path, error: e });
     } finally {
