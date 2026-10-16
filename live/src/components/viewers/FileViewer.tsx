@@ -21,11 +21,14 @@ import type { OutlineItem } from "@/lib/outline"
 import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { useComments } from "@/hooks/use-comments"
+import { useSniffedAudioType } from "@/hooks/use-sniffed-audio-type"
+import { AUDIO_EXTS } from "@/lib/audio"
 // Lazy boundary: keeps Monaco out of the entry bundle (see LazyTextViewer).
 import { LazyTextViewer as TextViewer } from "./LazyTextViewer"
 import { MarkdownViewer } from "./MarkdownViewer"
 import { ImageViewer } from "./ImageViewer"
 import { VideoViewer } from "./VideoViewer"
+import { AudioViewer } from "./AudioViewer"
 import { PdfViewer } from "./PdfViewer"
 import { HtmlViewer } from "./HtmlViewer"
 import { FallbackViewer } from "./FallbackViewer"
@@ -59,8 +62,8 @@ const VIDEO_EXTS = new Set(["mp4", "webm", "ogv", "mov", "m4v"])
 // stored content-type is the generic `application/octet-stream`.
 const BINARY_EXTS = new Set([
   ...VIDEO_EXTS,
+  ...AUDIO_EXTS,
   "mkv", "avi", "wmv", "flv",
-  "mp3", "wav", "flac", "aac", "m4a", "ogg", "opus",
   "zip", "gz", "tar", "tgz", "bz2", "xz", "7z", "rar",
   "woff", "woff2", "ttf", "otf", "eot",
   "wasm", "bin", "exe", "dll", "so", "dylib", "o", "a",
@@ -100,6 +103,14 @@ function isImage(path: string): boolean {
 
 function isVideo(path: string): boolean {
   return VIDEO_EXTS.has(getExt(path))
+}
+
+function isAudio(path: string, contentType?: string): boolean {
+  return AUDIO_EXTS.has(getExt(path)) || !!contentType?.startsWith("audio/")
+}
+
+function isGenericContentType(contentType?: string): boolean {
+  return !contentType || contentType === "application/octet-stream"
 }
 
 function isMarkdown(path: string): boolean {
@@ -143,6 +154,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   const { data: health } = useQuery(healthQueryOptions(client))
   const isImg = isImage(path)
   const isVid = isVideo(path)
+  const isAud = isAudio(path, stat?.contentType)
   const isMd = isMarkdown(path)
   // Rendered in a sandboxed frame only when the server serves site shares;
   // older servers keep showing the source.
@@ -223,8 +235,22 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   // csv/tsv/ndjson in grid mode) need no raw-bytes fetch — the grid data comes
   // from the SQL engine. The raw fetch (presigned URL) is only used for text
   // and the optional "Source" toggle of tabular-text files.
+  // A file with an unknown extension and no type hint (e.g. chat audio saved
+  // without an extension) may be audio: its first bytes decide, before its
+  // bytes are decoded as text.
+  const ext = getExt(path)
+  const sniffAudio =
+    isGenericContentType(stat?.contentType) &&
+    !isImg && !isVid && !isAud && !isPdf(path) && !isTabBin && !isTabTxt && !isDb &&
+    !BINARY_EXTS.has(ext) && !TEXT_EXTS.has(ext)
+  const { data: sniffedAudio, isLoading: isSniffing } = useSniffedAudioType(
+    sniffAudio ? path : null,
+    stat?.currentVersion,
+  )
+
   const { data: content, isLoading, setContent } = useFileContent(
-    isImg || isVid || isPdf(path) || isTabBin || isDb || (isTabTxt && !showRaw)
+    isImg || isVid || isAud || isPdf(path) || isTabBin || isDb || (isTabTxt && !showRaw) ||
+      (sniffAudio && (isSniffing || !!sniffedAudio))
       ? null
       : path
   )
@@ -387,6 +413,15 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     )
   }
 
+  if (isAud || (sniffAudio && sniffedAudio)) {
+    return (
+      <div className={cn("flex flex-col h-full min-w-0", className)}>
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        <AudioViewer path={path} className="flex-1" />
+      </div>
+    )
+  }
+
   if (isPdf(path)) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
@@ -396,7 +431,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     )
   }
 
-  if (isLoading) {
+  if (isLoading || (sniffAudio && isSniffing)) {
     return (
       <div className={cn("flex items-center justify-center h-full", className)}>
         <Spinner />
