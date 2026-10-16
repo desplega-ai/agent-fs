@@ -4,7 +4,12 @@ import type { StorageAdapter } from "../storage/adapter.js";
 import type { EmbeddingProvider } from "./embeddings/provider.js";
 import { getS3Key } from "../ops/versioning.js";
 import { decodeIndexableText, detectMimeType } from "../ops/mime.js";
-import { indexFileEmbeddings, withEmbeddingSlot } from "./pipeline.js";
+import {
+  MAX_EMBED_CHARS,
+  clearEmbeddings,
+  indexFileEmbeddings,
+  withEmbeddingSlot,
+} from "./pipeline.js";
 
 /**
  * Re-embeds stored files when their vectors stop matching what the running
@@ -24,9 +29,14 @@ import { indexFileEmbeddings, withEmbeddingSlot } from "./pipeline.js";
 
 const FORMAT_KEY = "embedding_format";
 
-/** Bump the suffix whenever stored vectors must be rebuilt. v2: unit length. */
+/**
+ * Bump a provider's revision whenever its stored vectors must be rebuilt.
+ * v2: unit length. local v3: chunks over 512 tokens embedded in one batch.
+ */
+const REVISIONS: Record<string, number> = { local: 3 };
+
 export function embeddingFormat(provider: EmbeddingProvider): string {
-  return `${provider.name}:v2`;
+  return `${provider.name}:v${REVISIONS[provider.name] ?? 2}`;
 }
 
 /** Returns `true` when `runPendingEmbeddings()` has files to embed. */
@@ -57,7 +67,7 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
 export interface PendingEmbeddingsResult {
   indexed: number;
   failed: number;
-  /** Files with no indexable text; their status is cleared. */
+  /** Files with no indexable text, or text over `MAX_EMBED_CHARS`; their status is cleared. */
   skipped: number;
   /** Files written again during the run; the write's own job embeds them. */
   superseded: number;
@@ -65,15 +75,53 @@ export interface PendingEmbeddingsResult {
 
 type PendingRow = { orgId: string; driveId: string; path: string; version: string | null };
 
+export const DEFAULT_CPU_SHARE = 0.25;
+const MAX_PAUSE_MS = 30_000;
+
+/**
+ * Share of CPU time background index work (this re-embed and the int8 index
+ * backfill) may use, from `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE`. A number above 0 and at most 1;
+ * anything else gives the default. 1 runs without pauses.
+ */
+export function migrationCpuShare(raw: string | undefined): number {
+  const value = Number(raw?.trim());
+  return raw?.trim() && value > 0 && value <= 1 ? value : DEFAULT_CPU_SHARE;
+}
+
+/** Process CPU time (user + system) in milliseconds. */
+export function processCpuMs(): number {
+  const { user, system } = process.cpuUsage();
+  return (user + system) / 1000;
+}
+
+/** Pause after `cpuUsedMs` of work so the work uses at most `cpuShare` of CPU time. */
+export function pauseForCpuShare(cpuUsedMs: number, cpuShare: number): number {
+  return Math.min(MAX_PAUSE_MS, (cpuUsedMs * (1 - cpuShare)) / cpuShare);
+}
+
 export async function runPendingEmbeddings(
   db: DB,
   s3: StorageAdapter,
   provider: EmbeddingProvider,
-  opts: { batchSize?: number; log?: (msg: string) => void } = {}
+  opts: {
+    batchSize?: number;
+    log?: (msg: string) => void;
+    /**
+     * After each file, pause long enough that the migration uses at most this
+     * share of CPU time. On a small shared-CPU host, a run at full speed uses
+     * up the CPU quota and slows every request.
+     */
+    cpuShare?: number;
+    cpuMs?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {}
 ): Promise<PendingEmbeddingsResult> {
   const sqlite = (db as any).$client as Database;
   const batchSize = opts.batchSize ?? 50;
   const log = opts.log ?? (() => {});
+  const cpuShare = opts.cpuShare ?? DEFAULT_CPU_SHARE;
+  const cpuMs = opts.cpuMs ?? processCpuMs;
+  const sleep = opts.sleep ?? ((ms: number) => Bun.sleep(ms));
   const result: PendingEmbeddingsResult = { indexed: 0, failed: 0, skipped: 0, superseded: 0 };
 
   // One pass in key order. A row that a write queues again behind the cursor
@@ -101,6 +149,7 @@ export async function runPendingEmbeddings(
 
     for (const row of rows) {
       cursor = [row.driveId, row.path];
+      const cpuStart = cpuMs();
       try {
         const object = await s3.getObject(getS3Key(row.orgId, row.driveId, row.path));
         const content = decodeIndexableText(
@@ -109,6 +158,11 @@ export async function runPendingEmbeddings(
         );
         if (content === null) {
           if (setStatus.run(null, row.driveId, row.path, row.version).changes > 0) result.skipped++;
+          else result.superseded++;
+          continue;
+        }
+        if (content.length > MAX_EMBED_CHARS) {
+          if (clearEmbeddings(db, row)) result.skipped++;
           else result.superseded++;
           continue;
         }
@@ -126,6 +180,10 @@ export async function runPendingEmbeddings(
         // indexFileEmbeddings marks its own failures; this covers the read.
         setStatus.run("failed", row.driveId, row.path, row.version);
         result.failed++;
+      } finally {
+        // CPU used / pause = share / (1 - share). Requests run during the pause.
+        const pauseMs = pauseForCpuShare(cpuMs() - cpuStart, cpuShare);
+        if (pauseMs >= 1) await sleep(pauseMs);
       }
     }
 

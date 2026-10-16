@@ -5,6 +5,7 @@ import type { DB } from "../db/index.js";
 import type { EmbeddingProvider } from "./embeddings/provider.js";
 import { chunkContent } from "./chunker.js";
 import { toUnitVector } from "./vectors.js";
+import { insertQuantizedVector } from "./quantized-index.js";
 import { EmbeddingProviderError } from "../errors.js";
 
 function getRawDb(db: DB): Database {
@@ -53,6 +54,65 @@ export async function withEmbeddingSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Text longer than this is not embedded. Chunking runs on the main thread, so
+ * a 23 MB file blocked every request for many minutes on a small host. Its
+ * batch would also exceed OpenAI's per-request limits.
+ */
+export const MAX_EMBED_CHARS = 2_000_000;
+
+function deleteChunks(db: DB, params: { path: string; driveId: string }): void {
+  const raw = getRawDb(db);
+  const oldChunks = db
+    .select({ id: schema.contentChunks.id })
+    .from(schema.contentChunks)
+    .where(
+      and(
+        eq(schema.contentChunks.filePath, params.path),
+        eq(schema.contentChunks.driveId, params.driveId)
+      )
+    )
+    .all();
+
+  for (const chunk of oldChunks) {
+    raw.prepare("DELETE FROM chunk_vectors WHERE chunk_id = ?").run(chunk.id);
+  }
+
+  db.delete(schema.contentChunks)
+    .where(
+      and(
+        eq(schema.contentChunks.filePath, params.path),
+        eq(schema.contentChunks.driveId, params.driveId)
+      )
+    )
+    .run();
+}
+
+/**
+ * Drops the file's chunks and clears its status, as for a file with no
+ * indexable text. Does nothing and returns `false` when a newer write owns the
+ * file (same `version` contract as `indexFileEmbeddings`).
+ */
+export function clearEmbeddings(
+  db: DB,
+  params: { path: string; driveId: string; version: string | null }
+): boolean {
+  return getRawDb(db).transaction(() => {
+    if (readCurrentVersion(db, params) !== params.version) return false;
+    deleteChunks(db, params);
+    db.update(schema.files)
+      .set({ embeddingStatus: null })
+      .where(
+        and(
+          eq(schema.files.path, params.path),
+          eq(schema.files.driveId, params.driveId)
+        )
+      )
+      .run();
+    return true;
+  })();
+}
+
 /** The file's `current_version_id`, or `undefined` when the file is gone or deleted. */
 export function readCurrentVersion(
   db: DB,
@@ -83,6 +143,9 @@ export function readCurrentVersion(
  * job changes nothing and returns `false`: the newer write owns the chunks and
  * the status. The check and the whole replacement run in one transaction, so
  * a failed insert rolls back to the previous index.
+ *
+ * Text over `MAX_EMBED_CHARS` is not embedded: the job drops the file's chunks,
+ * clears its status, and returns `false`.
  */
 export async function indexFileEmbeddings(
   db: DB,
@@ -93,6 +156,10 @@ export async function indexFileEmbeddings(
   const isCurrent = () => readCurrentVersion(db, params) === params.version;
 
   if (!isCurrent()) return false;
+  if (params.content.length > MAX_EMBED_CHARS) {
+    clearEmbeddings(db, params);
+    return false;
+  }
 
   try {
     // 1. Chunk content
@@ -116,31 +183,7 @@ export async function indexFileEmbeddings(
       if (!isCurrent()) return false;
 
       // 3. Delete old chunks + vectors for this file
-      const oldChunks = db
-        .select({ id: schema.contentChunks.id })
-        .from(schema.contentChunks)
-        .where(
-          and(
-            eq(schema.contentChunks.filePath, params.path),
-            eq(schema.contentChunks.driveId, params.driveId)
-          )
-        )
-        .all();
-
-      for (const chunk of oldChunks) {
-        raw
-          .prepare("DELETE FROM chunk_vectors WHERE chunk_id = ?")
-          .run(chunk.id);
-      }
-
-      db.delete(schema.contentChunks)
-        .where(
-          and(
-            eq(schema.contentChunks.filePath, params.path),
-            eq(schema.contentChunks.driveId, params.driveId)
-          )
-        )
-        .run();
+      deleteChunks(db, params);
 
       // 4. Insert new chunks + vectors (paired)
       for (let i = 0; i < chunks.length; i++) {
@@ -158,6 +201,7 @@ export async function indexFileEmbeddings(
           .get();
 
         insertVec.run(result.id, vectors[i]);
+        insertQuantizedVector(raw, result.id, params.driveId, vectors[i]);
       }
 
       // 5. Update embedding status

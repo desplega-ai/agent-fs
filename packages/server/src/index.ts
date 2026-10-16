@@ -9,6 +9,10 @@ import {
   runFtsMigration,
   prepareEmbeddingMigration,
   runPendingEmbeddings,
+  migrationCpuShare,
+  prepareQuantizedIndex,
+  runQuantizedIndexBackfill,
+  vectorIndexMode,
   startServerTelemetry,
 } from "@/core";
 import type { Database } from "bun:sqlite";
@@ -78,10 +82,27 @@ if (ftsMigrationPending) {
   });
 }
 
+// Optional int8 vector index (AGENT_FS_VECTOR_INDEX=int8). It is
+// created before any embedding job runs, then backfilled in the background;
+// search uses the exact scan until the backfill finishes.
+if (prepareQuantizedIndex(sqlite, vectorIndexMode(process.env.AGENT_FS_VECTOR_INDEX))) {
+  runQuantizedIndexBackfill(sqlite, {
+    log: (msg) => console.log(msg),
+    cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
+  })
+    .then((n) => console.log(`vector int8 index ready: ${n} copied`))
+    .catch((err) => {
+      console.error("vector int8 index backfill failed (will resume on next start):", err);
+    });
+}
+
 // Re-embed files whose vectors predate the current provider or vector format,
 // plus any file whose on-write embedding never ran. Background, resumable.
 if (embeddingProvider && prepareEmbeddingMigration(sqlite, embeddingProvider)) {
-  runPendingEmbeddings(db, s3, embeddingProvider, { log: (msg) => console.log(msg) })
+  runPendingEmbeddings(db, s3, embeddingProvider, {
+    log: (msg) => console.log(msg),
+    cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
+  })
     .then((r) => console.log(`embedding migration done: ${r.indexed} embedded, ${r.failed} failed, ${r.skipped} skipped, ${r.superseded} superseded`))
     .catch((err) => {
       console.error("embedding migration failed (will resume on next start):", err);
