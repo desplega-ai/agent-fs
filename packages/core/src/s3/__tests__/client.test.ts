@@ -47,6 +47,24 @@ describe("S3 Client", () => {
     expect(client.versioningEnabled).toBe(false);
   });
 
+  test("sets bounded connection and idle socket timeouts", async () => {
+    const client = createClient() as unknown as {
+      client: {
+        config: {
+          requestHandler: { configProvider: Promise<unknown> };
+          maxAttempts: () => Promise<number>;
+        };
+      };
+    };
+
+    await expect(client.client.config.requestHandler.configProvider).resolves.toMatchObject({
+      connectionTimeout: 5_000,
+      socketTimeout: 30_000,
+      requestTimeout: undefined,
+    });
+    await expect(client.client.config.maxAttempts()).resolves.toBe(3);
+  });
+
   test("initializes with versioningEnabled from config", () => {
     const client = new AgentS3Client({
       provider: "minio",

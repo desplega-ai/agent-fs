@@ -4,6 +4,7 @@ import {
   FileCode,
   FileText,
   FileVideo,
+  Globe,
   Image,
   Lightbulb,
   ListChecks,
@@ -55,6 +56,9 @@ export function glyphFor(fullPath: string): Glyph {
     case "js":
     case "jsx":
       return { Icon: FileCode, className: "text-blue-500" }
+    case "html":
+    case "htm":
+      return { Icon: Globe, className: "text-orange-500" }
     case "json":
     case "yaml":
     case "yml":

@@ -235,6 +235,7 @@ export async function commentAdd(
       field: "path",
     });
   }
+  path = normalizePath(path);
 
   const mentionUserIds = params.mentions
     ? resolveMentions(ctx, params.mentions)
@@ -247,11 +248,11 @@ export async function commentAdd(
     .from(schema.fileVersions)
     .where(
       and(
-        eq(schema.fileVersions.path, normalizePath(path)),
+        eq(schema.fileVersions.path, path),
         eq(schema.fileVersions.driveId, ctx.driveId)
       )
     )
-    .orderBy(desc(schema.fileVersions.id))
+    .orderBy(desc(schema.fileVersions.version))
     .limit(1)
     .get();
 
@@ -327,7 +328,7 @@ export async function commentList(
   ];
 
   if (params.path) {
-    conditions.push(eq(schema.comments.path, params.path));
+    conditions.push(eq(schema.comments.path, normalizePath(params.path)));
   }
 
   if (params.pathPrefix !== undefined) {

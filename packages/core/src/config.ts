@@ -92,6 +92,10 @@ export interface AgentFSConfig {
     shareRateLimit?: {
       requestsPerMinute: number;
     };
+    /** Per-IP limit for the public /site/:token routes (default 600: one page load fetches many files). */
+    siteRateLimit?: {
+      requestsPerMinute: number;
+    };
     /**
      * Public address of this API server, e.g. https://agent-fs-acme.fly.dev.
      * Used to build absolute share links; when unset it is derived from the
@@ -286,6 +290,10 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
   if (env.AGENT_FS_SHARE_RATE_LIMIT) {
     const rpm = parseInt(env.AGENT_FS_SHARE_RATE_LIMIT, 10);
     if (Number.isFinite(rpm) && rpm >= 0) config.server.shareRateLimit = { requestsPerMinute: rpm };
+  }
+  if (env.AGENT_FS_SITE_RATE_LIMIT) {
+    const rpm = parseInt(env.AGENT_FS_SITE_RATE_LIMIT, 10);
+    if (Number.isFinite(rpm) && rpm >= 0) config.server.siteRateLimit = { requestsPerMinute: rpm };
   }
   if (env.AGENT_FS_PUBLIC_URL) config.server.publicUrl = env.AGENT_FS_PUBLIC_URL;
 

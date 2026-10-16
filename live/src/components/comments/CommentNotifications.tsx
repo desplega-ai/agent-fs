@@ -132,7 +132,10 @@ function NotificationRow({
   notification: CommentNotificationEntry
   onOpen: (notification: CommentNotificationEntry) => void
 }) {
-  const { display } = useDisplayName(notification.actor)
+  const { display } = useDisplayName(
+    notification.actor,
+    notification.actorDisplayName,
+  )
 
   return (
     <button

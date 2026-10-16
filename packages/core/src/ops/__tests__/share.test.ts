@@ -18,6 +18,7 @@ import {
   openShareView,
   presignShareUrl,
   presignedUrlDeadline,
+  siteObjectKey,
 } from "../share.js";
 import type { ShareCreateResult } from "../share.js";
 import type { OpContext } from "../types.js";
@@ -393,6 +394,89 @@ describe("share-revoke", () => {
       dispatchOp({ ...ctx, driveId: "some-other-drive" }, "share-revoke", { id: r.id }, { skipAuth: true })
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(getShareState(findShareByToken(t.db, tokenOf(r))!)).toBe("active");
+  });
+});
+
+describe("site shares (folders)", () => {
+  const siteTokenOf = (r: ShareCreateResult) => r.sharePath.replace(/^\/site\/|\/$/g, "");
+
+  beforeEach(async () => {
+    await dispatchOp(ctx, "write", { path: "/site/index.html", content: "<h1>hi</h1>" });
+    await dispatchOp(ctx, "write", { path: "/site/sub/page.html", content: "<p>sub</p>" });
+  });
+
+  test("a folder becomes a site share with a /site/<token>/ link", async () => {
+    for (const path of ["/site", "site/", "/site/"]) {
+      const r = await create({ path });
+      expect(r.kind).toBe("site");
+      expect(r.path).toBe("/site");
+      expect(r.sharePath).toMatch(/^\/site\/[A-Za-z0-9_-]{43}\/$/);
+      expect(r.url).toBe(`https://api.example.test${r.sharePath}`);
+      expect(r.maxViews).toBeNull();
+      expect(findShareByToken(t.db, siteTokenOf(r))!.kind).toBe("site");
+    }
+    // A folder with only sub-folders is still a folder.
+    expect((await create({ path: "/site/sub" })).kind).toBe("site");
+  });
+
+  test("a file stays a file share", async () => {
+    const r = await create();
+    expect(r.kind).toBe("file");
+    expect(findShareByToken(t.db, tokenOf(r))!.kind).toBe("file");
+  });
+
+  test("the drive root can be shared as a site", async () => {
+    const r = await create({ path: "/" });
+    expect(r.kind).toBe("site");
+    expect(r.path).toBe("/");
+  });
+
+  test("a missing folder is not found and creates no row", async () => {
+    await expect(create({ path: "/nope/" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      message: expect.stringContaining("File or folder not found"),
+    });
+    expect(t.db.select().from(schema.shares).all()).toHaveLength(0);
+  });
+
+  test("maxViews is refused for a folder and creates no row", async () => {
+    await expect(create({ path: "/site", maxViews: 1 })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(t.db.select().from(schema.shares).all()).toHaveLength(0);
+  });
+
+  test("share-revoke by path matches the folder with or without the trailing slash", async () => {
+    const a = await create({ path: "/site" });
+    expect(await dispatchOp(ctx, "share-revoke", { path: "site/" })).toEqual({ revoked: 1, ids: [a.id] });
+    const b = await create({ path: "site/" });
+    expect(await dispatchOp(ctx, "share-revoke", { path: "site" })).toEqual({ revoked: 1, ids: [b.id] });
+    const root = await create({ path: "/" });
+    expect(await dispatchOp(ctx, "share-revoke", { path: "/" })).toEqual({ revoked: 1, ids: [root.id] });
+  });
+
+  test("share-revoke takes the site URL as the token", async () => {
+    const r = await create({ path: "/site" });
+    expect(extractShareToken(r.url)).toBe(siteTokenOf(r));
+    expect(extractShareToken(`${r.url}sub/page.html?x=1`)).toBe(siteTokenOf(r));
+    expect(await dispatchOp(ctx, "share-revoke", { token: r.url })).toEqual({ revoked: 1, ids: [r.id] });
+  });
+
+  test("siteObjectKey decodes once, stays inside the folder, and refuses file shares", async () => {
+    const site = findShareByToken(t.db, siteTokenOf(await create({ path: "/site" })))!;
+    const base = `${t.orgId}/drives/${t.driveId}/site/`;
+    expect(siteObjectKey(site, "index.html")).toBe(`${base}index.html`);
+    expect(siteObjectKey(site, "sub/a%20b.html")).toBe(`${base}sub/a b.html`);
+    expect(siteObjectKey(site, "a%2Fb")).toBe(`${base}a/b`);
+    // Decoded once only: the literal name `%2e%2e`, not `..`.
+    expect(siteObjectKey(site, "%252e%252e/x")).toBe(`${base}%2e%2e/x`);
+    for (const bad of ["../x", "%2e%2e/x", "..%2Fx", "a/%2E%2E/%2E%2E/x", "./x", "a%5C..%5Cx", "a%00b", "%E0%A4%A"]) {
+      expect(siteObjectKey(site, bad)).toBeNull();
+    }
+
+    const root = findShareByToken(t.db, siteTokenOf(await create({ path: "/" })))!;
+    expect(siteObjectKey(root, "site/index.html")).toBe(`${base}index.html`);
+
+    const file = findShareByToken(t.db, tokenOf(await create()))!;
+    expect(siteObjectKey(file, "x")).toBeNull();
   });
 });
 

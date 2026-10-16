@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { outputResult } from "../formatters.js";
+import { diffSourceWarning, outputResult, writeLinkWarnings } from "../formatters.js";
 import { stdio } from "../stdio.js";
 
 // Capture stdio.writeStdout output (outputResult writes via a flush-safe
@@ -72,6 +72,46 @@ describe("signed-url formatter", () => {
   });
 });
 
+describe("share-create formatter", () => {
+  test("file share prints the URL and the view limit", () => {
+    const result = {
+      id: "share-1",
+      kind: "file",
+      url: "http://127.0.0.1:7433/share/tok",
+      sharePath: "/share/tok",
+      path: "/notes.md",
+      expiresIn: 3600,
+      expiresAt: "2026-03-19T13:00:00.000Z",
+      maxViews: 1,
+    };
+
+    const output = captureOutput(() => outputResult("share-create", result, false));
+    expect(output.split("\n")[0]).toBe("http://127.0.0.1:7433/share/tok");
+    expect(output).toContain("Views:   one-off (1 view)");
+    expect(output).not.toContain("Site:");
+    expect(output).toContain("share-revoke share-1");
+  });
+
+  test("site share prints Site: <url> and no Views line", () => {
+    const result = {
+      id: "share-2",
+      kind: "site",
+      url: "http://127.0.0.1:7433/site/tok/",
+      sharePath: "/site/tok/",
+      path: "/site-e2e",
+      expiresIn: 3600,
+      expiresAt: "2026-03-19T13:00:00.000Z",
+      maxViews: null,
+    };
+
+    const output = captureOutput(() => outputResult("share-create", result, false));
+    expect(output.split("\n")[0]).toBe("Site: http://127.0.0.1:7433/site/tok/");
+    expect(output).not.toContain("Views:");
+    expect(output).toContain("Expires:");
+    expect(output).toContain("share-revoke share-2");
+  });
+});
+
 describe("stat formatter with appUrl", () => {
   test("includes App URL when present in stat result", () => {
     const result = {
@@ -123,5 +163,54 @@ describe("drive-members formatter", () => {
     expect(output).toContain("a@example.com");
     expect(output).toContain("user-2");
     expect(output).not.toContain("role");
+  });
+});
+
+describe("favorite formatters", () => {
+  test("list marks folders with a trailing slash", () => {
+    const result = {
+      favorites: [
+        { path: "/docs", kind: "directory", createdAt: "2026-10-10T10:00:00.000Z" },
+        { path: "/notes.md", kind: "file", createdAt: "2026-10-10T10:00:00.000Z" },
+      ],
+    };
+    const output = captureOutput(() => outputResult("favorite-list", result, false));
+    expect(output).toContain("/docs/");
+    expect(output).toContain("/notes.md");
+    expect(captureOutput(() => outputResult("favorite-list", { favorites: [] }, false))).toContain("(no favorites)");
+  });
+
+  test("remove says when there was no star", () => {
+    expect(captureOutput(() => outputResult("favorite-remove", { path: "/a.md", removed: true }, false))).toContain("Unstarred /a.md");
+    expect(captureOutput(() => outputResult("favorite-remove", { path: "/a.md", removed: false }, false))).toContain("was not starred");
+  });
+});
+
+describe("diff source warning", () => {
+  test("no warning when the versions were compared", () => {
+    expect(diffSourceWarning({ changes: [], source: "content" })).toBeNull();
+  });
+
+  test("warns that the versions were not compared for summary and none", () => {
+    expect(diffSourceWarning({ changes: [{ type: "add", content: "x" }], source: "summary" })).toContain("not compared");
+    expect(diffSourceWarning({ changes: [], source: "none" })).toContain("not compared");
+  });
+
+  test("warns on an empty result from a server that omits source", () => {
+    expect(diffSourceWarning({ changes: [] })).toContain("may mean they were not");
+    expect(diffSourceWarning({ changes: [{ type: "add", content: "x" }] })).toBeNull();
+  });
+});
+
+describe("write link warnings", () => {
+  test("one stderr line per missing target", () => {
+    const lines = writeLinkWarnings({
+      warnings: [{ link: "reports/x.png", resolvedPath: "/reports/reports/x.png", message: "m" }],
+    });
+    expect(lines).toEqual(["warning: link not found at write time: reports/x.png -> /reports/reports/x.png"]);
+  });
+
+  test("nothing when the result has no warnings", () => {
+    expect(writeLinkWarnings({ version: 1, path: "/a.md" })).toEqual([]);
   });
 });

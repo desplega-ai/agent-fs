@@ -220,6 +220,39 @@ function formatDiff(result: any): string {
     .join("\n");
 }
 
+/**
+ * stderr warning for a diff whose versions were not compared line by line, or
+ * null when they were. An empty change list from the summary fallback looks
+ * exactly like two identical versions, so the CLI must say which it is.
+ */
+export function diffSourceWarning(result: any): string | null {
+  switch (result?.source) {
+    case "content":
+      return null;
+    case "summary":
+      return "warning: versions were not compared; changes come from the stored edit summary only (storage backend has no usable object versions)";
+    case "none":
+      return "warning: versions were not compared and no stored summary exists; empty changes do NOT mean the versions are identical (storage backend has no usable object versions)";
+    default:
+      // Older server without `source`: an empty result is ambiguous.
+      if ((result?.changes ?? []).length === 0) {
+        return "warning: server did not report whether the versions were compared; empty changes may mean they were not";
+      }
+      return null;
+  }
+}
+
+/**
+ * stderr lines for a write whose markdown links point at paths missing from
+ * the drive. The write itself succeeded; this only flags likely broken links.
+ */
+export function writeLinkWarnings(result: any): string[] {
+  if (!Array.isArray(result?.warnings)) return [];
+  return result.warnings.map(
+    (w: any) => `warning: link not found at write time: ${w.link} -> ${w.resolvedPath}`
+  );
+}
+
 function formatTail(result: any): string {
   // tail returns CatResult, same format as cat
   return formatCat(result);
@@ -294,6 +327,13 @@ function formatSignedUrl(result: any): string {
 }
 
 function formatShareCreate(result: any): string {
+  if (result.kind === "site") {
+    // Site shares (a folder) have no view limit, so there is no Views line.
+    let out = `Site: ${result.url}\n\nExpires: ${formatDate(result.expiresAt)} (${result.expiresIn}s)`;
+    out += `\nID:      ${result.id}  (revoke: agent-fs share-revoke ${result.id})`;
+    if (result.appUrl) out += `\nApp:     ${result.appUrl}`;
+    return out;
+  }
   const views = result.maxViews === null || result.maxViews === undefined
     ? "unlimited"
     : result.maxViews === 1 ? "one-off (1 view)" : `up to ${result.maxViews}`;
@@ -327,6 +367,22 @@ function formatDriveMembers(result: any): string {
     .join("\n");
 }
 
+function formatFavoriteAdd(result: any): string {
+  return `Starred ${result.path}${result.kind === "directory" ? "/" : ""}`;
+}
+
+function formatFavoriteRemove(result: any): string {
+  return result.removed ? `Unstarred ${result.path}` : `${result.path} was not starred`;
+}
+
+function formatFavoriteList(result: any): string {
+  const favorites: any[] = result.favorites ?? [];
+  if (favorites.length === 0) return "(no favorites)";
+  return favorites
+    .map((f) => (f.kind === "directory" ? `${f.path}/` : f.path))
+    .join("\n");
+}
+
 // --- Formatter registry ---
 
 const formatters: Record<string, (result: any) => string> = {
@@ -356,6 +412,9 @@ const formatters: Record<string, (result: any) => string> = {
   "share-create": formatShareCreate,
   "share-revoke": formatShareRevoke,
   "drive-members": formatDriveMembers,
+  "favorite-add": formatFavoriteAdd,
+  "favorite-remove": formatFavoriteRemove,
+  "favorite-list": formatFavoriteList,
 };
 
 function formatResult(opName: string, result: any): string {

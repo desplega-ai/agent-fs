@@ -47,10 +47,31 @@ const EXTRA_MIME: Record<string, string> = {
 /**
  * Extensions that browsers render as an active document. These are never
  * previewed and never served with their own content type: download only.
+ * Plain HTML is the exception: it renders in a sandboxed frame (see `HTML_EXT`).
  */
 const DOWNLOAD_ONLY_EXT = new Set([
-  "html", "htm", "xhtml", "xht", "shtml", "mht", "mhtml", "svg", "svgz",
+  "xhtml", "xht", "shtml", "mht", "mhtml", "svg", "svgz",
 ]);
+
+/** HTML pages render in a sandboxed frame, served by `/raw` with `HTML_RAW_CSP`. */
+const HTML_EXT = new Set(["html", "htm"]);
+
+/**
+ * Sandbox tokens for shared HTML, both a file's frame and a folder site. Never
+ * add `allow-same-origin`: the page must get an opaque origin, so it cannot
+ * read anything else on this host.
+ */
+export const HTML_SANDBOX = "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals";
+
+/**
+ * CSP for a shared HTML file's bytes. The sandbox applies whether the page is
+ * framed by the share page or opened on its own. No `default-src` limit, so
+ * pages can load fonts and scripts from CDNs.
+ */
+export const HTML_RAW_CSP = `sandbox ${HTML_SANDBOX}; frame-ancestors 'self'`;
+
+/** Largest HTML file rendered from a share link; `/raw` buffers the whole body. */
+export const SHARE_HTML_MAX_BYTES = 25 * 1024 * 1024;
 
 /** Types that may be embedded inline. Deliberately excludes SVG and HTML. */
 const EMBEDDABLE_MIME = new Set([
@@ -60,7 +81,7 @@ const EMBEDDABLE_MIME = new Set([
   "video/mp4", "video/webm", "video/quicktime", "video/ogg",
 ]);
 
-export type ShareKind = "markdown" | "text" | "image" | "pdf" | "audio" | "video" | "sniff" | "none";
+export type ShareKind = "markdown" | "text" | "html" | "image" | "pdf" | "audio" | "video" | "sniff" | "none";
 
 export interface ShareFileType {
   /** Content type used for delivery. `application/octet-stream` for download-only types. */
@@ -81,6 +102,7 @@ export function classifyShareFile(path: string): ShareFileType {
   if (DOWNLOAD_ONLY_EXT.has(ext)) {
     return { mime: "application/octet-stream", kind: "none", downloadOnly: true };
   }
+  if (HTML_EXT.has(ext)) return { mime: "text/html", kind: "html", downloadOnly: false };
 
   let mime = detectMimeType(path);
   if (mime === "application/octet-stream" && EXTRA_MIME[ext]) mime = EXTRA_MIME[ext];
@@ -113,9 +135,12 @@ export function isEmbeddable(type: ShareFileType): boolean {
   return EMBEDDABLE_MIME.has(type.mime) && !type.downloadOnly;
 }
 
-/** Content-Type header for bytes served by the share routes. */
+/**
+ * Content-Type header for bytes served by the share routes. HTML is opaque
+ * here: only `/raw` serves it as a page, with its own sandbox CSP.
+ */
 export function shareContentType(type: ShareFileType): string {
-  return withUtf8Charset(type.mime);
+  return type.kind === "html" ? "application/octet-stream" : withUtf8Charset(type.mime);
 }
 
 // --- Markdown ---
@@ -186,6 +211,7 @@ html:not(.js) .js-only{display:none!important}
 .sub{margin:2px 0 0;color:var(--muted);font-size:13px}
 .actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
 .btn{display:inline-block;padding:8px 16px;border-radius:8px;background:var(--accent);color:var(--accent-fg);font-weight:600;text-decoration:none;white-space:nowrap}
+.btn.ghost{background:transparent;color:var(--fg);box-shadow:inset 0 0 0 1px var(--line)}
 .btn:focus-visible,.tool:focus-visible,.theme-select:focus-visible{outline:2px solid var(--fg);outline-offset:2px}
 .theme-select,.tool{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
 .tool:hover,.theme-select:hover{background:var(--card)}
@@ -273,6 +299,7 @@ img.media{cursor:zoom-in}
 img.media.zoomed{max-width:none;cursor:zoom-out}
 main:has(img.media.zoomed){max-width:none;overflow-x:auto}
 iframe.media{width:100%;height:80vh;border:1px solid var(--line)}
+iframe.media.page{background:#fff}
 audio.media,video.media{width:100%}
 .card{text-align:center;padding:48px 20px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
 .card h2{margin:0 0 8px;font-size:18px}
@@ -376,7 +403,7 @@ export function renderPreviewBotPage(): string {
 export type ShareBody =
   | { kind: "markdown"; doc: MarkdownDocument; source: string }
   | { kind: "text"; text: string }
-  | { kind: "embed"; tag: "img" | "iframe" | "audio" | "video"; src: string }
+  | { kind: "embed"; tag: EmbedTag; src: string }
   | { kind: "none"; reason: string };
 
 export interface SharePageInput {
@@ -397,16 +424,22 @@ export interface SharePageInput {
   body: ShareBody;
 }
 
+/** `html` is an iframe with the HTML sandbox. */
+export type EmbedTag = "img" | "iframe" | "html" | "audio" | "video";
+
 /** `?g=<grant>` for a byte-route URL, or nothing for an unlimited link. */
 export function grantQuery(grant: string | null | undefined): string {
   return grant ? `?g=${encodeURIComponent(grant)}` : "";
 }
 
-function renderEmbed(tag: "img" | "iframe" | "audio" | "video", rawSrc: string, filename: string): string {
+function renderEmbed(tag: EmbedTag, rawSrc: string, filename: string): string {
   const src = escapeHtml(rawSrc);
   const label = escapeHtml(filename);
   if (tag === "img") return `<img class="media" src="${src}" alt="${label}">`;
   if (tag === "iframe") return `<iframe class="media" src="${src}" title="${label}"></iframe>`;
+  if (tag === "html") {
+    return `<iframe class="media page" src="${src}" title="${label}" sandbox="${HTML_SANDBOX}" referrerpolicy="no-referrer"></iframe>`;
+  }
   if (tag === "audio") return `<audio class="media" src="${src}" controls preload="metadata"></audio>`;
   return `<video class="media" src="${src}" controls preload="metadata"></video>`;
 }
@@ -472,6 +505,11 @@ export function renderSharePage(input: SharePageInput): string {
   const type = mime === "application/octet-stream" ? "" : `${escapeHtml(mime)} · `;
   const reading = body.kind === "markdown" ? `${formatReadingTime(body.doc.words)} · ` : "";
   const wide = body.kind === "markdown" && body.doc.toc.length >= MIN_TOC_ENTRIES;
+  // A rendered HTML page also opens on its own, outside this page's frame.
+  const openFullPage =
+    body.kind === "embed" && body.tag === "html"
+      ? `<a class="btn ghost" href="${escapeHtml(body.src)}" target="_blank" rel="noopener noreferrer">Open full page</a>\n`
+      : "";
   return shell(
     `${filename} · agent-fs`,
     `<header class="bar">
@@ -481,7 +519,7 @@ export function renderSharePage(input: SharePageInput): string {
 </div>
 <div class="actions">
 ${THEME_PICKER}
-<a class="btn" href="/share/${token}/download${grantQuery(input.grant)}">Download</a>
+${openFullPage}<a class="btn" href="/share/${token}/download${grantQuery(input.grant)}">Download</a>
 </div>
 </header>
 <main${wide ? ` class="wide"` : ""}>

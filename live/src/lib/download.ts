@@ -30,9 +30,12 @@ export async function downloadFile(
   try {
     // Try signed URL first — preferred path; lets the browser stream binaries.
     try {
-      const { url } = await client.getSignedUrl(orgId, driveId, path)
-      triggerAnchorDownload(url, inferredName, newWindow)
-      return
+      const { url, kind } = await client.getSignedUrl(orgId, driveId, path)
+      // An `app` link opens the viewer page instead of downloading the bytes.
+      if (kind !== "app") {
+        triggerAnchorDownload(url, inferredName, newWindow)
+        return
+      }
     } catch {
       // fall through to raw fetch
     }

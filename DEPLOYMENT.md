@@ -72,6 +72,18 @@ docker run -d -p 7433:7433 -v agent-fs-data:/data ghcr.io/desplega-ai/agent-fs:l
 
 Images are tagged with the full version (`0.2.0`), major.minor (`0.2`), major (`0`), git SHA, and `latest`. Browse available tags at [ghcr.io/desplega-ai/agent-fs](https://github.com/desplega-ai/agent-fs/pkgs/container/agent-fs).
 
+### Live UI image
+
+Each release also publishes `ghcr.io/desplega-ai/agent-fs-live` with the same tags: the `live/` app served by nginx on port 8080 as a non-root user, with `/healthz` for probes. It needs only `/tmp` writable:
+
+```bash
+docker run --rm --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges -p 8080:8080 ghcr.io/desplega-ai/agent-fs-live:<version>
+```
+
+Use the same `<version>` as your server image, and enter the server URL and API key in the UI. `VITE_*` values are compiled in, so runtime env vars do not configure it. The image is built with `VITE_ANONYMIZED_TELEMETRY=false`, so it sends no telemetry. To opt in, build it with `docker build -f Dockerfile.live --build-arg VITE_ANONYMIZED_TELEMETRY=true .`.
+
+To keep the UI and the API on one origin (no CORS), serve the API under a path prefix such as `/fs` on the UI host, strip the prefix before it reaches the server, and enter `https://<ui-host>/fs` as the endpoint. The API's own routes (`/orgs/...`) collide with the UI's routes, so they cannot share the root. Check an image locally with `bash scripts/smoke-live-image.sh <image>`.
+
 ## Fly.io Deployment
 
 ### Quick Start (Interactive Script)
@@ -179,6 +191,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `DO_NOT_TRACK` | _(env only)_ | _(unset)_ | Any value except empty, `0`, `false`, `no`, or `off` also stops telemetry. |
 | `AGENT_FS_PUBLIC_URL` | `server.publicUrl` | _(derived from the request)_ | Public address of this API server (e.g. `https://agent-fs-acme.fly.dev`), used to build absolute `/share/<token>` links. Set it when a proxy does not forward `Host` / `X-Forwarded-Proto`. |
 | `AGENT_FS_SHARE_RATE_LIMIT` | `server.shareRateLimit.requestsPerMinute` | `120` | Per-IP requests per minute for the public `/share/*` routes; `0` disables. Behind a reverse proxy other than Fly, all traffic shares the proxy's address, so raise it. |
+| `AGENT_FS_SITE_RATE_LIMIT` | `server.siteRateLimit.requestsPerMinute` | `600` | Per-IP requests per minute for the public `/site/*` routes (folder shares); `0` disables. One page load fetches many files, so it is higher than the share limit. |
 | `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
 
 When both `AWS_*` and `S3_*` variants are set, the `AWS_*` variant takes precedence (Tigris injects `AWS_*` automatically).

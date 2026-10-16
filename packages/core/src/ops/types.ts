@@ -126,6 +126,19 @@ export interface WriteResult {
   contentHash?: string;
   /** True when the write was a no-op because head already had identical content. */
   deduped?: boolean;
+  /**
+   * Markdown only, present only when non-empty: links and images whose target
+   * was not in the drive at write time. Non-fatal; the write succeeded.
+   */
+  warnings?: WriteLinkWarning[];
+}
+
+export interface WriteLinkWarning {
+  /** The link target exactly as written in the markdown. */
+  link: string;
+  /** Drive path the target resolves to, relative to the file's own folder. */
+  resolvedPath: string;
+  message: string;
 }
 
 export interface CatResult {
@@ -229,8 +242,19 @@ export interface DiffChange {
   newLine?: number;
 }
 
+/**
+ * Which path produced a DiffResult:
+ * - "content": both versions were fetched and compared line by line.
+ * - "summary": the versions were not compared; `changes` comes from the
+ *   stored edit summary of v2 (old/new snippet only).
+ * - "none": the versions were not compared and v2 has no usable summary, so
+ *   `changes` is empty. This is NOT evidence that the versions are identical.
+ */
+export type DiffSource = "content" | "summary" | "none";
+
 export interface DiffResult {
   changes: DiffChange[];
+  source: DiffSource;
 }
 
 export interface RevertResult {
@@ -384,6 +408,7 @@ export interface CommentNotificationEntry {
   path: string;
   body: string;
   actor: string;
+  actorDisplayName?: string;
   createdAt: Date;
   read: boolean;
 }
@@ -418,6 +443,39 @@ export interface DriveMember {
 
 export interface DriveMembersResult {
   members: DriveMember[];
+}
+
+// --- Favorite types ---
+
+export type FavoriteKind = "file" | "directory";
+
+export interface FavoriteAddParams {
+  path: string;
+}
+
+export interface FavoriteRemoveParams {
+  path: string;
+}
+
+export interface FavoriteListParams {}
+
+export interface Favorite {
+  path: string;
+  kind: FavoriteKind;
+  createdAt: string;
+}
+
+export interface FavoriteAddResult extends Favorite {
+  favorited: true;
+}
+
+export interface FavoriteRemoveResult {
+  path: string;
+  removed: boolean;
+}
+
+export interface FavoriteListResult {
+  favorites: Favorite[];
 }
 
 // --- Tree types ---

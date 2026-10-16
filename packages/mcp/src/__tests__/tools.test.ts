@@ -99,6 +99,29 @@ describe("registerTools", () => {
     expect(parsed.version).toBe(1);
     expect(parsed.path).toBe("/mcp-test.txt");
   });
+
+  test("share-create on a folder returns a site share with a /site/ URL", async () => {
+    const handlers = new Map<string, (params: any, extra: any) => Promise<any>>();
+    const mockServer = {
+      tool: (name: string, _desc: string, _schema: any, handler: any) => {
+        handlers.set(name, handler);
+      },
+    };
+
+    const { ctx } = createTestContext();
+    registerTools(mockServer as any, () => ({ ...ctx, apiUrl: "http://127.0.0.1:7433" }));
+
+    const write = handlers.get("write")!;
+    await write({ path: "/mcp-site/index.html", content: "<!doctype html><p>hi</p>" }, {});
+
+    const result = await handlers.get("share-create")!({ path: "/mcp-site" }, {});
+    expect(result.isError).toBeFalsy();
+    const body = JSON.parse(result.content[0].text);
+    expect(body.kind).toBe("site");
+    expect(body.sharePath).toMatch(/^\/site\/[^/]+\/$/);
+    expect(body.url).toBe(`http://127.0.0.1:7433${body.sharePath}`);
+    expect(body.maxViews).toBeNull();
+  });
 });
 
 describe("ops tool error surfacing", () => {

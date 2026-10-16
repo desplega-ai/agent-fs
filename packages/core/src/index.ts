@@ -61,6 +61,9 @@ export {
   commentDelete,
   commentResolve,
   driveMembers,
+  favoriteAdd,
+  favoriteRemove,
+  favoriteList,
 } from "./ops/index.js";
 export {
   getS3Key,
@@ -80,6 +83,7 @@ export {
   consumeShareView,
   openShareView,
   shareStorageKey,
+  siteObjectKey,
   capUrlTtlSeconds,
   presignShareUrl,
   presignedUrlDeadline,
@@ -92,6 +96,7 @@ export {
 } from "./ops/share.js";
 export type {
   ShareRecord,
+  ShareKind,
   ShareState,
   ShareCreateResult,
   ShareRevokeResult,

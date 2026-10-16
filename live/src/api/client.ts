@@ -5,6 +5,7 @@ import type {
   OrgMembersResult,
   RegisterResponse,
   RmResult,
+  FavoriteListResult,
   SqlResult,
   SqlTableBinding,
   WriteParams,
@@ -17,9 +18,11 @@ export type SignedUrlDisposition = "inline" | "attachment"
 /** Result of the core `share-create` op. */
 export interface ShareCreateResult {
   id: string
+  /** `site` when `path` is a folder. Absent on servers older than site shares. */
+  kind?: "file" | "site"
   /** Absolute when the server knows its public address, otherwise the same as `sharePath`. */
   url: string
-  /** Host-relative link, always `/share/<token>`. */
+  /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
   sharePath: string
   path: string
   expiresIn: number
@@ -173,13 +176,14 @@ export class AgentFsClient {
     orgId: string,
     driveId: string,
     path: string,
-    options?: { disposition?: SignedUrlDisposition },
+    options?: { disposition?: SignedUrlDisposition; signal?: AbortSignal },
   ): Promise<{ url: string; expiresAt: string; expiresIn?: number; kind?: "presigned" | "app" }> {
     return this.callOp<{ url: string; expiresAt: string; expiresIn?: number; kind?: "presigned" | "app" }>(
       orgId,
       "signed-url",
       options?.disposition ? { path, disposition: options.disposition } : { path },
       driveId,
+      { signal: options?.signal },
     )
   }
 
@@ -191,6 +195,15 @@ export class AgentFsClient {
     options?: { expiresIn?: number; maxViews?: number },
   ): Promise<ShareCreateResult> {
     return this.callOp<ShareCreateResult>(orgId, "share-create", { path, ...options }, driveId)
+  }
+
+  async listFavorites(orgId: string, driveId: string, opts?: { signal?: AbortSignal }): Promise<FavoriteListResult> {
+    return this.callOp<FavoriteListResult>(orgId, "favorite-list", {}, driveId, opts)
+  }
+
+  /** Star or unstar `path` for the signed-in user. The server takes the user from the API key. */
+  async setFavorite(orgId: string, driveId: string, path: string, favorite: boolean): Promise<void> {
+    await this.callOp(orgId, favorite ? "favorite-add" : "favorite-remove", { path }, driveId)
   }
 
   async sqlQuery(
@@ -297,12 +310,45 @@ export class AgentFsClient {
     return `${this.endpoint}/orgs/${orgId}/drives/${driveId}/files/${encodeURIComponent(path)}/raw`
   }
 
-  async fetchRaw(orgId: string, driveId: string, path: string): Promise<Blob> {
+  /**
+   * The raw route answers with `max-age=60`; reads default to `no-store` so an
+   * edited file is never served from the browser cache.
+   */
+  async fetchRawResponse(
+    orgId: string,
+    driveId: string,
+    path: string,
+    init?: Omit<RequestInit, "headers">,
+  ): Promise<Response> {
     const url = this.getRawUrl(orgId, driveId, path)
     const res = await fetch(url, {
+      cache: "no-store",
+      ...init,
       headers: { Authorization: `Bearer ${this.apiKey}` },
     })
     if (!res.ok) throw new Error(`Failed to fetch raw: ${res.statusText}`)
-    return res.blob()
+    return res
+  }
+
+  async fetchRaw(orgId: string, driveId: string, path: string, init?: Omit<RequestInit, "headers">): Promise<Blob> {
+    return (await this.fetchRawResponse(orgId, driveId, path, init)).blob()
+  }
+
+  /**
+   * A URL the browser can load for `path`. Backends without presigned URLs
+   * answer `signed-url` with an `app` link, which is the viewer page rather
+   * than the bytes; those are read through the authenticated raw route into
+   * an object URL that the caller must revoke.
+   */
+  async fetchableUrl(
+    orgId: string,
+    driveId: string,
+    path: string,
+    options?: { disposition?: SignedUrlDisposition; signal?: AbortSignal },
+  ): Promise<{ url: string; expiresAt: string; objectUrl: boolean }> {
+    const result = await this.getSignedUrl(orgId, driveId, path, options)
+    if (result.kind !== "app") return { url: result.url, expiresAt: result.expiresAt, objectUrl: false }
+    const blob = await this.fetchRaw(orgId, driveId, path, { signal: options?.signal })
+    return { url: URL.createObjectURL(blob), expiresAt: "", objectUrl: true }
   }
 }

@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
 import { getConfig, getOpDefinition } from "@/core";
-import { outputResult } from "../formatters.js";
+import { diffSourceWarning, outputResult, writeLinkWarnings } from "../formatters.js";
 import { stdio } from "../stdio.js";
 
 interface OpCommandDef {
@@ -82,6 +82,9 @@ const OP_COMMANDS: OpCommandDef[] = [
       { flag: "--path <path>", description: "Revoke every share link of this file" },
     ],
   },
+  { name: "favorite-add", args: [{ name: "path", required: true }], options: [] },
+  { name: "favorite-remove", args: [{ name: "path", required: true }], options: [] },
+  { name: "favorite-list", args: [], options: [] },
 ];
 
 export function registerOpCommands(
@@ -233,11 +236,17 @@ export function registerOpCommands(
             ifMatch: params.expectedVersion,
             message: params.message,
           });
+          for (const warning of writeLinkWarnings(result)) console.error(warning);
           outputResult(def.name, result, program.opts().json);
           return;
         }
 
         const result = await client.callOp(orgId, def.name, params);
+
+        if (def.name === "write") {
+          // stderr even in --json mode: stdout stays the result document.
+          for (const warning of writeLinkWarnings(result)) console.error(warning);
+        }
 
         if (def.name === "cat" && result?.truncated) {
           // Always surfaced on stderr — even in --json mode — so a
@@ -246,6 +255,13 @@ export function registerOpCommands(
           // content or the JSON document, never this marker).
           const shown = result.content ? String(result.content).split("\n").length : 0;
           console.error(`truncated: showing ${shown} of ${result.totalLines} lines (use --limit)`);
+        }
+
+        if (def.name === "diff") {
+          // stderr even in --json mode, like the cat truncation marker: an
+          // uncompared diff must never pass for a clean one.
+          const warning = diffSourceWarning(result);
+          if (warning) console.error(warning);
         }
 
         if (def.name === "cat" && !program.opts().json && (catRaw || !catStdoutIsTty)) {

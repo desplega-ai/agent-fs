@@ -5,14 +5,22 @@ import { FolderOpen } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
 import { FileTreeNode } from "./FileTreeNode"
-import { FileTreeContextMenu, type TreeMenuTarget } from "./FileTreeContextMenu"
+import {
+  FileTreeContextMenu,
+  FileTreeDialogs,
+  FileTreeMenuItems,
+  type TreeDialog,
+  type TreeMenuTarget,
+} from "./FileTreeContextMenu"
 import { FileSearchPanel } from "./FileSearchPanel"
+import { useFavorites } from "@/hooks/use-favorites"
 import { treeExpansionStore, useExpandedPaths, useFocusedPath } from "@/stores/tree-expansion"
 import { useSearchInput } from "@/contexts/search-input"
 import { describeRequestError } from "@/lib/request-errors"
 import { fetchReveal } from "@/lib/reveal"
 import { expandedDirsKey, flattenTree, listingsByPath, type TreeRow } from "@/lib/tree-rows"
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu"
+import { DropdownMenu, DropdownMenuContent, createDropdownMenuHandle } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, createTooltipHandle } from "@/components/ui/tooltip"
 import type { LsResult } from "@/api/types"
 
@@ -200,6 +208,12 @@ interface VirtualTreeProps {
  * scroll re-renders this list, not the listing queries and flattening above.
  */
 function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualTreeProps) {
+  const favorites = useFavorites()
+  const { toggleFavorite } = favorites
+  const toggleTreeFavorite = useCallback(
+    (path: string, isDir: boolean) => toggleFavorite(path, isDir ? "directory" : "file"),
+    [toggleFavorite],
+  )
   const { selectedFile } = useBrowser()
   const focusedPath = useFocusedPath()
   const { focus: focusSearchInput } = useSearchInput()
@@ -209,6 +223,9 @@ function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualT
   const [scrollMargin, setScrollMargin] = useState(0)
   const [tooltip] = useState(() => createTooltipHandle())
   const [menuTarget, setMenuTarget] = useState<TreeMenuTarget | null>(null)
+  // One "..." menu for every row; each row's button is a detached trigger.
+  const [rowMenu] = useState(() => createDropdownMenuHandle<TreeMenuTarget>())
+  const [dialog, setDialog] = useState<TreeDialog | null>(null)
   // Row to move DOM focus to once it is rendered (keyboard navigation).
   const pendingFocusRef = useRef<string | null>(null)
   const selectedPath = selectedFile?.replace(/^\/+|\/+$/g, "") ?? null
@@ -459,6 +476,9 @@ function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualT
                       isSelected={selectedPath === row.path}
                       tabIndex={row.path === tabStopPath ? 0 : -1}
                       tooltip={tooltip}
+                      favorited={favorites.supported && favorites.isFavorite(row.path)}
+                      onToggleFavorite={favorites.supported ? toggleTreeFavorite : undefined}
+                      rowMenu={rowMenu}
                     />
                   ) : (
                     <p
@@ -472,11 +492,23 @@ function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualT
               )
             })}
           </ContextMenuTrigger>
-          <FileTreeContextMenu target={menuTarget} />
+          <FileTreeContextMenu target={menuTarget} onDialog={setDialog} />
         </ContextMenu>
+        <DropdownMenu handle={rowMenu}>
+          {({ payload }) =>
+            payload ? (
+              <DropdownMenuContent align="end" className="w-auto min-w-40">
+                <FileTreeMenuItems target={payload} onDialog={setDialog} />
+              </DropdownMenuContent>
+            ) : null
+          }
+        </DropdownMenu>
+        <FileTreeDialogs dialog={dialog} onClose={() => setDialog(null)} />
         <Tooltip handle={tooltip}>
           {({ payload }) => (
-            <TooltipContent side="right" align="center">
+            // Rows anchor the tooltip on their label; clear the row's star and
+            // "..." button so the tooltip never sits on top of them.
+            <TooltipContent side="right" align="center" sideOffset={favorites.supported ? 52 : 32}>
               {String(payload ?? "")}
             </TooltipContent>
           )}

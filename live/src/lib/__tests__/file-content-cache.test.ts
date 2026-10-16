@@ -224,15 +224,18 @@ describe("fileContentQueryOptions", () => {
       statEtag?: boolean
       /** Storage that does not expose `ETag` to the page. */
       responseEtag?: boolean
+      /** A backend without presigned URLs: `signed-url` answers with an `app` link to the viewer page. */
+      appLinks?: boolean
       files?: Record<string, FakeFile>
     } = {},
   ) {
-    const { statEtag = true, responseEtag = true } = opts
+    const { statEtag = true, responseEtag = true, appLinks = false } = opts
     const files: Record<string, FakeFile> = opts.files ?? { "/a.md": { text: "v1 body", etag: '"e1"', version: 1 } }
     const file = files["/a.md"]
     const calls = { stat: 0, signedUrl: 0, download: 0 }
     const hooks = { afterStat: undefined as (() => void) | undefined, beforeDownload: undefined as (() => void) | undefined }
     const downloadInit: (RequestInit | undefined)[] = []
+    const downloadUrls: string[] = []
     const client = {
       callOp: async (_org: string, op: string, params: { path: string }) => {
         if (op !== "stat") throw new Error(`unexpected op ${op}`)
@@ -253,12 +256,16 @@ describe("fileContentQueryOptions", () => {
       },
       getSignedUrl: async (_org: string, _drive: string, path: string) => {
         calls.signedUrl++
+        if (appLinks) return { url: `https://app.example/file/~/org/drive${path}`, expiresAt: "", kind: "app" }
         return { url: `https://signed.example${path}?sig=${calls.signedUrl}`, expiresAt: "" }
       },
+      fetchRawResponse: (_org: string, _drive: string, path: string, init?: RequestInit) =>
+        globalThis.fetch(`https://raw.example${path}`, init),
     }
     globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
       calls.download++
       downloadInit.push(init)
+      downloadUrls.push(String(url))
       hooks.beforeDownload?.()
       const f = files[new URL(String(url)).pathname]
       return new Response(f.text, responseEtag ? { headers: { ETag: f.etag } } : undefined)
@@ -280,8 +287,16 @@ describe("fileContentQueryOptions", () => {
         .getQueryCache()
         .findAll({ queryKey: ["file-content"] })
         .reduce((sum, q) => sum + ((q.state.data as CachedFileContent | undefined)?.content.length ?? 0), 0)
-    return { file, files, calls, hooks, downloadInit, open, optionsFor, queryClient, cachedPaths, retainedChars }
+    return { file, files, calls, hooks, downloadInit, downloadUrls, open, optionsFor, queryClient, cachedPaths, retainedChars }
   }
+
+  test("an app link is read through the raw route, not fetched as the viewer page", async () => {
+    const { calls, downloadInit, downloadUrls, open } = setup({ appLinks: true })
+    expect((await open()).content).toBe("v1 body")
+    expect(calls).toEqual({ stat: 1, signedUrl: 1, download: 1 })
+    expect(downloadUrls).toEqual(["https://raw.example/a.md"])
+    expect(downloadInit[0]?.cache).toBe("no-store")
+  })
 
   test("is keyed by org, drive and path", () => {
     expect(setup().optionsFor("/a.md").queryKey).toEqual(fileContentKey("org", "drive", "/a.md"))

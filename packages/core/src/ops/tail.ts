@@ -1,6 +1,7 @@
 import type { OpContext, TailParams, CatResult } from "./types.js";
 import { getS3Key } from "./versioning.js";
 import { NotFoundError } from "../errors.js";
+import { normalizePath } from "./paths.js";
 
 const DEFAULT_LINES = 20;
 
@@ -8,7 +9,8 @@ export async function tail(
   ctx: OpContext,
   params: TailParams
 ): Promise<CatResult> {
-  const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
+  const path = normalizePath(params.path);
+  const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
   const n = params.lines ?? DEFAULT_LINES;
 
   let body: Uint8Array;
@@ -17,8 +19,8 @@ export async function tail(
     body = result.body;
   } catch (err: any) {
     if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
-      throw new NotFoundError(`File not found: ${params.path}`, {
-        path: params.path,
+      throw new NotFoundError(`File not found: ${path}`, {
+        path,
       });
     }
     throw err;

@@ -110,6 +110,21 @@ export async function commentNotificationList(
     read: row.status === "ack",
   }));
 
+  // Match comment-list: names travel with the payload, because the org member
+  // directory a client could resolve them from is admin-only.
+  const actorIds = [...new Set(notifications.map((entry) => entry.actor))];
+  if (actorIds.length) {
+    const users = ctx.db
+      .select({ id: schema.users.id, displayName: schema.users.displayName })
+      .from(schema.users)
+      .where(inArray(schema.users.id, actorIds))
+      .all();
+    const names = new Map(users.map((user) => [user.id, user.displayName]));
+    for (const entry of notifications) {
+      entry.actorDisplayName = names.get(entry.actor) ?? undefined;
+    }
+  }
+
   return {
     notifications,
     unreadCount: Number(unread?.value ?? 0),

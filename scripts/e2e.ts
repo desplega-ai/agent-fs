@@ -1045,6 +1045,20 @@ async function runStandardTests(daemonUrl: string) {
     assert(cat.content, "Hello, agent-fs!");
   });
 
+  await test("bare write shares metadata with slash-form stat and log", () => {
+    const written = runJson('write bare-path-e2e.md --content "canonical metadata"');
+    assert(written.path, "/bare-path-e2e.md");
+
+    const fileStat = runJson("stat /bare-path-e2e.md");
+    assert(fileStat.path, "/bare-path-e2e.md");
+    assert(fileStat.currentVersion, 1);
+    assert(fileStat.author === "unknown", false, "Expected the stored author");
+
+    const history = runJson("log /bare-path-e2e.md");
+    assert(history.versions.length, 1);
+    assert(history.versions[0].version, 1);
+  });
+
   await test("download returns exact bytes for a deeply nested path", () => {
     const content = "name,company\nAda,Analytical Engines\n";
     const fixDir = mkdtempSync(join(tmpdir(), "agent-fs-e2e-download-"));
@@ -1454,7 +1468,7 @@ async function runStandardTests(daemonUrl: string) {
     const paths = result.comments.map((comment: any) => comment.path).sort();
     assert(
       JSON.stringify(paths),
-      JSON.stringify(["prefix-e2e/docs/a.md", "prefix-e2e/docs/sub/b.md"]),
+      JSON.stringify(["/prefix-e2e/docs/a.md", "/prefix-e2e/docs/sub/b.md"]),
     );
   });
 
@@ -1813,6 +1827,42 @@ async function runStandardTests(daemonUrl: string) {
     assert(health.features?.includes("comment-path-prefix"), true, `Expected comment-path-prefix in ${JSON.stringify(health)}`);
     assert(health.features?.includes("drive-members"), true, `Expected drive-members in ${JSON.stringify(health)}`);
     assert(health.features?.includes("comment-mentions"), true, `Expected comment-mentions in ${JSON.stringify(health)}`);
+    assert(health.features?.includes("favorites"), true, `Expected favorites in ${JSON.stringify(health)}`);
+  });
+
+  // -- favorites (per user; isolation between users is covered by the core and server tests) --
+
+  runJson('write /fav-e2e/a.md --content "a"');
+  runJson('write /fav-e2e/b.md --content "b"');
+
+  await test("favorite-add / favorite-list / favorite-remove round-trip", () => {
+    const file = runJson("favorite-add /fav-e2e/a.md");
+    assert(file.kind, "file");
+    assert(file.favorited, true);
+    const folder = runJson("favorite-add fav-e2e");
+    assert(folder.kind, "directory");
+    const list = runJson("favorite-list");
+    assert(list.favorites.map((f: any) => f.path).join(","), "/fav-e2e,/fav-e2e/a.md");
+    assertIncludes(run("favorite-list"), "/fav-e2e/");
+    assert(runJson("favorite-remove /fav-e2e").removed, true);
+    assert(runJson("favorite-remove /fav-e2e").removed, false);
+  });
+
+  await test("favorite-add fails for a missing path", () => {
+    let failed = false;
+    try {
+      run("favorite-add /fav-e2e/nope.md");
+    } catch {
+      failed = true;
+    }
+    assert(failed, true, "Expected favorite-add to fail for a missing path");
+  });
+
+  await test("a star follows mv and goes away on rm", () => {
+    runJson("mv /fav-e2e/a.md /fav-e2e/renamed.md");
+    assert(runJson("favorite-list").favorites.map((f: any) => f.path).join(","), "/fav-e2e/renamed.md");
+    runJson("rm /fav-e2e/renamed.md");
+    assert(runJson("favorite-list").favorites.length, 0);
   });
 
   runJson('write /share-e2e.md --content "# Shared heading\n\nHello <script>alert(1)</script> from **agent-fs**."');
@@ -1965,15 +2015,34 @@ async function runStandardTests(daemonUrl: string) {
     assertIncludes(await res.text(), "This link has expired");
   });
 
-  await test("HTML and SVG files are download-only, never previewed", async () => {
+  await test("SVG files are download-only, never previewed", async () => {
+    runJson(`write /share-e2e.svg --content '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>'`);
+    const r = runJson("share-create /share-e2e.svg");
+    const res = await fetch(r.url);
+    assert(res.status, 200);
+    const body = await res.text();
+    assertIncludes(body, "No preview available");
+    assert(body.includes("alert(1)"), false, "SVG source must not be rendered into the page");
+    assert((await fetch(`${r.url}/raw`)).status, 404);
+  });
+
+  await test("HTML files render in a sandboxed frame served by /raw", async () => {
     runJson('write /share-e2e.html --content "<html><script>alert(1)</script></html>"');
     const r = runJson("share-create /share-e2e.html");
     const res = await fetch(r.url);
     assert(res.status, 200);
     const body = await res.text();
-    assertIncludes(body, "No preview available");
-    assert(body.includes("alert(1)"), false, "HTML source must not be rendered into the page");
-    assert((await fetch(`${r.url}/raw`)).status, 404);
+    assert(body.includes("alert(1)"), false, "HTML source must not be inlined into the page");
+    assertIncludes(body, `src="${new URL(r.url).pathname}/raw"`);
+    assertIncludes(res.headers.get("content-security-policy") ?? "", "frame-src 'self'");
+    // Proxied on every backend (no presigned redirect): only this host can add the sandbox.
+    const raw = await fetch(`${r.url}/raw`, { redirect: "manual" });
+    assert(raw.status, 200);
+    assertIncludes(raw.headers.get("content-type") ?? "", "text/html");
+    const csp = raw.headers.get("content-security-policy") ?? "";
+    assertIncludes(csp, "sandbox allow-scripts");
+    assert(csp.includes("allow-same-origin"), false, "HTML must get an opaque origin");
+    assertIncludes(await raw.text(), "alert(1)");
   });
 
   await test("every share view is recorded as a share_viewed event", async () => {
@@ -2024,6 +2093,165 @@ async function runStandardTests(daemonUrl: string) {
     const parsed = JSON.parse(mcpBody.result.content[0].text);
     assert(parsed.url.startsWith(`${shareBase}/share/`), true, `Expected an API-host URL from MCP, got ${parsed.url}`);
     assert(parsed.maxViews, 1);
+  });
+
+  // -- site shares (a shared folder served at /site/:token/) --
+
+  await test("/health advertises html-sites", async () => {
+    const health = await (await fetch(`${daemonUrl}/health`)).json() as any;
+    assert(health.features?.includes("html-sites"), true, `Expected html-sites in ${JSON.stringify(health)}`);
+  });
+
+  runJson(`write /site-e2e/index.html --content '<!doctype html><title>Site E2E</title><script src="app.js"></script><p>site-e2e-index</p>'`);
+  runJson(`write /site-e2e/app.js --content 'fetch("data.json").then((r) => r.json()).then((d) => console.log(d.ok));'`);
+  runJson(`write /site-e2e/data.json --content '{"ok":true}'`);
+  runJson(`write /site-e2e/sub/index.html --content '<!doctype html><p>site-e2e-sub</p>'`);
+
+  await test("share-create on a folder returns a site share", () => {
+    const r = runJson("share-create site-e2e");
+    assert(r.kind, "site");
+    assertIncludes(r.url, "/site/", `Expected a /site/ URL, got ${r.url}`);
+    assert(r.url.startsWith(`${shareBase}/site/`), true, `Expected an API-host URL, got ${r.url}`);
+    assert(r.url.endsWith("/"), true, `Expected a trailing slash, got ${r.url}`);
+    assert(r.maxViews, null);
+  });
+
+  await test("GET /site/:token/ serves index.html with the sandbox CSP, no credentials", async () => {
+    const r = runJson("share-create site-e2e");
+    const res = await fetch(r.url); // no Authorization header
+    assert(res.status, 200);
+    assertIncludes(res.headers.get("content-type") ?? "", "text/html");
+    const csp = res.headers.get("content-security-policy") ?? "";
+    assertIncludes(csp, "sandbox allow-scripts");
+    assert(csp.includes("allow-same-origin"), false, `CSP must not allow same origin: ${csp}`);
+    assert(res.headers.get("referrer-policy"), "no-referrer");
+    assert(res.headers.get("x-content-type-options"), "nosniff");
+    assert(res.headers.get("access-control-allow-origin"), "*");
+    assert(res.headers.get("x-frame-options"), null);
+    assertIncludes(await res.text(), "site-e2e-index");
+  });
+
+  await test("site assets resolve inside the folder", async () => {
+    const r = runJson("share-create site-e2e");
+    const js = await fetch(`${r.url}app.js`);
+    assert(js.status, 200);
+    assertIncludes(js.headers.get("content-type") ?? "", "javascript");
+    assertIncludes(await js.text(), 'fetch("data.json")');
+
+    const data = await fetch(`${r.url}data.json`);
+    assert(data.status, 200);
+    assertIncludes(data.headers.get("content-type") ?? "", "application/json");
+    assert((await data.json() as any).ok, true);
+
+    const sub = await fetch(`${r.url}sub`, { redirect: "manual" });
+    assert(sub.status, 301);
+    assert((sub.headers.get("location") ?? "").endsWith("/sub/"), true, `Expected a redirect to sub/, got ${sub.headers.get("location")}`);
+    const subIndex = await fetch(`${r.url}sub/`);
+    assert(subIndex.status, 200);
+    assertIncludes(await subIndex.text(), "site-e2e-sub");
+  });
+
+  await test("a site folder without index.html opens its lone page or lists its pages", async () => {
+    runJson(`write /site-e2e-lone/radar.html --content '<p>site-e2e-radar</p>'`);
+    runJson(`write /site-e2e-lone/chart.png --content 'fake-png'`);
+    const lone = runJson("share-create site-e2e-lone");
+    const redirect = await fetch(lone.url, { redirect: "manual" });
+    assert(redirect.status, 302);
+    assert(redirect.headers.get("location"), "radar.html");
+    assertIncludes(await (await fetch(lone.url)).text(), "site-e2e-radar");
+
+    runJson(`write /site-e2e-lone/other.html --content '<p>other</p>'`);
+    const listing = await fetch(lone.url, { redirect: "manual" });
+    assert(listing.status, 200);
+    const body = await listing.text();
+    assertIncludes(body, '<a href="radar.html">radar.html</a>');
+    assertIncludes(body, '<a href="other.html">other.html</a>');
+    assert(body.includes("chart.png"), false, "Only HTML pages are listed");
+  });
+
+  await test("site paths cannot climb out of the shared folder", async () => {
+    const r = runJson("share-create site-e2e");
+    for (const rest of ["..%2Fshare-e2e.md", "%2e%2e%2Fshare-e2e.md", "%252e%252e%252Fshare-e2e.md", "sub%2F..%2F..%2Fshare-e2e.md"]) {
+      const res = await fetch(`${r.url}${rest}`, { redirect: "manual" });
+      const body = await res.text();
+      assert([400, 404].includes(res.status), true, `Expected 400 or 404 for ${rest}, got ${res.status}`);
+      assert(body.includes("Shared heading"), false, `${rest} leaked bytes from outside the folder`);
+    }
+  });
+
+  await test("share-create rejects --max-views on a folder", () => {
+    let failed = false;
+    try {
+      run("share-create site-e2e --max-views 1");
+    } catch {
+      failed = true;
+    }
+    assert(failed, true, "Expected share-create --max-views on a folder to fail");
+  });
+
+  await test("share-revoke --path on a folder stops the site", async () => {
+    const r = runJson("share-create site-e2e");
+    assert((await fetch(r.url)).status, 200);
+    const revoked = runJson("share-revoke --path site-e2e");
+    assert(revoked.revoked >= 1, true, `Expected at least one revoked share, got ${JSON.stringify(revoked)}`);
+    const res = await fetch(r.url);
+    assert(res.status, 410);
+    assert((await fetch(`${r.url}app.js`)).status, 410);
+  });
+
+  await test("site views write no share_viewed events", async () => {
+    const r = runJson("share-create site-e2e");
+    await fetch(r.url);
+    await fetch(`${r.url}app.js`);
+    const db = shareDb();
+    const events = db.prepare("SELECT COUNT(*) AS n FROM events WHERE type = 'share_viewed' AND resource_id = ?").get(r.id) as { n: number };
+    const row = db.prepare("SELECT views FROM shares WHERE id = ?").get(r.id) as { views: number };
+    db.close();
+    assert(events.n, 0);
+    assert(row.views, 0);
+  });
+
+  await test("site share-create via API and MCP", async () => {
+    const apiRes = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({ op: "share-create", path: "/site-e2e", expiresIn: 3600 }),
+    });
+    assert(apiRes.status, 200);
+    const api = await apiRes.json() as any;
+    assert(api.kind, "site");
+    assert(api.sharePath.startsWith("/site/"), true, `Expected a /site/ sharePath, got ${api.sharePath}`);
+    assert(api.expiresIn, 3600);
+    assert((await fetch(api.url)).status, 200);
+
+    const bad = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
+      body: JSON.stringify({ op: "share-create", path: "/site-e2e", maxViews: 1 }),
+    });
+    assert(bad.ok, false, "maxViews on a folder must be rejected");
+
+    await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 1, method: "initialize",
+        params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "e2e-site", version: "1.0.0" } },
+      }),
+    });
+    const mcp = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0", id: 2, method: "tools/call",
+        params: { name: "share-create", arguments: { path: "/site-e2e" } },
+      }),
+    });
+    const mcpBody = await mcp.json() as any;
+    const parsed = JSON.parse(mcpBody.result.content[0].text);
+    assert(parsed.kind, "site");
+    assert(parsed.url.startsWith(`${shareBase}/site/`), true, `Expected a /site/ URL from MCP, got ${parsed.url}`);
+    assert((await fetch(parsed.url)).status, 200);
   });
 
   // Daemon /raw route must declare a charset on text responses, or the
@@ -3562,6 +3790,7 @@ async function coreOpsSuite(b: Backend) {
     const d = rj(`diff ${P}/hello.txt --v1 1 --v2 2`);
     assert(Array.isArray(d.changes), true);
     assert(d.changes.length > 0, true, "expected real content diff between v1 and v2");
+    assert(d.source, "content");
   });
 
   // -- Tier: revert restores prior content AS A NEW VERSION (not a rewind) --
@@ -3626,6 +3855,16 @@ async function unsupportedOpSuite() {
     const body = (await res.json()) as any;
     assert(body.error, "UNSUPPORTED_OPERATION");
     assert(body.operation, "revert");
+  });
+
+  await test(`[capped] diff of a write pair reports source=none and warns on stderr`, () => {
+    runJsonOn(capped, `write /cap.txt --content "v2"`);
+    const d = runJsonOn(capped, `diff /cap.txt --v1 1 --v2 2`);
+    assert(d.source, "none");
+    assert(d.changes.length, 0);
+    // Only stderr: the warning must not contaminate the JSON on stdout.
+    const stderr = runOn(capped, `--json diff /cap.txt --v1 1 --v2 2 2>&1 1>/dev/null`);
+    assertIncludes(stderr, "not compared", "expected a not-compared warning on stderr");
   });
 }
 

@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import {
   ExternalLink,
@@ -9,6 +8,8 @@ import {
   FilePlus,
   FolderPlus,
   Pencil,
+  Star,
+  StarOff,
   Trash2,
 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
@@ -16,8 +17,10 @@ import { useBrowser } from "@/contexts/browser"
 import { treeExpansionStore } from "@/stores/tree-expansion"
 import { toast } from "@/stores/toast"
 import { downloadFile } from "@/lib/download"
-import { copyShareLink, supportsShareLinks } from "@/lib/share-link"
+import { supportsShareLinks } from "@/lib/share-link"
+import { supportsHtmlSites } from "@/lib/html-view"
 import { healthQueryOptions } from "@/lib/upload-limit"
+import { useFavorites } from "@/hooks/use-favorites"
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -26,8 +29,9 @@ import {
 import { NewEntryDialog, type NewEntryKind } from "@/components/file-mutations/NewEntryDialog"
 import { RenameDialog } from "@/components/file-mutations/RenameDialog"
 import { DeleteDialog } from "@/components/file-mutations/DeleteDialog"
+import { ShareDialog } from "@/components/ShareDialog"
 
-/** The row a context menu was opened on. */
+/** The row a menu was opened on. */
 export interface TreeMenuTarget {
   path: string
   parentPath: string
@@ -35,43 +39,24 @@ export interface TreeMenuTarget {
   isDir: boolean
 }
 
-type NodeDialog = { kind: NewEntryKind | "rename" | "delete"; target: TreeMenuTarget }
+/** A dialog opened from a row's menu. It outlives the menu, so the tree owns it. */
+export type TreeDialog = { kind: NewEntryKind | "rename" | "delete" | "share"; target: TreeMenuTarget }
 
 /**
- * Items for the tree's single context menu, plus the mutation dialogs they
- * open. Dialogs are mounted only while open and outlive the menu, so they sit
- * next to it rather than inside it.
+ * Items of a row's menu. Shared by the tree's right-click menu and the row's
+ * "..." menu: both are Base UI menus, so the same items work in either.
  */
-export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null }) {
+export function FileTreeMenuItems({
+  target,
+  onDialog,
+}: {
+  target: TreeMenuTarget
+  onDialog: (dialog: TreeDialog) => void
+}) {
   const { client, orgId, driveId } = useAuth()
   const { selectFile } = useBrowser()
   const { data: health } = useQuery(healthQueryOptions(client))
-  const [dialog, setDialog] = useState<NodeDialog | null>(null)
-  const closeDialog = (open: boolean) => {
-    if (!open) setDialog(null)
-  }
-
-  const dialogs = (
-    <>
-      {dialog && (dialog.kind === "file" || dialog.kind === "folder") && (
-        <NewEntryDialog
-          kind={dialog.kind}
-          // "New file" / "New folder" target the folder itself, or a file's parent.
-          basePath={dialog.target.isDir ? dialog.target.path : dialog.target.parentPath}
-          open
-          onOpenChange={closeDialog}
-        />
-      )}
-      {dialog?.kind === "rename" && (
-        <RenameDialog path={dialog.target.path} open onOpenChange={closeDialog} />
-      )}
-      {dialog?.kind === "delete" && (
-        <DeleteDialog path={dialog.target.path} open onOpenChange={closeDialog} />
-      )}
-    </>
-  )
-
-  if (!target) return dialogs
+  const favorites = useFavorites()
 
   const { path: fullPath, name, isDir } = target
 
@@ -110,65 +95,114 @@ export function FileTreeContextMenu({ target }: { target: TreeMenuTarget | null 
     void downloadFile(client, orgId!, driveId!, fullPath, name)
   }
 
-  const canShareLink = !isDir && !!orgId && !!driveId && supportsShareLinks(health)
-  const handleCopyShareLink = () => {
-    if (canShareLink) void copyShareLink(client, orgId!, driveId!, fullPath)
-  }
+  // A folder share is an HTML site (/site/<token>/), so folders need a server
+  // that serves sites.
+  const canShareLink =
+    !!orgId && !!driveId && supportsShareLinks(health) && (!isDir || supportsHtmlSites(health))
+  const favorited = favorites.isFavorite(fullPath)
 
   return (
     <>
-      <ContextMenuContent>
-        <ContextMenuItem onClick={handleOpen}>
-          <OpenIcon className="h-4 w-4" />
-          Open
+      <ContextMenuItem onClick={handleOpen}>
+        <OpenIcon className="h-4 w-4" />
+        Open
+      </ContextMenuItem>
+      <ContextMenuItem onClick={handleCopyLink} disabled={!deepLink}>
+        <LinkIcon className="h-4 w-4" />
+        Copy link
+      </ContextMenuItem>
+      {canShareLink && (
+        <ContextMenuItem onClick={() => onDialog({ kind: "share", target })}>
+          <Share2 className="h-4 w-4" />
+          {isDir ? "Share as site…" : "Share…"}
         </ContextMenuItem>
-        <ContextMenuItem onClick={handleCopyLink} disabled={!deepLink}>
-          <LinkIcon className="h-4 w-4" />
-          Copy link
+      )}
+      {favorites.supported && (
+        <ContextMenuItem onClick={() => favorites.toggleFavorite(fullPath, isDir ? "directory" : "file")}>
+          {favorited ? <StarOff className="h-4 w-4" /> : <Star className="h-4 w-4" />}
+          {favorited ? "Remove from favorites" : "Add to favorites"}
         </ContextMenuItem>
-        {canShareLink && (
-          <ContextMenuItem onClick={handleCopyShareLink}>
-            <Share2 className="h-4 w-4" />
-            Copy share link
-          </ContextMenuItem>
-        )}
-        <ContextMenuItem onClick={handleDownload} disabled={!canDownload}>
-          <Download className="h-4 w-4" />
-          Download
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => setDialog({ kind: "file", target })} disabled={!driveId}>
-          <FilePlus className="h-4 w-4" />
-          New file…
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => setDialog({ kind: "folder", target })} disabled={!driveId}>
-          <FolderPlus className="h-4 w-4" />
-          New folder…
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        {/* mv and rm are single-file ops; folders stay read-only here. */}
-        <ContextMenuItem
-          onClick={() => setDialog({ kind: "rename", target })}
-          disabled={isDir || !driveId}
-        >
-          <Pencil className="h-4 w-4" />
-          Rename…
-        </ContextMenuItem>
-        <ContextMenuItem
-          variant="destructive"
-          onClick={() => setDialog({ kind: "delete", target })}
-          disabled={isDir || !driveId}
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete…
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={handleOpenInNewTab} disabled={!deepLink}>
-          <ExternalLink className="h-4 w-4" />
-          Open in new tab
-        </ContextMenuItem>
-      </ContextMenuContent>
-      {dialogs}
+      )}
+      <ContextMenuItem onClick={handleDownload} disabled={!canDownload}>
+        <Download className="h-4 w-4" />
+        Download
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={() => onDialog({ kind: "file", target })} disabled={!driveId}>
+        <FilePlus className="h-4 w-4" />
+        New file…
+      </ContextMenuItem>
+      <ContextMenuItem onClick={() => onDialog({ kind: "folder", target })} disabled={!driveId}>
+        <FolderPlus className="h-4 w-4" />
+        New folder…
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      {/* mv and rm are single-file ops; folders stay read-only here. */}
+      <ContextMenuItem
+        onClick={() => onDialog({ kind: "rename", target })}
+        disabled={isDir || !driveId}
+      >
+        <Pencil className="h-4 w-4" />
+        Rename…
+      </ContextMenuItem>
+      <ContextMenuItem
+        variant="destructive"
+        onClick={() => onDialog({ kind: "delete", target })}
+        disabled={isDir || !driveId}
+      >
+        <Trash2 className="h-4 w-4" />
+        Delete…
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onClick={handleOpenInNewTab} disabled={!deepLink}>
+        <ExternalLink className="h-4 w-4" />
+        Open in new tab
+      </ContextMenuItem>
     </>
   )
+}
+
+/** The tree's right-click menu, for the row it opened on. */
+export function FileTreeContextMenu({
+  target,
+  onDialog,
+}: {
+  target: TreeMenuTarget | null
+  onDialog: (dialog: TreeDialog) => void
+}) {
+  if (!target) return null
+  return (
+    <ContextMenuContent>
+      <FileTreeMenuItems target={target} onDialog={onDialog} />
+    </ContextMenuContent>
+  )
+}
+
+/** Dialogs opened from a row's menu. Mounted only while open. */
+export function FileTreeDialogs({
+  dialog,
+  onClose,
+}: {
+  dialog: TreeDialog | null
+  onClose: () => void
+}) {
+  if (!dialog) return null
+  const closeDialog = (open: boolean) => {
+    if (!open) onClose()
+  }
+  const { kind, target } = dialog
+  if (kind === "file" || kind === "folder") {
+    return (
+      <NewEntryDialog
+        kind={kind}
+        // "New file" / "New folder" target the folder itself, or a file's parent.
+        basePath={target.isDir ? target.path : target.parentPath}
+        open
+        onOpenChange={closeDialog}
+      />
+    )
+  }
+  if (kind === "rename") return <RenameDialog path={target.path} open onOpenChange={closeDialog} />
+  if (kind === "delete") return <DeleteDialog path={target.path} open onOpenChange={closeDialog} />
+  return <ShareDialog path={target.path} isDir={target.isDir} open onOpenChange={closeDialog} />
 }

@@ -10,12 +10,13 @@ import {
   shareStorageKey,
 } from "@/core";
 import type { DB, StorageAdapter, ShareByteAccess, ShareRecord } from "@/core";
-import { decodeIndexableText, encodeRFC5987ValueChars } from "@/core/ops/mime.js";
+import { decodeIndexableText, encodeRFC5987ValueChars, withUtf8Charset } from "@/core/ops/mime.js";
 import { ipRateLimitMiddleware } from "../middleware/ip-rate-limit.js";
 import {
   buildCsp,
   classifyShareFile,
   grantQuery,
+  HTML_RAW_CSP,
   isEmbeddable,
   isLinkPreviewBot,
   isMarkdownSafeToRender,
@@ -24,6 +25,7 @@ import {
   renderPreviewBotPage,
   renderSharePage,
   renderUnavailablePage,
+  SHARE_HTML_MAX_BYTES,
   shareContentType,
   shareSecurityHeaders,
 } from "../share/render.js";
@@ -109,6 +111,9 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
 
     if (!share || getShareState(share, new Date()) !== "active") return expired(share);
 
+    // A shared folder is a site, served by its own route. No view is counted.
+    if (share.kind === "site") return redirect(`/site/${token}/`);
+
     // HEAD probes and link-preview crawlers must not spend a view.
     if (c.req.raw.method === "HEAD") return html(200, "");
     if (isLinkPreviewBot(c.req.header("user-agent"))) return html(200, renderPreviewBotPage());
@@ -190,15 +195,33 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
     const access = authorizeBytes(c);
     if (!access.ok) return deniedBytes(access);
     const share = access.share;
+    if (share.kind === "site") return plain(404, "Not found");
 
     const type = classifyShareFile(share.path);
-    // Only types the page embeds. Everything else, including HTML and SVG, is
+    // Only types the page embeds. Everything else, including SVG, is
     // reachable through /download only.
-    if (!isEmbeddable(type)) return plain(404, "Not found");
+    if (!isEmbeddable(type) && type.kind !== "html") return plain(404, "Not found");
 
     const key = shareStorageKey(share);
     if (!key) return plain(404, "This file is no longer available");
     const filename = filenameOf(share);
+
+    if (type.kind === "html") {
+      // Always proxied, never presigned: storage cannot send the sandbox CSP
+      // that gives the page an opaque origin. Refuse an oversized page from
+      // its size alone, before reading a byte of it.
+      try {
+        if ((await s3.headObject(key)).size > SHARE_HTML_MAX_BYTES) return htmlTooLarge();
+      } catch (err: any) {
+        if (isNotFound(err)) return plain(404, "This file is no longer available");
+        throw err;
+      }
+      return streamObject(s3, key, withUtf8Charset("text/html"), contentDisposition("inline", filename), {
+        embed: { csp: HTML_RAW_CSP },
+        maxBytes: SHARE_HTML_MAX_BYTES,
+        stillAllowed: () => authorizeBytes(c).ok,
+      });
+    }
 
     if (s3.capabilities.presignedUrls) {
       const url = await presignShareUrl(s3, share, key, {
@@ -224,6 +247,7 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
     const access = authorizeBytes(c);
     if (!access.ok) return deniedBytes(access);
     const share = access.share;
+    if (share.kind === "site") return plain(404, "Not found");
 
     const type = classifyShareFile(share.path);
     const key = shareStorageKey(share);
@@ -262,6 +286,13 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
   return router;
 }
 
+function htmlTooLarge(): Response {
+  return plain(
+    413,
+    `This page is larger than ${SHARE_HTML_MAX_BYTES / 1024 / 1024} MB and cannot be rendered from a share link`
+  );
+}
+
 function redirect(location: string): Response {
   return new Response(null, {
     status: 302,
@@ -280,11 +311,12 @@ function deniedBytes(access: Extract<ShareByteAccess, { ok: false }>): Response 
 }
 
 /**
- * Stream the object through the server (backends without presigned URLs).
- * `embed` is set for the inline /raw route: the share page frames PDFs itself,
- * so it needs `SAMEORIGIN` rather than the blanket `DENY`. Chrome refuses to
- * show a PDF whose own response carries a restrictive CSP, so a PDF gets only
- * `frame-ancestors`; every other type is locked down completely.
+ * Stream the object through the server (backends without presigned URLs, and
+ * HTML pages on every backend). `embed` is set for the inline /raw route: the
+ * share page frames PDFs and HTML itself, so it needs `SAMEORIGIN` rather than
+ * the blanket `DENY`. Chrome refuses to show a PDF whose own response carries
+ * a restrictive CSP, so a PDF gets only `frame-ancestors`; an HTML page gets
+ * the `csp` it is given (a sandbox); every other type is locked down completely.
  *
  * `stillAllowed` is asked once the bytes are read, right before they are
  * released: reading storage takes time, and a link revoked or expired in the
@@ -295,17 +327,21 @@ async function streamObject(
   key: string,
   contentType: string,
   disposition: string,
-  opts: { embed?: { pdf: boolean }; stillAllowed: () => boolean }
+  opts: { embed?: { pdf?: boolean; csp?: string }; maxBytes?: number; stillAllowed: () => boolean }
 ): Promise<Response> {
   const { embed } = opts;
   try {
     const result = await s3.getObject(key);
+    // The object may have grown since its size was checked.
+    if (opts.maxBytes !== undefined && result.body.length > opts.maxBytes) return htmlTooLarge();
     if (!opts.stillAllowed()) return plain(410, "This link has expired");
     const csp = !embed
       ? "default-src 'none'; sandbox"
-      : embed.pdf
-        ? "frame-ancestors 'self'"
-        : "default-src 'none'; frame-ancestors 'self'; sandbox";
+      : embed.csp
+        ? embed.csp
+        : embed.pdf
+          ? "frame-ancestors 'self'"
+          : "default-src 'none'; frame-ancestors 'self'; sandbox";
     return new Response(result.body.slice(), {
       status: 200,
       headers: shareSecurityHeaders({
@@ -340,6 +376,17 @@ async function buildBody(args: {
       body: { kind: "none", reason: "This file type is not previewed for safety. Use Download to get it." },
       embedSource: null,
     };
+  }
+
+  if (type.kind === "html") {
+    if (size > SHARE_HTML_MAX_BYTES) {
+      return {
+        body: { kind: "none", reason: "This page is too large to render here. Use Download to get it." },
+        embedSource: null,
+      };
+    }
+    // Framed from /raw on this host, which adds the sandbox CSP.
+    return { body: { kind: "embed", tag: "html", src: `/share/${token}/raw${grantQuery(grant)}` }, embedSource: "'self'" };
   }
 
   if (isEmbeddable(type)) {

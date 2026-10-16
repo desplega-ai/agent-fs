@@ -241,6 +241,8 @@ export const shares = sqliteTable(
     orgId: text("org_id").notNull(),
     driveId: text("drive_id").notNull(),
     path: text("path").notNull(),
+    /** `file` = one file at `path`; `site` = the folder at `path`, served under /site/<token>/. */
+    kind: text("kind", { enum: ["file", "site"] }).notNull().default("file"),
     tokenHash: text("token_hash").notNull(),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
     maxViews: integer("max_views"),
@@ -253,6 +255,22 @@ export const shares = sqliteTable(
   (table) => ({
     tokenHashUq: uniqueIndex("shares_token_hash_uq").on(table.tokenHash),
     drivePathIdx: index("idx_shares_drive_path").on(table.driveId, table.path),
+  })
+);
+
+// favorites: per-user stars on files and folders. See raw.ts.
+export const favorites = sqliteTable(
+  "favorites",
+  {
+    userId: text("user_id").notNull(),
+    driveId: text("drive_id").notNull(),
+    path: text("path").notNull(),
+    kind: text("kind", { enum: ["file", "directory"] }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.driveId, table.path] }),
+    drivePathIdx: index("idx_favorites_drive_path").on(table.driveId, table.path),
   })
 );
 

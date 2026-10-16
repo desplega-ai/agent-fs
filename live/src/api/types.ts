@@ -77,8 +77,19 @@ export interface DiffChange {
   newLine?: number
 }
 
+/**
+ * Which path produced a DiffResult:
+ * - "content": both versions were compared line by line.
+ * - "summary": not compared; `changes` is v2's stored edit snippet.
+ * - "none": not compared and no stored summary; empty `changes` does NOT mean
+ *   the versions are identical.
+ */
+export type DiffSource = "content" | "summary" | "none"
+
 export interface DiffResult {
   changes: DiffChange[]
+  /** Absent on servers that predate it; never read its absence as "content". */
+  source?: DiffSource
 }
 
 export interface RecentEntry extends VersionEntry {
@@ -178,6 +189,7 @@ export interface CommentNotificationEntry {
   path: string
   body: string
   actor: string
+  actorDisplayName?: string
   createdAt: string
   read: boolean
 }
@@ -295,6 +307,16 @@ export interface OrgMembersResult {
   members: OrgMember[]
 }
 
+export interface DriveMember {
+  userId: string
+  email: string
+  displayName: string | null
+}
+
+export interface DriveMembersResult {
+  members: DriveMember[]
+}
+
 export interface MeResponse {
   displayName?: string | null
   userId: string
@@ -331,4 +353,15 @@ export interface MvResult {
 export interface RmResult {
   path: string
   deleted: boolean
+}
+
+export interface Favorite {
+  /** Server form: leading slash, no trailing slash. */
+  path: string
+  kind: "file" | "directory"
+  createdAt: string
+}
+
+export interface FavoriteListResult {
+  favorites: Favorite[]
 }

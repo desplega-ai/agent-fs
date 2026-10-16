@@ -14,12 +14,14 @@ import type { EmbeddingProvider } from "@/core";
 import { join } from "node:path";
 import { createApp } from "./app.js";
 import { startIpcServer } from "./ipc/server.js";
+import { runPathNormalizationAtStartup } from "./startup-migrations.js";
 
 const config = getConfig();
 
 // Initialize database
 const db = createDatabase();
 const sqlite = (db as any).$client as Database;
+runPathNormalizationAtStartup(sqlite);
 
 // Databases from before 0.13.1 carry the old full-text index layout. Swap the
 // name over now (instant DDL) so every write from here on lands in the new

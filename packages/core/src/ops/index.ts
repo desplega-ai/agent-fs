@@ -41,6 +41,7 @@ import {
   commentNotificationRead,
 } from "./comment-notification.js";
 import { driveMembers } from "./drive-members.js";
+import { favoriteAdd, favoriteRemove, favoriteList } from "./favorite.js";
 
 export interface OpDefinition {
   description: string;
@@ -148,7 +149,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   diff: {
-    description: "Show the diff between two versions of a file. Specify v1 and v2 version numbers. Returns { changes } as add/remove/context hunks; when file content was diffed each change carries oldLine/newLine.",
+    description: "Show the diff between two versions of a file. Specify v1 and v2 version numbers. Returns { changes, source } as add/remove/context hunks; when file content was diffed each change carries oldLine/newLine. source is 'content' when both versions were compared, 'summary' when changes come from the stored edit summary, or 'none' when the versions were not compared at all. Only source 'content' with empty changes means the versions are identical.",
     handler: diff,
     schema: z.object({
       path: z.string(),
@@ -260,7 +261,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "share-create": {
-    description: "Create a public share link for a file: an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video) and a Download button. Default expiry is 24 hours (max 7 days); set maxViews to limit how often the page can be opened (maxViews=1 is a one-off link). Anyone with the link can open it, so share deliberately. Returns { id, url, sharePath, path, expiresIn, expiresAt, maxViews }. The link is shown only once; keep the id to revoke it.",
+    description: "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. Default expiry is 24 hours (max 7 days); set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, sharePath, path, expiresIn, expiresAt, maxViews }. The link is shown only once; keep the id to revoke it.",
     handler: shareCreate,
     schema: z.object({
       path: z.string(),
@@ -269,7 +270,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "share-revoke": {
-    description: "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share URL), or path (revokes every link to that file). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
+    description: "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share URL), or path (revokes every link to that file or folder). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
     handler: shareRevoke,
     schema: z.object({
       id: z.string().optional(),
@@ -371,6 +372,21 @@ const opRegistry: Record<string, OpDefinition> = {
     handler: driveMembers,
     schema: z.object({}),
   },
+  "favorite-add": {
+    description: "Star a file or folder for the current user. Favorites are personal: no other user sees them. Starring twice is a no-op. Moving or renaming a starred file keeps the star; deleting it removes the star, and a folder's star goes away once the folder is gone. Returns { path, kind, createdAt, favorited }.",
+    handler: favoriteAdd,
+    schema: z.object({ path: z.string() }),
+  },
+  "favorite-remove": {
+    description: "Remove the current user's star from a file or folder. Works even when the path no longer exists. Returns { path, removed } where removed is false when there was no star.",
+    handler: favoriteRemove,
+    schema: z.object({ path: z.string() }),
+  },
+  "favorite-list": {
+    description: "List the current user's favorites in the active drive, sorted by path. Returns { favorites } with path, kind (file/directory), and createdAt.",
+    handler: favoriteList,
+    schema: z.object({}),
+  },
 };
 
 export async function dispatchOp(
@@ -419,5 +435,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers };
+export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList };
 export type * from "./types.js";

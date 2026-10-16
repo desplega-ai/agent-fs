@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/contexts/auth"
 import type { AgentFsClient, SignedUrlDisposition } from "@/api/client"
-import { driveImageCache, type DriveImageResolution, type DriveImageCacheEntry } from "@/lib/drive-image-cache"
+import {
+  MIN_FRESH_MS,
+  driveImageCache,
+  type DriveImageResolution,
+  type DriveImageCacheEntry,
+} from "@/lib/drive-image-cache"
+
+/** Object URLs stay fresh for `MIN_FRESH_MS`, then the next open re-reads the image. */
+const OBJECT_URL_TTL_MS = 2 * MIN_FRESH_MS
 
 /**
  * @param disposition `inline` for URLs the browser must render (PDF iframe);
@@ -20,14 +28,19 @@ export function useSignedUrl(path: string | null, disposition?: SignedUrlDisposi
     }
 
     let cancelled = false
+    let objectUrl: string | null = null
+    const controller = new AbortController()
     setIsLoading(true)
     setError(null)
 
-    client.getSignedUrl(orgId, driveId, path, { disposition }).then((result) => {
-      if (!cancelled) {
-        setUrl(result.url)
-        setIsLoading(false)
+    client.fetchableUrl(orgId, driveId, path, { disposition, signal: controller.signal }).then((result) => {
+      if (result.objectUrl) objectUrl = result.url
+      if (cancelled) {
+        if (objectUrl) URL.revokeObjectURL(objectUrl)
+        return
       }
+      setUrl(result.url)
+      setIsLoading(false)
     }).catch((err) => {
       if (!cancelled) {
         setError((err as Error).message)
@@ -35,7 +48,11 @@ export function useSignedUrl(path: string | null, disposition?: SignedUrlDisposi
       }
     })
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+      controller.abort()
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
   }, [path, orgId, driveId, client, disposition])
 
   return { url, error, isLoading }
@@ -44,10 +61,8 @@ export function useSignedUrl(path: string | null, disposition?: SignedUrlDisposi
 export type { DriveImageResolution }
 
 async function mintDriveImageUrl(client: AgentFsClient, res: DriveImageResolution): Promise<DriveImageCacheEntry> {
-  const result = await client.getSignedUrl(res.orgId, res.driveId, res.path)
-  if (result.kind === "app") {
-    throw new Error("this backend cannot mint public image URLs")
-  }
+  const result = await client.fetchableUrl(res.orgId, res.driveId, res.path)
+  if (result.objectUrl) return { url: result.url, expiresAt: Date.now() + OBJECT_URL_TTL_MS, objectUrl: true }
   return {
     url: result.url,
     expiresAt: result.expiresAt ? new Date(result.expiresAt).getTime() : Infinity,
@@ -77,12 +92,22 @@ export function useDriveImageUrl(res: DriveImageResolution | null) {
 
     const cached = driveImageCache.getFresh(clientId, res)
     let cancelled = false
-
-    if (cached) {
-      setUrl(cached.url)
+    let held: string | null = null
+    const show = (shown: string) => {
+      driveImageCache.hold(shown)
+      held = shown
+      setUrl(shown)
       setError(null)
       setIsLoading(false)
-      return
+    }
+    const cleanup = () => {
+      cancelled = true
+      if (held) driveImageCache.release(held)
+    }
+
+    if (cached) {
+      show(cached.url)
+      return cleanup
     }
 
     setIsLoading(true)
@@ -93,10 +118,7 @@ export function useDriveImageUrl(res: DriveImageResolution | null) {
     driveImageCache.set(clientId, res, pending)
     pending.then((entry) => {
       driveImageCache.set(clientId, res, entry)
-      if (cancelled) return
-      setUrl(entry.url)
-      setError(null)
-      setIsLoading(false)
+      if (!cancelled) show(entry.url)
     }).catch((err: unknown) => {
       driveImageCache.delete(clientId, res)
       if (cancelled) return
@@ -104,7 +126,7 @@ export function useDriveImageUrl(res: DriveImageResolution | null) {
       setIsLoading(false)
     })
 
-    return () => { cancelled = true }
+    return cleanup
   }, [res?.orgId, res?.driveId, res?.path, client, clientId, nonce])
 
   // Drops the cached entry and re-mints — used for the single-retry-on-load-error path.

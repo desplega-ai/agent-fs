@@ -119,7 +119,7 @@ describe("commentAdd", () => {
       const relativeComment = await commentGet(ctx, { id: relative.id });
       const absoluteComment = await commentGet(ctx, { id: absolute.id });
 
-      expect(relativeComment.comment.path).toBe("docs/a.md");
+      expect(relativeComment.comment.path).toBe("/docs/a.md");
       expect(relativeComment.comment.fileVersion).toBe(file.version);
       expect(absoluteComment.comment.path).toBe("/docs/a.md");
       expect(absoluteComment.comment.fileVersion).toBe(file.version);
@@ -235,9 +235,15 @@ describe("commentList", () => {
       path: "relative-prefix/a.md",
       body: "relative",
     });
+    ctx.db
+      .update(schema.comments)
+      .set({ path: "relative-prefix/a.md" })
+      .where(eq(schema.comments.id, relative.id))
+      .run();
 
     const result = await commentList(ctx, { pathPrefix: "/relative-prefix/" });
     expect(result.comments.map((comment) => comment.id)).toEqual([relative.id]);
+    expect(result.comments[0].path).toBe("relative-prefix/a.md");
   });
 
   test("matches prefixes containing supplementary Unicode characters", async () => {

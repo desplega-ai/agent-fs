@@ -7,7 +7,8 @@ import { UserName } from "@/components/UserName"
 import { MainWithComments } from "@/components/layout/MainWithComments"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
-import { CopyShareLinkButton } from "@/components/CopyShareLinkButton"
+import { ShareButton } from "@/components/ShareDialog"
+import { FileFavoriteButton } from "@/components/FavoriteToggle"
 import {
   Tooltip,
   TooltipContent,
@@ -31,7 +32,7 @@ export function FileDetailPage() {
 
   const filePath = params["*"] ?? ""
   const { data: stat } = useFileStat(filePath || null)
-  const { copyPath, copyLink, copyShareLink, download, copiedPath, copiedLink, copiedShare, canShare, canShareLink } = useFileActions(filePath)
+  const { copyPath, copyLink, download, copiedPath, copiedLink, canShare, canShareLink } = useFileActions(filePath)
 
   // Tab title reflects the open file (single-sourced via the shared hook).
   useDocumentTitle(filePath ? (filePath.split("/").pop() ?? filePath) : null)
@@ -95,6 +96,7 @@ export function FileDetailPage() {
                 <TooltipContent>Query with SQL</TooltipContent>
               </Tooltip>
             )}
+            <FileFavoriteButton path={filePath} />
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -129,7 +131,7 @@ export function FileDetailPage() {
                 <TooltipContent>Copy link <Kbd className="ml-1">⇧Y</Kbd></TooltipContent>
               </Tooltip>
             )}
-            {canShareLink && <CopyShareLinkButton onClick={copyShareLink} copied={copiedShare} />}
+            {canShareLink && <ShareButton path={filePath} />}
             <Tooltip>
               <TooltipTrigger
                 render={

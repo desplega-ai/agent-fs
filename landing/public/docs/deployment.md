@@ -224,6 +224,48 @@ The config file lives at `~/.agent-fs/config.json` (or `$AGENT_FS_HOME/config.js
 }
 ```
 
+## Upgrading
+
+### Automatic file path normalization
+
+Versions up to 0.15.x could store a path without its leading slash. For example, `notes.md` and `/notes.md` could exist as two different files. The server now changes every path to the `/` form before it uses it. When the daemon starts, it also rewrites the old bare paths in the database. You do not have to do anything.
+
+What the daemon does at startup, before it accepts requests:
+
+- It finds paths without a leading `/` in files, versions, comments, shares, search chunks, and full-text rows.
+- It renames each bare path to its `/` form.
+- If both forms have history, it merges them into one file. It orders the versions by time and numbers them again. The comments move to the merged file.
+- It keeps the search rows of the newest form. A text file without search rows goes back to `pending`, so the indexer builds them again.
+- It skips a path that has no safe `/` form (a trailing `/` or a `//`). It logs the count and up to 10 examples.
+
+All changes occur in one transaction. On a 1 GB database with about 1,800 bare paths, it took about 4 seconds on a laptop SSD. A slower disk takes longer. The server does not answer `/health` until the migration ends, so give your health check a grace period. After the first run, the check at each start takes milliseconds.
+
+When there is nothing to change, the daemon logs nothing. When it changes data, it logs one line:
+
+```
+file path migration: 62 renamed, 24 merged, 180 versions renumbered, 3 comments remapped, 0 skipped
+```
+
+Before you upgrade:
+
+- Make a backup of `agent-fs.db`. For example: `sqlite3 ~/.agent-fs/agent-fs.db ".backup agent-fs-backup.db"`.
+- To see how many rows have a bare path, run this read-only query:
+
+  ```bash
+  sqlite3 ~/.agent-fs/agent-fs.db "SELECT
+    (SELECT COUNT(*) FROM files WHERE path NOT LIKE '/%') AS files,
+    (SELECT COUNT(*) FROM file_versions WHERE path NOT LIKE '/%') AS versions,
+    (SELECT COUNT(*) FROM comments WHERE path NOT LIKE '/%') AS comments"
+  ```
+
+  If all three counts are `0`, the migration has almost certainly nothing to do.
+
+If the migration fails, the transaction rolls back and the daemon logs `file path migration failed (will retry on next start)`. The daemon then starts normally. Files that are only in the bare form stay hidden until a start completes the migration. The daemon tries again at each start.
+
+If you go back to an older version, it reads the migrated data correctly. If the older version writes new bare paths, the next start of a new version migrates them.
+
+Only the server runs this migration: the local daemon, or the server process in a hosted deployment. `agent-fs init` and the other CLI commands do not change existing paths.
+
 ## Troubleshooting
 
 ### "SQLITE_ERROR: no such module: fts5"

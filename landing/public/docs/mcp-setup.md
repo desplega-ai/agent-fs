@@ -120,6 +120,16 @@ The server advertises tools via the standard MCP `tools/list` method.
 | `comment-resolve` | Resolve or reopen a root comment. |
 | `drive-members` | List the active drive's member emails and display names. |
 
+### Favorites
+
+Favorites are per user: the tools act on the authenticated user's own stars in the active drive.
+
+| Tool | Description |
+|------|-------------|
+| `favorite-add` | Star a file or folder. |
+| `favorite-remove` | Remove your star from a file or folder. |
+| `favorite-list` | List your favorites in the active drive. |
+
 ### Identity & Member Management
 
 | Tool | Description |

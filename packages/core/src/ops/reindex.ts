@@ -6,6 +6,7 @@ import { indexFileEmbeddings } from "../search/pipeline.js";
 import { indexFile } from "../search/fts.js";
 import { clearSearchData } from "./search-index.js";
 import { decodeIndexableText, detectMimeType } from "./mime.js";
+import { normalizePrefix } from "./paths.js";
 
 export interface ReindexParams {
   path?: string;
@@ -34,7 +35,7 @@ export async function reindex(
 
   if (params.path) {
     const { like } = await import("drizzle-orm");
-    const prefix = params.path.endsWith("/") ? params.path : params.path + "/";
+    const prefix = normalizePrefix(params.path);
     conditions.push(like(schema.files.path, prefix + "%"));
   }
 

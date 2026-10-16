@@ -9,17 +9,19 @@ import { NotFoundError, EditConflictError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
 import { indexFile } from "../search/fts.js";
 import { scheduleEmbedding } from "../search/pipeline.js";
+import { normalizePath } from "./paths.js";
 
 export async function edit(
   ctx: OpContext,
   params: EditParams
 ): Promise<EditResult> {
-  const s3Key = getS3Key(ctx.orgId, ctx.driveId, params.path);
+  const path = normalizePath(params.path);
+  const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
 
   // Optimistic concurrency: check head version matches expectedVersion
   // before any S3 mutation (avoids edit-on-stale-read).
   if (params.expectedVersion !== undefined) {
-    await assertExpectedVersion(ctx, params.path, params.expectedVersion);
+    await assertExpectedVersion(ctx, path, params.expectedVersion);
   }
 
   // 1. Get current content
@@ -29,8 +31,8 @@ export async function edit(
     body = result.body;
   } catch (err: any) {
     if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
-      throw new NotFoundError(`File not found: ${params.path}`, {
-        path: params.path,
+      throw new NotFoundError(`File not found: ${path}`, {
+        path,
       });
     }
     throw err;
@@ -42,18 +44,18 @@ export async function edit(
   const occurrences = content.split(params.old_string).length - 1;
   if (occurrences === 0) {
     throw new EditConflictError(
-      `old_string not found in ${params.path}`,
+      `old_string not found in ${path}`,
       {
-        path: params.path,
+        path,
         suggestion: "Verify the exact text you want to replace",
       }
     );
   }
   if (occurrences > 1) {
     throw new EditConflictError(
-      `old_string found ${occurrences} times in ${params.path}, expected exactly 1`,
+      `old_string found ${occurrences} times in ${path}, expected exactly 1`,
       {
-        path: params.path,
+        path,
         suggestion: "Provide more surrounding context to make the match unique",
       }
     );
@@ -62,7 +64,7 @@ export async function edit(
   // 3. Replace and write back
   const newContent = content.replace(params.old_string, params.new_string);
   const size = Buffer.byteLength(newContent);
-  const contentType = detectMimeType(params.path);
+  const contentType = detectMimeType(path);
   const contentHash = createHash("sha256").update(newContent).digest("hex");
 
   const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
@@ -74,7 +76,7 @@ export async function edit(
   });
 
   const version = await createVersion(ctx, {
-    path: params.path,
+    path,
     s3VersionId: s3Result.versionId ?? "",
     operation: "edit",
     message: params.message,
@@ -86,14 +88,14 @@ export async function edit(
   });
 
   // FTS5 index (sync)
-  indexFile(ctx.db, { path: params.path, driveId: ctx.driveId, content: newContent });
+  indexFile(ctx.db, { path, driveId: ctx.driveId, content: newContent });
 
   // Embedding index (async)
   scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
-    path: params.path,
+    path,
     driveId: ctx.driveId,
     content: newContent,
   });
 
-  return { version, path: params.path, changes: 1 };
+  return { version, path, changes: 1 };
 }

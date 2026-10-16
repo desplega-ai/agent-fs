@@ -159,7 +159,11 @@ export function fileContentQueryOptions(
       const entry = await loadFileContent(queryClient.getQueryData<CachedFileContent>(queryKey), stat, async () => {
         const result = await client.getSignedUrl(orgId, driveId, path)
         // `no-store`: read the object as it is now, not a browser-cached copy of an earlier one.
-        const res = await fetch(result.url, { signal, cache: "no-store" })
+        // An `app` link (backend without presigned URLs) is the viewer page, not the bytes.
+        const res =
+          result.kind === "app"
+            ? await client.fetchRawResponse(orgId, driveId, path, { signal, cache: "no-store" })
+            : await fetch(result.url, { signal, cache: "no-store" })
         if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`)
         // The identity of these bytes is the ETag of this very response. Storage
         // must expose it to the page (CORS `Access-Control-Expose-Headers: ETag`);
