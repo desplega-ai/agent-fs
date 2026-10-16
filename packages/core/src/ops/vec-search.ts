@@ -35,7 +35,7 @@ export async function vecSearch(
 
   // 1. Embed the query
   const queryEmbedding = await provider.embed(params.query);
-  const queryVec = toUnitVector(queryEmbedding);
+  const queryVec = toUnitVector(queryEmbedding, provider.dimensions);
 
   const results = findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit).map(
     (candidate) => ({

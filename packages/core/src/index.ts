@@ -47,6 +47,7 @@ export {
   IndexingInProgressError,
   ValidationError,
   UnsupportedOperation,
+  EmbeddingProviderError,
 } from "./errors.js";
 export {
   dispatchOp,

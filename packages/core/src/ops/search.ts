@@ -126,7 +126,7 @@ async function vectorSearch(
 ): Promise<RankedItem[]> {
   const provider = ctx.embeddingProvider!;
   const queryEmbedding = await provider.embed(query);
-  const queryVec = toUnitVector(queryEmbedding);
+  const queryVec = toUnitVector(queryEmbedding, provider.dimensions);
 
   return findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit).map(
     (candidate) => ({

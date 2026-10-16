@@ -6,6 +6,7 @@ import {
   IndexingInProgressError,
   ValidationError,
   UnsupportedOperation,
+  EmbeddingProviderError,
 } from "@/core";
 
 function getStatusCode(err: Error): number {
@@ -18,6 +19,8 @@ function getStatusCode(err: Error): number {
   // backend can't satisfy it. Distinct from the generic 400 so clients don't
   // treat an unsupported-backend op as a malformed request / server bug.
   if (err instanceof UnsupportedOperation) return 422;
+  // 502 Bad Gateway: the upstream embedding provider sent an unusable vector.
+  if (err instanceof EmbeddingProviderError) return 502;
   if ("code" in err) return 400; // AgentFSError base
   return 500;
 }

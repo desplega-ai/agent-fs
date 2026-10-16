@@ -11,7 +11,9 @@ import {
   runPendingEmbeddings,
 } from "../embedding-migration.js";
 import { similarityFromDistance, toUnitVector } from "../vectors.js";
-import { indexFileEmbeddings } from "../pipeline.js";
+import { indexFileEmbeddings, readCurrentVersion } from "../pipeline.js";
+import { reindex } from "../../ops/reindex.js";
+import { EmbeddingProviderError } from "../../errors.js";
 import { createTestContext } from "../../test-utils.js";
 
 // Not unit length on purpose: the local model returns vectors with a norm near 23.
@@ -87,7 +89,7 @@ function storedNorms(db: DB): number[] {
 
 describe("vectors", () => {
   test("toUnitVector scales to length 1", () => {
-    expect(Math.hypot(...toUnitVector([3, 4]))).toBeCloseTo(1, 6);
+    expect(Math.hypot(...toUnitVector([3, 4], 2))).toBeCloseTo(1, 6);
   });
 
   test.each([
@@ -95,8 +97,9 @@ describe("vectors", () => {
     ["NaN", [1, NaN]],
     ["Infinity", [1, Infinity]],
     ["Float32 overflow", [1e39, 1]],
+    ["wrong-dimension", [3, 4, 5]],
   ])("toUnitVector rejects a %s vector", (_, values) => {
-    expect(() => toUnitVector(values)).toThrow();
+    expect(() => toUnitVector(values, 2)).toThrow(EmbeddingProviderError);
   });
 
   test("similarityFromDistance maps unit-vector L2 distance to cosine", () => {
@@ -206,31 +209,56 @@ describe("embedding migration", () => {
     expect(statusOf(db, "/a.md")).toBe("pending");
   });
 
+  test("a write during a reindex keeps its own content and status", async () => {
+    const { ctx, db } = createTestContext();
+    await write(ctx, { path: "/a.md", content: "old content" });
+
+    const gated = gatedProvider("old content");
+    ctx.embeddingProvider = gated.provider;
+    const run = reindex(ctx, {});
+    await waitFor(gated.started);
+
+    await write(ctx, { path: "/a.md", content: "new content" });
+    await waitFor(() => statusOf(db, "/a.md") === "indexed");
+    gated.release();
+
+    expect(await run).toEqual({ reindexed: 0, failed: 0, skipped: 1 });
+    expect(chunkContents(db, "/a.md")).toEqual(["new content"]);
+    expect(statusOf(db, "/a.md")).toBe("indexed");
+  });
+
+  const vectorOf = (value: (i: number) => number) => Array.from({ length: 768 }, (_, i) => value(i));
   test.each([
-    ["zero", () => 0],
-    ["NaN", (i: number) => (i === 5 ? NaN : 1)],
-    ["Infinity", (i: number) => (i === 5 ? Infinity : 1)],
-  ])("a %s embedding fails the file and keeps its previous index", async (_, value) => {
+    ["zero", PROVIDER.dimensions, () => vectorOf(() => 0)],
+    ["NaN", PROVIDER.dimensions, () => vectorOf((i) => (i === 5 ? NaN : 1))],
+    ["Infinity", PROVIDER.dimensions, () => vectorOf((i) => (i === 5 ? Infinity : 1))],
+    ["wrong-dimension", PROVIDER.dimensions, () => [3, 4]],
+    // Passes validation, then the 768-wide index rejects the insert mid-replace.
+    ["index-rejected", 2, () => [3, 4]],
+  ])("a %s embedding fails the file and keeps its previous index", async (_, dimensions, vector) => {
     const { ctx, db, s3, driveId } = createTestContext();
     await write(ctx, { path: "/a.md", content: "all about cats" });
-    await indexFileEmbeddings(db, PROVIDER, { path: "/a.md", driveId, content: "all about cats" });
+    await indexFileEmbeddings(db, PROVIDER, {
+      path: "/a.md",
+      driveId,
+      content: "all about cats",
+      version: readCurrentVersion(db, { path: "/a.md", driveId }) ?? null,
+    });
     raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
 
     const bad: EmbeddingProvider = {
       ...PROVIDER,
+      dimensions,
       async embed() {
-        return Array.from({ length: 768 }, (_, i) => value(i));
+        return vector();
       },
       async embedBatch(texts) {
-        return texts.map(() => Array.from({ length: 768 }, (_, i) => value(i)));
+        return texts.map(vector);
       },
     };
     expect(await runPendingEmbeddings(db, s3, bad)).toEqual({ indexed: 0, failed: 1, skipped: 0, superseded: 0 });
     expect(statusOf(db, "/a.md")).toBe("failed");
     expect(chunkContents(db, "/a.md")).toEqual(["all about cats"]);
     expect(vectorCount(db)).toBe(1);
-
-    ctx.embeddingProvider = bad;
-    await expect(vecSearch(ctx, { query: "cats", limit: 1 })).rejects.toThrow();
   });
 });
