@@ -1,112 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { AgentFsFileSystem, normalizePath } from "../index.js";
-
-interface StoredFile {
-  bytes: Uint8Array;
-  modifiedAt: Date;
-  version: number;
-}
-
-function createMockFetch() {
-  const files = new Map<string, StoredFile>();
-
-  const fetch = async (input: string | URL | Request, init?: RequestInit) => {
-    const url = new URL(input.toString());
-    const method = init?.method ?? "GET";
-
-    const rawMatch = url.pathname.match(
-      /^\/orgs\/([^/]+)\/drives\/([^/]+)\/files\/(.+)\/raw$/,
-    );
-    if (rawMatch) {
-      const path = normalizePath(decodeURIComponent(rawMatch[3]));
-      if (method === "GET") {
-        const file = files.get(path);
-        if (!file) {
-          return json({ error: "NOT_FOUND", message: `File not found: ${path}` }, 404);
-        }
-        return new Response(file.bytes.slice(), {
-          status: 200,
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "X-Agent-FS-Version": String(file.version),
-            "Last-Modified": file.modifiedAt.toUTCString(),
-          },
-        });
-      }
-
-      if (method === "PUT") {
-        const bytes = new Uint8Array(await new Response(init?.body).arrayBuffer());
-        const previous = files.get(path);
-        const version = (previous?.version ?? 0) + 1;
-        files.set(path, { bytes, version, modifiedAt: new Date() });
-        return json({ version, path, size: bytes.length });
-      }
-    }
-
-    if (url.pathname === "/orgs/org/ops" && method === "POST") {
-      const body = await new Response(init?.body).json();
-      const op = body.op as string;
-      const path = body.path ? normalizePath(body.path) : undefined;
-
-      if (op === "ls") {
-        return json({ entries: listEntries(files, path ?? "/") });
-      }
-
-      if (op === "stat") {
-        const file = files.get(path ?? "/");
-        if (!file) {
-          return json({ error: "NOT_FOUND", message: `File not found: ${path}` }, 404);
-        }
-        return json({
-          path,
-          size: file.bytes.length,
-          modifiedAt: file.modifiedAt.toISOString(),
-          createdAt: file.modifiedAt.toISOString(),
-        });
-      }
-
-      if (op === "rm") {
-        files.delete(path ?? "/");
-        return json({ path, deleted: true });
-      }
-
-      if (op === "cp") {
-        const from = normalizePath(body.from);
-        const to = normalizePath(body.to);
-        const source = files.get(from);
-        if (!source) {
-          return json({ error: "NOT_FOUND", message: `File not found: ${from}` }, 404);
-        }
-        files.set(to, {
-          bytes: source.bytes.slice(),
-          modifiedAt: new Date(),
-          version: 1,
-        });
-        return json({ from, to, version: 1 });
-      }
-
-      if (op === "mv") {
-        const from = normalizePath(body.from);
-        const to = normalizePath(body.to);
-        const source = files.get(from);
-        if (!source) {
-          return json({ error: "NOT_FOUND", message: `File not found: ${from}` }, 404);
-        }
-        files.delete(from);
-        files.set(to, {
-          bytes: source.bytes,
-          modifiedAt: new Date(),
-          version: source.version + 1,
-        });
-        return json({ from, to, version: source.version + 1 });
-      }
-    }
-
-    return json({ error: "NOT_FOUND", message: "not found" }, 404);
-  };
-
-  return { fetch, files };
-}
+import { AgentFsFileSystem } from "../index.js";
+import { createMockFetch } from "./mock-agent-fs.js";
 
 describe("AgentFsFileSystem", () => {
   test("reads, writes, appends, stats, lists, and removes files", async () => {
@@ -226,30 +120,153 @@ describe("AgentFsFileSystem", () => {
   });
 });
 
-function listEntries(files: Map<string, StoredFile>, dir: string) {
-  const normalized = normalizePath(dir);
-  const prefix = normalized === "/" ? "/" : `${normalized}/`;
-  const entries = new Map<string, { name: string; type: "file" | "directory"; size: number }>();
-
-  for (const [path, file] of files) {
-    if (!path.startsWith(prefix)) continue;
-    const remainder = path.slice(prefix.length);
-    if (!remainder) continue;
-    const slash = remainder.indexOf("/");
-    if (slash >= 0) {
-      const name = remainder.slice(0, slash);
-      entries.set(name, { name, type: "directory", size: 0 });
-    } else {
-      entries.set(remainder, { name: remainder, type: "file", size: file.bytes.length });
-    }
+describe("AgentFsFileSystem stat/ls cache", () => {
+  function drive(
+    mock: ReturnType<typeof createMockFetch>,
+    options: { cacheTtlMs?: number } = {},
+  ) {
+    return new AgentFsFileSystem({
+      baseUrl: "http://agent.test",
+      orgId: "org",
+      driveId: "drive",
+      fetch: mock.fetch,
+      ...options,
+    });
   }
 
-  return [...entries.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
+  test("answers repeat stat, exists, and readdir calls from the cache", async () => {
+    const mock = createMockFetch();
+    const fs = drive(mock);
+    await fs.writeFile("/work/a.txt", "a");
+    mock.requests.length = 0;
 
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
+    await fs.stat("/work/a.txt");
+    await fs.stat("/work/a.txt");
+    await fs.exists("/work/a.txt");
+    expect(await fs.readdir("/work")).toEqual(["a.txt"]);
+    expect(await fs.readdir("/work")).toEqual(["a.txt"]);
+    expect((await fs.stat("/work")).isDirectory).toBe(true);
+
+    // "/work is not a file" is still cached from the write's parent check.
+    expect(mock.requests).toEqual(["stat /work/a.txt", "ls /work"]);
   });
-}
+
+  test("answers stat for a listed file and a missing name from the listing", async () => {
+    const mock = createMockFetch();
+    const fs = drive(mock);
+    await fs.writeFile("/work/a.txt", "abc");
+    await fs.readdir("/work");
+    mock.requests.length = 0;
+
+    expect((await fs.stat("/work/a.txt")).size).toBe(3);
+    expect(await fs.exists("/work/missing.txt")).toBe(false);
+    await expect(fs.readdir("/work/missing")).rejects.toThrow("ENOENT");
+
+    expect(mock.requests).toEqual([]);
+  });
+
+  test("sees its own writes at once", async () => {
+    const mock = createMockFetch();
+    const fs = drive(mock);
+    await fs.writeFile("/work/a.txt", "a");
+    expect((await fs.stat("/work/a.txt")).size).toBe(1);
+    expect(await fs.readdir("/work")).toEqual(["a.txt"]);
+
+    await fs.appendFile("/work/a.txt", "bc");
+    await fs.writeFile("/work/b.txt", "b");
+    await fs.mkdir("/work/sub");
+    expect((await fs.stat("/work/a.txt")).size).toBe(3);
+    expect(await fs.readdir("/work")).toEqual(["a.txt", "b.txt", "sub"]);
+    expect((await fs.stat("/work/sub")).isDirectory).toBe(true);
+
+    await fs.mv("/work/b.txt", "/work/sub/b.txt");
+    expect(await fs.readdir("/work")).toEqual(["a.txt", "sub"]);
+    expect(await fs.readdir("/work/sub")).toEqual(["b.txt"]);
+
+    await fs.cp("/work/a.txt", "/work/c.txt");
+    expect(await fs.exists("/work/c.txt")).toBe(true);
+
+    await fs.rm("/work/a.txt");
+    expect(await fs.exists("/work/a.txt")).toBe(false);
+    await fs.rm("/work", { recursive: true });
+    expect(await fs.exists("/work")).toBe(false);
+    expect(await fs.exists("/work/sub/b.txt")).toBe(false);
+  });
+
+  test("hides another client's change until the entry expires", async () => {
+    const mock = createMockFetch();
+    const writer = drive(mock);
+    await writer.writeFile("/shared/a.txt", "a");
+
+    const cached = drive(mock);
+    expect(await cached.readdir("/shared")).toEqual(["a.txt"]);
+    await writer.writeFile("/shared/b.txt", "b");
+    expect(await cached.readdir("/shared")).toEqual(["a.txt"]);
+
+    const shortLived = drive(mock, { cacheTtlMs: 1 });
+    await shortLived.readdir("/shared");
+    await writer.writeFile("/shared/c.txt", "c");
+    await Bun.sleep(5);
+    expect(await shortLived.readdir("/shared")).toEqual(["a.txt", "b.txt", "c.txt"]);
+  });
+
+  test("refreshAllPaths lists again past the cache", async () => {
+    const mock = createMockFetch();
+    const writer = drive(mock);
+    await writer.writeFile("/shared/a.txt", "a");
+
+    const fs = drive(mock);
+    await fs.readdir("/shared");
+    await writer.writeFile("/shared/b.txt", "b");
+
+    expect(await fs.refreshAllPaths("/shared")).toContain("/shared/b.txt");
+    expect(await fs.readdir("/shared")).toEqual(["a.txt", "b.txt"]);
+  });
+
+  test("cacheTtlMs 0 sends every call", async () => {
+    const mock = createMockFetch();
+    const fs = drive(mock, { cacheTtlMs: 0 });
+    await fs.writeFile("/a.txt", "a");
+    mock.requests.length = 0;
+
+    await fs.stat("/a.txt");
+    await fs.stat("/a.txt");
+
+    expect(mock.requests).toEqual(["stat /a.txt", "stat /a.txt"]);
+  });
+
+  test("shares one request between concurrent callers", async () => {
+    const mock = createMockFetch();
+    const fs = drive(mock);
+    await fs.writeFile("/a.txt", "a");
+    mock.requests.length = 0;
+
+    await Promise.all([fs.stat("/a.txt"), fs.stat("/a.txt"), fs.exists("/a.txt")]);
+
+    expect(mock.requests).toEqual(["stat /a.txt"]);
+  });
+
+  test("does not cache a failed request", async () => {
+    const mock = createMockFetch();
+    let failNext = false;
+    const fs = new AgentFsFileSystem({
+      baseUrl: "http://agent.test",
+      orgId: "org",
+      driveId: "drive",
+      fetch: async (input, init) => {
+        if (failNext) {
+          failNext = false;
+          return new Response(JSON.stringify({ error: "INTERNAL", message: "boom" }), {
+            status: 500,
+          });
+        }
+        return mock.fetch(input, init);
+      },
+    });
+    await fs.writeFile("/a.txt", "a");
+
+    failNext = true;
+    await expect(fs.stat("/a.txt")).rejects.toThrow("boom");
+    expect((await fs.stat("/a.txt")).size).toBe(1);
+  });
+});

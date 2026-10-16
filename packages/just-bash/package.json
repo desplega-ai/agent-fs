@@ -30,6 +30,9 @@
     "build": "rm -rf dist tsconfig.tsbuildinfo && tsc -p tsconfig.json",
     "prepublishOnly": "bun run build"
   },
+  "devDependencies": {
+    "just-bash": "3.6.0"
+  },
   "peerDependencies": {
     "just-bash": ">=3.0.1"
   },
