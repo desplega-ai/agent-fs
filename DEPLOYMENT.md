@@ -154,7 +154,7 @@ curl -X POST https://your-app.fly.dev/auth/register \
 | `shared-cpu-2x` | 2 shared | 512 MB–1 GB | Small teams, moderate traffic |
 | `performance-1x` | 1 dedicated | 2 GB | Production, heavy embedding workloads |
 
-The default `fly.toml` uses `shared-cpu-1x` with 512 MB. Adjust in `fly.toml` under `[[vm]]` or pass the instance size when prompted by the deploy script.
+The repo's `fly.toml` uses `performance-1x` with 2 GB. On `shared-cpu-1x`, a large index (100k+ chunks) used up the shared CPU budget: searches took seconds and health checks failed. `flyctl deploy` applies the `[[vm]]` size on every deploy, so a manual `fly scale vm` is undone by the next one. Adjust in `fly.toml` under `[[vm]]` or pass the instance size when prompted by the deploy script.
 
 ## Upgrading to 0.13.1: search index migration
 
