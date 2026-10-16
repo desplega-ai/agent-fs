@@ -246,11 +246,74 @@ describe("AgentFsFileSystem stat/ls cache", () => {
     expect(mock.requests).toEqual(["stat /a.txt"]);
   });
 
-  // The caches are private; their sizes are what this regression is about.
-  function cacheSizes(fs: AgentFsFileSystem) {
-    const caches = fs as unknown as { statCache: Map<string, unknown>; lsCache: Map<string, unknown> };
-    return { stat: caches.statCache.size, ls: caches.lsCache.size };
+  // The caches are private; their sizes and scans are what these regressions
+  // are about.
+  type CacheInternals = { answers: Map<string, unknown>; inFlight: Map<string, unknown> };
+  function caches(fs: AgentFsFileSystem) {
+    return fs as unknown as { statCache: CacheInternals; lsCache: CacheInternals };
   }
+  function cacheSizes(fs: AgentFsFileSystem) {
+    return { stat: caches(fs).statCache.answers.size, ls: caches(fs).lsCache.answers.size };
+  }
+
+  // Holds every request whose JSON body matches `pattern` until release().
+  function holdingDrive(mock: ReturnType<typeof createMockFetch>, pattern: RegExp, cacheTtlMs?: number) {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const fs = new AgentFsFileSystem({
+      baseUrl: "http://agent.test",
+      orgId: "org",
+      driveId: "drive",
+      ...(cacheTtlMs === undefined ? {} : { cacheTtlMs }),
+      fetch: async (input, init) => {
+        if (typeof init?.body === "string" && pattern.test(init.body)) await held;
+        return mock.fetch(input, init);
+      },
+    });
+    return { fs, release: () => release() };
+  }
+
+  test("keeps sharing a request in flight while the cache is full", async () => {
+    const mock = createMockFetch();
+    const { fs, release } = holdingDrive(mock, /"path":"\/a\.txt"/, Infinity);
+    await fs.writeFile("/a.txt", "a");
+
+    const first = fs.stat("/a.txt");
+    for (let i = 0; i < 10_050; i++) await fs.exists(`/missing-${i}`);
+    const second = fs.stat("/a.txt");
+    release();
+    await Promise.all([first, second]);
+
+    expect(mock.requests.filter((request) => request === "stat /a.txt")).toHaveLength(1);
+  });
+
+  test("never rescans requests in flight", async () => {
+    // Counts the answers each prune visits.
+    class CountingMap<K, V> extends Map<K, V> {
+      visits = 0;
+      *[Symbol.iterator]() {
+        for (const entry of super[Symbol.iterator]()) {
+          this.visits++;
+          yield entry;
+        }
+      }
+    }
+    const mock = createMockFetch();
+    const { fs, release } = holdingDrive(mock, /"op":"stat"/);
+    const answers = new CountingMap<string, unknown>();
+    caches(fs).statCache.answers = answers;
+
+    const burst = Array.from({ length: 2000 }, (_, i) => fs.stat(`/f-${i}`).catch(() => {}));
+    expect(caches(fs).statCache.inFlight.size).toBe(2000);
+    expect(answers.visits).toBe(0);
+
+    release();
+    await Promise.all(burst);
+    // One visit per arriving answer; scanning in-flight requests was N(N+1)/2.
+    expect(answers.visits).toBe(2000);
+  });
 
   test("drops expired entries for other paths as new ones arrive", async () => {
     const mock = createMockFetch();

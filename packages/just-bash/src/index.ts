@@ -69,10 +69,85 @@ interface AgentFsStatResult {
   createdAt?: string | Date;
 }
 
-interface CacheEntry<T> {
-  at: number;
-  pending: Promise<T>;
-  settled?: { value: T };
+/**
+ * Answers by path, plus the requests still in flight. Answers stay for
+ * `ttlMs` after they arrive, at most MAX_CACHE_ENTRIES of them. A request in
+ * flight is shared until it settles and is never evicted.
+ */
+class RequestCache<T> {
+  // In arrival order, so expired answers and the oldest ones come first.
+  private readonly answers = new Map<string, { at: number; value: T }>();
+  private readonly inFlight = new Map<string, Promise<T>>();
+
+  constructor(private readonly ttlMs: number) {}
+
+  /** The fresh answer for `path`, if there is one. */
+  answer(path: string): { value: T } | undefined {
+    const hit = this.answers.get(path);
+    return hit && this.isFresh(hit.at) ? hit : undefined;
+  }
+
+  /** A failed request is not cached. */
+  get(path: string, load: () => Promise<T>): Promise<T> {
+    const hit = this.answer(path);
+    if (hit) return Promise.resolve(hit.value);
+    const pending = this.inFlight.get(path);
+    if (pending) return pending;
+    if (!(this.ttlMs > 0)) return load();
+
+    const request = load();
+    this.inFlight.set(path, request);
+    request.then(
+      (value) => {
+        // Dropped by a write while in flight: the answer can predate it.
+        if (this.inFlight.get(path) !== request) return;
+        this.inFlight.delete(path);
+        this.answers.delete(path);
+        this.answers.set(path, { at: Date.now(), value });
+        this.prune();
+      },
+      () => {
+        if (this.inFlight.get(path) === request) this.inFlight.delete(path);
+      },
+    );
+    return request;
+  }
+
+  delete(path: string): void {
+    this.answers.delete(path);
+    this.inFlight.delete(path);
+  }
+
+  /** Drops `path` and everything under it. */
+  deleteTree(path: string): void {
+    if (path === "/") {
+      this.answers.clear();
+      this.inFlight.clear();
+      return;
+    }
+    this.delete(path);
+    const prefix = `${path}/`;
+    for (const map of [this.answers, this.inFlight]) {
+      for (const key of [...map.keys()]) {
+        if (key.startsWith(prefix)) map.delete(key);
+      }
+    }
+  }
+
+  // Each visit drops an answer or ends the scan, so the work per insert is
+  // O(1) amortized.
+  private prune(): void {
+    for (const [path, answer] of this.answers) {
+      if (this.answers.size <= MAX_CACHE_ENTRIES && this.isFresh(answer.at)) break;
+      this.answers.delete(path);
+    }
+  }
+
+  // Date.now, not performance.now: just-bash blocks performance timing while
+  // a script runs, and these calls run inside its commands.
+  private isFresh(at: number): boolean {
+    return Date.now() - at < this.ttlMs;
+  }
 }
 
 export interface AgentFsFileSystemOptions {
@@ -84,10 +159,11 @@ export interface AgentFsFileSystemOptions {
   directoryMarkerName?: string;
   writeMessage?: string | ((operation: string, path: string) => string);
   /**
-   * How long `stat` and `ls` answers stay cached, in milliseconds. The
-   * adapter drops the entries its own writes touch, so this only bounds how
-   * long a change made by another client can go unseen. Defaults to 5000.
-   * `0` disables the cache. `Infinity` keeps entries for the instance's life.
+   * How long `stat` and `ls` answers stay cached after they arrive, in
+   * milliseconds. The adapter drops the entries its own writes touch, so this
+   * only bounds how long a change made by another client can go unseen.
+   * Defaults to 5000. `0` disables the cache. `Infinity` keeps entries for the
+   * instance's life, up to 10,000 paths per cache.
    */
   cacheTtlMs?: number;
 }
@@ -112,12 +188,11 @@ export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
   private readonly fetchFn: FetchLike;
   private readonly directoryMarkerName: string;
   private readonly writeMessage?: string | ((operation: string, path: string) => string);
-  private readonly cacheTtlMs: number;
   private readonly knownFiles = new Set<string>();
   private readonly knownDirectories = new Set<string>(["/"]);
   // Remote `stat` answers (null: no file there) and raw `ls` entries, by path.
-  private readonly statCache = new Map<string, CacheEntry<AgentFsStatResult | null>>();
-  private readonly lsCache = new Map<string, CacheEntry<AgentFsLsEntry[]>>();
+  private readonly statCache: RequestCache<AgentFsStatResult | null>;
+  private readonly lsCache: RequestCache<AgentFsLsEntry[]>;
 
   constructor(options: AgentFsFileSystemOptions) {
     if (!options.orgId) {
@@ -137,7 +212,9 @@ export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
     this.directoryMarkerName =
       options.directoryMarkerName ?? DEFAULT_DIRECTORY_MARKER;
     this.writeMessage = options.writeMessage;
-    this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
+    const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
+    this.statCache = new RequestCache(cacheTtlMs);
+    this.lsCache = new RequestCache(cacheTtlMs);
 
     if (!this.fetchFn) {
       throw new Error("AgentFsFileSystem requires a fetch implementation");
@@ -568,7 +645,7 @@ export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
     if (listed?.file?.modifiedAt !== undefined) {
       return Promise.resolve({ size: listed.file.size, modifiedAt: listed.file.modifiedAt });
     }
-    return this.cached(this.statCache, path, async () => {
+    return this.statCache.get(path, async () => {
       try {
         return await this.op<AgentFsStatResult>("stat", { path });
       } catch (err) {
@@ -582,8 +659,7 @@ export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
   private lsEntries(path: string): Promise<AgentFsLsEntry[]> {
     const listed = this.listedChild(path);
     if (listed && !listed.directory) return Promise.resolve([]);
-    return this.cached(
-      this.lsCache,
+    return this.lsCache.get(
       path,
       async () => (await this.op<AgentFsLsResult>("ls", { path })).entries,
     );
@@ -598,63 +674,14 @@ export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
     path: string,
   ): { file?: AgentFsLsEntry; directory: boolean } | undefined {
     if (path === "/") return undefined;
-    const parent = this.lsCache.get(dirname(path));
-    if (!parent?.settled || !this.isFresh(parent)) return undefined;
+    const parent = this.lsCache.answer(dirname(path));
+    if (!parent) return undefined;
     const name = basename(path);
-    const matches = parent.settled.value.filter((entry) => entry.name === name);
+    const matches = parent.value.filter((entry) => entry.name === name);
     return {
       file: matches.find((entry) => entry.type === "file"),
       directory: matches.some((entry) => entry.type === "directory"),
     };
-  }
-
-  /**
-   * Shares one request per path while it is in flight and for `cacheTtlMs`
-   * after it starts. A failed request is not cached.
-   */
-  private cached<T>(
-    cache: Map<string, CacheEntry<T>>,
-    path: string,
-    load: () => Promise<T>,
-  ): Promise<T> {
-    const hit = cache.get(path);
-    if (hit && (!hit.settled || this.isFresh(hit))) return hit.pending;
-    if (!(this.cacheTtlMs > 0)) return load();
-
-    // Date.now, not performance.now: just-bash blocks performance timing
-    // while a script runs, and these calls run inside its commands.
-    const entry: CacheEntry<T> = { at: Date.now(), pending: load() };
-    // Re-inserted at the end, so the map stays in request order.
-    cache.delete(path);
-    cache.set(path, entry);
-    this.prune(cache);
-    entry.pending.then(
-      (value) => {
-        entry.settled = { value };
-      },
-      () => {
-        if (cache.get(path) === entry) cache.delete(path);
-      },
-    );
-    return entry.pending;
-  }
-
-  /**
-   * Drops expired answers, oldest first, and the oldest entries past
-   * MAX_CACHE_ENTRIES. Requests still in flight stay, so callers keep
-   * sharing them. In request order, the first fresh answer ends the scan.
-   */
-  private prune<T>(cache: Map<string, CacheEntry<T>>): void {
-    for (const [path, entry] of cache) {
-      if (cache.size > MAX_CACHE_ENTRIES) cache.delete(path);
-      else if (!entry.settled) continue;
-      else if (this.isFresh(entry)) break;
-      else cache.delete(path);
-    }
-  }
-
-  private isFresh(entry: CacheEntry<unknown>): boolean {
-    return Date.now() - entry.at < this.cacheTtlMs;
   }
 
   private async mutate(
@@ -684,18 +711,9 @@ export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
   }
 
   private invalidateTree(path: string): void {
-    if (path === "/") {
-      this.statCache.clear();
-      this.lsCache.clear();
-      return;
-    }
     this.invalidate(path);
-    const prefix = `${path}/`;
-    for (const cache of [this.statCache, this.lsCache]) {
-      for (const key of [...cache.keys()]) {
-        if (key.startsWith(prefix)) cache.delete(key);
-      }
-    }
+    this.statCache.deleteTree(path);
+    this.lsCache.deleteTree(path);
   }
 
   private async op<T>(op: string, params: Record<string, unknown> = {}): Promise<T> {
