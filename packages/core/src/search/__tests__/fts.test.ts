@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { indexFile, removeFromIndex, ftsQuery } from "../fts.js";
+import { indexFile, removeFromIndex, ftsQuery, plainSnippet } from "../fts.js";
 import { createTestContext } from "../../test-utils.js";
 
 describe("FTS indexing", () => {
@@ -110,5 +110,60 @@ describe("FTS indexing", () => {
     expect(results.length).toBe(2);
     // rank is negative in FTS5 (more negative = better), so first result should be better match
     expect(results[0].rank).toBeLessThanOrEqual(results[1].rank);
+  });
+});
+
+describe("FTS on large documents", () => {
+  test("a document with many hits of a common term returns quickly, with a snippet", () => {
+    const { db, driveId } = createTestContext();
+    // 200k hits: FTS5 snippet() on this row alone runs for minutes.
+    const rows = Array.from({ length: 200_000 }, (_, i) => `row${i},agent,value`);
+    indexFile(db, { path: "/big.csv", driveId, content: rows.join("\n") });
+    indexFile(db, { path: "/small.md", driveId, content: "the agent runs here" });
+
+    const started = performance.now();
+    const results = ftsQuery(db, { pattern: "agent", driveId });
+    expect(performance.now() - started).toBeLessThan(2000);
+
+    const big = results.find((r) => r.path === "/big.csv")!;
+    expect(big.snippet).toContain("<b>agent</b>");
+    expect(big.snippet.length).toBeLessThan(400);
+    expect(results.find((r) => r.path === "/small.md")!.snippet).toBe("the <b>agent</b> runs here");
+  });
+
+  test("matches content only, not the path", () => {
+    const { db, driveId } = createTestContext();
+    indexFile(db, { path: "/omega/notes.txt", driveId, content: "nothing to see" });
+    expect(ftsQuery(db, { pattern: "omega", driveId })).toEqual([]);
+  });
+
+  test("returns at most 50 results, best rank first", () => {
+    const { db, driveId } = createTestContext();
+    for (let i = 0; i < 60; i++) {
+      indexFile(db, { path: `/f${i}.txt`, driveId, content: `kappa ${"filler ".repeat(i)}` });
+    }
+    const results = ftsQuery(db, { pattern: "kappa", driveId });
+    expect(results.length).toBe(50);
+    expect(results[0].path).toBe("/f0.txt");
+    for (let i = 1; i < results.length; i++) expect(results[i - 1].rank).toBeLessThanOrEqual(results[i].rank);
+  });
+});
+
+describe("plainSnippet", () => {
+  test("windows the first match and marks every match in the window", () => {
+    const content = `${"lead ".repeat(100)}Agent and agents, agent.${" tail".repeat(100)}`;
+    const s = plainSnippet(content, '"agent"');
+    expect(s.startsWith("...")).toBe(true);
+    expect(s.endsWith("...")).toBe(true);
+    expect(s).toContain("<b>Agent</b> and agents, <b>agent</b>.");
+  });
+
+  test("handles prefixes, operators and column filters", () => {
+    expect(plainSnippet("alpha beta gamma", "content: bet* OR NOT zeta")).toBe("alpha <b>beta</b> gamma");
+    expect(plainSnippet("alpha beta gamma", "(alpha AND gamma)")).toBe("<b>alpha</b> beta <b>gamma</b>");
+  });
+
+  test("falls back to the start of the document when no term is found", () => {
+    expect(plainSnippet("plain text here", "zzz")).toBe("plain text here");
   });
 });
