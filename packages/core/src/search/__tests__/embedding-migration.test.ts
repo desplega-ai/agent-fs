@@ -150,6 +150,22 @@ describe("embedding migration", () => {
     expect(statusOf(db, "/a.md")).toBe("pending");
   });
 
+  test("the local batch fix re-embeds local vectors only", async () => {
+    for (const [name, migrates] of [["local", true], ["openai", false]] as const) {
+      const { ctx, db } = createTestContext();
+      await write(ctx, { path: "/a.md", content: "text" });
+      raw(db)
+        .prepare(
+          "INSERT INTO meta(key, value) VALUES ('embedding_format', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+        )
+        .run(`${name}:v2`);
+      raw(db).prepare("UPDATE files SET embedding_status = 'indexed'").run();
+
+      expect(prepareEmbeddingMigration(raw(db), { ...PROVIDER, name })).toBe(migrates);
+      expect(statusOf(db, "/a.md")).toBe(migrates ? "pending" : "indexed");
+    }
+  });
+
   test("clears binary files, marks unreadable ones failed, and terminates", async () => {
     const { ctx, db, s3, orgId, driveId } = createTestContext();
     await write(ctx, { path: "/notes.md", content: "hello" });

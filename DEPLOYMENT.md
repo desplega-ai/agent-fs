@@ -173,6 +173,12 @@ Nothing to do by hand. If you prefer the startup cost outside a traffic window, 
 
 On the first start, the daemon marks every indexed file `pending` and embeds it again in the background, one file at a time, in the same embedding slots that new writes use. Progress is logged as `embedding migration: ...`, and a restart resumes. Search keeps working meanwhile. The same re-embed runs again whenever the embedding provider changes.
 
+## Upgrading to 0.16.6: local embeddings re-embedded
+
+Only the `local` provider is affected. Before 0.16.6 it embedded in batches of 512 tokens, so a chunk longer than that got a wrong vector. That was 60% of the chunks in a sample corpus. 0.16.6 embeds each chunk in one batch.
+
+On the first start, the daemon re-embeds every file once more, in the background, the same way as in 0.16.5. If the 0.16.5 run has not finished yet, the two runs merge: files still `pending` are embedded once, with the fixed batch. `openai` and `gemini` keep their vectors, and nothing runs for them.
+
 ## Environment Variables Reference
 
 All environment variables supported by the server. Priority: env vars > config.json > defaults.

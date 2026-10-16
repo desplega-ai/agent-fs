@@ -38,7 +38,14 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     console.error("[agent-fs] Model ready:", modelPath);
 
     this.model = await this.llama.loadModel({ modelPath });
-    this.embeddingContext = await this.model.createEmbeddingContext();
+    // The model pools over the whole input, so a chunk must fit in one batch.
+    // node-llama-cpp defaults the batch to 512 tokens, and longer chunks came
+    // back with wrong vectors.
+    const size = this.model.trainContextSize;
+    this.embeddingContext = await this.model.createEmbeddingContext({
+      contextSize: size,
+      batchSize: size,
+    });
   }
 
   async embed(text: string): Promise<number[]> {

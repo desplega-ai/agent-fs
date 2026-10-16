@@ -24,9 +24,14 @@ import { indexFileEmbeddings, withEmbeddingSlot } from "./pipeline.js";
 
 const FORMAT_KEY = "embedding_format";
 
-/** Bump the suffix whenever stored vectors must be rebuilt. v2: unit length. */
+/**
+ * Bump a provider's revision whenever its stored vectors must be rebuilt.
+ * v2: unit length. local v3: chunks over 512 tokens embedded in one batch.
+ */
+const REVISIONS: Record<string, number> = { local: 3 };
+
 export function embeddingFormat(provider: EmbeddingProvider): string {
-  return `${provider.name}:v2`;
+  return `${provider.name}:v${REVISIONS[provider.name] ?? 2}`;
 }
 
 /** Returns `true` when `runPendingEmbeddings()` has files to embed. */
