@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { DEFAULT_CPU_SHARE, pauseForCpuShare, processCpuMs } from "./embedding-migration.js";
 
 /**
  * Optional int8 copy of `chunk_vectors`, for faster vector search on large
@@ -93,10 +94,19 @@ export function insertQuantizedVector(
  */
 export async function runQuantizedIndexBackfill(
   sqlite: Database,
-  opts: { batchSize?: number; log?: (msg: string) => void; sleep?: (ms: number) => Promise<void> } = {}
+  opts: {
+    batchSize?: number;
+    log?: (msg: string) => void;
+    /** Same pacing as the re-embed: pause after each batch to stay under this CPU share. */
+    cpuShare?: number;
+    cpuMs?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+  } = {}
 ): Promise<number> {
-  const batchSize = opts.batchSize ?? 1000;
+  const batchSize = opts.batchSize ?? 250;
   const log = opts.log ?? (() => {});
+  const cpuShare = opts.cpuShare ?? DEFAULT_CPU_SHARE;
+  const cpuMs = opts.cpuMs ?? processCpuMs;
   const sleep = opts.sleep ?? ((ms: number) => Bun.sleep(ms));
 
   const selectBatch = sqlite.prepare(
@@ -113,6 +123,7 @@ export async function runQuantizedIndexBackfill(
   for (;;) {
     const rows = selectBatch.all(cursor, batchSize) as { id: number; driveId: string }[];
     if (rows.length === 0) break;
+    const cpuStart = cpuMs();
     sqlite.transaction(() => {
       for (const row of rows) {
         if (hasRow.get(row.id)) continue;
@@ -124,8 +135,8 @@ export async function runQuantizedIndexBackfill(
     })();
     cursor = rows[rows.length - 1].id;
     log(`vector int8 index: ${copied} copied`);
-    // Let requests run between batches.
-    await sleep(1);
+    // Requests run during the pause; always yield at least once per batch.
+    await sleep(Math.max(1, pauseForCpuShare(cpuMs() - cpuStart, cpuShare)));
   }
 
   sqlite

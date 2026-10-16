@@ -86,7 +86,10 @@ if (ftsMigrationPending) {
 // created before any embedding job runs, then backfilled in the background;
 // search uses the exact scan until the backfill finishes.
 if (prepareQuantizedIndex(sqlite, vectorIndexMode(process.env.AGENT_FS_VECTOR_INDEX))) {
-  runQuantizedIndexBackfill(sqlite, { log: (msg) => console.log(msg) })
+  runQuantizedIndexBackfill(sqlite, {
+    log: (msg) => console.log(msg),
+    cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
+  })
     .then((n) => console.log(`vector int8 index ready: ${n} copied`))
     .catch((err) => {
       console.error("vector int8 index backfill failed (will resume on next start):", err);

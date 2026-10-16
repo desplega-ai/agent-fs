@@ -158,4 +158,24 @@ describe("vector int8 index", () => {
     expect(prepareQuantizedIndex(raw(db), "int8")).toBe(true);
     expect(await runQuantizedIndexBackfill(raw(db), { sleep: async () => {} })).toBe(3);
   });
+
+  test("the backfill pauses after each batch to stay under its CPU share", async () => {
+    const { db, driveId, userId } = createTestContext();
+    addFile(db, driveId, userId, 1, 5);
+    prepareQuantizedIndex(raw(db), "int8");
+    let reads = 0;
+    const pauses: number[] = [];
+    const copied = await runQuantizedIndexBackfill(raw(db), {
+      batchSize: 2,
+      cpuShare: 0.25,
+      cpuMs: () => (reads++ % 2 === 0 ? 0 : 40),
+      sleep: async (ms) => {
+        pauses.push(ms);
+      },
+    });
+    expect(copied).toBe(5);
+    // 3 batches of 40 ms CPU each, 120 ms pause after each.
+    expect(pauses).toEqual([120, 120, 120]);
+  });
 });
+

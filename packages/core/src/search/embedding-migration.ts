@@ -75,12 +75,12 @@ export interface PendingEmbeddingsResult {
 
 type PendingRow = { orgId: string; driveId: string; path: string; version: string | null };
 
-const DEFAULT_CPU_SHARE = 0.25;
+export const DEFAULT_CPU_SHARE = 0.25;
 const MAX_PAUSE_MS = 30_000;
 
 /**
- * Share of CPU time the migration may use, from
- * `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE`. A number above 0 and at most 1;
+ * Share of CPU time background index work (this re-embed and the int8 index
+ * backfill) may use, from `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE`. A number above 0 and at most 1;
  * anything else gives the default. 1 runs without pauses.
  */
 export function migrationCpuShare(raw: string | undefined): number {
@@ -89,9 +89,14 @@ export function migrationCpuShare(raw: string | undefined): number {
 }
 
 /** Process CPU time (user + system) in milliseconds. */
-function processCpuMs(): number {
+export function processCpuMs(): number {
   const { user, system } = process.cpuUsage();
   return (user + system) / 1000;
+}
+
+/** Pause after `cpuUsedMs` of work so the work uses at most `cpuShare` of CPU time. */
+export function pauseForCpuShare(cpuUsedMs: number, cpuShare: number): number {
+  return Math.min(MAX_PAUSE_MS, (cpuUsedMs * (1 - cpuShare)) / cpuShare);
 }
 
 export async function runPendingEmbeddings(
@@ -177,7 +182,7 @@ export async function runPendingEmbeddings(
         result.failed++;
       } finally {
         // CPU used / pause = share / (1 - share). Requests run during the pause.
-        const pauseMs = Math.min(MAX_PAUSE_MS, ((cpuMs() - cpuStart) * (1 - cpuShare)) / cpuShare);
+        const pauseMs = pauseForCpuShare(cpuMs() - cpuStart, cpuShare);
         if (pauseMs >= 1) await sleep(pauseMs);
       }
     }
