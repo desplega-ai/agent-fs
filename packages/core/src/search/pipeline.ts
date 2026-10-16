@@ -4,6 +4,7 @@ import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import type { EmbeddingProvider } from "./embeddings/provider.js";
 import { chunkContent } from "./chunker.js";
+import { toUnitVector } from "./vectors.js";
 
 function getRawDb(db: DB): Database {
   return (db as any).$client as Database;
@@ -40,6 +41,16 @@ class Semaphore {
 }
 
 const embeddingSemaphore = new Semaphore(2);
+
+/** Run `fn` in one of the embedding slots shared with on-write embedding. */
+export async function withEmbeddingSlot<T>(fn: () => Promise<T>): Promise<T> {
+  const release = await embeddingSemaphore.acquire();
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
 
 export async function indexFileEmbeddings(
   db: DB,
@@ -117,8 +128,7 @@ export async function indexFileEmbeddings(
         .returning({ id: schema.contentChunks.id })
         .get();
 
-      const vec = new Float32Array(embeddings[i]);
-      insertVec.run(result.id, vec);
+      insertVec.run(result.id, toUnitVector(embeddings[i]));
     }
 
     // 5. Update embedding status

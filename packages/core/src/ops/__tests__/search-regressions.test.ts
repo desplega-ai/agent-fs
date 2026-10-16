@@ -136,7 +136,8 @@ describe("scoped vector search", () => {
       "/second.md",
     ]);
     expect(semantic.results[0].score).toBeGreaterThan(semantic.results[1].score);
-    expect(semantic.results[0].score).toBeCloseTo(1 / 1.1);
+    // Cosine from unit-vector L2 distance: 1 - 0.1² / 2.
+    expect(semantic.results[0].score).toBeCloseTo(0.995);
     expect(semantic.results[0].snippet).toContain("at 0.1");
 
     const hybrid = await search(ctx, { query: "semantic", limit: 2 });

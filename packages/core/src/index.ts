@@ -166,5 +166,10 @@ export { VERSION } from "./version.js";
 export { publishDriveEvent, subscribeDrive } from "./events/bus.js";
 export type { DriveEvent } from "./events/bus.js";
 export { createEmbeddingProviderFromEnv } from "./search/embeddings/index.js";
+export {
+  prepareEmbeddingMigration,
+  runPendingEmbeddings,
+} from "./search/embedding-migration.js";
+export type { PendingEmbeddingsResult } from "./search/embedding-migration.js";
 export type { EmbeddingProvider } from "./search/embeddings/index.js";
 export { generateOpenAPISpec } from "./openapi.js";

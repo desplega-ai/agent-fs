@@ -7,6 +7,8 @@ import {
   createEmbeddingProviderFromEnv,
   prepareFtsMigration,
   runFtsMigration,
+  prepareEmbeddingMigration,
+  runPendingEmbeddings,
   startServerTelemetry,
 } from "@/core";
 import type { Database } from "bun:sqlite";
@@ -74,6 +76,16 @@ if (ftsMigrationPending) {
   runFtsMigration(sqlite, { log: (msg) => console.log(msg) }).catch((err) => {
     console.error("search index migration failed (will resume on next start):", err);
   });
+}
+
+// Re-embed files whose vectors predate the current provider or vector format,
+// plus any file whose on-write embedding never ran. Background, resumable.
+if (embeddingProvider && prepareEmbeddingMigration(sqlite, embeddingProvider)) {
+  runPendingEmbeddings(db, s3, embeddingProvider, { log: (msg) => console.log(msg) })
+    .then((r) => console.log(`embedding migration done: ${r.indexed} embedded, ${r.failed} failed, ${r.skipped} skipped`))
+    .catch((err) => {
+      console.error("embedding migration failed (will resume on next start):", err);
+    });
 }
 
 // Anonymized telemetry: `server.started` now, `server.heartbeat` every 24h

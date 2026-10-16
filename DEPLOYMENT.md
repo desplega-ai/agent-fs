@@ -167,6 +167,12 @@ Existing databases migrate themselves on the first start of 0.13.1:
 
 Nothing to do by hand. If you prefer the startup cost outside a traffic window, start the new version once off-peak. If search results ever look incomplete after an upgrade, `agent-fs reindex` rebuilds the index from storage.
 
+## Upgrading to 0.16.5: embeddings re-embedded
+
+0.16.5 stores every embedding at unit length, so `vec-search` scores are cosine similarity (1 is identical, about 0.3 is unrelated) instead of `1 / (1 + distance)`. The local model returns vectors with a norm near 23, so the old scores sat near 0.05 for every result.
+
+On the first start, the daemon marks every indexed file `pending` and embeds it again in the background, one file at a time, in the same embedding slots that new writes use. Progress is logged as `embedding migration: ...`, and a restart resumes. Search keeps working meanwhile. The same re-embed runs again whenever the embedding provider changes.
+
 ## Environment Variables Reference
 
 All environment variables supported by the server. Priority: env vars > config.json > defaults.
