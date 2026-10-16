@@ -44,6 +44,8 @@ const DEFAULT_DIR_MODE = 0o755;
 const DEFAULT_FILE_MODE = 0o644;
 const DEFAULT_DIRECTORY_MARKER = ".agent-fs-dir";
 const DEFAULT_CACHE_TTL_MS = 5_000;
+// Per cache. Bounds memory when one TTL sees many paths, or the TTL is Infinity.
+const MAX_CACHE_ENTRIES = 10_000;
 
 type FetchLike = (
   input: string | URL | Request,
@@ -607,8 +609,8 @@ export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
   }
 
   /**
-   * Shares one request per path for `cacheTtlMs`, including concurrent
-   * callers. A failed request is not cached.
+   * Shares one request per path while it is in flight and for `cacheTtlMs`
+   * after it starts. A failed request is not cached.
    */
   private cached<T>(
     cache: Map<string, CacheEntry<T>>,
@@ -616,11 +618,16 @@ export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
     load: () => Promise<T>,
   ): Promise<T> {
     const hit = cache.get(path);
-    if (hit && this.isFresh(hit)) return hit.pending;
+    if (hit && (!hit.settled || this.isFresh(hit))) return hit.pending;
     if (!(this.cacheTtlMs > 0)) return load();
 
+    // Date.now, not performance.now: just-bash blocks performance timing
+    // while a script runs, and these calls run inside its commands.
     const entry: CacheEntry<T> = { at: Date.now(), pending: load() };
+    // Re-inserted at the end, so the map stays in request order.
+    cache.delete(path);
     cache.set(path, entry);
+    this.prune(cache);
     entry.pending.then(
       (value) => {
         entry.settled = { value };
@@ -630,6 +637,20 @@ export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
       },
     );
     return entry.pending;
+  }
+
+  /**
+   * Drops expired answers, oldest first, and the oldest entries past
+   * MAX_CACHE_ENTRIES. Requests still in flight stay, so callers keep
+   * sharing them. In request order, the first fresh answer ends the scan.
+   */
+  private prune<T>(cache: Map<string, CacheEntry<T>>): void {
+    for (const [path, entry] of cache) {
+      if (cache.size > MAX_CACHE_ENTRIES) cache.delete(path);
+      else if (!entry.settled) continue;
+      else if (this.isFresh(entry)) break;
+      else cache.delete(path);
+    }
   }
 
   private isFresh(entry: CacheEntry<unknown>): boolean {

@@ -50,3 +50,5 @@ are never cached.
   `refreshAllPaths(path)` drops the entries under `path` and lists again.
 - `cacheTtlMs: 0` turns the cache off. `cacheTtlMs: Infinity` keeps entries for
   the life of the instance.
+- Expired entries are dropped as new ones arrive, and each cache holds at most
+  10,000 paths. Past that, the oldest go first.

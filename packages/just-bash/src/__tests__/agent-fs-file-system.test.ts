@@ -246,6 +246,67 @@ describe("AgentFsFileSystem stat/ls cache", () => {
     expect(mock.requests).toEqual(["stat /a.txt"]);
   });
 
+  // The caches are private; their sizes are what this regression is about.
+  function cacheSizes(fs: AgentFsFileSystem) {
+    const caches = fs as unknown as { statCache: Map<string, unknown>; lsCache: Map<string, unknown> };
+    return { stat: caches.statCache.size, ls: caches.lsCache.size };
+  }
+
+  test("drops expired entries for other paths as new ones arrive", async () => {
+    const mock = createMockFetch();
+    const fs = drive(mock, { cacheTtlMs: 1 });
+    for (let i = 0; i < 1000; i++) await fs.exists(`/missing-${i}`);
+    // Before the fix both caches kept all 1000 entries.
+    expect(cacheSizes(fs).stat).toBeLessThan(1000);
+
+    await Bun.sleep(20);
+    await fs.exists("/one-more");
+
+    expect(cacheSizes(fs)).toEqual({ stat: 1, ls: 1 });
+  });
+
+  test("keeps at most 10,000 entries per cache", async () => {
+    const mock = createMockFetch();
+    const fs = drive(mock, { cacheTtlMs: Infinity });
+    for (let i = 0; i < 10_050; i++) await fs.exists(`/missing-${i}`);
+
+    expect(cacheSizes(fs)).toEqual({ stat: 10_000, ls: 10_000 });
+    mock.requests.length = 0;
+    await fs.exists("/missing-10049");
+    await fs.exists("/missing-0");
+    // The newest is still cached; the oldest was evicted and is asked again.
+    expect(mock.requests).toEqual(["stat /missing-0", "ls /missing-0"]);
+  });
+
+  test("shares a request still in flight after its TTL", async () => {
+    const mock = createMockFetch();
+    let release = () => {};
+    let held: Promise<void> | undefined;
+    const fs = new AgentFsFileSystem({
+      baseUrl: "http://agent.test",
+      orgId: "org",
+      driveId: "drive",
+      cacheTtlMs: 1,
+      fetch: async (input, init) => {
+        if (held) await held;
+        return mock.fetch(input, init);
+      },
+    });
+    await fs.writeFile("/a.txt", "a");
+    mock.requests.length = 0;
+
+    held = new Promise((resolve) => {
+      release = resolve;
+    });
+    const first = fs.stat("/a.txt");
+    await Bun.sleep(5);
+    const second = fs.stat("/a.txt");
+    release();
+    await Promise.all([first, second]);
+
+    expect(mock.requests).toEqual(["stat /a.txt"]);
+  });
+
   test("does not cache a failed request", async () => {
     const mock = createMockFetch();
     let failNext = false;
