@@ -5,6 +5,7 @@ import type { DB } from "../db/index.js";
 import type { EmbeddingProvider } from "./embeddings/provider.js";
 import { chunkContent } from "./chunker.js";
 import { toUnitVector } from "./vectors.js";
+import { insertQuantizedVector } from "./quantized-index.js";
 import { EmbeddingProviderError } from "../errors.js";
 
 function getRawDb(db: DB): Database {
@@ -200,6 +201,7 @@ export async function indexFileEmbeddings(
           .get();
 
         insertVec.run(result.id, vectors[i]);
+        insertQuantizedVector(raw, result.id, params.driveId, vectors[i]);
       }
 
       // 5. Update embedding status

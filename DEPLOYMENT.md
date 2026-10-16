@@ -183,6 +183,16 @@ Only the `local` provider is affected. Before 0.16.6 it embedded in batches of 5
 
 On the first start, the daemon re-embeds every file once more, in the background, the same way as in 0.16.5. If the 0.16.5 run has not finished yet, the two runs merge: files still `pending` are embedded once, with the fixed batch. `openai` and `gemini` keep their vectors, and nothing runs for them.
 
+## Faster vector search (optional)
+
+`vec-search` and the semantic half of `search` compare the query with every stored chunk vector, in one scan per search. The cost grows with the total chunk count across all drives: on a dedicated CPU, 150k chunks take about 400 ms per scan, and several seconds on a throttled shared CPU.
+
+Set `AGENT_FS_VECTOR_INDEX=int8` to add a compact index: one byte per dimension (768 bytes per chunk, about 120 MB per 150k chunks), partitioned by drive. A search takes a few hundred candidates from it, then ranks them by their exact distance, so scores stay exact cosine. On an 82k-chunk drive with real queries, this took about 130 ms instead of about 400 ms and found 95% of the exact top 10 files. The other 5% are near ties.
+
+- On the first start with the setting, the index is built in the background from the stored vectors (no re-embed). Progress is logged as `vector int8 index: ...`. Search uses the exact scan until it is ready.
+- New and deleted chunks update it automatically.
+- Remove the setting (or set `exact`) to drop the index. Turning it on again rebuilds it.
+
 ## Environment Variables Reference
 
 All environment variables supported by the server. Priority: env vars > config.json > defaults.
@@ -209,6 +219,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `AGENT_FS_SHARE_RATE_LIMIT` | `server.shareRateLimit.requestsPerMinute` | `120` | Per-IP requests per minute for the public `/share/*` routes; `0` disables. Behind a reverse proxy other than Fly, all traffic shares the proxy's address, so raise it. |
 | `AGENT_FS_SITE_RATE_LIMIT` | `server.siteRateLimit.requestsPerMinute` | `600` | Per-IP requests per minute for the public `/site/*` routes (folder shares); `0` disables. One page load fetches many files, so it is higher than the share limit. |
 | `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` | _(env only)_ | `0.25` | Share of CPU time the background re-embed may use, above 0 and at most 1. It pauses after each file. `1` runs without pauses. Invalid values use the default. See [Upgrading to 0.16.5](#upgrading-to-0165-embeddings-re-embedded). |
+| `AGENT_FS_VECTOR_INDEX` | _(env only)_ | `exact` | `int8` adds a compact vector index for faster semantic search (about 3x on large drives, about 95% of exact results). See [Faster vector search](#faster-vector-search-optional). |
 | `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
 
 When both `AWS_*` and `S3_*` variants are set, the `AWS_*` variant takes precedence (Tigris injects `AWS_*` automatically).

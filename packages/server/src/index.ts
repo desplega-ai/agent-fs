@@ -10,6 +10,9 @@ import {
   prepareEmbeddingMigration,
   runPendingEmbeddings,
   migrationCpuShare,
+  prepareQuantizedIndex,
+  runQuantizedIndexBackfill,
+  vectorIndexMode,
   startServerTelemetry,
 } from "@/core";
 import type { Database } from "bun:sqlite";
@@ -77,6 +80,17 @@ if (ftsMigrationPending) {
   runFtsMigration(sqlite, { log: (msg) => console.log(msg) }).catch((err) => {
     console.error("search index migration failed (will resume on next start):", err);
   });
+}
+
+// Optional int8 vector index (AGENT_FS_VECTOR_INDEX=int8). It is
+// created before any embedding job runs, then backfilled in the background;
+// search uses the exact scan until the backfill finishes.
+if (prepareQuantizedIndex(sqlite, vectorIndexMode(process.env.AGENT_FS_VECTOR_INDEX))) {
+  runQuantizedIndexBackfill(sqlite, { log: (msg) => console.log(msg) })
+    .then((n) => console.log(`vector int8 index ready: ${n} copied`))
+    .catch((err) => {
+      console.error("vector int8 index backfill failed (will resume on next start):", err);
+    });
 }
 
 // Re-embed files whose vectors predate the current provider or vector format,

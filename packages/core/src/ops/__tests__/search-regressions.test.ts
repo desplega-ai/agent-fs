@@ -168,10 +168,11 @@ describe("scoped vector search", () => {
     const result = await vecSearch(ctx, { query: "semantic", limit: 10 });
 
     expect(result.results.map((item) => item.path)).toEqual(["/only.md"]);
-    expect(limits).toEqual([10, 9]);
+    // One scan: it asked for 80 chunks and got all 5.
+    expect(limits).toEqual([80]);
   });
 
-  test("adds a file per round and does not exceed one round per requested file", async () => {
+  test("fetches several chunks per wanted file, so files with many chunks need few scans", async () => {
     const { ctx, db, driveId, userId } = createTestContext();
     ctx.embeddingProvider = PROVIDER;
     const requested = 32;
@@ -195,10 +196,9 @@ describe("scoped vector search", () => {
     const elapsedMs = performance.now() - startedAt;
 
     expect(result.results).toHaveLength(requested);
-    expect(limits).toEqual(
-      Array.from({ length: requested }, (_, index) => requested - index)
-    );
-    expect(limits.length).toBeLessThanOrEqual(requested);
+    // Worst case: each file holds 32 adjacent chunks. Every scan asks for 8
+    // chunks per file still needed, so 10 scans instead of one per file.
+    expect(limits).toEqual([256, 192, 144, 104, 72, 48, 32, 24, 16, 8]);
     console.info(
       `1024-chunk worst-case vector regression completed in ${elapsedMs.toFixed(1)} ms`
     );
@@ -225,7 +225,7 @@ describe("scoped vector search", () => {
     const elapsedMs = performance.now() - startedAt;
 
     expect(result.results).toHaveLength(1);
-    expect(limits).toEqual([4096, 4096]);
+    expect(limits).toEqual([4096]);
     expect(limits.every((limit) => limit <= 4096)).toBe(true);
     console.info(
       `5000-result sparse-drive regression completed in ${elapsedMs.toFixed(1)} ms`
