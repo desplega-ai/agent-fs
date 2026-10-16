@@ -108,6 +108,17 @@ export class ValidationError extends AgentFSError {
   }
 }
 
+/** The embedding provider returned something that is not a usable vector. */
+export class EmbeddingProviderError extends AgentFSError {
+  constructor(message: string) {
+    super(
+      "EMBEDDING_PROVIDER_ERROR",
+      message,
+      "Check the embedding provider configuration, then try again"
+    );
+  }
+}
+
 export class UnsupportedOperation extends AgentFSError {
   readonly operation: string;
   readonly backend?: string;

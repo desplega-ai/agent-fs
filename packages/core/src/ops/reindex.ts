@@ -2,7 +2,7 @@ import { eq, and, or, isNull } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext } from "./types.js";
 import { getS3Key } from "./versioning.js";
-import { indexFileEmbeddings } from "../search/pipeline.js";
+import { indexFileEmbeddings, readCurrentVersion } from "../search/pipeline.js";
 import { indexFile } from "../search/fts.js";
 import { clearSearchData } from "./search-index.js";
 import { decodeIndexableText, detectMimeType } from "./mime.js";
@@ -40,7 +40,7 @@ export async function reindex(
   }
 
   const files = ctx.db
-    .select({ path: schema.files.path })
+    .select({ path: schema.files.path, version: schema.files.currentVersionId })
     .from(schema.files)
     .where(and(...conditions))
     .all();
@@ -57,6 +57,11 @@ export async function reindex(
       batch.map(async (file) => {
         const s3Key = getS3Key(ctx.orgId, ctx.driveId, file.path);
         const result = await ctx.s3.getObject(s3Key);
+        // A write landed during the read: its own indexing owns the file.
+        const version = file.version ?? null;
+        if (readCurrentVersion(ctx.db, { path: file.path, driveId: ctx.driveId }) !== version) {
+          return "skipped" as const;
+        }
         const contentType = result.contentType ?? detectMimeType(file.path);
         const content = decodeIndexableText(result.body, contentType);
         if (content === null) {
@@ -69,12 +74,13 @@ export async function reindex(
 
         // Re-index embeddings if provider available
         if (ctx.embeddingProvider) {
-          await indexFileEmbeddings(ctx.db, ctx.embeddingProvider, {
+          const replaced = await indexFileEmbeddings(ctx.db, ctx.embeddingProvider, {
             path: file.path,
             driveId: ctx.driveId,
             content,
+            version,
           });
-          return "reindexed" as const;
+          return replaced ? ("reindexed" as const) : ("skipped" as const);
         }
         return "skipped" as const;
       })

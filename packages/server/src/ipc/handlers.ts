@@ -75,6 +75,9 @@ function classifyError(e: any): ErrorResponse {
   if (name === "IndexingInProgressError") {
     return err(503, "INDEXING_IN_PROGRESS", msg);
   }
+  if (name === "EmbeddingProviderError") {
+    return err(502, "EMBEDDING_PROVIDER_ERROR", msg);
+  }
   // Unknown user/auth issue from the resolver
   if (/no.*api.*key|no.*user/i.test(msg)) {
     return err(401, "AUTH_MISSING", msg);

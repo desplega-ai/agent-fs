@@ -9,7 +9,7 @@ import type { OpContext } from "../ops/types.js";
 import { write } from "../ops/write.js";
 import { vecSearch as search } from "../ops/vec-search.js";
 import { LocalEmbeddingProvider } from "../search/embeddings/local.js";
-import { indexFileEmbeddings } from "../search/pipeline.js";
+import { indexFileEmbeddings, readCurrentVersion } from "../search/pipeline.js";
 
 const MINIO_AVAILABLE = await isMinioAvailable();
 const SKIP = !MINIO_AVAILABLE;
@@ -106,7 +106,8 @@ describe.skipIf(SKIP)("Local embedding semantic search", () => {
       const s3Key = `${ORG_ID}/drives/${DRIVE_ID}${path}`;
       const result = await ctx.s3.getObject(s3Key);
       const content = new TextDecoder().decode(result.body);
-      await indexFileEmbeddings(db, provider, { path, driveId: DRIVE_ID, content });
+      const version = readCurrentVersion(db, { path, driveId: DRIVE_ID }) ?? null;
+      await indexFileEmbeddings(db, provider, { path, driveId: DRIVE_ID, content, version });
     }
 
     // Semantic search

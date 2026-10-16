@@ -1,5 +1,6 @@
 import type { OpContext } from "./types.js";
 import { findVectorCandidates } from "../search/vector-candidates.js";
+import { similarityFromDistance, toUnitVector } from "../search/vectors.js";
 
 export interface VecSearchParams {
   query: string;
@@ -34,12 +35,12 @@ export async function vecSearch(
 
   // 1. Embed the query
   const queryEmbedding = await provider.embed(params.query);
-  const queryVec = new Float32Array(queryEmbedding);
+  const queryVec = toUnitVector(queryEmbedding, provider.dimensions);
 
   const results = findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit).map(
     (candidate) => ({
       path: candidate.path,
-      score: 1 / (1 + candidate.distance),
+      score: similarityFromDistance(candidate.distance),
       snippet: candidate.snippet,
       author: candidate.author,
       modifiedAt: candidate.modifiedAt,
