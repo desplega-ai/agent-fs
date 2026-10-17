@@ -1,4 +1,5 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, spyOn } from "bun:test";
+import { RecursiveChunker } from "@chonkiejs/core";
 import { chunkContent, segments } from "../chunker.js";
 
 describe("chunkContent", () => {
@@ -17,7 +18,7 @@ describe("chunkContent", () => {
   });
 
   test("large content produces multiple chunks", async () => {
-    // Generate content well above the chunk threshold (~3600 chars for fallback)
+    // Generate content well above the chunk threshold (2000 characters)
     const paragraph = "This is a test paragraph with enough content to matter. ".repeat(20);
     const content = Array(10).fill(paragraph).join("\n\n");
 
@@ -42,11 +43,9 @@ describe("chunkContent", () => {
   });
 
   test("tokenCount is approximately content.length / 4", async () => {
-    // Using fallback chunker (small content path)
     const content = "Hello world test";
     const chunks = await chunkContent(content);
-    // Fallback uses Math.ceil(length / 4)
-    expect(chunks[0].tokenCount).toBeGreaterThanOrEqual(1);
+    expect(chunks[0].tokenCount).toBe(Math.ceil(content.length / 4));
   });
 });
 
@@ -90,5 +89,38 @@ describe("large text", () => {
     expect(chunks.map((c) => c.content).join("")).toBe(text);
     for (const c of chunks) expect(text.slice(c.charOffset, c.charOffset + c.content.length)).toBe(c.content);
     expect(chunks.some((c) => c.content.includes("\uFFFD"))).toBe(false);
+  });
+});
+
+describe("chunk boundaries", () => {
+  test.each(["markdown.md", "crlf.txt", "cjk.txt", "url.txt", "base64.txt", "rows.csv", "mixed.md"])("golden fixture %s", async (name) => {
+    const text = await Bun.file(new URL(`fixtures/chunker/${name}`, import.meta.url)).text();
+    if (name === "crlf.txt") expect(text).toContain("\r\n");
+    const chunks = await chunkContent(text);
+    if (name === "mixed.md") expect(chunks.length).toBeGreaterThanOrEqual(3);
+    expect(chunks.map((chunk) => [chunk.charOffset, chunk.content.length])).toMatchSnapshot();
+    expect(chunks.map((chunk) => chunk.content).join("")).toBe(text);
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeLessThanOrEqual(2000);
+      expect(text.slice(chunk.charOffset, chunk.charOffset + chunk.content.length)).toBe(chunk.content);
+      expect(chunk.tokenCount).toBe(Math.ceil(chunk.content.length / 4));
+    }
+  });
+
+  test("fallback keeps the same character limit", async () => {
+    const create = spyOn(RecursiveChunker, "create").mockRejectedValueOnce(new Error("unavailable"));
+    const text = "Fallback paragraph with a lamp reading. ".repeat(160);
+    try {
+      const chunks = await chunkContent(text);
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(chunks[0].charOffset).toBe(0);
+      expect(chunks.at(-1)!.charOffset + chunks.at(-1)!.content.length).toBe(text.length);
+      for (const chunk of chunks) {
+        expect(chunk.content.length).toBeLessThanOrEqual(2000);
+        expect(text.slice(chunk.charOffset, chunk.charOffset + chunk.content.length)).toBe(chunk.content);
+      }
+    } finally {
+      create.mockRestore();
+    }
   });
 });

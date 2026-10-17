@@ -7,6 +7,7 @@ import type { EmbeddingProvider } from "./embeddings/provider.js";
 import { indexFile } from "./fts.js";
 import { chunkContent, type Chunk } from "./chunker.js";
 import { toUnitVector } from "./vectors.js";
+import { getEmbeddingMaxBytes } from "../config.js";
 import { EmbeddingProviderError } from "../errors.js";
 
 function getRawDb(db: DB): Database {
@@ -178,11 +179,12 @@ export function readCurrentVersion(
  *
  * `version` is the `files.current_version_id` the caller read before it read
  * `content`. If a newer write has landed since, or the file was deleted, the
- * job changes nothing and returns `false`: the newer write owns the chunks and
+ * job changes nothing and returns `superseded`: the newer write owns the chunks and
  * the status. The check and the whole replacement run in one transaction, so
  * a failed insert rolls back to the previous index.
  *
- * Oversized text and blank non-PDF text clear the chunks and status.
+ * Text over either size limit clears text chunks and ends skipped.
+ * Blank non-PDF text clears the chunks and status, and returns skipped.
  * Empty PDF text ends indexed with no chunks.
  */
 export async function indexFileEmbeddings(
@@ -199,26 +201,22 @@ export async function indexFileEmbeddings(
     pageStarts?: number[];
     refreshFts?: boolean;
   }
-): Promise<boolean> {
+): Promise<"indexed" | "skipped" | "superseded"> {
   const raw = getRawDb(db);
   const isCurrent = () => readCurrentVersion(db, params) === params.version;
 
-  if (!isCurrent()) return false;
-  if (params.content.length > MAX_EMBED_CHARS && params.pageStarts === undefined) {
-    clearEmbeddings(db, params, "text");
-    return false;
-  }
+  if (!isCurrent()) return "superseded";
+  const maxBytes = getEmbeddingMaxBytes();
+  const oversized = params.content.length > MAX_EMBED_CHARS ||
+    (maxBytes !== undefined && Buffer.byteLength(params.content, "utf8") > maxBytes);
 
   try {
     // 1. Chunk content. Blank text has nothing to embed, and providers reject
     // an empty request.
-    const chunks = params.content.trim() === "" || params.content.length > MAX_EMBED_CHARS
+    const chunks = oversized || params.content.trim() === ""
       ? []
       : await chunkContent(params.content);
-    if (chunks.length === 0 && params.pageStarts === undefined) {
-      clearEmbeddings(db, params, "text");
-      return false;
-    }
+    const status = oversized ? "skipped" : chunks.length === 0 && params.pageStarts === undefined ? null : "indexed";
 
     // 2. Generate and validate embeddings FIRST (before any DB writes)
     const texts = chunks.map((c) => c.content);
@@ -237,8 +235,8 @@ export async function indexFileEmbeddings(
       "INSERT INTO chunk_vectors(chunk_id, embedding) VALUES (?, ?)"
     );
 
-    return raw.transaction(() => {
-      if (!isCurrent()) return false;
+    return raw.transaction((): "indexed" | "skipped" | "superseded" => {
+      if (!isCurrent()) return "superseded";
 
       // Refresh FTS inside this version-guarded transaction so an old version never overwrites a newer FTS row.
       if (params.refreshFts) {
@@ -269,7 +267,7 @@ export async function indexFileEmbeddings(
 
       // 5. Update embedding status
       db.update(schema.files)
-        .set({ embeddingStatus: "indexed" })
+        .set({ embeddingStatus: status })
         .where(
           and(
             eq(schema.files.path, params.path),
@@ -277,11 +275,11 @@ export async function indexFileEmbeddings(
           )
         )
         .run();
-      return true;
+      return status ?? "skipped";
     })();
   } catch (err) {
     // A newer write is pending: its own job sets the status.
-    if (!isCurrent()) return false;
+    if (!isCurrent()) return "superseded";
     // Mark as failed but don't block
     db.update(schema.files)
       .set({ embeddingStatus: "failed" })

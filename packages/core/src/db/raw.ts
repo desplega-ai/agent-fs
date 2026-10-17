@@ -1,6 +1,8 @@
 // Raw SQL for table creation and virtual tables.
 // These are idempotent (IF NOT EXISTS) and run on every DB init.
 
+export const EMBEDDING_STATUS_COLUMN_SQL = "embedding_status TEXT DEFAULT 'pending' CHECK(embedding_status IN ('pending', 'indexed', 'failed', 'skipped'))";
+
 export const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -51,7 +53,7 @@ CREATE TABLE IF NOT EXISTS files (
   created_at INTEGER NOT NULL,
   modified_at INTEGER NOT NULL,
   is_deleted INTEGER NOT NULL DEFAULT 0,
-  embedding_status TEXT DEFAULT 'pending' CHECK(embedding_status IN ('pending', 'indexed', 'failed')),
+  ${EMBEDDING_STATUS_COLUMN_SQL},
   image_embedding_status TEXT CHECK(image_embedding_status IN ('pending', 'indexed', 'failed')),
   PRIMARY KEY (path, drive_id)
 );

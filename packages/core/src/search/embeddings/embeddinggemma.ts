@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import type { EmbeddingPart, EmbeddingProvider } from "./provider.js";
 import { embeddingGemmaWorker, type EmbeddingGemmaWorker } from "./embeddinggemma-worker.js";
 
@@ -7,33 +5,6 @@ export const TRANSFORMERS_VERSION = "4.3.1";
 export const INSTALL_HINT = `Run: bun add -g @huggingface/transformers@${TRANSFORMERS_VERSION}`;
 
 export type TransformersResult = { module: true } | { reason: string; hint: string };
-
-export function linuxRuntimeConflict(platform: string, chonkieVersion?: string): string | null {
-  if (platform !== "linux" || !chonkieVersion || chonkieVersion === TRANSFORMERS_VERSION) return null;
-  return `chonkie loads @huggingface/transformers ${chonkieVersion}, and two ONNX runtimes cannot run in one Linux process. Use the Docker image`;
-}
-
-function packageVersion(path: string): string {
-  for (let dir = dirname(path); ; dir = dirname(dir)) {
-    try {
-      return JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version;
-    } catch (err: any) {
-      if (err.code !== "ENOENT" || dirname(dir) === dir) throw err;
-    }
-  }
-}
-
-export function transformersRuntimeConflict(): string | null {
-  if (process.platform !== "linux") return null;
-  let chonkie: string;
-  try {
-    chonkie = Bun.resolveSync("chonkie", import.meta.dir);
-  } catch {
-    return null;
-  }
-  const path = Bun.resolveSync("@huggingface/transformers", dirname(chonkie));
-  return linuxRuntimeConflict(process.platform, packageVersion(path));
-}
 
 export async function loadTransformers(): Promise<TransformersResult> {
   try {

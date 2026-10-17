@@ -25,7 +25,7 @@ function setup() {
   return { client, workers, provider: new EmbeddingGemmaProvider(client) };
 }
 
-const options: RuntimeOptions = { paths: {}, conflict: null, cacheDir: "", version: TRANSFORMERS_VERSION, hint: INSTALL_HINT };
+const options: RuntimeOptions = { paths: {}, cacheDir: "", version: TRANSFORMERS_VERSION, hint: INSTALL_HINT };
 
 describe("EmbeddingGemma worker proxy", () => {
   test("names missing transformers and starts no worker", async () => {

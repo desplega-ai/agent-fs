@@ -128,9 +128,9 @@ describe("PDF text", () => {
     expect(await indexFileEmbeddings(db, provider, {
       path: "/pages.pdf", driveId, content, pageStarts,
       version: readCurrentVersion(db, { path: "/pages.pdf", driveId }) ?? null,
-    })).toBe(true);
+    })).toBe("indexed");
     const stored = chunks(db);
-    expect(stored).toHaveLength(2);
+    expect(stored).toHaveLength(3);
     expect(stored.find((chunk) => chunk.content.includes("quarterly aurora invoice"))?.page).toBe(1);
     expect(stored.find((chunk) => chunk.content.includes("basalt lighthouse maintenance log"))?.page).toBe(2);
   });
@@ -243,7 +243,7 @@ describe("PDF page images", () => {
     const error = spyOn(console, "error").mockImplementation(() => {});
     try {
       const bytes = new Uint8Array([1, 2, 3]);
-      const runtime = new EmbeddingGemmaRuntime({ paths: { unpdf: "unpdf" }, cacheDir: "", conflict: null, version: "4.3.1", hint: "" }, async () => unpdf);
+      const runtime = new EmbeddingGemmaRuntime({ paths: { unpdf: "unpdf" }, cacheDir: "", version: "4.3.1", hint: "" }, async () => unpdf);
       const pages = await runtime.renderPdfPages(bytes, PDF_PAGE_IMAGES);
       expect(pages.map(({ page, data }) => [page, ...data])).toEqual([[1, 1], [3, 3]]);
       expect(open).toHaveBeenCalledTimes(1);

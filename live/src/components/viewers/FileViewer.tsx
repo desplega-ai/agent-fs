@@ -731,6 +731,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
   splitOrientation?: SplitOrientation
   onToggleOrientation?: () => void
 }) {
+  const { data: stat } = useFileStat(path)
   const { copyPath, copyLink, download, copiedPath, copiedLink, canShare, canShareLink } = actions
   const filename = path.split("/").pop() ?? path
 
@@ -738,6 +739,9 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
     <div className="flex h-10 items-center justify-between border-b border-border px-4 shrink-0">
       <div className="flex items-center gap-2 min-w-0">
         <span className="text-sm font-medium truncate">{filename}</span>
+        {stat?.embeddingStatus && (
+          <span className="text-xs text-muted-foreground shrink-0">Embedding: {stat.embeddingStatus}</span>
+        )}
         {commentCount > 0 && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
             <MessageSquare className="size-3" />

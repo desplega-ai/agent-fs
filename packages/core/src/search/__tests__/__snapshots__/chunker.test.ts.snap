@@ -1,0 +1,104 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`chunk boundaries golden fixture markdown.md 1`] = `
+[
+  [
+    0,
+    1947,
+  ],
+  [
+    1947,
+    1285,
+  ],
+]
+`;
+
+exports[`chunk boundaries golden fixture crlf.txt 1`] = `
+[
+  [
+    0,
+    1964,
+  ],
+  [
+    1964,
+    1298,
+  ],
+]
+`;
+
+exports[`chunk boundaries golden fixture cjk.txt 1`] = `
+[
+  [
+    0,
+    2000,
+  ],
+  [
+    2000,
+    651,
+  ],
+]
+`;
+
+exports[`chunk boundaries golden fixture url.txt 1`] = `
+[
+  [
+    0,
+    1994,
+  ],
+  [
+    1994,
+    974,
+  ],
+]
+`;
+
+exports[`chunk boundaries golden fixture base64.txt 1`] = `
+[
+  [
+    0,
+    1963,
+  ],
+  [
+    1963,
+    1454,
+  ],
+]
+`;
+
+exports[`chunk boundaries golden fixture rows.csv 1`] = `
+[
+  [
+    0,
+    1982,
+  ],
+  [
+    1982,
+    1521,
+  ],
+]
+`;
+
+exports[`chunk boundaries golden fixture mixed.md 1`] = `
+[
+  [
+    0,
+    131,
+  ],
+  [
+    131,
+    1996,
+  ],
+  [
+    2127,
+    1429,
+  ],
+  [
+    3556,
+    1396,
+  ],
+  [
+    4952,
+    1693,
+  ],
+]
+`;

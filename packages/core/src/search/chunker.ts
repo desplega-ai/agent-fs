@@ -4,6 +4,9 @@ export interface Chunk {
   tokenCount: number;
 }
 
+// Keep chunks under the nomic 2048-token context.
+const CHUNK_CHARS = 2000;
+
 /**
  * Chunking is synchronous CPU work: 2 MB of text in one call kept the event
  * loop busy for about 3 s, long enough to fail health checks. Longer text is
@@ -16,20 +19,20 @@ export async function chunkContent(content: string): Promise<Chunk[]> {
   if (content.length === 0) return [];
 
   try {
-    const { RecursiveChunker } = await import("chonkie");
+    const { RecursiveChunker } = await import("@chonkiejs/core");
     const chunker = await RecursiveChunker.create({
-      chunkSize: 900,
+      chunkSize: CHUNK_CHARS,
     });
 
     const result: Chunk[] = [];
     for (const [start, end] of segments(content, SEGMENT_CHARS)) {
       if (start > 0) await new Promise((resolve) => setImmediate(resolve));
       const chunks = await chunker.chunk(content.slice(start, end));
-      for (const c of chunks as any[]) {
+      for (const c of chunks) {
         result.push({
           content: c.text,
           charOffset: start + (c.startIndex ?? 0),
-          tokenCount: c.tokenCount ?? Math.ceil(c.text.length / 4),
+          tokenCount: Math.ceil(c.text.length / 4),
         });
       }
     }
@@ -63,7 +66,7 @@ export function segments(content: string, size: number): [number, number][] {
 }
 
 function fallbackChunk(content: string): Chunk[] {
-  const TARGET_SIZE = 3600; // ~900 tokens * 4 chars/token
+  const TARGET_SIZE = CHUNK_CHARS;
   const OVERLAP = 512;
   const chunks: Chunk[] = [];
 

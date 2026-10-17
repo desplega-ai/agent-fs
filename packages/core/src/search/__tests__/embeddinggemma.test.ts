@@ -1,5 +1,5 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
-import { linuxRuntimeConflict, TRANSFORMERS_VERSION, INSTALL_HINT } from "../embeddings/embeddinggemma.js";
+import { TRANSFORMERS_VERSION, INSTALL_HINT } from "../embeddings/embeddinggemma.js";
 import { EmbeddingGemmaRuntime, startWorker, type RuntimeOptions, type WorkerScope, embeddingGemmaSource } from "../embeddings/embeddinggemma-runtime.mjs";
 import { mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import { OpenAIEmbeddingProvider } from "../embeddings/openai.js";
 import { GeminiEmbeddingProvider } from "../embeddings/gemini.js";
 import { LocalEmbeddingProvider } from "../embeddings/local.js";
 
-const options: RuntimeOptions = { paths: {}, conflict: null, cacheDir: join(tmpdir(), "agent-fs-eg2-missing"), version: TRANSFORMERS_VERSION, hint: INSTALL_HINT };
+const options: RuntimeOptions = { paths: {}, cacheDir: join(tmpdir(), "agent-fs-eg2-missing"), version: TRANSFORMERS_VERSION, hint: INSTALL_HINT };
 
 function fakeProvider(tokens = 10) {
   const provider = new EmbeddingGemmaRuntime(options);
@@ -49,22 +49,6 @@ describe("EmbeddingGemmaRuntime", () => {
   test("keeps the version and install hint in initialization errors", async () => {
     const provider = new EmbeddingGemmaRuntime({ ...options, paths: { transformers: "fake" } }, async () => ({ env: { version: "3.8.1" } }));
     await expect(provider.embedQuery("a")).rejects.toThrow("embeddinggemma-2 needs @huggingface/transformers 4.3.1 (missing (found 3.8.1)). Run: bun add -g @huggingface/transformers@4.3.1");
-  });
-
-  test.each([
-    ["linux", "3.8.1", true],
-    ["linux", "4.3.1", false],
-    ["linux", undefined, false],
-    ["darwin", "3.8.1", false],
-    ["win32", "3.8.1", false],
-  ] as const)("checks the ONNX runtime conflict on %s with %s", (platform, version, blocked) => {
-    const reason = linuxRuntimeConflict(platform, version);
-    expect(!!reason).toBe(blocked);
-    if (blocked) {
-      expect(reason).toContain("chonkie loads @huggingface/transformers 3.8.1");
-      expect(reason).toContain("Use the Docker image");
-      expect(reason).not.toContain("bun add");
-    }
   });
 
   test("adds task prefixes and embeds one document per forward pass", async () => {

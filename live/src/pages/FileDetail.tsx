@@ -72,6 +72,7 @@ export function FileDetailPage() {
                 {formatBytes(stat.size)} &middot;{" "}
                 <UserName userId={stat.author} className="text-xs text-muted-foreground" />
                 {" "}&middot; {new Date(stat.modifiedAt).toLocaleDateString()}
+                {stat.embeddingStatus && <> &middot; Embedding: {stat.embeddingStatus}</>}
               </span>
             )}
           </div>

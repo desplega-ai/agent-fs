@@ -26,7 +26,7 @@
     "README.md"
   ],
   "scripts": {
-    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external chonkie --external zod --external @modelcontextprotocol/sdk --external hono --external msgpackr --external @duckdb/node-api --external @huggingface/transformers --external unpdf --external @napi-rs/canvas",
+    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external @chonkiejs/core --external zod --external @modelcontextprotocol/sdk --external hono --external msgpackr --external @duckdb/node-api --external @huggingface/transformers --external unpdf --external @napi-rs/canvas",
     "prepublishOnly": "bun run build:npm"
   },
   "optionalDependencies": {
@@ -43,7 +43,7 @@
     "@duckdb/node-api": "1.5.3-r.3",
     "@google/genai": "^1.45.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "chonkie": "^0.3.0",
+    "@chonkiejs/core": "0.0.12",
     "commander": "^14.0.3",
     "diff": "^8.0.3",
     "drizzle-orm": "^0.44.0",

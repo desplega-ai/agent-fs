@@ -82,14 +82,14 @@ export async function reindex(
 
         // Re-index embeddings if provider available
         if (ctx.embeddingProvider) {
-          const replaced = await indexFileEmbeddings(ctx.db, ctx.embeddingProvider, {
+          const outcome = await indexFileEmbeddings(ctx.db, ctx.embeddingProvider, {
             path: file.path,
             driveId: ctx.driveId,
             content: extracted.text,
             pageStarts: extracted.pageStarts,
             version,
           });
-          return replaced ? ("reindexed" as const) : ("skipped" as const);
+          return outcome === "indexed" ? ("reindexed" as const) : ("skipped" as const);
         }
         return "skipped" as const;
       })

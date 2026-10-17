@@ -22,7 +22,7 @@ function insertFile(
   author: string,
   modifiedAt: number,
   size = 1,
-  embeddingStatus: "pending" | "indexed" | "failed" | null = "indexed"
+  embeddingStatus: "pending" | "indexed" | "failed" | "skipped" | null = "indexed"
 ): void {
   sqlite
     .query(
@@ -324,6 +324,19 @@ describe("file path normalization migration", () => {
     ]) {
       expect(bareCount(sqlite, table, column)).toBe(0);
     }
+  });
+
+  test.each([true, false])("preserves skipped merged files only when FTS exists: %s", (hasFts) => {
+    const { db, driveId, userId } = createTestContext();
+    const sqlite = rawDb(db);
+    insertFile(sqlite, driveId, "skipped.md", userId, 1);
+    insertFile(sqlite, driveId, "/skipped.md", userId, 2, 100, "skipped");
+    if (hasFts) {
+      sqlite.prepare("INSERT INTO files_fts_docs(drive_id, path, content) VALUES (?, '/skipped.md', 'full text')").run(driveId);
+    }
+    expect(runPathNormalizationMigration(sqlite)?.mergedPaths).toBe(1);
+    expect(sqlite.prepare("SELECT embedding_status AS status FROM files").get()).toEqual({ status: hasFts ? "skipped" : "pending" });
+    expect(sqlite.prepare("SELECT count(*) AS n FROM content_chunks").get()).toEqual({ n: 0 });
   });
 
   test("uses the latest delete version and removes both forms of index data", () => {

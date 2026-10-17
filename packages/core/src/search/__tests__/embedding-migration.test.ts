@@ -168,7 +168,7 @@ describe("embedding migration", () => {
       driveId,
       content,
       version: readCurrentVersion(db, { path, driveId }) ?? null,
-    })).toBe(true);
+    })).toBe("indexed");
     expect(calls).toEqual([{ texts: [content], title: "cats.md" }]);
   });
 
@@ -410,7 +410,7 @@ describe("oversized text", () => {
       skipped: 1,
       superseded: 0,
     });
-    expect(statusOf(db, "/big.md")).toBeNull();
+    expect(statusOf(db, "/big.md")).toBe("skipped");
     expect(chunkContents(db, "/big.md")).toEqual([]);
     expect(vectorCount(db)).toBe(0);
   });
@@ -419,7 +419,7 @@ describe("oversized text", () => {
     const { ctx, db } = createTestContext();
     ctx.embeddingProvider = refusing;
     await write(ctx, { path: "/big.md", content: big });
-    await waitFor(() => statusOf(db, "/big.md") === null);
+    await waitFor(() => statusOf(db, "/big.md") === "skipped");
     expect(chunkContents(db, "/big.md")).toEqual([]);
   });
 });
@@ -499,7 +499,7 @@ describe("failed and blank files", () => {
           content,
           version: readCurrentVersion(db, { path, driveId }) ?? null,
         })
-      ).toBe(false);
+      ).toBe("skipped");
     }
     expect(calls).toEqual([]);
     expect(statusOf(db, path)).toBeNull();

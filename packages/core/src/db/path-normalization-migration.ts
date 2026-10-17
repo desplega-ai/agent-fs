@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { files } from "./schema.js";
 import { normalizePath } from "../ops/paths.js";
 import {
   hasLegacyFts,
@@ -49,7 +50,7 @@ interface FileRow {
   createdAt: number;
   modifiedAt: number;
   isDeleted: number;
-  embeddingStatus: "pending" | "indexed" | "failed" | null;
+  embeddingStatus: typeof files.$inferSelect.embeddingStatus;
 }
 
 interface VirtualFtsTable {
@@ -455,7 +456,7 @@ function mergeSplitPath(
       canonicalPath,
       preferCanonical
     );
-    if ((!hasChunks || !hasFts) && embeddingStatus !== null) {
+    if ((!hasFts || (!hasChunks && embeddingStatus !== "skipped")) && embeddingStatus !== null) {
       embeddingStatus = "pending";
     }
   }

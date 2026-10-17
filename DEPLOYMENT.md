@@ -235,6 +235,25 @@ Plan for 2 GB RAM, or set `EMBEDDING_MODEL=nomic-embed-text-v1.5`.
 The daemon boot log names the selected local model and its reason.
 `agent-fs config validate` shows the configured model and whether transformers loads locally.
 
+## Upgrading to 0.18.1: chunking and embedding size cap
+
+New writes use new chunk boundaries. Existing chunks stay unchanged.
+The chunker change does not trigger re-embedding.
+Chunking works offline and does not download a tokenizer.
+
+Set `AGENT_FS_EMBEDDING_MAX_BYTES` to limit text embeddings by UTF-8 bytes.
+The cap accepts a positive integer. Unset or invalid values mean no cap.
+For PDFs, the cap measures extracted text, not the PDF file size.
+Text over the cap keeps its full-text search index.
+The indexer deletes its text chunks and vectors and reports `embeddingStatus: "skipped"`.
+Image and PDF-page embeddings stay unchanged.
+
+Restart the daemon after a cap change.
+At boot, a changed cap queues skipped files and indexed files larger than the new cap.
+The indexer then applies the new cap.
+`reindex` skips files with `skipped` status, as it skips files with `indexed` status.
+`stat`, CLI, MCP, and the live file metadata show `skipped`.
+
 ## Using EmbeddingGemma 2 (0.17.2)
 
 Set `EMBEDDING_PROVIDER=local` and `EMBEDDING_MODEL=embeddinggemma-2`.
@@ -297,6 +316,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `AGENT_FS_PUBLIC_URL` | `server.publicUrl` | _(derived from the request)_ | Public address of this API server (e.g. `https://agent-fs-acme.fly.dev`), used to build absolute `/share/<token>` links. Set it when a proxy does not forward `Host` / `X-Forwarded-Proto`. |
 | `AGENT_FS_SHARE_RATE_LIMIT` | `server.shareRateLimit.requestsPerMinute` | `120` | Per-IP requests per minute for the public `/share/*` routes; `0` disables. Behind a reverse proxy other than Fly, all traffic shares the proxy's address, so raise it. |
 | `AGENT_FS_SITE_RATE_LIMIT` | `server.siteRateLimit.requestsPerMinute` | `600` | Per-IP requests per minute for the public `/site/*` routes (folder shares); `0` disables. One page load fetches many files, so it is higher than the share limit. |
+| `AGENT_FS_EMBEDDING_MAX_BYTES` | _(env only)_ | No cap | Positive integer limit for text embeddings, in UTF-8 bytes. Unset or invalid means no cap. Text over the cap keeps full-text search and reports `skipped`. Restart after changes. |
 | `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` | _(env only)_ | `0.25` | Share of CPU time the text migration and image job may use, above 0 and at most 1. Text pauses after each file. Images pause after each part. `1` runs without pauses. Invalid values use the default. See [Upgrading to 0.16.5](#upgrading-to-0165-embeddings-re-embedded). |
 | `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
 
