@@ -1,8 +1,12 @@
 import type { OpContext } from "./types.js";
 import { ftsQuery } from "../search/fts.js";
 import { findVectorCandidates } from "../search/vector-candidates.js";
-import { toUnitVector } from "../search/vectors.js";
+import { similarityFromDistance, toUnitVector } from "../search/vectors.js";
 import type { ChunkKind } from "../search/pipeline.js";
+
+// Cosine floor calibrated on EmbeddingGemma 2, the only provider that stores image vectors.
+// Relevant p10: 0.702, unrelated p90: 0.648. Keeps 19/20 relevant pairs.
+const MIN_IMAGE_BOOST_SIMILARITY = 0.69;
 
 export interface SearchParams {
   query: string;
@@ -61,7 +65,7 @@ export async function search(
   const K = 60;
   const merged = new Map<
     string,
-    { score: number; snippet: string; ftsHit?: boolean; page?: number; kind?: ChunkKind; author?: string; modifiedAt?: Date }
+    { score: number; snippet: string; ftsHit?: boolean; similarity?: number; page?: number; kind?: ChunkKind; author?: string; modifiedAt?: Date }
   >();
 
   // Score vector results by rank position
@@ -75,6 +79,7 @@ export async function search(
       merged.set(item.path, {
         score: rrfScore,
         snippet: item.snippet,
+        similarity: item.similarity,
         page: item.page,
         kind: item.kind,
         author: item.author,
@@ -105,10 +110,10 @@ export async function search(
     }
   }
 
-  // FTS cannot match images. Count their vector rank for both lists.
+  // Count a sufficiently similar image's vector rank for both lists when FTS misses.
   if (provider) {
     for (const data of merged.values()) {
-      if (data.kind === "image" && !data.ftsHit) data.score *= 2;
+      if (data.kind === "image" && !data.ftsHit && (data.similarity ?? 0) >= MIN_IMAGE_BOOST_SIMILARITY) data.score *= 2;
     }
   }
 
@@ -157,7 +162,7 @@ async function vectorSearch(
   ctx: OpContext,
   query: string,
   limit: number
-): Promise<RankedItem[]> {
+): Promise<(RankedItem & { similarity: number })[]> {
   const provider = ctx.embeddingProvider!;
   const queryEmbedding = await provider.embedQuery(query);
   const queryVec = toUnitVector(queryEmbedding, provider.dimensions);
@@ -165,6 +170,7 @@ async function vectorSearch(
   return (await findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit)).map(
     (candidate) => ({
       path: candidate.path,
+      similarity: similarityFromDistance(candidate.distance),
       snippet: candidate.snippet,
       page: candidate.page,
       kind: candidate.kind,

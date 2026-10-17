@@ -323,6 +323,47 @@ describe("Hybrid image scoring", () => {
     expect(results[0].score).toBe(1);
   });
 
+  test("keeps a low-similarity image below a better vector-only text match", async () => {
+    const { ctx, db, driveId, userId } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    addFile(db, { path: "/notes.md", driveId, author: userId });
+    addChunk(db, { path: "/notes.md", driveId, distance: 0.7 });
+    addFile(db, { path: "/unrelated.png", driveId, author: userId });
+    addChunk(db, { path: "/unrelated.png", driveId, distance: 0.8, kind: "image" });
+
+    const { results } = await search(ctx, { query: "semantic" });
+    expect(results.map((hit) => hit.path)).toEqual(["/notes.md", "/unrelated.png"]);
+    expect(results[0].score).toBe(0.5);
+    expect(results[1].score).toBeCloseTo(0.49193548387096775, 12);
+  });
+
+  test("boosts an image just above the similarity floor and not one just below it", async () => {
+    const { ctx, db, driveId, userId } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    // Distance 0.78 is similarity 0.6958. Distance 0.79 is similarity 0.6880.
+    addFile(db, { path: "/above.png", driveId, author: userId });
+    addChunk(db, { path: "/above.png", driveId, distance: 0.78, kind: "image" });
+    addFile(db, { path: "/below.png", driveId, author: userId });
+    addChunk(db, { path: "/below.png", driveId, distance: 0.79, kind: "image" });
+
+    const { results } = await search(ctx, { query: "semantic" });
+    expect(results.map((hit) => hit.path)).toEqual(["/above.png", "/below.png"]);
+    expect(results[0].score).toBe(1);
+    expect(results[1].score).toBeCloseTo(0.49193548387096775, 12);
+  });
+
+  test("preserves both RRF terms when a low-similarity PDF page also matches FTS", async () => {
+    const { ctx, db, driveId, userId } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    addFile(db, { path: "/report.pdf", driveId, author: userId });
+    addChunk(db, { path: "/report.pdf", driveId, distance: 0.8, kind: "image", page: 2 });
+    indexFile(db, { path: "/report.pdf", driveId, content: "basalt lighthouse maintenance log" });
+
+    const { results } = await search(ctx, { query: "basalt" });
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ path: "/report.pdf", score: 1, kind: "image", page: 2 });
+  });
+
   test("preserves text scores and order from two-list RRF", async () => {
     const { ctx, db, driveId, userId } = createTestContext();
     ctx.embeddingProvider = PROVIDER;
