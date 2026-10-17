@@ -42,9 +42,9 @@ primary_region = 'ams'
 # health checks. Every merge to main redeploys with this size.
 # Temporary for the prod re-embed. A later PR sets performance-1x with 4 GB.
 [[vm]]
-  size = 'performance-8x'
-  memory = '16gb'
-  cpus = 8
+  size = 'performance-16x'
+  memory = '32gb'
+  cpus = 16
 
 [[statics]]
   guest_path = '/app/public'
