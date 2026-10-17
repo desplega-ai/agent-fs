@@ -184,7 +184,7 @@ Semantic search requires an embedding provider. Configure via environment variab
 | **Google Gemini** | `GEMINI_API_KEY` | Free tier available | Good quality, generous free tier |
 | **Local (llama.cpp)** | — | Free | Requires local model download, slower |
 
-Priority: environment variable > `config.json` > none (semantic search disabled).
+Priority: an explicit `EMBEDDING_PROVIDER` (`local`, `openai`, or `gemini`) > `OPENAI_API_KEY` > `GEMINI_API_KEY` > `config.json` > none (semantic search disabled). An explicit `openai` or `gemini` takes its key from `EMBEDDING_API_KEY` or `config.json` first, then from its own API key variable.
 
 ### Configuring in config.json
 

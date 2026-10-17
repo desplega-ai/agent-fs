@@ -31,15 +31,33 @@ export async function createEmbeddingProvider(
 }
 
 /**
- * Auto-detect and create an embedding provider from environment variables,
- * falling back to config file settings. Returns null if no provider can be configured.
+ * Create the explicit EMBEDDING_PROVIDER first, using config.apiKey or its provider's env key.
+ * Return null if the explicit provider cannot be configured.
  *
- * Priority: env var (OPENAI_API_KEY, GEMINI_API_KEY) > config file > null
+ * Without EMBEDDING_PROVIDER, try OPENAI_API_KEY, GEMINI_API_KEY, then config settings.
  */
 export async function createEmbeddingProviderFromEnv(
   config?: AgentFSConfig["embedding"]
 ): Promise<EmbeddingProvider | null> {
-  // 1. Check env vars first
+  const explicit = process.env.EMBEDDING_PROVIDER;
+  if (explicit) {
+    const envKeys: Record<string, string | undefined> = {
+      openai: process.env.OPENAI_API_KEY,
+      gemini: process.env.GEMINI_API_KEY,
+    };
+    try {
+      return await createEmbeddingProvider({
+        provider: explicit as AgentFSConfig["embedding"]["provider"],
+        model: config?.model ?? "",
+        apiKey: config?.apiKey || envKeys[explicit] || "",
+      });
+    } catch (e) {
+      console.error(`[agent-fs] EMBEDDING_PROVIDER=${explicit} unavailable: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  }
+
+  // 1. Without an explicit provider, API key env vars come first
   if (process.env.OPENAI_API_KEY) {
     try {
       const { OpenAIEmbeddingProvider } = await import("./openai.js");

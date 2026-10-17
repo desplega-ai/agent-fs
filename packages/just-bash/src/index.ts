@@ -37,11 +37,15 @@ import type {
   RmOptions,
   WriteFileOptions,
 } from "./types.js";
+import type { IFileSystem as JustBashFileSystem } from "just-bash";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:7433";
 const DEFAULT_DIR_MODE = 0o755;
 const DEFAULT_FILE_MODE = 0o644;
 const DEFAULT_DIRECTORY_MARKER = ".agent-fs-dir";
+const DEFAULT_CACHE_TTL_MS = 5_000;
+// Per cache. Bounds memory when one TTL sees many paths, or the TTL is Infinity.
+const MAX_CACHE_ENTRIES = 10_000;
 
 type FetchLike = (
   input: string | URL | Request,
@@ -65,6 +69,87 @@ interface AgentFsStatResult {
   createdAt?: string | Date;
 }
 
+/**
+ * Answers by path, plus the requests still in flight. Answers stay for
+ * `ttlMs` after they arrive, at most MAX_CACHE_ENTRIES of them. A request in
+ * flight is shared until it settles and is never evicted.
+ */
+class RequestCache<T> {
+  // In arrival order, so expired answers and the oldest ones come first.
+  private readonly answers = new Map<string, { at: number; value: T }>();
+  private readonly inFlight = new Map<string, Promise<T>>();
+
+  constructor(private readonly ttlMs: number) {}
+
+  /** The fresh answer for `path`, if there is one. */
+  answer(path: string): { value: T } | undefined {
+    const hit = this.answers.get(path);
+    return hit && this.isFresh(hit.at) ? hit : undefined;
+  }
+
+  /** A failed request is not cached. */
+  get(path: string, load: () => Promise<T>): Promise<T> {
+    const hit = this.answer(path);
+    if (hit) return Promise.resolve(hit.value);
+    const pending = this.inFlight.get(path);
+    if (pending) return pending;
+    if (!(this.ttlMs > 0)) return load();
+
+    const request = load();
+    this.inFlight.set(path, request);
+    request.then(
+      (value) => {
+        // Dropped by a write while in flight: the answer can predate it.
+        if (this.inFlight.get(path) !== request) return;
+        this.inFlight.delete(path);
+        this.answers.delete(path);
+        this.answers.set(path, { at: Date.now(), value });
+        this.prune();
+      },
+      () => {
+        if (this.inFlight.get(path) === request) this.inFlight.delete(path);
+      },
+    );
+    return request;
+  }
+
+  delete(path: string): void {
+    this.answers.delete(path);
+    this.inFlight.delete(path);
+  }
+
+  /** Drops `path` and everything under it. */
+  deleteTree(path: string): void {
+    if (path === "/") {
+      this.answers.clear();
+      this.inFlight.clear();
+      return;
+    }
+    this.delete(path);
+    const prefix = `${path}/`;
+    for (const map of [this.answers, this.inFlight]) {
+      for (const key of [...map.keys()]) {
+        if (key.startsWith(prefix)) map.delete(key);
+      }
+    }
+  }
+
+  // Each visit drops an answer or ends the scan, so the work per insert is
+  // O(1) amortized.
+  private prune(): void {
+    for (const [path, answer] of this.answers) {
+      if (this.answers.size <= MAX_CACHE_ENTRIES && this.isFresh(answer.at)) break;
+      this.answers.delete(path);
+    }
+  }
+
+  // Date.now, not performance.now: just-bash blocks performance timing while
+  // a script runs, and these calls run inside its commands.
+  private isFresh(at: number): boolean {
+    return Date.now() - at < this.ttlMs;
+  }
+}
+
 export interface AgentFsFileSystemOptions {
   baseUrl?: string;
   apiKey?: string;
@@ -73,6 +158,14 @@ export interface AgentFsFileSystemOptions {
   fetch?: FetchLike;
   directoryMarkerName?: string;
   writeMessage?: string | ((operation: string, path: string) => string);
+  /**
+   * How long `stat` and `ls` answers stay cached after they arrive, in
+   * milliseconds. The adapter drops the entries its own writes touch, so this
+   * only bounds how long a change made by another client can go unseen.
+   * Defaults to 5000. `0` disables the cache. `Infinity` keeps entries for the
+   * instance's life, up to 10,000 paths per cache.
+   */
+  cacheTtlMs?: number;
 }
 
 export class AgentFsHttpError extends Error {
@@ -87,7 +180,7 @@ export class AgentFsHttpError extends Error {
   }
 }
 
-export class AgentFsFileSystem implements IFileSystem {
+export class AgentFsFileSystem implements IFileSystem, JustBashFileSystem {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
   private readonly orgId: string;
@@ -97,6 +190,9 @@ export class AgentFsFileSystem implements IFileSystem {
   private readonly writeMessage?: string | ((operation: string, path: string) => string);
   private readonly knownFiles = new Set<string>();
   private readonly knownDirectories = new Set<string>(["/"]);
+  // Remote `stat` answers (null: no file there) and raw `ls` entries, by path.
+  private readonly statCache: RequestCache<AgentFsStatResult | null>;
+  private readonly lsCache: RequestCache<AgentFsLsEntry[]>;
 
   constructor(options: AgentFsFileSystemOptions) {
     if (!options.orgId) {
@@ -116,6 +212,9 @@ export class AgentFsFileSystem implements IFileSystem {
     this.directoryMarkerName =
       options.directoryMarkerName ?? DEFAULT_DIRECTORY_MARKER;
     this.writeMessage = options.writeMessage;
+    const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
+    this.statCache = new RequestCache(cacheTtlMs);
+    this.lsCache = new RequestCache(cacheTtlMs);
 
     if (!this.fetchFn) {
       throw new Error("AgentFsFileSystem requires a fetch implementation");
@@ -131,7 +230,9 @@ export class AgentFsFileSystem implements IFileSystem {
   }
 
   async readFileBytes(path: string): Promise<ByteString> {
-    return bytesToLatin1(await this.readFileBuffer(path)) as ByteString;
+    // Same tag as just-bash's unsafeBytesFromLatin1. Importing that would
+    // make the optional just-bash peer a runtime dependency.
+    return bytesToLatin1(await this.readFileBuffer(path)) as unknown as ByteString;
   }
 
   async readFileBuffer(path: string): Promise<Uint8Array> {
@@ -206,14 +307,10 @@ export class AgentFsFileSystem implements IFileSystem {
     const normalized = normalizePath(path);
     if (normalized === "/") return directoryStat();
 
-    try {
-      const result = await this.op<AgentFsStatResult>("stat", { path: normalized });
+    const file = await this.statFile(normalized);
+    if (file) {
       this.rememberFile(normalized);
-      return fileStat(result);
-    } catch (err) {
-      if (!isNotFound(err) && !isPathNotFound(err)) {
-        throw err;
-      }
+      return fileStat(file);
     }
 
     if (await this.directoryExists(normalized)) {
@@ -271,7 +368,7 @@ export class AgentFsFileSystem implements IFileSystem {
 
     const fileExists = await this.fileExists(normalized);
     if (fileExists) {
-      await this.op("rm", { path: normalized });
+      await this.mutate("rm", { path: normalized }, [normalized]);
       this.forgetFile(normalized);
       return;
     }
@@ -293,10 +390,11 @@ export class AgentFsFileSystem implements IFileSystem {
 
     const files = await this.collectFilePaths(normalized);
     for (const file of files) {
-      await this.op("rm", { path: file });
+      await this.mutate("rm", { path: file }, [file]);
       this.forgetFile(file);
     }
     this.forgetDirectory(normalized);
+    this.invalidateTree(normalized);
   }
 
   async cp(src: string, dest: string, options?: CpOptions): Promise<void> {
@@ -307,7 +405,7 @@ export class AgentFsFileSystem implements IFileSystem {
     await this.assertParentWritable(destNorm, "cp");
 
     if (await this.fileExists(srcNorm)) {
-      await this.op("cp", { from: srcNorm, to: destNorm });
+      await this.mutate("cp", { from: srcNorm, to: destNorm }, [destNorm]);
       this.rememberFile(destNorm);
       return;
     }
@@ -340,11 +438,11 @@ export class AgentFsFileSystem implements IFileSystem {
     await this.assertParentWritable(destNorm, "rename");
 
     if (await this.fileExists(srcNorm)) {
-      await this.op("mv", {
-        from: srcNorm,
-        to: destNorm,
-        message: this.messageFor("mv", destNorm),
-      });
+      await this.mutate(
+        "mv",
+        { from: srcNorm, to: destNorm, message: this.messageFor("mv", destNorm) },
+        [srcNorm, destNorm],
+      );
       this.forgetFile(srcNorm);
       this.rememberFile(destNorm);
       return;
@@ -424,6 +522,7 @@ export class AgentFsFileSystem implements IFileSystem {
   async refreshAllPaths(path = "/"): Promise<string[]> {
     validatePath(path, "scandir");
     const normalized = normalizePath(path);
+    this.invalidateTree(normalized);
     await this.refreshDirectory(normalized);
     return this.getAllPaths();
   }
@@ -491,14 +590,9 @@ export class AgentFsFileSystem implements IFileSystem {
   }
 
   private async fileExists(path: string): Promise<boolean> {
-    try {
-      await this.op<AgentFsStatResult>("stat", { path });
-      this.rememberFile(path);
-      return true;
-    } catch (err) {
-      if (isNotFound(err) || isPathNotFound(err)) return false;
-      throw err;
-    }
+    if (!(await this.statFile(path))) return false;
+    this.rememberFile(path);
+    return true;
   }
 
   private async directoryExists(path: string): Promise<boolean> {
@@ -515,11 +609,11 @@ export class AgentFsFileSystem implements IFileSystem {
     path: string,
     includeMarkers: boolean,
   ): Promise<AgentFsLsEntry[]> {
-    const result = await this.op<AgentFsLsResult>("ls", { path });
+    const all = await this.lsEntries(path);
     const entries = includeMarkers
-      ? result.entries
-      : result.entries.filter((entry) => !this.isDirectoryMarkerName(entry.name));
-    for (const entry of result.entries) {
+      ? all
+      : all.filter((entry) => !this.isDirectoryMarkerName(entry.name));
+    for (const entry of all) {
       const child = joinPath(path, entry.name);
       if (entry.type === "directory") {
         this.rememberDirectory(child);
@@ -542,6 +636,84 @@ export class AgentFsFileSystem implements IFileSystem {
       }
     }
     return files;
+  }
+
+  /** The remote `stat` answer for `path`: null when no file is there. */
+  private statFile(path: string): Promise<AgentFsStatResult | null> {
+    const listed = this.listedChild(path);
+    if (listed && !listed.file) return Promise.resolve(null);
+    if (listed?.file?.modifiedAt !== undefined) {
+      return Promise.resolve({ size: listed.file.size, modifiedAt: listed.file.modifiedAt });
+    }
+    return this.statCache.get(path, async () => {
+      try {
+        return await this.op<AgentFsStatResult>("stat", { path });
+      } catch (err) {
+        if (isNotFound(err) || isPathNotFound(err)) return null;
+        throw err;
+      }
+    });
+  }
+
+  /** The raw `ls` entries for `path`, directory markers included. */
+  private lsEntries(path: string): Promise<AgentFsLsEntry[]> {
+    const listed = this.listedChild(path);
+    if (listed && !listed.directory) return Promise.resolve([]);
+    return this.lsCache.get(
+      path,
+      async () => (await this.op<AgentFsLsResult>("ls", { path })).entries,
+    );
+  }
+
+  /**
+   * What a fresh listing of the parent says about `path`, or undefined when
+   * none is cached. A listing names every child, so a name it does not
+   * contain is neither a file nor a directory.
+   */
+  private listedChild(
+    path: string,
+  ): { file?: AgentFsLsEntry; directory: boolean } | undefined {
+    if (path === "/") return undefined;
+    const parent = this.lsCache.answer(dirname(path));
+    if (!parent) return undefined;
+    const name = basename(path);
+    const matches = parent.value.filter((entry) => entry.name === name);
+    return {
+      file: matches.find((entry) => entry.type === "file"),
+      directory: matches.some((entry) => entry.type === "directory"),
+    };
+  }
+
+  private async mutate(
+    op: string,
+    params: Record<string, unknown>,
+    touched: string[],
+  ): Promise<void> {
+    try {
+      await this.op(op, params);
+    } finally {
+      for (const path of touched) this.invalidate(path);
+    }
+  }
+
+  /**
+   * Drops what a write at `path` can change: its own entries and the listing
+   * of every ancestor, because a new file can also create its parent folders.
+   */
+  private invalidate(path: string): void {
+    this.statCache.delete(path);
+    this.lsCache.delete(path);
+    let current = path;
+    while (current !== "/") {
+      current = dirname(current);
+      this.lsCache.delete(current);
+    }
+  }
+
+  private invalidateTree(path: string): void {
+    this.invalidate(path);
+    this.statCache.deleteTree(path);
+    this.lsCache.deleteTree(path);
   }
 
   private async op<T>(op: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -620,13 +792,18 @@ export class AgentFsFileSystem implements IFileSystem {
       headers.set("X-Agent-FS-Message-Encoding", "percent");
     }
 
-    const response = await this.fetchFn(this.rawUrl(path), {
-      method: "PUT",
-      headers,
-      body: bytes as BodyInit,
-    });
-    if (!response.ok) {
-      throw await httpErrorFromResponse(response);
+    try {
+      const response = await this.fetchFn(this.rawUrl(path), {
+        method: "PUT",
+        headers,
+        body: bytes as BodyInit,
+      });
+      if (!response.ok) {
+        throw await httpErrorFromResponse(response);
+      }
+    } finally {
+      // Also on failure: a timed-out PUT may still have landed.
+      this.invalidate(path);
     }
   }
 

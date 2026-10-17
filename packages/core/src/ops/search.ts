@@ -19,6 +19,8 @@ export interface SearchResultItem {
 export interface SearchResult {
   results: SearchResultItem[];
   hint?: string;
+  /** Server time for the whole search, in milliseconds. */
+  tookMs: number;
 }
 
 /**
@@ -29,6 +31,7 @@ export async function search(
   ctx: OpContext,
   params: SearchParams
 ): Promise<SearchResult> {
+  const started = performance.now();
   const limit = params.limit ?? 10;
   const provider = ctx.embeddingProvider;
 
@@ -44,6 +47,7 @@ export async function search(
       hint: provider
         ? `No results found for "${params.query}".`
         : "No embedding provider configured. Set OPENAI_API_KEY, GEMINI_API_KEY, or enable local embeddings for semantic search. Showing keyword results only.",
+      tookMs: elapsedMs(started),
     };
   }
 
@@ -90,13 +94,16 @@ export async function search(
     }
   }
 
-  // Sort by combined RRF score, take top N
+  // Sort by combined RRF score, take top N. The raw sum is at most
+  // lists / (K + 1), about 0.033, so it is scaled to 0..1: 1 means first in
+  // every list that ran, 0.5 first in one of two.
+  const maxScore = (provider ? 2 : 1) / (K + 1);
   const results: SearchResultItem[] = Array.from(merged.entries())
     .sort(([, a], [, b]) => b.score - a.score)
     .slice(0, limit)
     .map(([path, data]) => ({
       path,
-      score: data.score,
+      score: data.score / maxScore,
       snippet: data.snippet,
       author: data.author,
       modifiedAt: data.modifiedAt,
@@ -107,7 +114,12 @@ export async function search(
     hint: !provider
       ? "Results are keyword-only. Enable embeddings for better semantic matching."
       : undefined,
+    tookMs: elapsedMs(started),
   };
+}
+
+function elapsedMs(started: number): number {
+  return Math.round(performance.now() - started);
 }
 
 // --- Internal helpers ---
@@ -125,10 +137,10 @@ async function vectorSearch(
   limit: number
 ): Promise<RankedItem[]> {
   const provider = ctx.embeddingProvider!;
-  const queryEmbedding = await provider.embed(query);
+  const queryEmbedding = await provider.embedQuery(query);
   const queryVec = toUnitVector(queryEmbedding, provider.dimensions);
 
-  return findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit).map(
+  return (await findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit)).map(
     (candidate) => ({
       path: candidate.path,
       snippet: candidate.snippet,

@@ -48,13 +48,13 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     });
   }
 
-  async embed(text: string): Promise<number[]> {
+  async embedQuery(text: string): Promise<number[]> {
     await this.init();
     const result = await this.embeddingContext.getEmbeddingFor(text);
     return Array.from(result.vector);
   }
 
-  async embedBatch(texts: string[]): Promise<number[][]> {
+  async embedDocuments(texts: string[], _opts: { title: string }): Promise<number[][]> {
     await this.init();
     const results: number[][] = [];
     for (const text of texts) {

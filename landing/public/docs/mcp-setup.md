@@ -27,7 +27,7 @@ Add to your `.mcp.json` (project-level or `~/.claude/.mcp.json` for global):
 
 To enable semantic search, configure an embedding provider on the daemon (via `~/.agent-fs/config.json` or environment variables). The daemon initializes embeddings at startup and makes them available to both REST and MCP clients.
 
-Supported providers: `OPENAI_API_KEY` (OpenAI), `GEMINI_API_KEY` (Google Gemini), or local llama.cpp (configured in `~/.agent-fs/config.json`).
+Supported providers: `OPENAI_API_KEY` (OpenAI), `GEMINI_API_KEY` (Google Gemini), or local llama.cpp (configured in `~/.agent-fs/config.json`). Set `EMBEDDING_PROVIDER` to pick one explicitly. It takes priority over the API key variables.
 
 ## Cursor
 

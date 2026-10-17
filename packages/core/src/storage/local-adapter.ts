@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import { Files } from "files-sdk";
 import { fs } from "files-sdk/fs";
 import { UnsupportedOperation } from "../errors.js";
@@ -72,13 +74,14 @@ function isFilesNotFound(err: unknown): boolean {
  * returned unchanged so the caller can rethrow the original.
  */
 function translateError(err: unknown, key: string): unknown {
-  if (isFilesNotFound(err)) {
-    const e = new Error(`NoSuchKey: ${key}`);
-    e.name = "NoSuchKey";
-    (e as { cause?: unknown }).cause = err;
-    return e;
-  }
-  return err;
+  return isFilesNotFound(err) ? noSuchKey(key, err) : err;
+}
+
+function noSuchKey(key: string, cause?: unknown): Error {
+  const e = new Error(`NoSuchKey: ${key}`);
+  e.name = "NoSuchKey";
+  (e as { cause?: unknown }).cause = cause;
+  return e;
 }
 
 export interface LocalStorageAdapterOptions {
@@ -90,6 +93,7 @@ export interface LocalStorageAdapterOptions {
 
 export class LocalStorageAdapter implements StorageAdapter {
   private files: Files;
+  private readonly root: string;
 
   /** App-level (content-addressed) versioning is always on for local. */
   versioningEnabled = true;
@@ -100,6 +104,7 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 
   constructor(opts: LocalStorageAdapterOptions) {
+    this.root = opts.root;
     this.files = new Files({
       adapter: fs({
         root: opts.root,
@@ -227,6 +232,11 @@ export class LocalStorageAdapter implements StorageAdapter {
     assertKeyInsideDrive(key);
     try {
       const stored = await this.files.head(key);
+      // files-sdk's fs `head` stats the path without checking its type, so a
+      // folder (the fs also keeps emptied ones) answered as a file. S3 has no
+      // object at a folder key, and the ops rely on that.
+      const entry = await stat(resolve(this.root, key)).catch(() => undefined);
+      if (entry?.isDirectory()) throw noSuchKey(key);
       return {
         contentType: stored.type,
         size: stored.size,

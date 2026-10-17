@@ -39,6 +39,14 @@ export function createDatabase(dbPath?: string): ReturnType<typeof drizzle> {
   // Create all tables (idempotent)
   sqlite.exec(CREATE_TABLES_SQL);
   sqlite.exec(VEC_TABLE_SQL);
+  // 0.16.7 had an opt-in int8 copy of the vectors (AGENT_FS_VECTOR_INDEX=int8).
+  // It was slower than the exact scan on real disks and is gone: drop what it
+  // left behind, trigger first, since the trigger writes to the table.
+  sqlite.exec(`
+    DROP TRIGGER IF EXISTS content_chunks_int8_delete;
+    DROP TABLE IF EXISTS chunk_vectors_int8;
+    DELETE FROM meta WHERE key = 'vec_int8_index';
+  `);
 
   // The full-text index is only installed when the name is free. A database
   // from before 0.13.1 still has the internal-content `files_fts`; the daemon

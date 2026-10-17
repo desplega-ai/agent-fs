@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs-just-bash",
-  "version": "0.16.8",
+  "version": "0.17.0",
   "type": "module",
   "description": "just-bash-compatible filesystem adapter for agent-fs",
   "license": "MIT",
@@ -29,6 +29,9 @@
   "scripts": {
     "build": "rm -rf dist tsconfig.tsbuildinfo && tsc -p tsconfig.json",
     "prepublishOnly": "bun run build"
+  },
+  "devDependencies": {
+    "just-bash": "3.6.0"
   },
   "peerDependencies": {
     "just-bash": ">=3.0.1"

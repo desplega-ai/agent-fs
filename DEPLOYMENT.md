@@ -154,7 +154,7 @@ curl -X POST https://your-app.fly.dev/auth/register \
 | `shared-cpu-2x` | 2 shared | 512 MB–1 GB | Small teams, moderate traffic |
 | `performance-1x` | 1 dedicated | 2 GB | Production, heavy embedding workloads |
 
-The default `fly.toml` uses `shared-cpu-1x` with 512 MB. Adjust in `fly.toml` under `[[vm]]` or pass the instance size when prompted by the deploy script.
+The repo's `fly.toml` uses `performance-1x` with 2 GB. On `shared-cpu-1x`, a large index (100k+ chunks) used up the shared CPU budget: searches took seconds and health checks failed. `flyctl deploy` applies the `[[vm]]` size on every deploy, so a manual `fly scale vm` is undone by the next one. Adjust in `fly.toml` under `[[vm]]` or pass the instance size when prompted by the deploy script.
 
 ## Upgrading to 0.13.1: search index migration
 
@@ -183,15 +183,21 @@ Only the `local` provider is affected. Before 0.16.6 it embedded in batches of 5
 
 On the first start, the daemon re-embeds every file once more, in the background, the same way as in 0.16.5. If the 0.16.5 run has not finished yet, the two runs merge: files still `pending` are embedded once, with the fixed batch. `openai` and `gemini` keep their vectors, and nothing runs for them.
 
-## Faster vector search (optional)
+## Vector search cost
 
-`vec-search` and the semantic half of `search` compare the query with every stored chunk vector, in one scan per search. The cost grows with the total chunk count across all drives: on a dedicated CPU, 150k chunks take about 400 ms per scan, and several seconds on a throttled shared CPU.
+`vec-search` and the semantic half of `search` compare the query with every stored chunk vector, in one scan per search. The cost grows with the total chunk count across all drives: on a dedicated CPU, 150k chunks take about 400 ms per scan.
 
-Set `AGENT_FS_VECTOR_INDEX=int8` to add a compact index: one byte per dimension (768 bytes per chunk, about 120 MB per 150k chunks), partitioned by drive. A search takes a few hundred candidates from it, then ranks them by their exact distance, so scores stay exact cosine. On an 82k-chunk drive with real queries, this took about 130 ms instead of about 400 ms and found 95% of the exact top 10 files. The other 5% are near ties.
+The scan runs on a worker thread with its own read-only connection, so a slow search never stalls other requests or `/health`. Right after start, the worker scans once to load the vectors into the OS page cache. On a large index that takes a while (about 25 s for 470 MB of vectors on a Fly volume), and searches sent meanwhile wait for it.
 
-- On the first start with the setting, the index is built in the background from the stored vectors (no re-embed), in batches of 250 with the same CPU-share pauses as the re-embed (`AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE`). 154k vectors took about 4 s of CPU on a laptop. Progress is logged as `vector int8 index: ...`. Search uses the exact scan until it is ready.
-- New and deleted chunks update it automatically.
-- Remove the setting (or set `exact`) to drop the index. Turning it on again rebuilds it.
+0.16.7 had an opt-in `AGENT_FS_VECTOR_INDEX=int8` index. It was slower than the exact scan on a real disk, so 0.16.8 removes it and drops its table on start.
+
+## Upgrading to 0.17.0: explicit EMBEDDING_PROVIDER wins
+
+An explicit, non-empty `EMBEDDING_PROVIDER` now takes priority over `OPENAI_API_KEY` and `GEMINI_API_KEY`.
+The selected cloud provider uses `embedding.apiKey` first, then its own API key environment variable.
+`EMBEDDING_API_KEY` supplies `embedding.apiKey`.
+Production configurations with `EMBEDDING_PROVIDER=openai` and `EMBEDDING_API_KEY` keep the same behavior and vectors.
+Without an explicit provider, selection still tries `OPENAI_API_KEY`, `GEMINI_API_KEY`, then the configuration.
 
 ## Environment Variables Reference
 
@@ -210,16 +216,17 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `S3_PUBLIC_ENDPOINT` | `s3.publicEndpoint` | _(falls back to `S3_ENDPOINT`)_ | Externally-reachable S3 endpoint used only when generating presigned URLs. Falls back to `S3_ENDPOINT`. |
 | `SERVER_PORT` | `server.port` | `7433` | |
 | `SERVER_HOST` | `server.host` | `127.0.0.1` | Set to `0.0.0.0` in containers |
-| `EMBEDDING_PROVIDER` | `embedding.provider` | `local` | `local`, `openai`, or `gemini` |
+| `EMBEDDING_PROVIDER` | `embedding.provider` | `local` | `local`, `openai`, or `gemini`. A non-empty value takes priority over API key variables. |
 | `EMBEDDING_MODEL` | `embedding.model` | — | Model name for the chosen provider |
-| `EMBEDDING_API_KEY` | `embedding.apiKey` | — | API key for `openai` or `gemini` providers |
+| `EMBEDDING_API_KEY` | `embedding.apiKey` | _(unset)_ | API key for `openai` or `gemini`. An explicit provider uses this key before its own API key variable. |
+| `OPENAI_API_KEY` | _(env only)_ | _(unset)_ | Selects OpenAI when `EMBEDDING_PROVIDER` is absent. Supplies the key for explicit OpenAI when `embedding.apiKey` is empty. |
+| `GEMINI_API_KEY` | _(env only)_ | _(unset)_ | Selects Gemini when the explicit provider and `OPENAI_API_KEY` are absent. Supplies the key for explicit Gemini when `embedding.apiKey` is empty. |
 | `ANONYMIZED_TELEMETRY` | _(env only)_ | `true` | Set to `false` to stop anonymous usage events. See [docs/telemetry.md](./docs/telemetry.md). |
 | `DO_NOT_TRACK` | _(env only)_ | _(unset)_ | Any value except empty, `0`, `false`, `no`, or `off` also stops telemetry. |
 | `AGENT_FS_PUBLIC_URL` | `server.publicUrl` | _(derived from the request)_ | Public address of this API server (e.g. `https://agent-fs-acme.fly.dev`), used to build absolute `/share/<token>` links. Set it when a proxy does not forward `Host` / `X-Forwarded-Proto`. |
 | `AGENT_FS_SHARE_RATE_LIMIT` | `server.shareRateLimit.requestsPerMinute` | `120` | Per-IP requests per minute for the public `/share/*` routes; `0` disables. Behind a reverse proxy other than Fly, all traffic shares the proxy's address, so raise it. |
 | `AGENT_FS_SITE_RATE_LIMIT` | `server.siteRateLimit.requestsPerMinute` | `600` | Per-IP requests per minute for the public `/site/*` routes (folder shares); `0` disables. One page load fetches many files, so it is higher than the share limit. |
-| `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` | _(env only)_ | `0.25` | Share of CPU time background index work (the re-embed and the int8 index build) may use, above 0 and at most 1. It pauses after each file. `1` runs without pauses. Invalid values use the default. See [Upgrading to 0.16.5](#upgrading-to-0165-embeddings-re-embedded). |
-| `AGENT_FS_VECTOR_INDEX` | _(env only)_ | `exact` | `int8` adds a compact vector index for faster semantic search (about 3x on large drives, about 95% of exact results). See [Faster vector search](#faster-vector-search-optional). |
+| `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` | _(env only)_ | `0.25` | Share of CPU time the background re-embed may use, above 0 and at most 1. It pauses after each file. `1` runs without pauses. Invalid values use the default. See [Upgrading to 0.16.5](#upgrading-to-0165-embeddings-re-embedded). |
 | `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
 
 When both `AWS_*` and `S3_*` variants are set, the `AWS_*` variant takes precedence (Tigris injects `AWS_*` automatically).

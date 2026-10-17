@@ -15,10 +15,10 @@ QUERY_VECTOR[0] = 1;
 const PROVIDER: EmbeddingProvider = {
   name: "deterministic-test",
   dimensions: 768,
-  async embed() {
+  async embedQuery() {
     return QUERY_VECTOR;
   },
-  async embedBatch(texts) {
+  async embedDocuments(texts) {
     return texts.map(() => QUERY_VECTOR);
   },
 };
@@ -148,7 +148,12 @@ describe("scoped vector search", () => {
       "/nearest.md",
       "/second.md",
     ]);
-    expect(hybrid.results.map((item) => item.score)).toEqual([1 / 61, 1 / 62]);
+    // Only the vector list matched: RRF 1/61 and 1/62, scaled by the
+    // two-list maximum 2/61, so first place in one of two lists is 0.5.
+    expect(hybrid.results[0].score).toBeCloseTo(0.5, 10);
+    expect(hybrid.results[1].score).toBeCloseTo(61 / 124, 10);
+    expect(hybrid.tookMs).toBeGreaterThanOrEqual(0);
+    expect(semantic.tookMs).toBeGreaterThanOrEqual(0);
   });
 
   test("stops after an empty round when the drive has few eligible files", async () => {

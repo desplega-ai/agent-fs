@@ -1,4 +1,8 @@
-export type ByteString = string & { readonly __byteStringBrand: unique symbol };
+import type { ByteString } from "just-bash";
+
+// just-bash brands ByteString with a private unique symbol, so a local copy of
+// the type never matches `IFileSystem.readFileBytes` and mounting needed a cast.
+export type { ByteString };
 
 export type BufferEncoding =
   | "utf8"

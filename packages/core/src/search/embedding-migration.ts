@@ -79,8 +79,8 @@ export const DEFAULT_CPU_SHARE = 0.25;
 const MAX_PAUSE_MS = 30_000;
 
 /**
- * Share of CPU time background index work (this re-embed and the int8 index
- * backfill) may use, from `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE`. A number above 0 and at most 1;
+ * Share of CPU time the migration may use, from
+ * `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE`. A number above 0 and at most 1;
  * anything else gives the default. 1 runs without pauses.
  */
 export function migrationCpuShare(raw: string | undefined): number {

@@ -82,6 +82,7 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
           error: hybridResult.error,
           success: hybridResult.isSuccess,
           hint: hybridResult.data?.hint,
+          tookMs: hybridResult.data?.tookMs,
           retry: hybridResult.refetch,
         }
       case "fulltext":
@@ -96,6 +97,7 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
           hint: ftsResult.data?.hint
             ? "Full-text matches exact terms. Try Hybrid for semantic matching."
             : undefined,
+          tookMs: ftsResult.data?.tookMs,
           retry: ftsResult.refetch,
         }
       case "semantic":
@@ -109,6 +111,7 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
           error: semanticResult.error,
           success: semanticResult.isSuccess,
           hint: semanticResult.data?.hint,
+          tookMs: semanticResult.data?.tookMs,
           retry: semanticResult.refetch,
         }
     }
@@ -120,6 +123,7 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
   const error = waitingForDebounce ? null : activeSearch.error
   const success = !waitingForDebounce && activeSearch.success
   const hint = success ? activeSearch.hint : undefined
+  const tookMs = success ? activeSearch.tookMs : undefined
 
   const handleResultClick = (path: string) => {
     selectFile(path)
@@ -269,6 +273,11 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
               </kbd>
               close
             </span>
+            {tookMs !== undefined && (
+              <span className="ml-auto tabular-nums" title="Server time for this search">
+                {results.length} {results.length === 1 ? "result" : "results"} in {formatMs(tookMs)}
+              </span>
+            )}
           </div>
         </DialogPrimitive.Popup>
       </DialogPortal>
@@ -399,4 +408,8 @@ function ResultSkeleton() {
       ))}
     </ul>
   )
+}
+
+function formatMs(ms: number): string {
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`
 }

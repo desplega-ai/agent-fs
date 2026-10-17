@@ -10,7 +10,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
     this.client = new OpenAI({ apiKey });
   }
 
-  async embed(text: string): Promise<number[]> {
+  async embedQuery(text: string): Promise<number[]> {
     const result = await this.client.embeddings.create({
       model: "text-embedding-3-small",
       input: text,
@@ -19,7 +19,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
     return result.data[0].embedding;
   }
 
-  async embedBatch(texts: string[]): Promise<number[][]> {
+  async embedDocuments(texts: string[], _opts: { title: string }): Promise<number[][]> {
     const result = await this.client.embeddings.create({
       model: "text-embedding-3-small",
       input: texts,

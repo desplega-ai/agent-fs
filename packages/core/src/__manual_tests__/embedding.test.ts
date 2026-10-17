@@ -66,17 +66,17 @@ afterAll(() => {
 });
 
 describe.skipIf(SKIP)("OpenAI Embedding Provider", () => {
-  test("embed returns 768-dim vector", async () => {
-    const vec = await provider.embed("Hello world, this is a test.");
+  test("embedQuery returns 768-dim vector", async () => {
+    const vec = await provider.embedQuery("Hello world, this is a test.");
     expect(vec.length).toBe(768);
     expect(typeof vec[0]).toBe("number");
   });
 
-  test("embedBatch returns multiple vectors", async () => {
-    const vecs = await provider.embedBatch([
+  test("embedDocuments returns multiple vectors", async () => {
+    const vecs = await provider.embedDocuments([
       "Authentication and login systems",
       "Database migration strategies",
-    ]);
+    ], { title: "test.md" });
     expect(vecs.length).toBe(2);
     expect(vecs[0].length).toBe(768);
     expect(vecs[1].length).toBe(768);

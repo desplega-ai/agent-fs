@@ -17,27 +17,31 @@ export interface VecSearchResultItem {
 
 export interface VecSearchResult {
   results: VecSearchResultItem[];
+  /** Server time for the whole search (query embedding included), in milliseconds. */
+  tookMs: number;
 }
 
 export async function vecSearch(
   ctx: OpContext,
   params: VecSearchParams
 ): Promise<VecSearchResult> {
+  const started = performance.now();
   const provider = ctx.embeddingProvider;
   if (!provider) {
     return {
       results: [],
       hint: "No embedding provider configured. Set OPENAI_API_KEY or enable local embeddings to use semantic search.",
+      tookMs: Math.round(performance.now() - started),
     } as VecSearchResult & { hint: string };
   }
 
   const limit = params.limit ?? 10;
 
   // 1. Embed the query
-  const queryEmbedding = await provider.embed(params.query);
+  const queryEmbedding = await provider.embedQuery(params.query);
   const queryVec = toUnitVector(queryEmbedding, provider.dimensions);
 
-  const results = findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit).map(
+  const results = (await findVectorCandidates(ctx.db, ctx.driveId, queryVec, limit)).map(
     (candidate) => ({
       path: candidate.path,
       score: similarityFromDistance(candidate.distance),
@@ -47,5 +51,5 @@ export async function vecSearch(
     })
   );
 
-  return { results };
+  return { results, tookMs: Math.round(performance.now() - started) };
 }

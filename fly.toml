@@ -37,8 +37,11 @@ primary_region = 'ams'
     method = 'GET'
     path = '/health'
 
+# Dedicated CPU: a shared-cpu-1x machine runs out of CPU budget on a large
+# index (a vector scan reads every stored vector), and Fly then fails its
+# health checks. Every merge to main redeploys with this size.
 [[vm]]
-  size = 'shared-cpu-1x'
+  size = 'performance-1x'
   memory = '2gb'
   cpus = 1
 

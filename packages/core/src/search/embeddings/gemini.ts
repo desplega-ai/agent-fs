@@ -10,7 +10,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
     this.client = new GoogleGenAI({ apiKey });
   }
 
-  async embed(text: string): Promise<number[]> {
+  async embedQuery(text: string): Promise<number[]> {
     const result = await this.client.models.embedContent({
       model: "gemini-embedding-001",
       contents: text,
@@ -19,7 +19,7 @@ export class GeminiEmbeddingProvider implements EmbeddingProvider {
     return result.embeddings![0].values!;
   }
 
-  async embedBatch(texts: string[]): Promise<number[][]> {
+  async embedDocuments(texts: string[], _opts: { title: string }): Promise<number[][]> {
     // Gemini supports batch via multiple contents
     const results: number[][] = [];
     for (const text of texts) {
