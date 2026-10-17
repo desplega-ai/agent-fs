@@ -113,6 +113,24 @@ describe("PDF text", () => {
     ], [0, 25])).toEqual([1, 2]);
   });
 
+  test("PDF text keeps encoded payloads so page offsets still match the original text", async () => {
+    const { ctx, db, driveId } = createTestContext();
+    const path = "/encoded.pdf";
+    const firstPage = `data:image/png;base64,${"A".repeat(2100)}\n\n`;
+    const content = firstPage + "basalt lighthouse maintenance log";
+    await write(ctx, { path, content });
+    expect(await indexFileEmbeddings(db, provider, {
+      path, driveId, content, pageStarts: [0, firstPage.length],
+      version: readCurrentVersion(db, { path, driveId }) ?? null,
+    })).toBe("indexed");
+    const stored = chunks(db);
+    expect(stored.map((chunk) => chunk.content).join("")).toBe(content);
+    for (const chunk of stored) {
+      expect(content.slice(chunk.offset, chunk.offset + chunk.content.length)).toBe(chunk.content);
+    }
+    expect(stored.find((chunk) => chunk.content.includes("basalt lighthouse"))?.page).toBe(2);
+  });
+
   test("the only chunk after a blank first page maps to page 2", () => {
     const content = "\n\nbasalt lighthouse maintenance log";
     expect(chunkPages([

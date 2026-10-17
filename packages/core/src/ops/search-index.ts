@@ -37,7 +37,7 @@ export async function indexTextForSearch(
   const file = ctx.db.select({ mime: schema.files.contentType }).from(schema.files)
     .where(and(eq(schema.files.path, path), eq(schema.files.driveId, ctx.driveId))).get();
   const mime = file?.mime ?? detectMimeType(path);
-  if (!imageEligible(ctx.embeddingProvider, mime, pdfPageImages)) {
+  if (!imageEligible(ctx.embeddingProvider, mime, pdfPageImages, ctx.driveId)) {
     clearSearchData(ctx, path, "image");
   }
   indexFile(ctx.db, { path, driveId: ctx.driveId, content });
@@ -61,7 +61,7 @@ export async function indexBytesForSearch(
   const extracted = await extractIndexableText(bytes, contentType);
   if (readCurrentVersion(ctx.db, { path, driveId: ctx.driveId }) !== version) return null;
   clearSearchData(ctx, path, "image");
-  const imagePending = imageEligible(provider, contentType, pdfPageImages);
+  const imagePending = imageEligible(provider, contentType, pdfPageImages, ctx.driveId);
   if (imagePending) {
     ctx.db.update(schema.files).set({ imageEmbeddingStatus: "pending" })
       .where(and(eq(schema.files.path, path), eq(schema.files.driveId, ctx.driveId))).run();

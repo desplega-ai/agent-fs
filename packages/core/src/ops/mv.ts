@@ -49,7 +49,7 @@ export async function mv(
   const obj = await ctx.s3.getObject(toKey);
   const contentHash = createHash("sha256").update(obj.body).digest("hex");
   const contentType = head.contentType ?? obj.contentType ?? detectMimeType(to);
-  const preserveImages = imageEligible(ctx.embeddingProvider, contentType, pdfPageImages);
+  const preserveImages = imageEligible(ctx.embeddingProvider, contentType, pdfPageImages, ctx.driveId);
   const sourceFile = ctx.db.select({
     imageStatus: schema.files.imageEmbeddingStatus,
     textStatus: schema.files.embeddingStatus,

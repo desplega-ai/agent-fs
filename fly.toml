@@ -40,10 +40,11 @@ primary_region = 'ams'
 # Dedicated CPU: a shared-cpu-1x machine runs out of CPU budget on a large
 # index (a vector scan reads every stored vector), and Fly then fails its
 # health checks. Every merge to main redeploys with this size.
+# Temporary for the prod re-embed. A later PR sets performance-1x with 4 GB.
 [[vm]]
-  size = 'performance-1x'
-  memory = '2gb'
-  cpus = 1
+  size = 'performance-8x'
+  memory = '16gb'
+  cpus = 8
 
 [[statics]]
   guest_path = '/app/public'

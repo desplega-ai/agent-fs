@@ -6,7 +6,7 @@ import { write, writeRaw } from "../../ops/write.js";
 import { reindex } from "../../ops/reindex.js";
 import { stat } from "../../ops/stat.js";
 import { ftsQuery, indexFile, indexedContent } from "../fts.js";
-import { indexFileEmbeddings, readCurrentVersion } from "../pipeline.js";
+import { MAX_EMBED_CHARS, indexFileEmbeddings, readCurrentVersion } from "../pipeline.js";
 import { MAX_BYTES_KEY, prepareEmbeddingMigration, runPendingEmbeddings } from "../embedding-migration.js";
 import { runPendingImageEmbeddings } from "../image-embedding.js";
 import type { EmbeddingProvider } from "../embeddings/provider.js";
@@ -46,6 +46,71 @@ async function waitForStatus(db: DB, path: string, expected: string) {
 }
 
 describe("embedding byte cap", () => {
+  test.each(["write", "migration", "reindex"])("%s embeds stripped HTML under the cap and keeps full FTS", async (mode) => {
+    const { ctx, db, driveId, s3 } = createTestContext();
+    const path = "/infographic.html";
+    const before = `<p>${"searchable caption ".repeat(50)}</p><img src="data:image/png;base64,`;
+    const after = '"><p>terminalword</p>';
+    const payload = "Ab09+/".repeat(3500);
+    const content = before + payload + after;
+    const stripped = before + "[omitted]" + after;
+    process.env.AGENT_FS_EMBEDDING_MAX_BYTES = "2000";
+    expect(payload.length / content.length).toBeGreaterThan(0.95);
+    expect(Buffer.byteLength(content)).toBeGreaterThan(2000);
+    expect(Buffer.byteLength(stripped)).toBeLessThan(2000);
+    const calls = spyOn(provider, "embedDocuments");
+    try {
+      if (mode === "write") ctx.embeddingProvider = provider;
+      await write(ctx, { path, content });
+      if (mode === "migration") {
+        prepareEmbeddingMigration(raw(db), provider);
+        expect(await runPendingEmbeddings(db, s3, provider, options))
+          .toEqual({ indexed: 1, skipped: 0, failed: 0, superseded: 0 });
+      } else if (mode === "reindex") {
+        ctx.embeddingProvider = provider;
+        expect(await reindex(ctx, {})).toEqual({ reindexed: 1, skipped: 0, failed: 0 });
+      }
+      await waitForStatus(db, path, "indexed");
+      expect(calls).toHaveBeenCalledTimes(1);
+      expect(calls.mock.calls[0][0].join("")).toBe(stripped);
+      expect(indexedContent(db, { path, driveId })).toBe(content);
+      expect(ftsQuery(db, { pattern: "terminalword", driveId }).map((hit) => hit.path)).toEqual([path]);
+    } finally {
+      calls.mockRestore();
+    }
+  });
+
+  test("the character limit applies after stripping", async () => {
+    const { ctx, db, driveId } = createTestContext();
+    const path = "/large.html";
+    const content = `<img src="data:image/png;base64,${"A".repeat(MAX_EMBED_CHARS)}">caption`;
+    await write(ctx, { path, content });
+    const calls = spyOn(provider, "embedDocuments");
+    try {
+      expect(await embed(db, driveId, path, content)).toBe("indexed");
+      expect(calls.mock.calls[0][0]).toEqual(['<img src="data:image/png;base64,[omitted]">caption']);
+    } finally {
+      calls.mockRestore();
+    }
+  });
+
+  test("cap changes can overcount legacy FTS bytes but the pipeline applies the stripped cap", async () => {
+    const { ctx, db, s3, driveId } = createTestContext();
+    prepareEmbeddingMigration(raw(db), provider);
+    const path = "/legacy.html";
+    const content = `<img src="data:image/png;base64,${"A".repeat(2000)}">caption`;
+    await write(ctx, { path, content });
+    raw(db).prepare("UPDATE files SET embedding_status = NULL WHERE path = ?").run(path);
+    process.env.AGENT_FS_EMBEDDING_MAX_BYTES = "100";
+    expect(prepareEmbeddingMigration(raw(db), provider)).toBe(true);
+    expect(status(db, path)).toBe("pending");
+    expect(await runPendingEmbeddings(db, s3, provider, options))
+      .toEqual({ indexed: 1, skipped: 0, failed: 0, superseded: 0 });
+    expect(status(db, path)).toBe("indexed");
+    expect(indexedContent(db, { path, driveId })).toBe(content);
+    expect(prepareEmbeddingMigration(raw(db), provider)).toBe(false);
+  });
+
   test("a write keeps full FTS text, removes old text vectors and ends skipped", async () => {
     const { ctx, db, driveId } = createTestContext();
     const path = "/text.md";

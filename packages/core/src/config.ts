@@ -17,6 +17,11 @@ export function getEmbeddingMaxBytes(): number | undefined {
   return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : undefined;
 }
 
+export function getEmbeddingExcludeDrives(): string[] {
+  return [...new Set((process.env.AGENT_FS_EMBEDDING_EXCLUDE_DRIVES ?? "")
+    .split(",").map((id) => id.trim()).filter(Boolean))].sort();
+}
+
 function resolveHome(): string {
   const home = process.env.AGENT_FS_HOME ?? join(process.env.HOME ?? "/tmp", ".agent-fs");
   // Expand ~ since env vars loaded by bun/.env don't do shell expansion

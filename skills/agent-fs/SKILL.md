@@ -192,13 +192,20 @@ Lower similarities keep one vector contribution. An FTS match still adds its key
 Image indexing runs in the background, so a new image can take time to appear.
 Use `agent-fs signed-url <path> --inline` to view the file, or omit `--inline` to download it.
 On a local-filesystem backend, the URL requires an authenticated drive member.
-Set `AGENT_FS_EMBEDDING_MAX_BYTES` on the server to cap text embeddings by UTF-8 bytes.
+Set `AGENT_FS_EMBEDDING_MAX_BYTES` on the server to cap text embeddings by UTF-8 bytes after base64 stripping.
 Use a positive integer. Unset or invalid values mean no cap.
 Text over the cap keeps full-text search, loses text chunks and vectors, and reports `skipped`.
-Text over 2,000,000 characters also reports `skipped`, even without a byte cap.
-The cap measures extracted text for PDFs. Images and PDF-page embeddings stay unchanged.
+Text over 2,000,000 characters after base64 stripping also reports `skipped`, even without a byte cap.
+The cap measures extracted text for PDFs. PDF text keeps base64 to preserve page offsets. Images and PDF-page embeddings stay unchanged.
 Restart after a cap change. At boot, the daemon queues skipped files and indexed files larger than the new cap.
 When a cap is set, it also queues legacy NULL-status files whose FTS text exceeds the cap in bytes.
+These checks use original FTS bytes and can queue extra files that contain base64.
+
+Set `AGENT_FS_EMBEDDING_EXCLUDE_DRIVES` to comma-separated drive IDs to exclude their text, image and PDF-page embeddings.
+The parser trims IDs and ignores empty entries. Unset or empty values exclude no drives.
+Excluded drives keep FTS, lose vectors and report text status `skipped`. Their image status stays NULL.
+Restart after changes. The daemon queues newly excluded text files and deletes their image chunks and vectors.
+When a drive leaves the list, the daemon queues its skipped text and makes its images eligible again.
 
 Semantic results require embeddings. `vec-search` returns a hint when no provider exists, and `search` identifies keyword-only results.
 For local semantic search, set `EMBEDDING_PROVIDER=local` and `EMBEDDING_MODEL=embeddinggemma-2` to select EmbeddingGemma 2.
