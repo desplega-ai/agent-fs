@@ -198,6 +198,8 @@ Until 0.17.1 nothing retried a file whose embedding failed. Three causes are fix
 - OpenAI got a large file in one request, over its limits of 2,048 inputs and 300,000 tokens. The OpenAI provider now splits a file into several requests.
 - A transient error (rate limit, network) left the file failed for good.
 
+Chunking a large file used to block the server for seconds (a 1.4 MB CSV took over 9 s on a laptop), which can fail health checks. Text over 64 KB is now chunked in segments, with a yield to the event loop between them.
+
 On the first start of 0.17.1, every `failed` file is marked `pending` and the background job embeds it again, with the same CPU pacing as a re-embed. This happens once (and again after a provider change). The log names each file that still fails, with the provider error.
 
 ## Upgrading to 0.17.0: explicit EMBEDDING_PROVIDER wins

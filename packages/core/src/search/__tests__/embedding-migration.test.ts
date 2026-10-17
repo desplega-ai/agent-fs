@@ -418,6 +418,26 @@ describe("failed and blank files", () => {
     expect(statusOf(db, "/bad.md")).toBe("failed");
   });
 
+  test("a file that became blank loses its old chunks", async () => {
+    const { ctx, db, s3 } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    await write(ctx, { path: "/was-text.md", content: "all about cats" });
+    await waitFor(() => statusOf(db, "/was-text.md") === "indexed");
+    expect(chunkContents(db, "/was-text.md")).toEqual(["all about cats"]);
+
+    // The new version is blank, and its own embedding job never ran.
+    ctx.embeddingProvider = undefined;
+    await write(ctx, { path: "/was-text.md", content: "   " });
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+
+    const result = await runPendingEmbeddings(db, s3, PROVIDER, { cpuShare: 1 });
+
+    expect(result).toEqual({ indexed: 0, failed: 0, skipped: 1, superseded: 0 });
+    expect(statusOf(db, "/was-text.md")).toBeNull();
+    expect(chunkContents(db, "/was-text.md")).toEqual([]);
+    expect(vectorCount(db)).toBe(0);
+  });
+
   test("blank text never reaches the provider", async () => {
     const { ctx, db } = createTestContext();
     await write(ctx, { path: "/empty.txt", content: "" });

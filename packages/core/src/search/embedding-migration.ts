@@ -179,12 +179,8 @@ export async function runPendingEmbeddings(
           object.body,
           object.contentType ?? detectMimeType(row.path)
         );
-        if (content === null || content.trim() === "") {
-          if (setStatus.run(null, row.driveId, row.path, row.version).changes > 0) result.skipped++;
-          else result.superseded++;
-          continue;
-        }
-        if (content.length > MAX_EMBED_CHARS) {
+        // Nothing to embed: drop chunks of an older, text version too.
+        if (content === null || content.trim() === "" || content.length > MAX_EMBED_CHARS) {
           if (clearEmbeddings(db, row)) result.skipped++;
           else result.superseded++;
           continue;
