@@ -15,11 +15,13 @@ import {
  * Re-embeds stored files when their vectors stop matching what the running
  * server writes:
  *
- *   1. `prepareEmbeddingMigration()` (sync, at boot): when the provider or the
- *      vector format differs from the one recorded in `meta`, marks every
- *      indexed file `pending`. The `reindex` op skips indexed files, so this is
- *      the only path that refreshes them. Once per `FAILED_RETRY`, it also
- *      marks `failed` files `pending`: nothing else retries them.
+ *   1. `prepareEmbeddingMigrationWithWarmup()` (at boot): when the provider or
+ *      the vector format differs from the one recorded in `meta`, it first
+ *      embeds one query, so a provider that cannot load changes nothing. Then
+ *      `prepareEmbeddingMigration()` marks every indexed file `pending`. The
+ *      `reindex` op skips indexed files, so this is the only path that
+ *      refreshes them. Once per `FAILED_RETRY` and format, it also marks
+ *      `failed` files `pending`: nothing else retries them.
  *   2. `runPendingEmbeddings()` (async, in the background): embeds every
  *      `pending` file again. A crash leaves the rest `pending`, so the next
  *      boot resumes. It also picks up files whose on-write job never ran.
@@ -48,18 +50,33 @@ export function embeddingFormat(provider: EmbeddingProvider): string {
   return `${provider.name}:v${REVISIONS[provider.name] ?? 2}`;
 }
 
+function storedFormat(sqlite: Database): string | undefined {
+  const row = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(FORMAT_KEY) as { value: string } | null;
+  return row?.value;
+}
+
+/** Warm the provider before a format change. A failed warmup leaves the index unchanged. */
+export async function prepareEmbeddingMigrationWithWarmup(sqlite: Database, provider: EmbeddingProvider): Promise<boolean> {
+  if (storedFormat(sqlite) !== embeddingFormat(provider)) {
+    try {
+      await provider.embedQuery("warmup");
+    } catch (err) {
+      const message = String(err instanceof Error ? err.message : err).replace(/[\r\n]+/g, " ");
+      console.error(`[agent-fs] Embedding warmup failed. Migration skipped: ${message}`);
+      return false;
+    }
+  }
+  return prepareEmbeddingMigration(sqlite, provider);
+}
+
 /** Returns `true` when `runPendingEmbeddings()` has files to embed. */
 export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingProvider): boolean {
   const format = embeddingFormat(provider);
-  const stored = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(FORMAT_KEY) as
-    | { value: string }
-    | null;
-
   const setMeta = sqlite.prepare(
     "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
   );
 
-  if (stored?.value !== format) {
+  if (storedFormat(sqlite) !== format) {
     sqlite.transaction(() => {
       sqlite
         .prepare("UPDATE files SET embedding_status = 'pending' WHERE embedding_status = 'indexed' AND is_deleted = 0")

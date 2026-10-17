@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createEmbeddingProviderFromEnv } from "../embeddings/index.js";
+import { createEmbeddingProvider, createEmbeddingProviderFromEnv } from "../embeddings/index.js";
 import { OpenAIEmbeddingProvider, requestBatches } from "../embeddings/openai.js";
 import { GeminiEmbeddingProvider } from "../embeddings/gemini.js";
 import { embeddingFormat } from "../embedding-migration.js";
@@ -12,6 +12,7 @@ describe("createEmbeddingProviderFromEnv", () => {
   const envKeys = [
     "AGENT_FS_HOME",
     "EMBEDDING_PROVIDER",
+    "EMBEDDING_MODEL",
     "EMBEDDING_API_KEY",
     "OPENAI_API_KEY",
     "GEMINI_API_KEY",
@@ -28,6 +29,39 @@ describe("createEmbeddingProviderFromEnv", () => {
     for (const key of envKeys) {
       if (originalEnv[key] === undefined) delete process.env[key];
       else process.env[key] = originalEnv[key];
+    }
+  });
+
+  test.each([
+    ["", "local", "local:v3"],
+    ["nomic-embed-text-v1.5", "local", "local:v3"],
+    ["embeddinggemma-2", "embeddinggemma", "embeddinggemma:v2"],
+  ])("selects local model %s lazily", async (model, name, format) => {
+    const provider = await createEmbeddingProvider({ provider: "local", model, apiKey: "" });
+    expect(provider.name).toBe(name);
+    expect(embeddingFormat(provider)).toBe(format);
+  });
+
+  test.each([true, false])("an unknown local model logs one line with explicit provider %s", async (explicit) => {
+    if (explicit) process.env.EMBEDDING_PROVIDER = "local";
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await createEmbeddingProviderFromEnv({ provider: "local", model: "unknown", apiKey: "" })).toBeNull();
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error.mock.calls[0]).toHaveLength(1);
+      expect(error.mock.calls[0][0]).toContain("Unknown local embedding model: unknown. Use nomic-embed-text-v1.5 or embeddinggemma-2.");
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test.each(["openai", "gemini"] as const)("%s ignores the model setting", async (provider) => {
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect((await createEmbeddingProvider({ provider, model: "unknown", apiKey: "test-key" })).name).toBe(provider);
+      expect(error).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
     }
   });
 

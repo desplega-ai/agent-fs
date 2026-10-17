@@ -183,6 +183,8 @@ Search uses the active organization and drive. Check `org current` and `drive cu
 `glob`, `ls`, and `tree` read every S3 listing page. A drive with more than 1,000 objects remains searchable.
 `search` and `vec-search` select semantic candidates within the active drive and count distinct files toward the limit.
 Semantic results require embeddings. `vec-search` returns a hint when no provider exists, and `search` identifies keyword-only results.
+For local semantic search, set `EMBEDDING_PROVIDER=local` and `EMBEDDING_MODEL=embeddinggemma-2` to select EmbeddingGemma 2. An empty model setting keeps nomic as the default.
+
 `vec-search` scores are cosine similarity. With the local model, a good match scores about 0.6 or more, and an unrelated file scores about 0.3 to 0.5. Every query returns its nearest files, so read the score before you trust a result. Hybrid `search` scores are ranks, scaled to 0 to 1: 1 means first in both the keyword and the semantic list, 0.5 first in one of them. All three search ops return `tookMs`, the server time for the query. If the embedding provider returns an unusable vector, `search` and `vec-search` fail with `EMBEDDING_PROVIDER_ERROR` (HTTP 502). Check the provider configuration, then try again.
 
 `fts` accepts raw FTS5 syntax. Quote punctuation-bearing terms with FTS double quotes inside shell single quotes:

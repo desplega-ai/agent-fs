@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 import type { Database } from "bun:sqlite";
 import type { DB } from "../../db/index.js";
 import { write } from "../../ops/write.js";
@@ -9,6 +9,7 @@ import {
   embeddingFormat,
   migrationCpuShare,
   prepareEmbeddingMigration,
+  prepareEmbeddingMigrationWithWarmup,
   runPendingEmbeddings,
 } from "../embedding-migration.js";
 import { similarityFromDistance, toUnitVector } from "../vectors.js";
@@ -111,6 +112,43 @@ describe("vectors", () => {
 });
 
 describe("embedding migration", () => {
+  test.each(["failed", "unchanged", "changed"] as const)("boot gate: %s warmup", async (mode) => {
+    const { ctx, db } = createTestContext();
+    await write(ctx, { path: "/indexed.md", content: "cats" });
+    await write(ctx, { path: "/failed.md", content: "cars" });
+    const stored = mode === "unchanged" ? embeddingFormat(PROVIDER) : "old:v2";
+    raw(db).prepare("INSERT INTO meta(key, value) VALUES ('embedding_format', ?)").run(stored);
+    // An unchanged index has already spent its one failed-file retry.
+    if (mode === "unchanged") prepareEmbeddingMigration(raw(db), PROVIDER);
+    raw(db).prepare("UPDATE files SET embedding_status = 'indexed' WHERE path = '/indexed.md'").run();
+    raw(db).prepare("UPDATE files SET embedding_status = 'failed' WHERE path = '/failed.md'").run();
+    let calls = 0;
+    const provider: EmbeddingProvider = {
+      ...PROVIDER,
+      async embedQuery(text) {
+        calls++;
+        expect(text).toBe("warmup");
+        expect(statusOf(db, "/indexed.md")).toBe("indexed");
+        expect(statusOf(db, "/failed.md")).toBe("failed");
+        if (mode === "failed") throw new Error("model\nunavailable");
+        return fakeVector(text);
+      },
+    };
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await prepareEmbeddingMigrationWithWarmup(raw(db), provider)).toBe(mode === "changed");
+      expect(calls).toBe(mode === "unchanged" ? 0 : 1);
+      const format = (raw(db).prepare("SELECT value FROM meta WHERE key = 'embedding_format'").get() as { value: string }).value;
+      expect(format).toBe(mode === "changed" ? embeddingFormat(provider) : stored);
+      expect(statusOf(db, "/indexed.md")).toBe(mode === "changed" ? "pending" : "indexed");
+      expect(statusOf(db, "/failed.md")).toBe(mode === "changed" ? "pending" : "failed");
+      expect(error).toHaveBeenCalledTimes(mode === "failed" ? 1 : 0);
+      if (mode === "failed") expect(error.mock.calls[0]).toEqual(["[agent-fs] Embedding warmup failed. Migration skipped: model unavailable"]);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   test("indexFileEmbeddings passes the file basename as the document title", async () => {
     const { ctx, db, driveId } = createTestContext();
     const path = "/notes/project/cats.md";

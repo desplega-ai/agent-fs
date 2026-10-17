@@ -8,7 +8,7 @@ import {
   createEmbeddingProviderFromEnv,
   prepareFtsMigration,
   runFtsMigration,
-  prepareEmbeddingMigration,
+  prepareEmbeddingMigrationWithWarmup,
   runPendingEmbeddings,
   migrationCpuShare,
   startVectorSearchWorker,
@@ -88,12 +88,17 @@ startVectorSearchWorker(sqlite, getDbPath());
 
 // Re-embed files whose vectors predate the current provider or vector format,
 // plus any file whose on-write embedding never ran. Background, resumable.
-if (embeddingProvider && prepareEmbeddingMigration(sqlite, embeddingProvider)) {
-  runPendingEmbeddings(db, s3, embeddingProvider, {
-    log: (msg) => console.log(msg),
-    cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
-  })
-    .then((r) => console.log(`embedding migration done: ${r.indexed} embedded, ${r.failed} failed, ${r.skipped} skipped, ${r.superseded} superseded`))
+if (embeddingProvider) {
+  const provider = embeddingProvider;
+  prepareEmbeddingMigrationWithWarmup(sqlite, provider)
+    .then(async (pending) => {
+      if (!pending) return;
+      const r = await runPendingEmbeddings(db, s3, provider, {
+        log: (msg) => console.log(msg),
+        cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
+      });
+      console.log(`embedding migration done: ${r.indexed} embedded, ${r.failed} failed, ${r.skipped} skipped, ${r.superseded} superseded`);
+    })
     .catch((err) => {
       console.error("embedding migration failed (will resume on next start):", err);
     });
