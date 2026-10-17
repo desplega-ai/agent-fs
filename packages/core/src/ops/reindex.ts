@@ -5,7 +5,7 @@ import { getS3Key } from "./versioning.js";
 import { indexFileEmbeddings, readCurrentVersion } from "../search/pipeline.js";
 import { indexFile } from "../search/fts.js";
 import { clearSearchData } from "./search-index.js";
-import { decodeIndexableText, detectMimeType } from "./mime.js";
+import { extractIndexableText, detectMimeType } from "./mime.js";
 import { normalizePrefix } from "./paths.js";
 
 export interface ReindexParams {
@@ -63,21 +63,25 @@ export async function reindex(
           return "skipped" as const;
         }
         const contentType = result.contentType ?? detectMimeType(file.path);
-        const content = decodeIndexableText(result.body, contentType);
-        if (content === null) {
+        const extracted = await extractIndexableText(result.body, contentType);
+        if (readCurrentVersion(ctx.db, { path: file.path, driveId: ctx.driveId }) !== version) {
+          return "skipped" as const;
+        }
+        if (extracted === null) {
           clearSearchData(ctx, file.path);
           return "skipped" as const;
         }
 
         // Re-index FTS5
-        indexFile(ctx.db, { path: file.path, driveId: ctx.driveId, content });
+        indexFile(ctx.db, { path: file.path, driveId: ctx.driveId, content: extracted.text });
 
         // Re-index embeddings if provider available
         if (ctx.embeddingProvider) {
           const replaced = await indexFileEmbeddings(ctx.db, ctx.embeddingProvider, {
             path: file.path,
             driveId: ctx.driveId,
-            content,
+            content: extracted.text,
+            pageStarts: extracted.pageStarts,
             version,
           });
           return replaced ? ("reindexed" as const) : ("skipped" as const);

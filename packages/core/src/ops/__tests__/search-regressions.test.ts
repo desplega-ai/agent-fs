@@ -66,6 +66,7 @@ function addChunk(
     driveId: string;
     distance: number;
     chunkIndex?: number;
+    page?: number;
   }
 ): void {
   const chunk = db
@@ -77,6 +78,7 @@ function addChunk(
       content: `${params.path} at ${params.distance}`,
       charOffset: params.chunkIndex ?? 0,
       tokenCount: 1,
+      page: params.page,
     })
     .returning({ id: schema.contentChunks.id })
     .get();
@@ -154,6 +156,25 @@ describe("scoped vector search", () => {
     expect(hybrid.results[1].score).toBeCloseTo(61 / 124, 10);
     expect(hybrid.tookMs).toBeGreaterThanOrEqual(0);
     expect(semantic.tookMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("keeps the best vector page when FTS replaces the PDF snippet", async () => {
+    const { ctx, db, driveId, userId } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    addFile(db, { path: "/report.pdf", driveId, author: userId });
+    addChunk(db, { path: "/report.pdf", driveId, distance: 0.2, page: 1 });
+    addChunk(db, { path: "/report.pdf", driveId, distance: 0.1, page: 2, chunkIndex: 1 });
+    indexFile(db, { path: "/report.pdf", driveId, content: "basalt lighthouse maintenance log" });
+    indexFile(db, { path: "/keyword-only.pdf", driveId, content: "basalt" });
+
+    const semantic = await vecSearch(ctx, { query: "basalt" });
+    expect(semantic.results[0].page).toBe(2);
+    expect(semantic.results[0].snippet).toContain("at 0.1");
+    const hybrid = await search(ctx, { query: "basalt" });
+    expect(hybrid.results[0].path).toBe("/report.pdf");
+    expect(hybrid.results[0].page).toBe(2);
+    expect(hybrid.results[0].snippet).toContain("lighthouse");
+    expect(hybrid.results.find((item) => item.path === "/keyword-only.pdf")?.page).toBeUndefined();
   });
 
   test("stops after an empty round when the drive has few eligible files", async () => {

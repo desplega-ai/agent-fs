@@ -1,3 +1,5 @@
+import { extractPdfText } from "../search/pdf.js";
+
 const MIME_MAP: Record<string, string> = {
   // Images
   png: "image/png",
@@ -129,4 +131,15 @@ function looksLikeTextBytes(bytes: Uint8Array): boolean {
   }
 
   return suspicious / bytes.length < 0.01;
+}
+
+export async function extractIndexableText(
+  bytes: Uint8Array,
+  contentType: string
+): Promise<{ text: string; pageStarts?: number[] } | null> {
+  if (contentType.split(";")[0]?.trim().toLowerCase() === "application/pdf") {
+    return extractPdfText(bytes);
+  }
+  const text = decodeIndexableText(bytes, contentType);
+  return text === null ? null : { text };
 }

@@ -9,6 +9,9 @@ import {
   createStorageAdapter,
   isLocalStorageConfig,
   createEmbeddingProviderFromEnv,
+  loadTransformers,
+  NOMIC_MODEL,
+  EMBEDDINGGEMMA_MODEL,
 } from "@/core";
 
 export function configCommands() {
@@ -161,10 +164,19 @@ export function configCommands() {
           });
         }
       } else {
+        const model = config.embedding.model || NOMIC_MODEL;
+        const transformers = await loadTransformers();
+        const loads = "module" in transformers;
+        // Only EmbeddingGemma 2 needs transformers, so only it gets the install hint.
+        const hint = !loads && model === EMBEDDINGGEMMA_MODEL && transformers.hint ? `. ${transformers.hint}` : "";
+        const status = loads ? "transformers 4.3.1 loads locally" : `transformers 4.3.1 unavailable: ${transformers.reason}${hint}`;
+        const known = model === NOMIC_MODEL || model === EMBEDDINGGEMMA_MODEL;
         results.push({
           name: "Embeddings",
-          ok: true,
-          message: "local/disabled (semantic search may be unavailable)",
+          ok: model === NOMIC_MODEL || (model === EMBEDDINGGEMMA_MODEL && loads),
+          message: known
+            ? `configured local model: ${model}. ${status}`
+            : `unknown local model: ${model}. Use ${NOMIC_MODEL} or ${EMBEDDINGGEMMA_MODEL}`,
         });
       }
 

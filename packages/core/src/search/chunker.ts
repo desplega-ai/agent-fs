@@ -4,6 +4,14 @@ export interface Chunk {
   tokenCount: number;
 }
 
+/**
+ * Chunking is synchronous CPU work: 2 MB of text in one call kept the event
+ * loop busy for about 3 s, long enough to fail health checks. Longer text is
+ * cut at line breaks into segments of about this size, chunked one at a time
+ * with a yield to the event loop in between. Shorter text is one segment.
+ */
+const SEGMENT_CHARS = 64 * 1024;
+
 export async function chunkContent(content: string): Promise<Chunk[]> {
   if (content.length === 0) return [];
 
@@ -13,16 +21,45 @@ export async function chunkContent(content: string): Promise<Chunk[]> {
       chunkSize: 900,
     });
 
-    const chunks = await chunker.chunk(content);
-    return chunks.map((c: any) => ({
-      content: c.text,
-      charOffset: c.startIndex ?? 0,
-      tokenCount: c.tokenCount ?? Math.ceil(c.text.length / 4),
-    }));
+    const result: Chunk[] = [];
+    for (const [start, end] of segments(content, SEGMENT_CHARS)) {
+      if (start > 0) await new Promise((resolve) => setImmediate(resolve));
+      const chunks = await chunker.chunk(content.slice(start, end));
+      for (const c of chunks as any[]) {
+        result.push({
+          content: c.text,
+          charOffset: start + (c.startIndex ?? 0),
+          tokenCount: c.tokenCount ?? Math.ceil(c.text.length / 4),
+        });
+      }
+    }
+    return result;
   } catch {
     // Fallback: simple paragraph-based splitting
     return fallbackChunk(content);
   }
+}
+
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+/** `[start, end)` ranges of about `size` characters, cut after a line break when one is near. */
+export function segments(content: string, size: number): [number, number][] {
+  const ranges: [number, number][] = [];
+  let start = 0;
+  while (start < content.length) {
+    let end = Math.min(start + size, content.length);
+    if (end < content.length) {
+      const lineBreak = content.lastIndexOf("\n", end - 1);
+      if (lineBreak >= start + size / 2) end = lineBreak + 1;
+      // Never split a surrogate pair (an emoji, for example).
+      else if (isHighSurrogate(content.charCodeAt(end - 1))) end -= 1;
+    }
+    ranges.push([start, end]);
+    start = end;
+  }
+  return ranges;
 }
 
 function fallbackChunk(content: string): Chunk[] {

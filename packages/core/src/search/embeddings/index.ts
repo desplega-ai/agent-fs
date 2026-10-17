@@ -1,6 +1,9 @@
 import type { EmbeddingProvider } from "./provider.js";
 import type { AgentFSConfig } from "../../config.js";
 
+export const NOMIC_MODEL = "nomic-embed-text-v1.5";
+export const EMBEDDINGGEMMA_MODEL = "embeddinggemma-2";
+
 export type { EmbeddingProvider } from "./provider.js";
 
 export async function createEmbeddingProvider(
@@ -8,6 +11,13 @@ export async function createEmbeddingProvider(
 ): Promise<EmbeddingProvider> {
   switch (config.provider) {
     case "local": {
+      if (config.model === EMBEDDINGGEMMA_MODEL) {
+        const { EmbeddingGemmaProvider } = await import("./embeddinggemma.js");
+        return new EmbeddingGemmaProvider();
+      }
+      if (config.model && config.model !== NOMIC_MODEL) {
+        throw new Error(`Unknown local embedding model: ${config.model}. Use nomic-embed-text-v1.5 or embeddinggemma-2.`);
+      }
       const { LocalEmbeddingProvider } = await import("./local.js");
       return new LocalEmbeddingProvider();
     }
@@ -90,7 +100,7 @@ export async function createEmbeddingProviderFromEnv(
     try {
       return await createEmbeddingProvider(config);
     } catch (e) {
-      console.error("[agent-fs] Failed to load local embedding provider:", e);
+      console.error(`[agent-fs] Failed to load local embedding provider: ${e instanceof Error ? e.message : e}`);
     }
   }
 

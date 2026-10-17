@@ -3,7 +3,7 @@ import type { DB } from "../db/index.js";
 import type { StorageAdapter } from "../storage/adapter.js";
 import type { EmbeddingProvider } from "./embeddings/provider.js";
 import { getS3Key } from "../ops/versioning.js";
-import { decodeIndexableText, detectMimeType } from "../ops/mime.js";
+import { extractIndexableText, detectMimeType } from "../ops/mime.js";
 import {
   MAX_EMBED_CHARS,
   clearEmbeddings,
@@ -15,10 +15,14 @@ import {
  * Re-embeds stored files when their vectors stop matching what the running
  * server writes:
  *
- *   1. `prepareEmbeddingMigration()` (sync, at boot): when the provider or the
- *      vector format differs from the one recorded in `meta`, marks every
- *      indexed file `pending`. The `reindex` op skips indexed files, so this is
- *      the only path that refreshes them.
+ *   1. `prepareEmbeddingMigrationWithWarmup()` (at boot): when the provider or
+ *      the vector format differs from the one recorded in `meta`, it first
+ *      embeds one query, so a provider that cannot load changes nothing. Then
+ *      `prepareEmbeddingMigration()` marks every indexed file `pending`. The
+ *      `reindex` op skips indexed files, so this is the only path that
+ *      refreshes them. Once per `FAILED_RETRY` and format, it also marks
+ *      `failed` files `pending`: nothing else retries them.
+ *      It also marks NULL-status PDFs pending for a one-time text backfill.
  *   2. `runPendingEmbeddings()` (async, in the background): embeds every
  *      `pending` file again. A crash leaves the rest `pending`, so the next
  *      boot resumes. It also picks up files whose on-write job never ran.
@@ -35,29 +39,75 @@ const FORMAT_KEY = "embedding_format";
  */
 const REVISIONS: Record<string, number> = { local: 3 };
 
+const FAILED_RETRY_KEY = "embedding_failed_retry";
+
+/**
+ * Bump to retry every `failed` file once more on the next boot, after a fix
+ * to the embedding path. 1: empty text, and OpenAI requests over its limits.
+ */
+const FAILED_RETRY = 1;
+
 export function embeddingFormat(provider: EmbeddingProvider): string {
   return `${provider.name}:v${REVISIONS[provider.name] ?? 2}`;
+}
+
+function storedFormat(sqlite: Database): string | undefined {
+  const row = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(FORMAT_KEY) as { value: string } | null;
+  return row?.value;
+}
+
+/** Warm the provider before a format change. A failed warmup leaves the index unchanged. */
+export async function prepareEmbeddingMigrationWithWarmup(sqlite: Database, provider: EmbeddingProvider): Promise<boolean> {
+  if (storedFormat(sqlite) !== embeddingFormat(provider)) {
+    try {
+      await provider.embedQuery("warmup");
+    } catch (err) {
+      const message = String(err instanceof Error ? err.message : err).replace(/[\r\n]+/g, " ");
+      console.error(`[agent-fs] Embedding warmup failed. Migration skipped: ${message}`);
+      return false;
+    }
+  }
+  return prepareEmbeddingMigration(sqlite, provider);
 }
 
 /** Returns `true` when `runPendingEmbeddings()` has files to embed. */
 export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingProvider): boolean {
   const format = embeddingFormat(provider);
-  const stored = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(FORMAT_KEY) as
-    | { value: string }
-    | null;
+  const setMeta = sqlite.prepare(
+    "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  );
 
-  if (stored?.value !== format) {
+  if (storedFormat(sqlite) !== format) {
     sqlite.transaction(() => {
       sqlite
         .prepare("UPDATE files SET embedding_status = 'pending' WHERE embedding_status = 'indexed' AND is_deleted = 0")
         .run();
-      sqlite
-        .prepare(
-          "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-        )
-        .run(FORMAT_KEY, format);
+      setMeta.run(FORMAT_KEY, format);
     })();
   }
+
+  // Keyed by format too: a new provider gets its own try at old failures.
+  const retry = `${format}#${FAILED_RETRY}`;
+  const retried = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(FAILED_RETRY_KEY) as
+    | { value: string }
+    | null;
+  if (retried?.value !== retry) {
+    sqlite.transaction(() => {
+      sqlite
+        .prepare("UPDATE files SET embedding_status = 'pending' WHERE embedding_status = 'failed' AND is_deleted = 0")
+        .run();
+      setMeta.run(FAILED_RETRY_KEY, retry);
+    })();
+  }
+
+  // A processed PDF always ends indexed or failed, so IS NULL selects only PDFs that still need the backfill.
+  // See indexFileEmbeddings.pageStarts for the terminal PDF status rule.
+  sqlite
+    .prepare(
+      "UPDATE files SET embedding_status = 'pending' " +
+        "WHERE embedding_status IS NULL AND is_deleted = 0 AND content_type = 'application/pdf'"
+    )
+    .run();
 
   return !!sqlite
     .prepare("SELECT 1 FROM files WHERE embedding_status = 'pending' AND is_deleted = 0 LIMIT 1")
@@ -67,7 +117,7 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
 export interface PendingEmbeddingsResult {
   indexed: number;
   failed: number;
-  /** Files with no indexable text, or text over `MAX_EMBED_CHARS`; their status is cleared. */
+  /** Files with no indexable or only blank text, or text over `MAX_EMBED_CHARS`; their status is cleared. */
   skipped: number;
   /** Files written again during the run; the write's own job embeds them. */
   superseded: number;
@@ -152,16 +202,16 @@ export async function runPendingEmbeddings(
       const cpuStart = cpuMs();
       try {
         const object = await s3.getObject(getS3Key(row.orgId, row.driveId, row.path));
-        const content = decodeIndexableText(
+        const extracted = await extractIndexableText(
           object.body,
           object.contentType ?? detectMimeType(row.path)
         );
-        if (content === null) {
-          if (setStatus.run(null, row.driveId, row.path, row.version).changes > 0) result.skipped++;
-          else result.superseded++;
-          continue;
-        }
-        if (content.length > MAX_EMBED_CHARS) {
+        // Nothing to embed: drop chunks of an older, text version too.
+        if (
+          extracted === null ||
+          (extracted.pageStarts === undefined && extracted.text.trim() === "") ||
+          extracted.text.length > MAX_EMBED_CHARS
+        ) {
           if (clearEmbeddings(db, row)) result.skipped++;
           else result.superseded++;
           continue;
@@ -170,16 +220,19 @@ export async function runPendingEmbeddings(
           indexFileEmbeddings(db, provider, {
             path: row.path,
             driveId: row.driveId,
-            content,
+            content: extracted.text,
+            pageStarts: extracted.pageStarts,
+            refreshFts: extracted.pageStarts !== undefined,
             version: row.version,
           })
         );
         if (replaced) result.indexed++;
         else result.superseded++;
-      } catch {
+      } catch (err) {
         // indexFileEmbeddings marks its own failures; this covers the read.
         setStatus.run("failed", row.driveId, row.path, row.version);
         result.failed++;
+        log(`embedding failed for ${row.path}: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         // CPU used / pause = share / (1 - share). Requests run during the pause.
         const pauseMs = pauseForCpuShare(cpuMs() - cpuStart, cpuShare);

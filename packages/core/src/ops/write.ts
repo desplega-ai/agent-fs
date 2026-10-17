@@ -33,8 +33,7 @@ export async function write(
 /**
  * Internal binary write path used by `PUT /raw` and the FUSE mount. Accepts
  * up to AGENT_FS_MAX_UPLOAD_BYTES (default 50 MiB), unlike the JSON 10 MiB cap. Bytes
- * are stored unchanged; search indexing runs only when the payload is valid,
- * indexable UTF-8 text.
+ * are stored unchanged. Search indexes UTF-8 text and extracted PDF text.
  *
  * RBAC: callers reach this directly (not via `dispatchOp`), so the
  * editor-or-better requirement that `dispatchOp` enforces for the JSON
@@ -125,7 +124,7 @@ async function writeInternal(
   if (params.indexableText !== undefined) {
     indexTextForSearch(ctx, path, params.indexableText);
   } else {
-    indexBytesForSearch(ctx, path, bytes, contentType);
+    await indexBytesForSearch(ctx, path, bytes, contentType);
   }
 
   return withLinkWarnings(ctx, params, { version, path, size, contentHash, deduped: false });

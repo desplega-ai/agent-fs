@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs",
-  "version": "0.17.1",
+  "version": "0.17.3",
   "type": "module",
   "description": "Agent-first filesystem backed by S3",
   "license": "MIT",
@@ -26,7 +26,7 @@
     "README.md"
   ],
   "scripts": {
-    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external chonkie --external zod --external @modelcontextprotocol/sdk --external hono --external msgpackr --external @duckdb/node-api",
+    "build:npm": "bun build src/index.ts --outfile dist/cli.js --target bun --minify --external sqlite-vec --external node-llama-cpp --external @aws-sdk/client-s3 --external @google/genai --external openai --external commander --external diff --external drizzle-orm --external chonkie --external zod --external @modelcontextprotocol/sdk --external hono --external msgpackr --external @duckdb/node-api --external @huggingface/transformers --external unpdf",
     "prepublishOnly": "bun run build:npm"
   },
   "optionalDependencies": {
@@ -35,8 +35,8 @@
     "sqlite-vec-linux-arm64": "^0.1.9",
     "sqlite-vec-linux-x64": "^0.1.9",
     "sqlite-vec-windows-x64": "^0.1.9",
-    "@desplega.ai/agent-fs-fuse-linux-x64": "^0.17.1",
-    "@desplega.ai/agent-fs-fuse-linux-arm64": "^0.17.1"
+    "@desplega.ai/agent-fs-fuse-linux-x64": "^0.17.3",
+    "@desplega.ai/agent-fs-fuse-linux-arm64": "^0.17.3"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.750.0",
@@ -52,6 +52,7 @@
     "node-llama-cpp": "^3.17.1",
     "openai": "^6.29.0",
     "sqlite-vec": "^0.1.9",
+    "unpdf": "1.9.0",
     "zod": "^3.24.0"
   }
 }

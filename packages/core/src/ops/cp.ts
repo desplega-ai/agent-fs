@@ -53,7 +53,7 @@ export async function cp(
     contentHash,
   });
 
-  indexBytesForSearch(ctx, to, obj.body, contentType);
+  await indexBytesForSearch(ctx, to, obj.body, contentType);
 
   return { from, to, version };
 }

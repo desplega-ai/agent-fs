@@ -183,6 +183,12 @@ Only the `local` provider is affected. Before 0.16.6 it embedded in batches of 5
 
 On the first start, the daemon re-embeds every file once more, in the background, the same way as in 0.16.5. If the 0.16.5 run has not finished yet, the two runs merge: files still `pending` are embedded once, with the fixed batch. `openai` and `gemini` keep their vectors, and nothing runs for them.
 
+## Upgrading to 0.17.3: PDF text is searchable
+
+PDF text is searchable with every embedding provider. At boot, the daemon indexes existing PDFs once in the paced background migration.
+With OpenAI or Gemini, this sends extracted PDF text to the provider.
+Without an embedding provider, run `agent-fs reindex` in each drive to populate full-text search.
+
 ## Vector search cost
 
 `vec-search` and the semantic half of `search` compare the query with every stored chunk vector, in one scan per search. The cost grows with the total chunk count across all drives: on a dedicated CPU, 150k chunks take about 400 ms per scan.
@@ -190,6 +196,31 @@ On the first start, the daemon re-embeds every file once more, in the background
 The scan runs on a worker thread with its own read-only connection, so a slow search never stalls other requests or `/health`. Right after start, the worker scans once to load the vectors into the OS page cache. On a large index that takes a while (about 25 s for 470 MB of vectors on a Fly volume), and searches sent meanwhile wait for it.
 
 0.16.7 had an opt-in `AGENT_FS_VECTOR_INDEX=int8` index. It was slower than the exact scan on a real disk, so 0.16.8 removes it and drops its table on start.
+
+## Using EmbeddingGemma 2 (0.17.2)
+
+Set `EMBEDDING_PROVIDER=local` and `EMBEDDING_MODEL=embeddinggemma-2`.
+An empty model setting keeps `nomic-embed-text-v1.5` as the local default.
+
+- First use downloads 330 MB into `$AGENT_FS_HOME/models`.
+- Text inference uses about 0.5 GB RSS at rest and about 1.1 GB at peak on the measured Mac.
+- A model switch re-embeds every indexed file and retries every failed file. `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` controls the pace. Search quality drops until the migration finishes.
+- For macOS global installs, run `bun add -g @desplega.ai/agent-fs`, then `bun add -g @huggingface/transformers@4.3.1`. The Docker image includes transformers.
+- `npm i -g` installs do not support EmbeddingGemma 2. The CLI resolves chonkie's transformers 3.8.1 first.
+- Linux global installs are not supported. Chonkie's ONNX runtime and the model's cannot share one Linux process, so Linux uses the Docker image.
+- After the first download, the model loads from `$AGENT_FS_HOME/models` without network access.
+- Intel Macs lack an `onnxruntime-node` darwin x64 binary. Alpine/musl is also unsupported.
+
+## Upgrading to 0.17.1: failed embeddings retried once
+
+Until 0.17.1 nothing retried a file whose embedding failed. Three causes are fixed:
+- Blank text sent an empty request, which providers reject. Blank files are now skipped, like binary files.
+- OpenAI got a large file in one request, over its limits of 2,048 inputs and 300,000 tokens. The OpenAI provider now splits a file into several requests.
+- A transient error (rate limit, network) left the file failed for good.
+
+Chunking a large file used to block the server for seconds (a 1.4 MB CSV took over 9 s on a laptop), which can fail health checks. Text over 64 KB is now chunked in segments, with a yield to the event loop between them.
+
+On the first start of 0.17.1, every `failed` file is marked `pending` and the background job embeds it again, with the same CPU pacing as a re-embed. This happens once (and again after a provider change). The log names each file that still fails, with the provider error.
 
 ## Upgrading to 0.17.0: explicit EMBEDDING_PROVIDER wins
 
@@ -217,7 +248,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `SERVER_PORT` | `server.port` | `7433` | |
 | `SERVER_HOST` | `server.host` | `127.0.0.1` | Set to `0.0.0.0` in containers |
 | `EMBEDDING_PROVIDER` | `embedding.provider` | `local` | `local`, `openai`, or `gemini`. A non-empty value takes priority over API key variables. |
-| `EMBEDDING_MODEL` | `embedding.model` | — | Model name for the chosen provider |
+| `EMBEDDING_MODEL` | `embedding.model` | (empty) | Selects the local model: `nomic-embed-text-v1.5` or `embeddinggemma-2`. OpenAI and Gemini ignore it. |
 | `EMBEDDING_API_KEY` | `embedding.apiKey` | _(unset)_ | API key for `openai` or `gemini`. An explicit provider uses this key before its own API key variable. |
 | `OPENAI_API_KEY` | _(env only)_ | _(unset)_ | Selects OpenAI when `EMBEDDING_PROVIDER` is absent. Supplies the key for explicit OpenAI when `embedding.apiKey` is empty. |
 | `GEMINI_API_KEY` | _(env only)_ | _(unset)_ | Selects Gemini when the explicit provider and `OPENAI_API_KEY` are absent. Supplies the key for explicit Gemini when `embedding.apiKey` is empty. |

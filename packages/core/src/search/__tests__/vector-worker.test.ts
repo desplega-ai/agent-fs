@@ -7,6 +7,11 @@ import { createDatabase, schema, type DB } from "../../db/index.js";
 import { createUser } from "../../identity/users.js";
 import { listUserOrgs } from "../../identity/orgs.js";
 import { listDrives } from "../../identity/drives.js";
+import { MockS3Client } from "../../test-utils.js";
+import { search } from "../../ops/search.js";
+import { vecSearch } from "../../ops/vec-search.js";
+import type { OpContext } from "../../ops/types.js";
+import { indexFile } from "../fts.js";
 import { findVectorCandidates } from "../vector-candidates.js";
 import { startVectorSearchWorker, stopVectorSearchWorker } from "../vector-worker.js";
 
@@ -26,7 +31,8 @@ function setup(files: number) {
   const path = join(dir, "agent-fs.db");
   const db = createDatabase(path);
   const { user } = createUser(db, { email: "worker@test.local" });
-  const driveId = listDrives(db, listUserOrgs(db, user.id)[0].id)[0].id;
+  const orgId = listUserOrgs(db, user.id)[0].id;
+  const driveId = listDrives(db, orgId)[0].id;
   const now = new Date();
   for (let f = 0; f < files; f++) {
     db.insert(schema.files)
@@ -46,7 +52,7 @@ function setup(files: number) {
   }
   const query = new Float32Array(768);
   query[0] = 1;
-  return { db, path, driveId, query };
+  return { db, path, driveId, query, orgId, userId: user.id };
 }
 
 /** Makes the main connection refuse KNN queries, so only the worker can answer them. */
@@ -71,6 +77,35 @@ describe("vector search worker", () => {
 
     expect(viaWorker.map((c) => c.path)).toEqual(["/f0.md", "/f1.md", "/f2.md", "/f3.md", "/f4.md"]);
     expect(viaWorker).toEqual(inline);
+  });
+
+  test("search and vec-search carry the PDF page through the worker", async () => {
+    const { db, path, driveId, query, orgId, userId } = setup(1);
+    raw(db).prepare("UPDATE files SET path = '/report.pdf', content_type = 'application/pdf'").run();
+    raw(db).prepare("UPDATE content_chunks SET file_path = '/report.pdf', page = 3 - chunk_index").run();
+    indexFile(db, { path: "/report.pdf", driveId, content: "basalt lighthouse maintenance log" });
+    const ctx: OpContext = {
+      db, driveId, orgId, userId, s3: new MockS3Client(),
+      embeddingProvider: {
+        name: "test", dimensions: 768,
+        async embedQuery() { return Array.from(query); },
+        async embedDocuments(texts) { return texts.map(() => Array.from(query)); },
+      },
+    };
+    const inline = await findVectorCandidates(db, driveId, query, 1);
+    startVectorSearchWorker(raw(db), path, { log: () => {} });
+    forbidInlineKnn(db);
+    try {
+      expect(await findVectorCandidates(db, driveId, query, 1)).toEqual(inline);
+      const semantic = await vecSearch(ctx, { query: "basalt" });
+      expect(semantic.results[0].path).toBe("/report.pdf");
+      expect(semantic.results[0].page).toBe(3);
+      const hybrid = await search(ctx, { query: "basalt" });
+      expect(hybrid.results[0].page).toBe(3);
+      expect(hybrid.results[0].snippet).toContain("lighthouse");
+    } finally {
+      stopVectorSearchWorker(raw(db));
+    }
   });
 
   test("sees rows committed after it opened", async () => {

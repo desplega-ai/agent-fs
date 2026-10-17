@@ -12,6 +12,7 @@ export interface SearchResultItem {
   path: string;
   score: number;
   snippet: string;
+  page?: number;
   author?: string;
   modifiedAt?: Date;
 }
@@ -55,7 +56,7 @@ export async function search(
   const K = 60;
   const merged = new Map<
     string,
-    { score: number; snippet: string; author?: string; modifiedAt?: Date }
+    { score: number; snippet: string; page?: number; author?: string; modifiedAt?: Date }
   >();
 
   // Score vector results by rank position
@@ -69,6 +70,7 @@ export async function search(
       merged.set(item.path, {
         score: rrfScore,
         snippet: item.snippet,
+        page: item.page,
         author: item.author,
         modifiedAt: item.modifiedAt,
       });
@@ -105,6 +107,7 @@ export async function search(
       path,
       score: data.score / maxScore,
       snippet: data.snippet,
+      page: data.page,
       author: data.author,
       modifiedAt: data.modifiedAt,
     }));
@@ -127,6 +130,7 @@ function elapsedMs(started: number): number {
 interface RankedItem {
   path: string;
   snippet: string;
+  page?: number;
   author?: string;
   modifiedAt?: Date;
 }
@@ -144,6 +148,7 @@ async function vectorSearch(
     (candidate) => ({
       path: candidate.path,
       snippet: candidate.snippet,
+      page: candidate.page,
       author: candidate.author,
       modifiedAt: candidate.modifiedAt,
     })

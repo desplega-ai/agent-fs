@@ -1,6 +1,6 @@
 {
   "name": "agent-fs",
-  "version": "0.17.1",
+  "version": "0.17.3",
   "packageManager": "bun@1.4.1",
   "private": true,
   "workspaces": [
@@ -14,6 +14,9 @@
     "install-local": "bun run build && cd packages/cli && bun link",
     "uninstall-local": "bun remove -g @desplega.ai/agent-fs && rm -f ~/.bun/bin/agent-fs",
     "deploy:fly": "fly deploy -a agent-fs-taras"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.1"
   },
   "devDependencies": {
     "@duckdb/node-api": "1.5.3-r.3",
@@ -31,6 +34,7 @@
     "web-tree-sitter": "npm:empty-npm-package@1.0.0",
     "cohere-ai": "npm:empty-npm-package@1.0.0",
     "voyageai": "npm:empty-npm-package@1.0.0",
-    "ollama": "npm:empty-npm-package@1.0.0"
+    "ollama": "npm:empty-npm-package@1.0.0",
+    "@huggingface/transformers": "4.3.1"
   }
 }

@@ -19,7 +19,10 @@ export class LocalEmbeddingProvider implements EmbeddingProvider {
     if (this.embeddingContext) return;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = this._doInit();
+    this.initPromise = this._doInit().catch((err) => {
+      this.initPromise = null;
+      throw err;
+    });
     return this.initPromise;
   }
 

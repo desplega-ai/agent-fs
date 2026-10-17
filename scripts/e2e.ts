@@ -9,8 +9,8 @@
  *   bun run scripts/e2e.ts "agent-fs"
  */
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync, rmSync, readFileSync, mkdtempSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, writeFileSync, rmSync, readFileSync, mkdtempSync, readdirSync, symlinkSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { Database } from "bun:sqlite";
@@ -24,11 +24,22 @@ import { Database } from "bun:sqlite";
 process.env.ANONYMIZED_TELEMETRY = "false";
 
 const rawArgs = process.argv.slice(2);
-const positional = rawArgs.filter((a) => !a.startsWith("--"));
+const localModelIndex = rawArgs.indexOf("--local-model");
+const modelsDirIndex = rawArgs.indexOf("--models-dir");
+const localModel = localModelIndex < 0 ? undefined : rawArgs[localModelIndex + 1];
+const modelsDir = modelsDirIndex < 0 ? undefined : rawArgs[modelsDirIndex + 1];
+if ((localModelIndex >= 0 && (!localModel || localModel.startsWith("--"))) ||
+    (modelsDirIndex >= 0 && (!modelsDir || modelsDir.startsWith("--"))) ||
+    (!!localModel !== !!modelsDir)) {
+  console.error("Supply both --local-model <id> and --models-dir <dir>.");
+  process.exit(1);
+}
+const positional = rawArgs.filter((a, i) => !a.startsWith("--") &&
+  !(localModelIndex >= 0 && i === localModelIndex + 1) && !(modelsDirIndex >= 0 && i === modelsDirIndex + 1));
 const flags = new Set(rawArgs.filter((a) => a.startsWith("--")));
 const cmd = positional[0];
 if (!cmd) {
-  console.error("Usage: bun run scripts/e2e.ts <cli-command> [--fuse-only] [--local-only]");
+  console.error("Usage: bun run scripts/e2e.ts <cli-command> [--fuse-only] [--local-only] [--local-model <id> --models-dir <dir>]");
   console.error('  e.g. bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"');
   process.exit(1);
 }
@@ -95,12 +106,10 @@ const testEnv = (): NodeJS.ProcessEnv => {
   const base = {
     ...process.env,
     AGENT_FS_HOME: testDir,
-    // Force the credential-free/no-embedding path. The local provider lazily
-    // downloads a ~329MB model on first reindex, which is not part of these
-    // CLI/API/MCP tests; vec/hybrid search already assert graceful degradation.
-    EMBEDDING_PROVIDER: "openai",
+    // Enable local embeddings only when a model is explicitly selected.
+    EMBEDDING_PROVIDER: localModel ? "local" : "openai",
     EMBEDDING_API_KEY: "",
-    EMBEDDING_MODEL: "",
+    EMBEDDING_MODEL: localModel ?? "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",
     // Clear AWS_* vars (they take precedence over S3_* in applyEnvOverrides).
@@ -267,9 +276,9 @@ function localEnv(
     AGENT_FS_STORAGE_PROVIDER: "local",
     AGENT_FS_LOCAL_ROOT: storageRoot,
     AGENT_FS_APP_URL: appUrl,
-    EMBEDDING_PROVIDER: "openai",
+    EMBEDDING_PROVIDER: localModel ? "local" : "openai",
     EMBEDDING_API_KEY: "",
-    EMBEDDING_MODEL: "",
+    EMBEDDING_MODEL: localModel ?? "",
     OPENAI_API_KEY: "",
     GEMINI_API_KEY: "",
     S3_ENDPOINT: "",
@@ -308,6 +317,7 @@ async function setupLocalBackend(opts: {
   const home = join(tmpdir(), `${containerName}-${opts.label}`);
   const storageRoot = join(home, "storage");
   mkdirSync(storageRoot, { recursive: true });
+  if (modelsDir) symlinkSync(resolve(modelsDir), join(home, "models"));
 
   const port = await findFreePort();
   const appUrl = `http://127.0.0.1:${port}`;
@@ -531,6 +541,7 @@ const mcpHeaders = (key: string) => ({
 async function setup() {
   // Create temp AGENT_FS_HOME
   mkdirSync(testDir, { recursive: true });
+  if (modelsDir) symlinkSync(resolve(modelsDir), join(testDir, "models"));
 
   if (localOnly) {
     mkdirSync(primaryStorageRoot, { recursive: true });
@@ -1421,6 +1432,26 @@ async function runStandardTests(daemonUrl: string) {
     assert(Array.isArray(result.results), true, "Expected results array from vec-search");
   });
 
+  if (localModel) {
+    await test("local model ranks a paraphrased query", async () => {
+      run('write /local-model/cats.md --content "Cats are playful household pets. Kittens purr, chase toys, and sleep on soft cushions."');
+      run('write /local-model/cars.md --content "Automobile engines require oil changes. Vehicle brakes, tires, and transmissions need regular maintenance."');
+      const deadline = Date.now() + 120_000;
+      let results: { path: string }[] = [];
+      while (Date.now() < deadline) {
+        try {
+          results = runJson("vec-search 'a small furry companion that meows' --limit 100").results;
+          if (["/local-model/cats.md", "/local-model/cars.md"].every((path) => results.some((r) => r.path === path))) break;
+        } catch {}
+        await Bun.sleep(1000);
+      }
+      assert(results.some((r) => r.path === "/local-model/cars.md"), true, "Both local model fixtures must be indexed within 120 seconds");
+      assert(results[0]?.path, "/local-model/cats.md", "The paraphrased query must rank the cat document first");
+    });
+  } else {
+    skipTest("local model ranks a paraphrased query", "requires --local-model and --models-dir");
+  }
+
   // -- search (hybrid) --
 
   await test("search (hybrid)", () => {
@@ -1428,6 +1459,16 @@ async function runStandardTests(daemonUrl: string) {
     assert(Array.isArray(result.results), true, "Expected results array from hybrid search");
     // With FTS available, should find matches even without embedding provider
     assert(result.results.length > 0, true, "Expected hybrid search results via FTS fallback");
+  });
+
+  await test("PDF text is searchable without embedding credentials", () => {
+    const fixture = resolve("packages/core/src/search/__tests__/fixtures/text.pdf");
+    const path = "/search/maintenance.pdf";
+    runJson(`write ${path} --file '${fixture}'`);
+    const fts = runJson("fts 'basalt lighthouse maintenance log'");
+    assert(fts.matches.some((match: any) => match.path === path), true, "Expected PDF text in FTS results");
+    const search = runJson("search 'basalt lighthouse maintenance log'");
+    assert(search.results.some((result: any) => result.path === path), true, "Expected PDF text in hybrid search results");
   });
 
   // -- comments --

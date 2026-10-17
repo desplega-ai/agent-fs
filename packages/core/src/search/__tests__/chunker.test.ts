@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { chunkContent } from "../chunker.js";
+import { chunkContent, segments } from "../chunker.js";
 
 describe("chunkContent", () => {
   test("small content returns single chunk", async () => {
@@ -47,5 +47,48 @@ describe("chunkContent", () => {
     const chunks = await chunkContent(content);
     // Fallback uses Math.ceil(length / 4)
     expect(chunks[0].tokenCount).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("large text", () => {
+  test("segments cover the text without gaps, cut after line breaks", () => {
+    const text = Array.from({ length: 1000 }, (_, i) => `line ${i}`).join("\n");
+    const ranges = segments(text, 100);
+    expect(ranges[0][0]).toBe(0);
+    expect(ranges.at(-1)![1]).toBe(text.length);
+    for (let i = 1; i < ranges.length; i++) expect(ranges[i][0]).toBe(ranges[i - 1][1]);
+    for (const [, end] of ranges.slice(0, -1)) expect(text[end - 1]).toBe("\n");
+    // No line break near the limit: a hard cut at the limit.
+    expect(segments("x".repeat(250), 100)).toEqual([[0, 100], [100, 200], [200, 250]]);
+    // A hard cut moves back one unit rather than split a surrogate pair.
+    const emoji = "a".repeat(99) + "\u{1F600}" + "b".repeat(10);
+    expect(segments(emoji, 100)).toEqual([[0, 99], [99, 111]]);
+  });
+
+  test("chunks of large text map back to the text, and the event loop keeps running", async () => {
+    // About 0.7 MB: one synchronous chunker call blocks the event loop for seconds.
+    const rows = Array.from({ length: 20_000 }, (_, i) => `${i},agent-${i % 97},https://example.com/p/${i}`);
+    const text = rows.join("\n");
+    let last = performance.now();
+    let maxGap = 0;
+    const timer = setInterval(() => {
+      maxGap = Math.max(maxGap, performance.now() - last);
+      last = performance.now();
+    }, 5);
+    const chunks = await chunkContent(text);
+    clearInterval(timer);
+    maxGap = Math.max(maxGap, performance.now() - last);
+
+    expect(maxGap).toBeLessThan(1000);
+    for (const c of chunks) expect(text.slice(c.charOffset, c.charOffset + c.content.length)).toBe(c.content);
+    expect(chunks.map((c) => c.content).join("")).toBe(text);
+  }, 30_000);
+
+  test("an emoji on a segment boundary survives chunking", async () => {
+    const text = "a".repeat(64 * 1024 - 1) + "\u{1F600}" + "b".repeat(100);
+    const chunks = await chunkContent(text);
+    expect(chunks.map((c) => c.content).join("")).toBe(text);
+    for (const c of chunks) expect(text.slice(c.charOffset, c.charOffset + c.content.length)).toBe(c.content);
+    expect(chunks.some((c) => c.content.includes("\uFFFD"))).toBe(false);
   });
 });

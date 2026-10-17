@@ -11,6 +11,7 @@ export interface VecSearchResultItem {
   path: string;
   score: number;
   snippet: string;
+  page?: number;
   author?: string;
   modifiedAt?: Date;
 }
@@ -46,6 +47,7 @@ export async function vecSearch(
       path: candidate.path,
       score: similarityFromDistance(candidate.distance),
       snippet: candidate.snippet,
+      page: candidate.page,
       author: candidate.author,
       modifiedAt: candidate.modifiedAt,
     })

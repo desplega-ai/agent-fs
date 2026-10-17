@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 import type { Database } from "bun:sqlite";
 import type { DB } from "../../db/index.js";
 import { write } from "../../ops/write.js";
@@ -9,6 +9,7 @@ import {
   embeddingFormat,
   migrationCpuShare,
   prepareEmbeddingMigration,
+  prepareEmbeddingMigrationWithWarmup,
   runPendingEmbeddings,
 } from "../embedding-migration.js";
 import { similarityFromDistance, toUnitVector } from "../vectors.js";
@@ -111,6 +112,43 @@ describe("vectors", () => {
 });
 
 describe("embedding migration", () => {
+  test.each(["failed", "unchanged", "changed"] as const)("boot gate: %s warmup", async (mode) => {
+    const { ctx, db } = createTestContext();
+    await write(ctx, { path: "/indexed.md", content: "cats" });
+    await write(ctx, { path: "/failed.md", content: "cars" });
+    const stored = mode === "unchanged" ? embeddingFormat(PROVIDER) : "old:v2";
+    raw(db).prepare("INSERT INTO meta(key, value) VALUES ('embedding_format', ?)").run(stored);
+    // An unchanged index has already spent its one failed-file retry.
+    if (mode === "unchanged") prepareEmbeddingMigration(raw(db), PROVIDER);
+    raw(db).prepare("UPDATE files SET embedding_status = 'indexed' WHERE path = '/indexed.md'").run();
+    raw(db).prepare("UPDATE files SET embedding_status = 'failed' WHERE path = '/failed.md'").run();
+    let calls = 0;
+    const provider: EmbeddingProvider = {
+      ...PROVIDER,
+      async embedQuery(text) {
+        calls++;
+        expect(text).toBe("warmup");
+        expect(statusOf(db, "/indexed.md")).toBe("indexed");
+        expect(statusOf(db, "/failed.md")).toBe("failed");
+        if (mode === "failed") throw new Error("model\nunavailable");
+        return fakeVector(text);
+      },
+    };
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await prepareEmbeddingMigrationWithWarmup(raw(db), provider)).toBe(mode === "changed");
+      expect(calls).toBe(mode === "unchanged" ? 0 : 1);
+      const format = (raw(db).prepare("SELECT value FROM meta WHERE key = 'embedding_format'").get() as { value: string }).value;
+      expect(format).toBe(mode === "changed" ? embeddingFormat(provider) : stored);
+      expect(statusOf(db, "/indexed.md")).toBe(mode === "changed" ? "pending" : "indexed");
+      expect(statusOf(db, "/failed.md")).toBe(mode === "changed" ? "pending" : "failed");
+      expect(error).toHaveBeenCalledTimes(mode === "failed" ? 1 : 0);
+      if (mode === "failed") expect(error.mock.calls[0]).toEqual(["[agent-fs] Embedding warmup failed. Migration skipped: model unavailable"]);
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   test("indexFileEmbeddings passes the file basename as the document title", async () => {
     const { ctx, db, driveId } = createTestContext();
     const path = "/notes/project/cats.md";
@@ -386,3 +424,84 @@ describe("oversized text", () => {
   });
 });
 
+describe("failed and blank files", () => {
+  test("retries failed files once, logs each failure, and clears blank files", async () => {
+    const { ctx, db, s3 } = createTestContext();
+    await write(ctx, { path: "/ok.md", content: "fine now" });
+    await write(ctx, { path: "/blank.txt", content: "  \n " });
+    await write(ctx, { path: "/bad.md", content: "still bad" });
+    raw(db).prepare("UPDATE files SET embedding_status = 'failed'").run();
+
+    expect(prepareEmbeddingMigration(raw(db), PROVIDER)).toBe(true);
+    expect(statusOf(db, "/ok.md")).toBe("pending");
+
+    const failing: EmbeddingProvider = {
+      ...PROVIDER,
+      async embedDocuments(texts, opts) {
+        if (texts.some((t) => t.includes("bad"))) throw new EmbeddingProviderError("400 too many tokens");
+        return PROVIDER.embedDocuments(texts, opts);
+      },
+    };
+    const logs: string[] = [];
+    const result = await runPendingEmbeddings(db, s3, failing, { log: (m) => logs.push(m), cpuShare: 1 });
+
+    expect(result).toEqual({ indexed: 1, failed: 1, skipped: 1, superseded: 0 });
+    expect(statusOf(db, "/ok.md")).toBe("indexed");
+    expect(statusOf(db, "/blank.txt")).toBeNull();
+    expect(statusOf(db, "/bad.md")).toBe("failed");
+    expect(logs).toContain("embedding failed for /bad.md: 400 too many tokens");
+
+    // Once per retry revision: the next boot leaves the failure alone.
+    expect(prepareEmbeddingMigration(raw(db), PROVIDER)).toBe(false);
+    expect(statusOf(db, "/bad.md")).toBe("failed");
+  });
+
+  test("a file that became blank loses its old chunks", async () => {
+    const { ctx, db, s3 } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    await write(ctx, { path: "/was-text.md", content: "all about cats" });
+    await waitFor(() => statusOf(db, "/was-text.md") === "indexed");
+    expect(chunkContents(db, "/was-text.md")).toEqual(["all about cats"]);
+
+    // The new version is blank, and its own embedding job never ran.
+    ctx.embeddingProvider = undefined;
+    await write(ctx, { path: "/was-text.md", content: "   " });
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+
+    const result = await runPendingEmbeddings(db, s3, PROVIDER, { cpuShare: 1 });
+
+    expect(result).toEqual({ indexed: 0, failed: 0, skipped: 1, superseded: 0 });
+    expect(statusOf(db, "/was-text.md")).toBeNull();
+    expect(chunkContents(db, "/was-text.md")).toEqual([]);
+    expect(vectorCount(db)).toBe(0);
+  });
+
+  test("blank text never reaches the provider", async () => {
+    const { ctx, db } = createTestContext();
+    await write(ctx, { path: "/empty.txt", content: "" });
+    const path = "/empty.txt";
+    const driveId = (raw(db).prepare("SELECT drive_id AS d FROM files WHERE path = ?").get(path) as { d: string }).d;
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+    const calls: string[][] = [];
+    const recording: EmbeddingProvider = {
+      ...PROVIDER,
+      async embedDocuments(texts, opts) {
+        calls.push(texts);
+        return PROVIDER.embedDocuments(texts, opts);
+      },
+    };
+
+    for (const content of ["", "   \n\t "]) {
+      expect(
+        await indexFileEmbeddings(db, recording, {
+          path,
+          driveId,
+          content,
+          version: readCurrentVersion(db, { path, driveId }) ?? null,
+        })
+      ).toBe(false);
+    }
+    expect(calls).toEqual([]);
+    expect(statusOf(db, path)).toBeNull();
+  });
+});

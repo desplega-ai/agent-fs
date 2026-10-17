@@ -166,9 +166,10 @@ export type { Role, ResolvedContext, ResetApiKeyResult } from "./identity/index.
 export { VERSION } from "./version.js";
 export { publishDriveEvent, subscribeDrive } from "./events/bus.js";
 export type { DriveEvent } from "./events/bus.js";
-export { createEmbeddingProviderFromEnv } from "./search/embeddings/index.js";
+export { loadTransformers } from "./search/embeddings/embeddinggemma.js";
+export { createEmbeddingProviderFromEnv, NOMIC_MODEL, EMBEDDINGGEMMA_MODEL } from "./search/embeddings/index.js";
 export {
-  prepareEmbeddingMigration,
+  prepareEmbeddingMigrationWithWarmup,
   runPendingEmbeddings,
   migrationCpuShare,
 } from "./search/embedding-migration.js";
