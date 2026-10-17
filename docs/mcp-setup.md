@@ -27,7 +27,7 @@ Add to your `.mcp.json` (project-level or `~/.claude/.mcp.json` for global):
 
 To enable semantic search, configure an embedding provider on the daemon (via `~/.agent-fs/config.json` or environment variables). The daemon initializes embeddings at startup and makes them available to both REST and MCP clients.
 
-Supported providers: `OPENAI_API_KEY` (OpenAI), `GEMINI_API_KEY` (Google Gemini), or local llama.cpp (configured in `~/.agent-fs/config.json`). Set `EMBEDDING_PROVIDER` to pick one explicitly. It takes priority over the API key variables.
+Supported providers: `OPENAI_API_KEY` (OpenAI), `GEMINI_API_KEY` (Google Gemini), or local (configured in `~/.agent-fs/config.json`). Local runs nomic-embed-text-v1.5 on llama.cpp or EmbeddingGemma 2 on transformers.js. Set `EMBEDDING_PROVIDER` to pick one explicitly. It takes priority over the API key variables.
 
 ## Cursor
 
@@ -156,7 +156,7 @@ agent-fs has three search tools for different use cases:
 
 **`fts`** is keyword-based full-text search. Use when you know relevant terms but not the exact phrasing. Supports FTS5 query syntax (AND, OR, NOT, phrases).
 
-**`search`** is semantic/vector search. Use when you want to find files by meaning, not keywords. Requires an embedding provider (OpenAI, Gemini, or local llama.cpp). Best for questions like "files related to user authentication" where keyword matching would miss relevant results.
+**`search`** is semantic/vector search. Use when you want to find files by meaning, not keywords. Requires an embedding provider (OpenAI, Gemini, or local). Local runs nomic-embed-text-v1.5 on llama.cpp or EmbeddingGemma 2 on transformers.js. Best for questions like "files related to user authentication" where keyword matching would miss relevant results.
 
 ## Environment Variables
 

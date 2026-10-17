@@ -171,6 +171,8 @@ export { createEmbeddingProviderFromEnv, NOMIC_MODEL, EMBEDDINGGEMMA_MODEL } fro
 export {
   runEmbeddingMigration,
   migrationCpuShare,
+  storedFormat,
+  hasChunks,
 } from "./search/embedding-migration.js";
 export { canRenderPdfPages } from "./search/pdf.js";
 export { prepareImageEmbeddings, scheduleImageEmbeddings } from "./search/image-embedding.js";

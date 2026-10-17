@@ -36,7 +36,7 @@ export function embeddingGemmaSource(cacheDir: string, vision: boolean): string 
   return files.every((file) => existsSync(join(cached, file))) ? cached : MODEL;
 }
 
-type TransformersResult =
+export type TransformersResult =
   | { module: typeof import("@huggingface/transformers") }
   | { reason: string; hint: string };
 
@@ -91,6 +91,11 @@ export class EmbeddingGemmaProvider implements EmbeddingProvider {
   private visionImages = 0;
   private visionQueue: Promise<void> = Promise.resolve();
   private visionIdleTimer: ReturnType<typeof setTimeout> | null = null;
+  private transformers: Promise<TransformersResult> | null;
+
+  constructor(transformers?: TransformersResult) {
+    this.transformers = transformers && "module" in transformers ? Promise.resolve(transformers) : null;
+  }
 
   private async init(): Promise<void> {
     if (this.model) return;
@@ -104,10 +109,11 @@ export class EmbeddingGemmaProvider implements EmbeddingProvider {
   }
 
   private async loader(vision: boolean) {
-    const result = await loadTransformers();
+    const result = await (this.transformers ??= loadTransformers());
     if (!("module" in result)) {
+      this.transformers = null;
       const hint = result.hint ? `. ${result.hint}` : "";
-      throw new Error(`EMBEDDING_MODEL=embeddinggemma-2 needs @huggingface/transformers ${TRANSFORMERS_VERSION} (${result.reason})${hint}`);
+      throw new Error(`embeddinggemma-2 needs @huggingface/transformers ${TRANSFORMERS_VERSION} (${result.reason})${hint}`);
     }
     const cache_dir = join(getHome(), "models");
     // Transformers 4.3.1 drops cache_dir in its tokenizer file check.

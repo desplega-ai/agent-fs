@@ -1,22 +1,69 @@
 import type { EmbeddingProvider } from "./provider.js";
 import type { AgentFSConfig } from "../../config.js";
+import type { TransformersResult } from "./embeddinggemma.js";
 
 export const NOMIC_MODEL = "nomic-embed-text-v1.5";
 export const EMBEDDINGGEMMA_MODEL = "embeddinggemma-2";
 
 export type { EmbeddingProvider } from "./provider.js";
 
+export async function resolveLocalModel({ configured, storedFormat, hasChunks, loadTransformers }: {
+  configured?: string;
+  storedFormat?: string;
+  hasChunks: boolean;
+  loadTransformers: () => Promise<TransformersResult>;
+}): Promise<{ model: string; reason: string; transformers?: TransformersResult }> {
+  if (configured) return { model: configured, reason: "configured" };
+  if (hasChunks && (storedFormat == null || storedFormat.startsWith("local:"))) {
+    return { model: NOMIC_MODEL, reason: "index built by nomic" };
+  }
+  const transformers = await loadTransformers();
+  const reason = storedFormat?.startsWith("embeddinggemma:")
+    ? "index built by embeddinggemma-2"
+    : hasChunks ? "index built by another provider" : "fresh index";
+  const available = "module" in transformers;
+  return {
+    model: available || storedFormat?.startsWith("embeddinggemma:") ? EMBEDDINGGEMMA_MODEL : NOMIC_MODEL,
+    reason: available ? reason : `${reason}, transformers unavailable: ${transformers.reason}`.replace(/[\r\n]+/g, " "),
+    transformers,
+  };
+}
+
+interface LocalIndex {
+  storedFormat?: string;
+  hasChunks: boolean;
+  loadTransformers?: () => Promise<TransformersResult>;
+  log?: (message: string) => void;
+}
+
+async function resolveLocalProvider(configured: string, index?: LocalIndex) {
+  if (!index) return { model: configured, transformers: undefined };
+  const { model, reason, transformers } = await resolveLocalModel({
+    configured,
+    ...index,
+    loadTransformers: index.loadTransformers ?? (async () => {
+      const { loadTransformers } = await import("./embeddinggemma.js");
+      return loadTransformers();
+    }),
+  });
+  index.log?.(`[agent-fs] local embedding model: ${model} (${reason})`);
+  if (transformers && "hint" in transformers && transformers.hint) index.log?.(transformers.hint);
+  return { model, transformers };
+}
+
 export async function createEmbeddingProvider(
-  config: AgentFSConfig["embedding"]
+  config: AgentFSConfig["embedding"],
+  localIndex?: LocalIndex,
 ): Promise<EmbeddingProvider> {
   switch (config.provider) {
     case "local": {
-      if (config.model === EMBEDDINGGEMMA_MODEL) {
+      const { model, transformers } = await resolveLocalProvider(config.model, localIndex);
+      if (model === EMBEDDINGGEMMA_MODEL) {
         const { EmbeddingGemmaProvider } = await import("./embeddinggemma.js");
-        return new EmbeddingGemmaProvider();
+        return new EmbeddingGemmaProvider(transformers);
       }
-      if (config.model && config.model !== NOMIC_MODEL) {
-        throw new Error(`Unknown local embedding model: ${config.model}. Use nomic-embed-text-v1.5 or embeddinggemma-2.`);
+      if (model && model !== NOMIC_MODEL) {
+        throw new Error(`Unknown local embedding model: ${model}. Use nomic-embed-text-v1.5 or embeddinggemma-2.`);
       }
       const { LocalEmbeddingProvider } = await import("./local.js");
       return new LocalEmbeddingProvider();
@@ -47,7 +94,8 @@ export async function createEmbeddingProvider(
  * Without EMBEDDING_PROVIDER, try OPENAI_API_KEY, GEMINI_API_KEY, then config settings.
  */
 export async function createEmbeddingProviderFromEnv(
-  config?: AgentFSConfig["embedding"]
+  config?: AgentFSConfig["embedding"],
+  localIndex?: LocalIndex,
 ): Promise<EmbeddingProvider | null> {
   const explicit = process.env.EMBEDDING_PROVIDER;
   if (explicit) {
@@ -60,7 +108,7 @@ export async function createEmbeddingProviderFromEnv(
         provider: explicit as AgentFSConfig["embedding"]["provider"],
         model: config?.model ?? "",
         apiKey: config?.apiKey || envKeys[explicit] || "",
-      });
+      }, localIndex);
     } catch (e) {
       console.error(`[agent-fs] EMBEDDING_PROVIDER=${explicit} unavailable: ${e instanceof Error ? e.message : e}`);
       return null;
@@ -89,7 +137,7 @@ export async function createEmbeddingProviderFromEnv(
   // 2. Fall back to config file
   if (config?.provider && config.provider !== "local" && config.apiKey) {
     try {
-      return await createEmbeddingProvider(config);
+      return await createEmbeddingProvider(config, localIndex);
     } catch (e) {
       console.error("[agent-fs] Failed to create embedding provider from config:", e);
     }
@@ -98,7 +146,7 @@ export async function createEmbeddingProviderFromEnv(
   // 3. Try local provider from config
   if (config?.provider === "local") {
     try {
-      return await createEmbeddingProvider(config);
+      return await createEmbeddingProvider(config, localIndex);
     } catch (e) {
       console.error(`[agent-fs] Failed to load local embedding provider: ${e instanceof Error ? e.message : e}`);
     }

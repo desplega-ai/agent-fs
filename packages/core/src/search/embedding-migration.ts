@@ -58,6 +58,10 @@ export function storedFormat(sqlite: Database): string | undefined {
   return row?.value;
 }
 
+export function hasChunks(sqlite: Database): boolean {
+  return !!sqlite.prepare("SELECT 1 FROM content_chunks LIMIT 1").get();
+}
+
 /** Warm the provider before a format change. A failed warmup leaves the index unchanged. */
 export async function prepareEmbeddingMigrationWithWarmup(sqlite: Database, provider: EmbeddingProvider): Promise<boolean> {
   if (storedFormat(sqlite) !== embeddingFormat(provider)) {

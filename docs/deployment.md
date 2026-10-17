@@ -182,7 +182,7 @@ Semantic search requires an embedding provider. Configure via environment variab
 |----------|-------------|------|-------|
 | **OpenAI** | `OPENAI_API_KEY` | ~$0.02/1M tokens | Best quality, requires API key |
 | **Google Gemini** | `GEMINI_API_KEY` | Free tier available | Good quality, generous free tier |
-| **Local (llama.cpp)** | — | Free | Requires local model download, slower |
+| **Local** | None | Free | Runs nomic-embed-text-v1.5 on llama.cpp or EmbeddingGemma 2 on transformers.js. Requires a model download. |
 
 Priority: an explicit `EMBEDDING_PROVIDER` (`local`, `openai`, or `gemini`) > `OPENAI_API_KEY` > `GEMINI_API_KEY` > `config.json` > none (semantic search disabled). An explicit `openai` or `gemini` takes its key from `EMBEDDING_API_KEY` or `config.json` first, then from its own API key variable.
 

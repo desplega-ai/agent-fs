@@ -960,25 +960,35 @@ Deliverable: with `EMBEDDING_PROVIDER=local` (or unset) and an empty `EMBEDDING_
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Typecheck passes: `bun run typecheck`
-- [ ] Unit tests pass: `bun run test`
-- [ ] Build passes: `bun run build`
-- [ ] E2E local mode passes (E2E still forces `openai` with empty keys, so no download): `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only`
-- [ ] Full E2E passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`
-- [ ] Lockfile and versions are clean before release: `bun install --frozen-lockfile && bun run scripts/sync-versions.ts --check`
+- [x] Typecheck passes: `bun run typecheck`
+- [x] Unit tests pass: `bun run test`
+  - Result: 1570 pass, 61 skip, 0 fail.
+- [x] Build passes: `bun run build`
+- [x] E2E local mode passes (E2E still forces `openai` with empty keys, so no download): `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only`
+  - Result: 187/187 passed, 20 skipped.
+- [x] Full E2E passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`
+  - Result: 208/209 passed. The one failure is the known `share-create returns a public link on the API host`.
+- [x] Lockfile and versions are clean before release: `bun install --frozen-lockfile && bun run scripts/sync-versions.ts --check`
+  - Result: lockfile clean, all targets at 0.17.5 before the release.
 - [ ] Versions in sync after release: `bun run scripts/sync-versions.ts --check`
 
 #### Automated QA:
-- [ ] Fresh index: start a daemon with `AGENT_FS_HOME=/tmp/eg2-plan/p7-fresh`, `models` symlinked to `/tmp/eg2-plan/tjs-cache`, and `EMBEDDING_PROVIDER=local`. The boot log names `embeddinggemma-2` with reason "fresh index".
-- [ ] Sticky index: copy a nomic-built home (`local:v3`, with chunks) to `/tmp/eg2-plan/p7-sticky` and start a daemon on it. The boot log names `nomic-embed-text-v1.5` with reason "index built by nomic", and no re-embed starts.
-- [ ] Sticky index without a stored format (as 0.16.4 and older left it):
+- [x] Fresh index: start a daemon with `AGENT_FS_HOME=/tmp/eg2-plan/p7-fresh`, `models` symlinked to `/tmp/eg2-plan/tjs-cache`, and `EMBEDDING_PROVIDER=local`. The boot log names `embeddinggemma-2` with reason "fresh index".
+  - Result: `[agent-fs] local embedding model: embeddinggemma-2 (fresh index)`. One file `indexed`, format `embeddinggemma:v2`.
+- [x] Sticky index: copy a nomic-built home (`local:v3`, with chunks) to `/tmp/eg2-plan/p7-sticky` and start a daemon on it. The boot log names `nomic-embed-text-v1.5` with reason "index built by nomic", and no re-embed starts.
+  - Result: `nomic-embed-text-v1.5 (index built by nomic)`. No `embedding migration` line, no model load at boot, statuses and `local:v3` unchanged.
+- [x] Sticky index without a stored format (as 0.16.4 and older left it):
+  - Result: `nomic-embed-text-v1.5 (index built by nomic)`, then one nomic re-embed (3 files), format `local:v3`. Only the nomic gguf is read (see the decision below).
   - Copy the nomic home and delete the `embedding_format` row from `meta` in the copy.
   - Start a daemon on it. The boot log names `nomic-embed-text-v1.5`, and no re-embed starts.
+  - Decision (2026-10-17): a missing format means vectors from 0.16.4 or older. Those are not unit length (format keys came with unit vectors in 0.16.5), so the existing migration re-embeds them once with nomic and stores `local:v3`. That is correct. The pass condition is: the boot log names nomic, one nomic re-embed runs, `embedding_format` ends `local:v3`, and no EmbeddingGemma file is read.
 - [ ] After merge: prod `/health` returns `0.18.0`. `fly logs --no-tail` returns only a short buffer, so watch `fly logs -a agent-fs-taras` live during the deploy. No `embedding migration` line appears within 10 min of the deploy.
 
 #### Manual Verification:
 - [ ] Before this PR merges: 0.17.4 runs on the swarm (Manual E2E §3, first run), and the Appendix multimodal column is filled.
 - [ ] Taras confirms the upgrade note reads clearly for self-hosters.
+
+**Review changes (2026-10-17)**: the resolver probes transformers only on the branches that need it (not for a configured model or a sticky nomic index). A stored EmbeddingGemma 2 index whose transformers cannot load keeps its model and format, and the boot line carries the cause plus the install hint (checked with a preload that blocks the import). Chunks from another provider give the reason "index built by another provider". `.env.example`, README and the docs say local runs nomic on llama.cpp or EmbeddingGemma 2 on transformers.js.
 
 **Implementation Note**: After this phase, pause for manual confirmation. Then commit `[phase 7] EmbeddingGemma 2 default for fresh indexes`, run `bun install --frozen-lockfile` and `bun run scripts/sync-versions.ts --check`, run `./scripts/release.sh 0.18.0`, and open the PR.
 

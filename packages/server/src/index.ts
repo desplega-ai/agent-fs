@@ -6,6 +6,8 @@ import {
   getDbPath,
   createStorageAdapter,
   createEmbeddingProviderFromEnv,
+  storedFormat,
+  hasChunks,
   prepareFtsMigration,
   runFtsMigration,
   runEmbeddingMigration,
@@ -59,7 +61,11 @@ try {
 // Initialize embedding provider (graceful failure — semantic search unavailable if this fails)
 let embeddingProvider: EmbeddingProvider | null = null;
 try {
-  embeddingProvider = await createEmbeddingProviderFromEnv(config.embedding);
+  embeddingProvider = await createEmbeddingProviderFromEnv(config.embedding, {
+    storedFormat: storedFormat(sqlite),
+    hasChunks: hasChunks(sqlite),
+    log: (message) => console.log(message),
+  });
 } catch (err) {
   console.warn("Embedding provider unavailable, semantic search disabled:", err);
 }

@@ -1,12 +1,60 @@
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createEmbeddingProvider, createEmbeddingProviderFromEnv } from "../embeddings/index.js";
+import { createEmbeddingProvider, createEmbeddingProviderFromEnv, resolveLocalModel, NOMIC_MODEL, EMBEDDINGGEMMA_MODEL } from "../embeddings/index.js";
+import type { TransformersResult } from "../embeddings/embeddinggemma.js";
 import { OpenAIEmbeddingProvider, requestBatches } from "../embeddings/openai.js";
 import { GeminiEmbeddingProvider } from "../embeddings/gemini.js";
 import { embeddingFormat } from "../embedding-migration.js";
 import { getConfig } from "../../config.js";
+
+const availableTransformers: TransformersResult = { module: {} as typeof import("@huggingface/transformers") };
+const unavailableTransformers: TransformersResult = { reason: "missing (test)", hint: "Run: bun add -g @huggingface/transformers@4.3.1" };
+
+describe("resolveLocalModel", () => {
+  const cases = [
+    [undefined, false, false, NOMIC_MODEL, "fresh index, transformers unavailable: missing (test)"],
+    [undefined, false, true, EMBEDDINGGEMMA_MODEL, "fresh index"],
+    [undefined, true, false, NOMIC_MODEL, "index built by nomic"],
+    [undefined, true, true, NOMIC_MODEL, "index built by nomic"],
+    ["local:v3", true, false, NOMIC_MODEL, "index built by nomic"],
+    ["local:v3", true, true, NOMIC_MODEL, "index built by nomic"],
+    ["local:v3", false, true, EMBEDDINGGEMMA_MODEL, "fresh index"],
+    ["embeddinggemma:v2", false, false, EMBEDDINGGEMMA_MODEL, "index built by embeddinggemma-2, transformers unavailable: missing (test)"],
+    ["embeddinggemma:v2", false, true, EMBEDDINGGEMMA_MODEL, "index built by embeddinggemma-2"],
+    ["embeddinggemma:v2", true, false, EMBEDDINGGEMMA_MODEL, "index built by embeddinggemma-2, transformers unavailable: missing (test)"],
+    ["embeddinggemma:v2", true, true, EMBEDDINGGEMMA_MODEL, "index built by embeddinggemma-2"],
+    ["openai:v2", true, false, NOMIC_MODEL, "index built by another provider, transformers unavailable: missing (test)"],
+    ["openai:v2", true, true, EMBEDDINGGEMMA_MODEL, "index built by another provider"],
+    ["gemini:v2", false, false, NOMIC_MODEL, "fresh index, transformers unavailable: missing (test)"],
+  ] as [string | undefined, boolean, boolean, string, string][];
+
+  test.each(cases)("format %s, chunks %s, transformers %s", async (storedFormat, hasChunks, available, model, reason) => {
+    const loadTransformers = mock(async () => available ? availableTransformers : unavailableTransformers);
+    const resolved = await resolveLocalModel({ configured: "", storedFormat, hasChunks, loadTransformers });
+    expect(resolved).toMatchObject({ model, reason });
+    if (reason === "index built by nomic") expect(loadTransformers).not.toHaveBeenCalled();
+    else expect(loadTransformers).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([NOMIC_MODEL, EMBEDDINGGEMMA_MODEL, "unknown"])("configured %s overrides the index without a probe", async (configured) => {
+    const loadTransformers = mock(async () => unavailableTransformers);
+    for (const storedFormat of [undefined, "local:v3", "embeddinggemma:v2"]) {
+      expect(await resolveLocalModel({ configured, storedFormat, hasChunks: true, loadTransformers }))
+        .toEqual({ model: configured, reason: "configured" });
+    }
+    expect(loadTransformers).not.toHaveBeenCalled();
+  });
+
+  test("keeps an unavailable reason on one line", async () => {
+    const resolved = await resolveLocalModel({
+      hasChunks: false,
+      loadTransformers: async () => ({ reason: "missing\r\npackage", hint: "" }),
+    });
+    expect(resolved.reason).toBe("fresh index, transformers unavailable: missing package");
+  });
+});
 
 describe("createEmbeddingProviderFromEnv", () => {
   const envKeys = [
@@ -30,6 +78,72 @@ describe("createEmbeddingProviderFromEnv", () => {
       if (originalEnv[key] === undefined) delete process.env[key];
       else process.env[key] = originalEnv[key];
     }
+  });
+
+  test.each([undefined, "local"])("fresh local index resolves EmbeddingGemma 2 with provider %s", async (explicit) => {
+    if (explicit) process.env.EMBEDDING_PROVIDER = explicit;
+    const log = mock((_message: string) => {});
+    const provider = await createEmbeddingProviderFromEnv({ provider: "local", model: "", apiKey: "" }, {
+      hasChunks: false, loadTransformers: mock(async () => availableTransformers), log,
+    });
+    expect(provider!.name).toBe("embeddinggemma");
+    expect(log).toHaveBeenCalledWith("[agent-fs] local embedding model: embeddinggemma-2 (fresh index)");
+  });
+
+  test.each([
+    [undefined, false, unavailableTransformers, "local", "nomic-embed-text-v1.5 (fresh index, transformers unavailable: missing (test))"],
+    [undefined, true, availableTransformers, "local", "nomic-embed-text-v1.5 (index built by nomic)"],
+    ["local:v3", true, availableTransformers, "local", "nomic-embed-text-v1.5 (index built by nomic)"],
+    ["embeddinggemma:v2", true, unavailableTransformers, "embeddinggemma", "embeddinggemma-2 (index built by embeddinggemma-2, transformers unavailable: missing (test))"],
+  ] as const)("resolves stored format %s with chunks %s", async (storedFormat, hasChunks, transformers, name, line) => {
+    const log = mock((_message: string) => {});
+    const loadTransformers = mock(async () => transformers);
+    const provider = await createEmbeddingProviderFromEnv({ provider: "local", model: "", apiKey: "" }, {
+      storedFormat, hasChunks, loadTransformers, log,
+    });
+    expect(provider!.name).toBe(name);
+    if (hasChunks && (!storedFormat || storedFormat.startsWith("local:"))) expect(loadTransformers).not.toHaveBeenCalled();
+    else expect(loadTransformers).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls[0]).toEqual([`[agent-fs] local embedding model: ${line}`]);
+    if ("hint" in transformers && line.includes("transformers unavailable")) {
+      expect(log.mock.calls[1]).toEqual([transformers.hint]);
+    }
+  });
+
+  test.each(["", NOMIC_MODEL])("config model survives empty env and env nomic wins on a fresh index: %s", async (envModel) => {
+    const home = mkdtempSync(join(tmpdir(), "agent-fs-model-"));
+    try {
+      process.env.AGENT_FS_HOME = home;
+      process.env.EMBEDDING_MODEL = envModel;
+      writeFileSync(join(home, "config.json"), JSON.stringify({ embedding: { provider: "local", model: EMBEDDINGGEMMA_MODEL } }));
+      const log = mock((_message: string) => {});
+      const loadTransformers = mock(async () => availableTransformers);
+      const provider = await createEmbeddingProviderFromEnv(getConfig().embedding, {
+        hasChunks: false, loadTransformers, log,
+      });
+      expect(loadTransformers).not.toHaveBeenCalled();
+      const model = envModel || EMBEDDINGGEMMA_MODEL;
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(provider!.name).toBe(envModel ? "local" : "embeddinggemma");
+      expect(log).toHaveBeenCalledWith(`[agent-fs] local embedding model: ${model} (configured)`);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test.each(["openai", "gemini"] as const)("%s selection precedes local index resolution", async (providerName) => {
+    const log = mock((_message: string) => {});
+    const loadTransformers = mock(async () => availableTransformers);
+    const index = { hasChunks: false, loadTransformers, log };
+    process.env[providerName === "openai" ? "OPENAI_API_KEY" : "GEMINI_API_KEY"] = "env-key";
+    expect((await createEmbeddingProviderFromEnv({ provider: "local", model: "", apiKey: "" }, index))!.name).toBe(providerName);
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    expect((await createEmbeddingProviderFromEnv({ provider: providerName, model: "", apiKey: "config-key" }, index))!.name).toBe(providerName);
+    process.env.EMBEDDING_PROVIDER = providerName;
+    expect((await createEmbeddingProviderFromEnv({ provider: "local", model: "", apiKey: "config-key" }, index))!.name).toBe(providerName);
+    expect(log).not.toHaveBeenCalled();
+    expect(loadTransformers).not.toHaveBeenCalled();
   });
 
   test.each([

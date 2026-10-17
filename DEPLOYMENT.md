@@ -222,12 +222,26 @@ The scan runs on a worker thread with its own read-only connection, so a slow se
 
 0.16.7 had an opt-in `AGENT_FS_VECTOR_INDEX=int8` index. It was slower than the exact scan on a real disk, so 0.16.8 removes it and drops its table on start.
 
+## Upgrading to 0.18.0
+
+Fresh local indexes use EmbeddingGemma 2 when transformers 4.3.1 loads locally.
+Otherwise, they use `nomic-embed-text-v1.5`.
+Existing nomic indexes stay on nomic, including older indexes without a stored format.
+An explicit `EMBEDDING_MODEL` overrides this choice.
+OpenAI and Gemini selection stays the same.
+
+Fresh Docker volumes download 339 MB for text during warmup at the first boot, plus 195 MB when image indexing starts.
+Plan for 2 GB RAM, or set `EMBEDDING_MODEL=nomic-embed-text-v1.5`.
+The daemon boot log names the selected local model and its reason.
+`agent-fs config validate` shows the configured model and whether transformers loads locally.
+
 ## Using EmbeddingGemma 2 (0.17.2)
 
 Set `EMBEDDING_PROVIDER=local` and `EMBEDDING_MODEL=embeddinggemma-2`.
-An empty model setting keeps `nomic-embed-text-v1.5` as the local default.
+With an empty model setting, fresh indexes use EmbeddingGemma 2 when transformers 4.3.1 loads locally.
+Existing nomic indexes stay on nomic.
 
-- First use downloads 330 MB into `$AGENT_FS_HOME/models`.
+- First use downloads 339 MB for text into `$AGENT_FS_HOME/models`. Image indexing downloads another 195 MB.
 - Text inference uses about 0.5 GB RSS at rest and about 1.1 GB at peak on the measured Mac.
 - A model switch re-embeds every indexed file and retries every failed file. `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` controls the pace. Search quality drops until the migration finishes.
 - For macOS global installs, run `bun add -g @desplega.ai/agent-fs`, then `bun add -g @huggingface/transformers@4.3.1`. The Docker image includes transformers.

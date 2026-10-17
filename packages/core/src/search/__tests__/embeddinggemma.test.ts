@@ -1,5 +1,6 @@
 import { describe, expect, mock, spyOn, test } from "bun:test";
-import { EmbeddingGemmaProvider, embeddingGemmaSource, linuxRuntimeConflict } from "../embeddings/embeddinggemma.js";
+import { EmbeddingGemmaProvider, embeddingGemmaSource, linuxRuntimeConflict, type TransformersResult } from "../embeddings/embeddinggemma.js";
+import * as embeddinggemma from "../embeddings/embeddinggemma.js";
 import { mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -20,6 +21,37 @@ function fakeProvider(tokens = 10) {
 }
 
 describe("EmbeddingGemma 2", () => {
+  test("retries failed probes and caches only a successful result", async () => {
+    const unavailable = { reason: "missing (test)", hint: "Install transformers" };
+    const from_pretrained = mock(async () => ({}));
+    const available = { module: { AutoConfig: { from_pretrained } } } as unknown as TransformersResult;
+    const load = spyOn(embeddinggemma, "loadTransformers")
+      .mockResolvedValueOnce(unavailable)
+      .mockResolvedValue(available);
+    try {
+      const provider = new EmbeddingGemmaProvider(unavailable);
+      const loader = (provider as any).loader.bind(provider);
+      await expect(loader(false)).rejects.toThrow("embeddinggemma-2 needs @huggingface/transformers 4.3.1 (missing (test)). Install transformers");
+      expect(load).toHaveBeenCalledTimes(1);
+      await loader(false);
+      await loader(true);
+      expect(load).toHaveBeenCalledTimes(2);
+    } finally {
+      load.mockRestore();
+    }
+  });
+
+  test("reuses the boot transformers result for text and vision", async () => {
+    const from_pretrained = mock(async () => ({}));
+    const module = { AutoConfig: { from_pretrained } };
+    const provider = new EmbeddingGemmaProvider({ module } as unknown as TransformersResult);
+    const text = await (provider as any).loader(false);
+    const vision = await (provider as any).loader(true);
+    expect(text.AutoConfig).toBe(module.AutoConfig);
+    expect(vision.AutoConfig).toBe(module.AutoConfig);
+    expect(from_pretrained).toHaveBeenCalledTimes(2);
+  });
+
   test.each([
     ["linux", "3.8.1", true],
     ["linux", "4.3.1", false],
