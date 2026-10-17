@@ -25,7 +25,7 @@ Run it on Taras's swarm (`fs.taras.cc`) after the text model ships, and again af
 
 - **Motivation**: on 208 files and 40 queries, prod today scores R@1 0.42. EmbeddingGemma 2 with images and PDF pages scores R@1 0.75 and R@5 1.00. On text only, the two models are within noise. The gain comes from multimodal search.
 - **Related**:
-  - Spike: `/Users/taras/Documents/code/agent-fs/thoughts/taras/research/2026-10-16-embeddinggemma-2-spike.md` (untracked, use the absolute path)
+  - Spike: `thoughts/taras/research/2026-10-16-embeddinggemma-2-spike.md`
   - Planning research reports: `/tmp/eg2-plan/reports/*.md` (providers, index, write, surfaces, packaging, libs_tjs, libs_pdf, measure, swarm)
   - Planning measurement scripts and model cache: `/tmp/eg2-plan/measure/src/`, `/tmp/eg2-plan/tjs-cache/` (535 MB, q8 text + vision)
   - Code: `packages/core/src/search/`, `packages/core/src/ops/`, `packages/server/src/index.ts`, `live/src/components/search/`
@@ -1242,7 +1242,7 @@ Open `https://ui-fs.taras.cc`, search "a red circle", and confirm the thumbnail.
   Decision (2026-10-17): budget 140. It keeps I R@5 and P R@5 at 1.00 and R@1 equal to 280, at 2.3x less time per image. 70 fails the rule (I R@5 0.88, R@1 -0.03). All rows are config E3t with q8, from one eval.ts run. Rank moves at 140: I4 3 to 1, H11 1 to 2.
 
 - **References**:
-  - Spike: `/Users/taras/Documents/code/agent-fs/thoughts/taras/research/2026-10-16-embeddinggemma-2-spike.md`
+  - Spike: `thoughts/taras/research/2026-10-16-embeddinggemma-2-spike.md`
   - Planning reports: `/tmp/eg2-plan/reports/` (not durable, copied here where it matters)
   - Model card: https://huggingface.co/onnx-community/embeddinggemma-2-ONNX
   - transformers.js darwin x64 gap: https://github.com/huggingface/transformers.js/issues/1634
