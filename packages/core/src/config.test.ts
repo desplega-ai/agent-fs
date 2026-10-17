@@ -30,6 +30,7 @@ const OVERRIDE_ENV_VARS = [
   "AGENT_FS_STORAGE_PROVIDER",
   "AGENT_FS_LOCAL_ROOT",
   "AGENT_FS_MAX_UPLOAD_BYTES",
+  "AGENT_FS_RATE_LIMIT",
   "SERVER_PORT",
   "SERVER_HOST",
   "EMBEDDING_PROVIDER",
@@ -205,6 +206,136 @@ describe("Env var overrides", () => {
   afterEach(() => {
     cleanup();
     restoreEnvVars(savedEnv);
+  });
+
+  test.each([
+    { provider: "local", model: "", apiKey: "", expectedModel: "", expectedKey: "" },
+    { provider: "local", model: "nomic-embed-text-v1.5", apiKey: "", expectedModel: "nomic-embed-text-v1.5", expectedKey: "" },
+    { provider: "gemini", model: "", apiKey: "", expectedModel: "", expectedKey: "" },
+    { provider: "gemini", model: "gemini-model", apiKey: "gemini-key", expectedModel: "gemini-model", expectedKey: "gemini-key" },
+    { provider: "openai", model: "", apiKey: "", expectedModel: "text-embedding-3-small", expectedKey: "openai-key" },
+    { provider: "", model: "", apiKey: "", expectedModel: "text-embedding-3-small", expectedKey: "openai-key" },
+  ])("embedding override $provider model=$model key=$apiKey", ({ provider, model, apiKey, expectedModel, expectedKey }) => {
+    writeFileSync(join(testHome, "config.json"), JSON.stringify({
+      embedding: { provider: "openai", model: "text-embedding-3-small", apiKey: "openai-key" },
+    }));
+    process.env.EMBEDDING_PROVIDER = provider;
+    process.env.EMBEDDING_MODEL = model;
+    process.env.EMBEDDING_API_KEY = apiKey;
+
+    expect(getConfig().embedding).toEqual({
+      provider: provider || "openai", model: expectedModel, apiKey: expectedKey,
+    });
+  });
+
+  test.each(["local", "openai", "gemini"] as const)("embedding provider %s compares against the default local provider", (provider) => {
+    process.env.EMBEDDING_PROVIDER = provider;
+    for (const file of [{}, { embedding: { model: "file-model", apiKey: "file-key" } }]) {
+      writeFileSync(join(testHome, "config.json"), JSON.stringify(file));
+      expect(getConfig().embedding).toEqual({
+        provider,
+        model: provider === "local" ? file.embedding?.model ?? "" : "",
+        apiKey: provider === "local" ? file.embedding?.apiKey ?? "" : "",
+      });
+    }
+  });
+
+  test("embedding overrides do not mutate defaults for files without an embedding section", () => {
+    writeFileSync(join(testHome, "config.json"), "{}");
+    process.env.EMBEDDING_PROVIDER = "gemini";
+    process.env.EMBEDDING_MODEL = "env-model";
+    process.env.EMBEDDING_API_KEY = "env-key";
+    getConfig();
+    process.env.EMBEDDING_PROVIDER = "";
+    process.env.EMBEDDING_MODEL = "";
+    process.env.EMBEDDING_API_KEY = "";
+    expect(getConfig().embedding).toEqual({ provider: "local", model: "", apiKey: "" });
+  });
+
+  test("setConfigValue clears fields only when the effective provider changes and preserves file values under env overrides", () => {
+    const configPath = join(testHome, "config.json");
+    writeFileSync(configPath, JSON.stringify({
+      embedding: { provider: "openai", model: "text-embedding-3-small", apiKey: "openai-key" },
+      server: { port: 7000 },
+    }));
+    process.env.EMBEDDING_PROVIDER = "local";
+    process.env.EMBEDDING_MODEL = "nomic-embed-text-v1.5";
+    process.env.EMBEDDING_API_KEY = "env-key";
+    process.env.SERVER_PORT = "9999";
+
+    expect(setConfigValue("embedding.provider", "openai")).toBe(false);
+    expect(JSON.parse(readFileSync(configPath, "utf-8")).embedding).toEqual({
+      provider: "openai", model: "text-embedding-3-small", apiKey: "openai-key",
+    });
+    expect(setConfigValue("embedding.provider", "local")).toBe(true);
+    let raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    expect(raw.embedding).toEqual({ provider: "local", model: "", apiKey: "" });
+    expect(raw.server.port).toBe(7000);
+
+    setConfigValue("server.host", "localhost");
+    raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    expect(raw.embedding).toEqual({ provider: "local", model: "", apiKey: "" });
+    expect(raw.server.port).toBe(7000);
+  });
+
+  test("setConfigValue preserves fields for the default local provider", () => {
+    const configPath = join(testHome, "config.json");
+    writeFileSync(configPath, JSON.stringify({
+      embedding: { model: "embeddinggemma-2", apiKey: "file-key" },
+    }));
+
+    expect(setConfigValue("embedding.provider", "local")).toBe(false);
+    expect(JSON.parse(readFileSync(configPath, "utf-8")).embedding).toEqual({
+      provider: "local", model: "embeddinggemma-2", apiKey: "file-key",
+    });
+    expect(setConfigValue("embedding.provider", "openai")).toBe(true);
+    expect(JSON.parse(readFileSync(configPath, "utf-8")).embedding).toEqual({
+      provider: "openai", model: "", apiKey: "",
+    });
+  });
+
+  test.each([
+    { model: "", apiKey: "", removed: false },
+    { model: "file-model", apiKey: "", removed: true },
+    { model: "", apiKey: "file-key", removed: true },
+  ])("setConfigValue reports removed fields for model=$model key=$apiKey", ({ model, apiKey, removed }) => {
+    writeFileSync(join(testHome, "config.json"), JSON.stringify({
+      embedding: { provider: "openai", model, apiKey },
+    }));
+    expect(setConfigValue("embedding.provider", "local")).toBe(removed);
+  });
+
+  test("setConfig preserves the file provider, model and key under env overrides", () => {
+    const configPath = join(testHome, "config.json");
+    writeFileSync(configPath, JSON.stringify({
+      embedding: { provider: "openai", model: "text-embedding-3-small", apiKey: "openai-key" },
+      server: { port: 7000 },
+    }));
+    process.env.EMBEDDING_PROVIDER = "local";
+    process.env.EMBEDDING_MODEL = "embeddinggemma-2";
+    process.env.EMBEDDING_API_KEY = "env-key";
+    process.env.SERVER_PORT = "9999";
+    getConfig();
+
+    setConfig("s3", { provider: "local", root: join(testHome, "storage") });
+    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    expect(raw.embedding).toEqual({
+      provider: "openai", model: "text-embedding-3-small", apiKey: "openai-key",
+    });
+    expect(raw.server.port).toBe(7000);
+  });
+
+  test("setConfigValue does not persist a rate limit from an earlier getConfig call", () => {
+    const configPath = join(testHome, "config.json");
+    writeFileSync(configPath, JSON.stringify({ server: { port: 7000 } }));
+    process.env.AGENT_FS_RATE_LIMIT = "17";
+    expect(getConfig().server.rateLimit?.requestsPerMinute).toBe(17);
+
+    setConfigValue("server.host", "localhost");
+    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    expect(raw.server.rateLimit.requestsPerMinute).toBe(3000);
+    process.env.AGENT_FS_RATE_LIMIT = "";
+    expect(getConfig().server.rateLimit?.requestsPerMinute).toBe(3000);
   });
 
   test("S3_* env vars override config.json values", () => {
@@ -491,7 +622,7 @@ describe("Upload size environment configuration", () => {
     process.env.AGENT_FS_MAX_UPLOAD_BYTES = value;
     expect(getConfig().server.maxUploadBytes).toBe(52428800);
   });
-  test("persisted effective limit does not outlive the env override", () => {
+  test("setConfigValue does not persist the upload limit env override", () => {
     process.env.AGENT_FS_MAX_UPLOAD_BYTES = "104857600";
     setConfigValue("server.port", 7433);
     delete process.env.AGENT_FS_MAX_UPLOAD_BYTES;

@@ -284,7 +284,7 @@ Drive membership is explicit: `drive list` shows only drives you're a member of.
 | Command | Usage | Description |
 |---------|-------|-------------|
 | `config get` | `agent-fs config get <key>` | Get config value (dot notation: `s3.bucket`) |
-| `config set` | `agent-fs config set <key> <value>` | Set config value |
+| `config set` | `agent-fs config set <key> <value>` | Set config value. Changing `embedding.provider` removes the old model and API key. |
 | `config list` | `agent-fs config list` | Show all configuration |
 | `config validate` | `agent-fs config validate` | Check S3, database, auth, embeddings health |
 | `daemon start` | `agent-fs daemon start` | Start the background daemon |

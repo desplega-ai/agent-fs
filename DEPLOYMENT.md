@@ -266,6 +266,7 @@ On the first start of 0.17.1, every `failed` file is marked `pending` and the ba
 An explicit, non-empty `EMBEDDING_PROVIDER` now takes priority over `OPENAI_API_KEY` and `GEMINI_API_KEY`.
 The selected cloud provider uses `embedding.apiKey` first, then its own API key environment variable.
 `EMBEDDING_API_KEY` supplies `embedding.apiKey`.
+When `EMBEDDING_PROVIDER` names another provider than config.json, agent-fs does not use the model and API key from config.json. `EMBEDDING_MODEL` and `EMBEDDING_API_KEY` still apply.
 Production configurations with `EMBEDDING_PROVIDER=openai` and `EMBEDDING_API_KEY` keep the same behavior and vectors.
 Without an explicit provider, selection still tries `OPENAI_API_KEY`, `GEMINI_API_KEY`, then the configuration.
 

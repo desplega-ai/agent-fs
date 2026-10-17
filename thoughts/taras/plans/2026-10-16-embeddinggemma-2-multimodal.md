@@ -990,6 +990,8 @@ Deliverable: with `EMBEDDING_PROVIDER=local` (or unset) and an empty `EMBEDDING_
 
 **Review changes (2026-10-17)**: the resolver probes transformers only on the branches that need it (not for a configured model or a sticky nomic index). A stored EmbeddingGemma 2 index whose transformers cannot load keeps its model and format, and the boot line carries the cause plus the install hint (checked with a preload that blocks the import). Chunks from another provider give the reason "index built by another provider". `.env.example`, README and the docs say local runs nomic on llama.cpp or EmbeddingGemma 2 on transformers.js.
 
+**Follow-up fix (2026-10-17)**: the model and API key in config.json belong to the provider in config.json. When `EMBEDDING_PROVIDER` names another provider, the config loader drops them (an onboarded OpenAI config with `EMBEDDING_PROVIDER=local` no longer turns semantic search off). `config set embedding.provider` clears them on a change, and `setConfig`/`setConfigValue` no longer write env values to config.json.
+
 **Implementation Note**: After this phase, pause for manual confirmation. Then commit `[phase 7] EmbeddingGemma 2 default for fresh indexes`, run `bun install --frozen-lockfile` and `bun run scripts/sync-versions.ts --check`, run `./scripts/release.sh 0.18.0`, and open the PR.
 
 ---

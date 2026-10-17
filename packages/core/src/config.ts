@@ -181,7 +181,7 @@ function deepMergeConfig(
   defaults: AgentFSConfig,
   overrides: Partial<AgentFSConfig>
 ): AgentFSConfig {
-  const result = { ...defaults };
+  const result = structuredClone(defaults);
   for (const key of Object.keys(overrides) as (keyof AgentFSConfig)[]) {
     const ov = overrides[key];
     // Storage is a tagged union. The only genuine *shape* switch is to/from the
@@ -199,14 +199,14 @@ function deepMergeConfig(
         result.s3 = { ...(ovS3 as AgentFSStorageConfig) };
       } else {
         result.s3 = {
-          ...(defaults.s3 as object),
+          ...(result.s3 as object),
           ...(ovS3 as object),
         } as AgentFSStorageConfig;
       }
       continue;
     }
     if (ov && typeof ov === "object" && !Array.isArray(ov)) {
-      result[key] = { ...(defaults[key] as any), ...(ov as any) } as any;
+      result[key] = { ...(result[key] as any), ...(ov as any) } as any;
     } else if (ov !== undefined) {
       result[key] = ov as any;
     }
@@ -273,8 +273,13 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
     config.server.host = (env.SERVER_HOST || env.HOST)!;
 
   // Embedding overrides
-  if (env.EMBEDDING_PROVIDER)
+  if (env.EMBEDDING_PROVIDER) {
+    if (env.EMBEDDING_PROVIDER !== config.embedding.provider) {
+      config.embedding.model = "";
+      config.embedding.apiKey = "";
+    }
     config.embedding.provider = env.EMBEDDING_PROVIDER as "local" | "openai" | "gemini";
+  }
   if (env.EMBEDDING_MODEL) config.embedding.model = env.EMBEDDING_MODEL;
   if (env.EMBEDDING_API_KEY) config.embedding.apiKey = env.EMBEDDING_API_KEY;
 
@@ -303,17 +308,21 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
   return config;
 }
 
-export function getConfig(): AgentFSConfig {
+function readConfigFile(): Partial<AgentFSConfig> {
   ensureHomeDir();
   const configPath = getConfigPath();
 
   if (!existsSync(configPath)) {
     writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2));
-    return applyEnvOverrides(structuredClone(DEFAULT_CONFIG));
+    return structuredClone(DEFAULT_CONFIG);
   }
 
   const raw = readFileSync(configPath, "utf-8");
-  const parsed = JSON.parse(raw) as Partial<AgentFSConfig>;
+  return JSON.parse(raw) as Partial<AgentFSConfig>;
+}
+
+export function getConfig(): AgentFSConfig {
+  const parsed = readConfigFile();
   return applyEnvOverrides(deepMergeConfig(DEFAULT_CONFIG, parsed));
 }
 
@@ -321,13 +330,20 @@ export function setConfig<K extends keyof AgentFSConfig>(
   key: K,
   value: AgentFSConfig[K]
 ): void {
-  const config = getConfig();
+  const config = deepMergeConfig(DEFAULT_CONFIG, readConfigFile());
   config[key] = value;
   writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
 }
 
-export function setConfigValue(path: string, value: unknown): void {
-  const config = getConfig();
+export function setConfigValue(path: string, value: unknown): boolean {
+  const parsed = readConfigFile();
+  const config = deepMergeConfig(DEFAULT_CONFIG, parsed);
+  const providerChanged = path === "embedding.provider" && value !== config.embedding.provider;
+  const removedProviderFields = providerChanged && !!(config.embedding.model || config.embedding.apiKey);
+  if (providerChanged) {
+    config.embedding.model = "";
+    config.embedding.apiKey = "";
+  }
   const keys = path.split(".");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let obj: any = config;
@@ -336,4 +352,5 @@ export function setConfigValue(path: string, value: unknown): void {
   }
   obj[keys[keys.length - 1]] = value;
   writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+  return removedProviderFields;
 }

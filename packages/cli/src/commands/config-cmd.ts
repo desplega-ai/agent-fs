@@ -46,7 +46,10 @@ export function configCommands() {
       try {
         parsed = JSON.parse(value);
       } catch {}
-      setConfigValue(key, parsed);
+      const removedProviderFields = setConfigValue(key, parsed);
+      if (removedProviderFields) {
+        console.log("Removed embedding.model and embedding.apiKey for the previous provider.");
+      }
       console.log(`Set ${key} = ${JSON.stringify(parsed)}`);
     });
 
