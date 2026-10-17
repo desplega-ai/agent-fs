@@ -11,7 +11,7 @@ import { EditToolbar } from "./EditToolbar"
 import { TextViewerSkeleton } from "./TextViewerSkeleton"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
 import { captureQuote, sourceTextSpace, type AnchorResolution } from "@/lib/comment-anchor"
-import { commentAnchors, revealComment, useHoveredComment } from "@/stores/comment-anchors"
+import { commentAnchors, revealComment, useActiveComment, useHoveredComment } from "@/stores/comment-anchors"
 import { toast } from "@/stores/toast"
 import type { CommentListEntry } from "@/api/types"
 import type { editor } from "monaco-editor"
@@ -114,9 +114,11 @@ export function TextViewer({
   const anchorsRef = useRef(anchors)
   useEffect(() => { anchorsRef.current = anchors }, [anchors])
   const hovered = useHoveredComment()
+  const activeId = useActiveComment()
 
   // Decorate each comment's resolved range: the matched text for quote
-  // anchors, whole lines for line anchors. The hovered comment is emphasized.
+  // anchors, whole lines for line anchors. The hovered or revealed comment is
+  // emphasized.
   useEffect(() => {
     const ed = mountedEditor
     const model = ed?.getModel()
@@ -127,7 +129,7 @@ export function TextViewer({
       if (r.start == null || r.end == null) return
       const start = model.getPositionAt(r.start)
       const end = model.getPositionAt(r.end)
-      const active = hovered?.id === id
+      const active = hovered?.id === id || activeId === id
       const moved = r.status === "moved"
       if (r.method === "lines") {
         decorations.push({
@@ -154,7 +156,7 @@ export function TextViewer({
 
     const ids = ed.createDecorationsCollection(decorations)
     return () => ids.clear()
-  }, [mountedEditor, anchors, hovered, monaco])
+  }, [mountedEditor, anchors, hovered, activeId, monaco])
 
   // Line comment via gutter click
   const [lineComment, setLineComment] = useState<{ line: number; rect: DOMRect } | null>(null)

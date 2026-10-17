@@ -205,6 +205,12 @@
   100% { box-shadow: 0 0 0 0.5rem oklch(0.75 0.15 85 / 0); }
 }
 
+/* The sidebar card a highlight click revealed. It stays marked, like its
+   highlight, until the next click or Escape. */
+.comment-card-active {
+  background: oklch(0.82 0.12 85 / 0.16);
+}
+
 /* Flash highlight for comment scroll-to in preview mode */
 .flash-comment-highlight {
   background: oklch(0.82 0.12 85 / 0.3) !important;

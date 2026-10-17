@@ -12,7 +12,7 @@ import {
 import { useResolveComment, useDeleteComment, useUpdateComment } from "@/hooks/use-comments"
 import { UserName, useDisplayName } from "@/components/UserName"
 import { AddComment } from "./AddComment"
-import { commentAnchors, useCommentAnchor, useFocusedComment, useHoveredComment } from "@/stores/comment-anchors"
+import { commentAnchors, useActiveComment, useCommentAnchor, useFocusedComment, useHoveredComment } from "@/stores/comment-anchors"
 import type { CommentListEntry, CommentEntry } from "@/api/types"
 
 function timeAgo(dateStr: string): string {
@@ -74,6 +74,7 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
   const hovered = useHoveredComment()
   const docHovered = hovered?.id === comment.id && hovered.source === "doc"
   const focused = useFocusedComment()
+  const active = useActiveComment() === comment.id
   const cardRef = useRef<HTMLDivElement>(null)
   const lineStart = anchor?.lineStart ?? comment.lineStart
   const lineEnd = anchor?.lineStart != null ? anchor.lineEnd : comment.lineEnd
@@ -105,6 +106,7 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
           "px-3 py-2.5",
           !isGeneralComment && "cursor-pointer hover:bg-accent/50 transition-colors",
           docHovered && "comment-card-pulse bg-accent/50",
+          active && "comment-card-active",
         )}
         onClick={handleThreadClick}
         onMouseEnter={isGeneralComment ? undefined : () => commentAnchors.setHovered(comment.id, "card")}

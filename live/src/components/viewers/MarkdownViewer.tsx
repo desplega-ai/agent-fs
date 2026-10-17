@@ -28,7 +28,7 @@ import { computeActiveHeadings } from "@/hooks/use-active-headings"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
 import { captureQuote, type AnchorResolution } from "@/lib/comment-anchor"
 import { buildDomTextSpace, rehypeSourceLines, type DomTextSpace } from "@/lib/dom-text-space"
-import { commentAnchors, revealComment, useHoveredComment } from "@/stores/comment-anchors"
+import { commentAnchors, revealComment, useActiveComment, useHoveredComment } from "@/stores/comment-anchors"
 import { toast } from "@/stores/toast"
 import type { CommentListEntry, CommentQuote } from "@/api/types"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
@@ -268,6 +268,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
   const anchorsRef = useRef(anchors)
   anchorsRef.current = anchors
   const hovered = useHoveredComment()
+  const active = useActiveComment()
   // Resolved DOM ranges, for hover hit-testing.
   const anchorRangesRef = useRef(new Map<string, Range>())
 
@@ -337,8 +338,8 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
     onOutlineChange?.(items)
   }, [body, onOutlineChange])
 
-  // Paint each comment's resolved range. The hovered comment is emphasized,
-  // and pulses when hovered from its sidebar card.
+  // Paint each comment's resolved range. The hovered or revealed comment is
+  // emphasized, and pulses when hovered from its sidebar card.
   useEffect(() => {
     const ranges = new Map<string, Range>()
     anchorRangesRef.current = ranges
@@ -356,7 +357,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
       if (!range) return
       ranges.set(id, range)
       groups[r.status === "moved" ? "comment-anchor-moved" : "comment-anchor"].push(range)
-      if (hovered?.id === id) groups["comment-anchor-active"].push(range)
+      if (hovered?.id === id || active === id) groups["comment-anchor-active"].push(range)
       if (!supportsHighlights) {
         for (const el of domSpace.blocksFor(r.start, r.end)) {
           el.classList.add("comment-indicator")
@@ -383,7 +384,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
       for (const el of marked) el.classList.remove("comment-indicator")
       pulseTimer?.()
     }
-  }, [domSpace, anchors, hovered])
+  }, [domSpace, anchors, hovered, active])
 
   // Hovering a highlighted range pulses its sidebar card. Clicking it scrolls
   // the card into view.

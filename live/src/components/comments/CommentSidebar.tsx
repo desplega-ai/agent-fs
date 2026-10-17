@@ -1,11 +1,20 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import { MessageSquarePlus, MessageCircle, ChevronDown, ChevronRight, PanelRightClose } from "lucide-react"
 import { useAllComments } from "@/hooks/use-comments"
 import { useAuth } from "@/contexts/auth"
 import { sidePanelStore, useAddCommentPending } from "@/stores/side-panel"
+import { useCommentAnchorMap } from "@/stores/comment-anchors"
+import { COMMENT_SORTS, DEFAULT_COMMENT_SORT, isCommentSort, sortComments, type CommentSort } from "@/lib/comment-sort"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { Spinner } from "@/components/ui/spinner"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -13,6 +22,80 @@ import {
 } from "@/components/ui/tooltip"
 import { CommentThread } from "./CommentThread"
 import { AddComment } from "./AddComment"
+
+const SORT_KEY = "liveui:comments:sort"
+
+function readPersistedSort(): CommentSort {
+  try {
+    if (typeof localStorage === "undefined") return DEFAULT_COMMENT_SORT
+    const raw = localStorage.getItem(SORT_KEY)
+    const parsed = raw === null ? null : JSON.parse(raw)
+    return isCommentSort(parsed) ? parsed : DEFAULT_COMMENT_SORT
+  } catch {
+    return DEFAULT_COMMENT_SORT
+  }
+}
+
+let currentSort: CommentSort = readPersistedSort()
+const sortListeners = new Set<() => void>()
+
+function setSort(next: CommentSort) {
+  if (next === currentSort) return
+  currentSort = next
+  try {
+    localStorage.setItem(SORT_KEY, JSON.stringify(next))
+  } catch {
+    // ignore quota / privacy errors
+  }
+  sortListeners.forEach((l) => l())
+}
+
+function subscribeSort(callback: () => void): () => void {
+  sortListeners.add(callback)
+  return () => {
+    sortListeners.delete(callback)
+  }
+}
+
+/** One sort for every mounted sidebar (the desktop rail and the mobile sheet). */
+function useCommentSort(): CommentSort {
+  return useSyncExternalStore(subscribeSort, () => currentSort, () => currentSort)
+}
+
+function CommentSortMenu() {
+  const sort = useCommentSort()
+  const label = COMMENT_SORTS.find((s) => s.value === sort)?.label
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="xs"
+            className="gap-1 text-muted-foreground"
+            aria-label={`Sort comments: ${label}`}
+            title="Sort comments"
+          >
+            {label}
+            <ChevronDown />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="end" className="w-32">
+        <DropdownMenuRadioGroup
+          value={sort}
+          onValueChange={(value) => { if (isCommentSort(value)) setSort(value) }}
+        >
+          {COMMENT_SORTS.map((s) => (
+            <DropdownMenuRadioItem key={s.value} value={s.value} closeOnClick>
+              {s.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 interface CommentSidebarProps {
   path: string
@@ -28,6 +111,21 @@ export function CommentSidebar({ path, isOpen = false, showHeader = true, onComm
   const { unresolvedComments, resolvedComments, isLoading } = useAllComments(path, isOpen)
   const [showAddForm, setShowAddForm] = useState(false)
   const [showResolved, setShowResolved] = useState(false)
+  const sort = useCommentSort()
+  const anchors = useCommentAnchorMap()
+
+  // Status keeps resolved comments in their own section below the open ones.
+  // The other sorts mix them into the list once they are shown.
+  const grouped = sort === "status"
+  const openIds = new Set(unresolvedComments.map((c) => c.id))
+  const listed = sortComments(
+    grouped || !showResolved
+      ? unresolvedComments
+      : [...unresolvedComments, ...resolvedComments.filter((c) => !openIds.has(c.id))],
+    sort,
+    anchors,
+  )
+  const resolvedListed = grouped && showResolved ? sortComments(resolvedComments, sort, anchors) : []
 
   // The `n` shortcut requests the add-comment form via the side-panel store.
   // Consume it here (the sidebar owns the form's open state).
@@ -51,6 +149,7 @@ export function CommentSidebar({ path, isOpen = false, showHeader = true, onComm
             )}
           </span>
           <div className="flex items-center gap-0.5">
+            <CommentSortMenu />
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -92,6 +191,7 @@ export function CommentSidebar({ path, isOpen = false, showHeader = true, onComm
       )}
       {!showHeader && (
         <div className="flex justify-end gap-0.5 px-3 py-1 shrink-0">
+          <CommentSortMenu />
           <Tooltip>
             <TooltipTrigger
               render={
@@ -166,7 +266,7 @@ export function CommentSidebar({ path, isOpen = false, showHeader = true, onComm
           </div>
         ) : (
           <>
-            {unresolvedComments.map((comment) => (
+            {listed.map((comment) => (
               <CommentThread
                 key={comment.id}
                 comment={comment}
@@ -185,16 +285,15 @@ export function CommentSidebar({ path, isOpen = false, showHeader = true, onComm
                   {showResolved ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
                   {resolvedComments.length} resolved
                 </button>
-                {showResolved &&
-                  resolvedComments.map((comment) => (
-                    <CommentThread
-                      key={comment.id}
-                      comment={comment}
-                      path={path}
-                      currentUserId={user?.userId}
-                      onCommentClick={onCommentClick}
-                    />
-                  ))}
+                {resolvedListed.map((comment) => (
+                  <CommentThread
+                    key={comment.id}
+                    comment={comment}
+                    path={path}
+                    currentUserId={user?.userId}
+                    onCommentClick={onCommentClick}
+                  />
+                ))}
               </div>
             )}
           </>
