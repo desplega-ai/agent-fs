@@ -183,6 +183,12 @@ Only the `local` provider is affected. Before 0.16.6 it embedded in batches of 5
 
 On the first start, the daemon re-embeds every file once more, in the background, the same way as in 0.16.5. If the 0.16.5 run has not finished yet, the two runs merge: files still `pending` are embedded once, with the fixed batch. `openai` and `gemini` keep their vectors, and nothing runs for them.
 
+## Upgrading to 0.17.3: PDF text is searchable
+
+PDF text is searchable with every embedding provider. At boot, the daemon indexes existing PDFs once in the paced background migration.
+With OpenAI or Gemini, this sends extracted PDF text to the provider.
+Without an embedding provider, run `agent-fs reindex` in each drive to populate full-text search.
+
 ## Vector search cost
 
 `vec-search` and the semantic half of `search` compare the query with every stored chunk vector, in one scan per search. The cost grows with the total chunk count across all drives: on a dedicated CPU, 150k chunks take about 400 ms per scan.

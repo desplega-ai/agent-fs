@@ -222,6 +222,7 @@ export const contentChunks = sqliteTable(
     content: text("content").notNull(),
     charOffset: integer("char_offset").notNull(),
     tokenCount: integer("token_count").notNull(),
+    page: integer("page"),
   },
   (table) => ({
     drivePathIdx: index("idx_content_chunks_drive_path").on(

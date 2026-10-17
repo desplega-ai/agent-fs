@@ -190,7 +190,8 @@ CREATE TABLE IF NOT EXISTS content_chunks (
   chunk_index INTEGER NOT NULL,
   content TEXT NOT NULL,
   char_offset INTEGER NOT NULL,
-  token_count INTEGER NOT NULL
+  token_count INTEGER NOT NULL,
+  page INTEGER
 );
 
 -- Every write, rm, mv and the embedding job look chunks up by (drive, path).

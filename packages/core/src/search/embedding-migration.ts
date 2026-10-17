@@ -3,7 +3,7 @@ import type { DB } from "../db/index.js";
 import type { StorageAdapter } from "../storage/adapter.js";
 import type { EmbeddingProvider } from "./embeddings/provider.js";
 import { getS3Key } from "../ops/versioning.js";
-import { decodeIndexableText, detectMimeType } from "../ops/mime.js";
+import { extractIndexableText, detectMimeType } from "../ops/mime.js";
 import {
   MAX_EMBED_CHARS,
   clearEmbeddings,
@@ -22,6 +22,7 @@ import {
  *      `reindex` op skips indexed files, so this is the only path that
  *      refreshes them. Once per `FAILED_RETRY` and format, it also marks
  *      `failed` files `pending`: nothing else retries them.
+ *      It also marks NULL-status PDFs pending for a one-time text backfill.
  *   2. `runPendingEmbeddings()` (async, in the background): embeds every
  *      `pending` file again. A crash leaves the rest `pending`, so the next
  *      boot resumes. It also picks up files whose on-write job never ran.
@@ -98,6 +99,15 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
       setMeta.run(FAILED_RETRY_KEY, retry);
     })();
   }
+
+  // A processed PDF always ends indexed or failed, so IS NULL selects only PDFs that still need the backfill.
+  // See indexFileEmbeddings.pageStarts for the terminal PDF status rule.
+  sqlite
+    .prepare(
+      "UPDATE files SET embedding_status = 'pending' " +
+        "WHERE embedding_status IS NULL AND is_deleted = 0 AND content_type = 'application/pdf'"
+    )
+    .run();
 
   return !!sqlite
     .prepare("SELECT 1 FROM files WHERE embedding_status = 'pending' AND is_deleted = 0 LIMIT 1")
@@ -192,12 +202,16 @@ export async function runPendingEmbeddings(
       const cpuStart = cpuMs();
       try {
         const object = await s3.getObject(getS3Key(row.orgId, row.driveId, row.path));
-        const content = decodeIndexableText(
+        const extracted = await extractIndexableText(
           object.body,
           object.contentType ?? detectMimeType(row.path)
         );
         // Nothing to embed: drop chunks of an older, text version too.
-        if (content === null || content.trim() === "" || content.length > MAX_EMBED_CHARS) {
+        if (
+          extracted === null ||
+          (extracted.pageStarts === undefined && extracted.text.trim() === "") ||
+          extracted.text.length > MAX_EMBED_CHARS
+        ) {
           if (clearEmbeddings(db, row)) result.skipped++;
           else result.superseded++;
           continue;
@@ -206,7 +220,9 @@ export async function runPendingEmbeddings(
           indexFileEmbeddings(db, provider, {
             path: row.path,
             driveId: row.driveId,
-            content,
+            content: extracted.text,
+            pageStarts: extracted.pageStarts,
+            refreshFts: extracted.pageStarts !== undefined,
             version: row.version,
           })
         );

@@ -7,8 +7,9 @@ import {
   assertExpectedVersion,
 } from "./versioning.js";
 import { indexFile, removeFromIndex } from "../search/fts.js";
+import { readCurrentVersion } from "../search/pipeline.js";
 import { schema } from "../db/index.js";
-import { decodeIndexableText, detectMimeType } from "./mime.js";
+import { extractIndexableText, detectMimeType } from "./mime.js";
 import { clearSearchData } from "./search-index.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { normalizePath } from "./paths.js";
@@ -57,6 +58,7 @@ export async function mv(
     contentType,
     contentHash,
   });
+  const targetVersion = readCurrentVersion(ctx.db, { path: to, driveId: ctx.driveId });
 
   // 4. Delete original
   await ctx.s3.deleteObject(fromKey);
@@ -70,22 +72,26 @@ export async function mv(
   });
 
   removeFromIndex(ctx.db, { path: from, driveId: ctx.driveId });
-  const content = decodeIndexableText(obj.body, contentType);
-  if (content === null) {
-    clearSearchData(ctx, to);
-  } else {
-    indexFile(ctx.db, { path: to, driveId: ctx.driveId, content });
-    // Update chunk paths in-place (vectors stay the same).
-    ctx.db
-      .update(schema.contentChunks)
-      .set({ filePath: to })
-      .where(
-        and(
-          eq(schema.contentChunks.filePath, from),
-          eq(schema.contentChunks.driveId, ctx.driveId)
+  const extracted = await extractIndexableText(obj.body, contentType);
+  if (readCurrentVersion(ctx.db, { path: to, driveId: ctx.driveId }) === targetVersion) {
+    if (extracted === null) {
+      clearSearchData(ctx, to);
+    } else {
+      indexFile(ctx.db, { path: to, driveId: ctx.driveId, content: extracted.text });
+      // Update chunk paths in-place (vectors stay the same).
+      ctx.db
+        .update(schema.contentChunks)
+        .set({ filePath: to })
+        .where(
+          and(
+            eq(schema.contentChunks.filePath, from),
+            eq(schema.contentChunks.driveId, ctx.driveId)
+          )
         )
-      )
-      .run();
+        .run();
+    }
+  } else {
+    clearSearchData(ctx, from);
   }
 
   // Stars follow the file.

@@ -11,6 +11,7 @@ export interface VectorCandidate {
   path: string;
   distance: number;
   snippet: string;
+  page?: number;
   author: string;
   modifiedAt: Date;
 }
@@ -66,6 +67,7 @@ function addDistinctFiles(
       id: schema.contentChunks.id,
       path: schema.contentChunks.filePath,
       content: schema.contentChunks.content,
+      page: schema.contentChunks.page,
       author: schema.files.author,
       modifiedAt: schema.files.modifiedAt,
     })
@@ -100,6 +102,7 @@ function addDistinctFiles(
       path: match.path,
       distance: hit.distance,
       snippet: match.content.slice(0, 200),
+      page: match.page ?? undefined,
       author: match.author,
       modifiedAt: match.modifiedAt,
     });

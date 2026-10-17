@@ -80,7 +80,7 @@ export async function revert(
     contentHash,
   });
 
-  indexBytesForSearch(ctx, path, oldContent.body, contentType);
+  await indexBytesForSearch(ctx, path, oldContent.body, contentType);
 
   return { version, revertedTo: params.version };
 }

@@ -1461,6 +1461,16 @@ async function runStandardTests(daemonUrl: string) {
     assert(result.results.length > 0, true, "Expected hybrid search results via FTS fallback");
   });
 
+  await test("PDF text is searchable without embedding credentials", () => {
+    const fixture = resolve("packages/core/src/search/__tests__/fixtures/text.pdf");
+    const path = "/search/maintenance.pdf";
+    runJson(`write ${path} --file '${fixture}'`);
+    const fts = runJson("fts 'basalt lighthouse maintenance log'");
+    assert(fts.matches.some((match: any) => match.path === path), true, "Expected PDF text in FTS results");
+    const search = runJson("search 'basalt lighthouse maintenance log'");
+    assert(search.results.some((result: any) => result.path === path), true, "Expected PDF text in hybrid search results");
+  });
+
   // -- comments --
 
   await test("comment add + list + resolve", () => {

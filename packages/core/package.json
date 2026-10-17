@@ -16,6 +16,7 @@
     "node-llama-cpp": "^3.17.1",
     "openai": "^6.29.0",
     "sqlite-vec": "^0.1.9",
+    "unpdf": "1.9.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {

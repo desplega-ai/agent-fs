@@ -64,6 +64,14 @@ export function runMigrations(sqlite: Database): void {
     sqlite.exec("ALTER TABLE shares ADD COLUMN kind TEXT NOT NULL DEFAULT 'file'");
   }
 
+  // Migration 3d: add content_chunks.page for PDF text chunks.
+  const chunkCols = sqlite
+    .prepare("PRAGMA table_info(content_chunks)")
+    .all() as Array<{ name: string }>;
+  if (!chunkCols.some((c) => c.name === "page")) {
+    sqlite.exec("ALTER TABLE content_chunks ADD COLUMN page INTEGER");
+  }
+
   // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //
   // Drive visibility is strict explicit membership: drives with zero

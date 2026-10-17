@@ -4,7 +4,8 @@ import { Database } from "bun:sqlite";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import type { EmbeddingProvider } from "./embeddings/provider.js";
-import { chunkContent } from "./chunker.js";
+import { indexFile } from "./fts.js";
+import { chunkContent, type Chunk } from "./chunker.js";
 import { toUnitVector } from "./vectors.js";
 import { EmbeddingProviderError } from "../errors.js";
 
@@ -60,6 +61,18 @@ export async function withEmbeddingSlot<T>(fn: () => Promise<T>): Promise<T> {
  * batch would also exceed OpenAI's per-request limits.
  */
 export const MAX_EMBED_CHARS = 2_000_000;
+
+/** Maps each chunk's first non-whitespace character to its PDF page. */
+export function chunkPages(chunks: Chunk[], pageStarts: number[]): number[] {
+  let pageIndex = 0;
+  return chunks.map((chunk) => {
+    const offset = chunk.charOffset + (chunk.content.length - chunk.content.trimStart().length);
+    while (pageIndex + 1 < pageStarts.length && pageStarts[pageIndex + 1] <= offset) {
+      pageIndex++;
+    }
+    return pageIndex + 1;
+  });
+}
 
 function deleteChunks(db: DB, params: { path: string; driveId: string }): void {
   const raw = getRawDb(db);
@@ -144,13 +157,23 @@ export function readCurrentVersion(
  * the status. The check and the whole replacement run in one transaction, so
  * a failed insert rolls back to the previous index.
  *
- * Text over `MAX_EMBED_CHARS`, or blank text, is not embedded: the job drops
- * the file's chunks, clears its status, and returns `false`.
+ * Oversized text and blank non-PDF text clear the chunks and status.
+ * Empty PDF text ends indexed with no chunks.
  */
 export async function indexFileEmbeddings(
   db: DB,
   provider: EmbeddingProvider,
-  params: { path: string; driveId: string; content: string; version: string | null }
+  params: {
+    path: string;
+    driveId: string;
+    content: string;
+    version: string | null;
+    /**
+     * Identifies PDF input. A PDF never ends with a NULL status, so the boot backfill runs once per PDF.
+     */
+    pageStarts?: number[];
+    refreshFts?: boolean;
+  }
 ): Promise<boolean> {
   const raw = getRawDb(db);
   const isCurrent = () => readCurrentVersion(db, params) === params.version;
@@ -165,20 +188,23 @@ export async function indexFileEmbeddings(
     // 1. Chunk content. Blank text has nothing to embed, and providers reject
     // an empty request.
     const chunks = params.content.trim() === "" ? [] : await chunkContent(params.content);
-    if (chunks.length === 0) {
+    if (chunks.length === 0 && params.pageStarts === undefined) {
       clearEmbeddings(db, params);
       return false;
     }
 
     // 2. Generate and validate embeddings FIRST (before any DB writes)
     const texts = chunks.map((c) => c.content);
-    const embeddings = await provider.embedDocuments(texts, { title: basename(params.path) });
+    const embeddings = chunks.length === 0
+      ? []
+      : await provider.embedDocuments(texts, { title: basename(params.path) });
     if (embeddings.length !== chunks.length) {
       throw new EmbeddingProviderError(
         `Embedding provider returned ${embeddings.length} vectors for ${chunks.length} chunks`
       );
     }
     const vectors = embeddings.map((values) => toUnitVector(values, provider.dimensions));
+    const pages = params.pageStarts === undefined ? undefined : chunkPages(chunks, params.pageStarts);
 
     const insertVec = raw.prepare(
       "INSERT INTO chunk_vectors(chunk_id, embedding) VALUES (?, ?)"
@@ -186,6 +212,11 @@ export async function indexFileEmbeddings(
 
     return raw.transaction(() => {
       if (!isCurrent()) return false;
+
+      // Refresh FTS inside this version-guarded transaction so an old version never overwrites a newer FTS row.
+      if (params.refreshFts) {
+        indexFile(db, { path: params.path, driveId: params.driveId, content: params.content });
+      }
 
       // 3. Delete old chunks + vectors for this file
       deleteChunks(db, params);
@@ -201,6 +232,7 @@ export async function indexFileEmbeddings(
             content: chunks[i].content,
             charOffset: chunks[i].charOffset,
             tokenCount: chunks[i].tokenCount,
+            page: pages?.[i] ?? null,
           })
           .returning({ id: schema.contentChunks.id })
           .get();
@@ -240,7 +272,7 @@ export async function indexFileEmbeddings(
 export function scheduleEmbedding(
   db: DB,
   provider: EmbeddingProvider | null,
-  params: { path: string; driveId: string; content: string }
+  params: { path: string; driveId: string; content: string; pageStarts?: number[] }
 ): void {
   if (!provider) return;
 

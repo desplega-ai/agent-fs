@@ -2,9 +2,9 @@ import { eq, and } from "drizzle-orm";
 import { Database } from "bun:sqlite";
 import { schema } from "../db/index.js";
 import { removeFromIndex, indexFile } from "../search/fts.js";
-import { scheduleEmbedding } from "../search/pipeline.js";
+import { readCurrentVersion, scheduleEmbedding } from "../search/pipeline.js";
 import type { OpContext } from "./types.js";
-import { decodeIndexableText } from "./mime.js";
+import { extractIndexableText } from "./mime.js";
 
 export function clearSearchData(ctx: OpContext, path: string): void {
   removeFromIndex(ctx.db, { path, driveId: ctx.driveId });
@@ -52,28 +52,32 @@ export function clearSearchData(ctx: OpContext, path: string): void {
 export function indexTextForSearch(
   ctx: OpContext,
   path: string,
-  content: string
+  content: string,
+  pageStarts?: number[]
 ): void {
   indexFile(ctx.db, { path, driveId: ctx.driveId, content });
   scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
     path,
     driveId: ctx.driveId,
     content,
+    pageStarts,
   });
 }
 
-export function indexBytesForSearch(
+export async function indexBytesForSearch(
   ctx: OpContext,
   path: string,
   bytes: Uint8Array,
   contentType: string
-): string | null {
-  const content = decodeIndexableText(bytes, contentType);
-  if (content === null) {
+): Promise<string | null> {
+  const version = readCurrentVersion(ctx.db, { path, driveId: ctx.driveId });
+  const extracted = await extractIndexableText(bytes, contentType);
+  if (readCurrentVersion(ctx.db, { path, driveId: ctx.driveId }) !== version) return null;
+  if (extracted === null) {
     clearSearchData(ctx, path);
     return null;
   }
 
-  indexTextForSearch(ctx, path, content);
-  return content;
+  indexTextForSearch(ctx, path, extracted.text, extracted.pageStarts);
+  return extracted.text;
 }
