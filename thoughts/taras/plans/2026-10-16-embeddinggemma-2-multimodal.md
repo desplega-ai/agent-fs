@@ -883,24 +883,30 @@ Deliverable: the CLI prints markers and page numbers. MCP results carry `kind`, 
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Typecheck passes: `bun run typecheck`
-- [ ] Unit tests pass, including the live helper: `bun run test`
-- [ ] Live build passes: `cd live && pnpm build`
-- [ ] Build passes: `bun run build`
-- [ ] E2E local mode passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only`
-- [ ] Lockfile and versions are clean before release: `bun install --frozen-lockfile && bun run scripts/sync-versions.ts --check`
+- [x] Typecheck passes: `bun run typecheck`
+- [x] Unit tests pass, including the live helper: `bun run test`
+  - Result: 1540 pass, 61 skip, 0 fail. The live helper has 4 tests, the CLI formatter test covers `search` and `vec-search`.
+- [x] Live build passes: `cd live && pnpm build`
+- [x] Build passes: `bun run build`
+- [x] E2E local mode passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only`
+  - Result: 187/187 passed, 20 skipped.
+- [x] Lockfile and versions are clean before release: `bun install --frozen-lockfile && bun run scripts/sync-versions.ts --check`
 - [ ] Versions in sync after release: `bun run scripts/sync-versions.ts --check`
 
 #### Automated QA:
-- [ ] Browser check with `agent-browser` (load `agent-browser skills get core` first). Follow the MinIO recipe in the memory note `live-ui-browser-e2e-needs-minio`, with `AGENT_FS_HOME=/tmp/eg2-plan/p6-home`, `models` symlinked to `/tmp/eg2-plan/tjs-cache`, and `EMBEDDING_PROVIDER=local EMBEDDING_MODEL=embeddinggemma-2`.
+- [x] Browser check with `agent-browser` (load `agent-browser skills get core` first). Follow the MinIO recipe in the memory note `live-ui-browser-e2e-needs-minio`, with `AGENT_FS_HOME=/tmp/eg2-plan/p6-home`, `models` symlinked to `/tmp/eg2-plan/tjs-cache`, and `EMBEDDING_PROVIDER=local EMBEDDING_MODEL=embeddinggemma-2`.
+  - Result: MinIO daemon with EmbeddingGemma 2. The PNG hit shows a 40 px lazy thumbnail and an "Image" chip. PDF hits show "PDF p.N" chips and no thumbnail. Marker snippets are hidden. A click on the `image-only.pdf` p.1 hit gives `?page=1` and an iframe src ending in `#page=1`. A text.pdf p.2 hit opens page 2. A hit on the PDF that is already open moves it to the new page. Enter works too. Chips fit at 390x844. Screenshots: `/tmp/eg2-plan/p6-*.png`.
   - Write a PNG, `text.pdf` and `image-only.pdf`.
   - Search for each one. Screenshot the modal to `/tmp/eg2-plan/p6-search.png`.
   - Confirm the thumbnail and the chips.
   - Click the PDF page hit and confirm that the iframe URL ends with `#page=1`.
-- [ ] Upload the screenshots with `agent-fs write qa/agent-fs/2026-10-XX-eg2-display/<name>.png --file <png>` and add signed URLs to the PR body. If agent-fs is not configured, list the local paths in the PR instead.
+- [x] Upload the screenshots with `agent-fs write qa/agent-fs/2026-10-XX-eg2-display/<name>.png --file <png>` and add signed URLs to the PR body. If agent-fs is not configured, list the local paths in the PR instead.
+  - Result: uploaded to `qa/agent-fs/2026-10-17-eg2-display/`. Signed URLs (7 days) are in the PR body.
 
 #### Manual Verification:
 - [ ] Taras judges the chip and thumbnail look in the live modal.
+
+**Implementation choices (2026-10-17)**: `[page N]` goes after the score and before `by <author>`, so the author stays last. A PDF text hit also gets the `PDF p.N` chip and the deep link, because the helper keys on `page`. The thumbnail takes the place of the file icon. The chip reuses the score chip classes. Both review axes accepted these.
 
 **Implementation Note**: After this phase, pause for manual confirmation. Then commit `[phase 6] show image and page matches`, run `bun install --frozen-lockfile` and `bun run scripts/sync-versions.ts --check`, run `./scripts/release.sh 0.17.4`, and open the PR. After the release, run Manual E2E §3 with 0.17.4 on the swarm.
 

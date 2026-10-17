@@ -13,7 +13,8 @@ interface BrowserContextValue {
   selectedFile: string | null
   recentFiles: readonly string[]
   navigateToFolder: (path: string) => void
-  selectFile: (path: string | null) => void
+  /** `page` opens a PDF at that page through `?page=N`. */
+  selectFile: (path: string | null, options?: { page?: number }) => void
   setSelectedFile: (path: string | null) => void
 }
 
@@ -61,10 +62,11 @@ export function BrowserProvider({ children }: { children: ReactNode }) {
     }
   }, [navigate, orgId, driveId])
 
-  const selectFile = useCallback((path: string | null) => {
+  const selectFile = useCallback((path: string | null, options?: { page?: number }) => {
     setSelectedFile(path)
     if (path && orgId && driveId) {
-      navigate(`/file/~/${orgId}/${driveId}/${path}`)
+      const query = options?.page ? `?page=${options.page}` : ""
+      navigate(`/file/~/${orgId}/${driveId}/${path}${query}`)
     } else {
       navigate("/files")
     }

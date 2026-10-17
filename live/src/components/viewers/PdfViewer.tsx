@@ -4,10 +4,12 @@ import { Spinner } from "@/components/ui/spinner"
 
 interface PdfViewerProps {
   path: string
+  /** Opens the PDF at this 1-based page. */
+  page?: number
   className?: string
 }
 
-export function PdfViewer({ path, className }: PdfViewerProps) {
+export function PdfViewer({ path, page, className }: PdfViewerProps) {
   // The default signed URL carries `Content-Disposition: attachment`, which
   // makes the browser download the PDF instead of rendering it in the frame.
   const { url, error, isLoading } = useSignedUrl(path, "inline")
@@ -30,7 +32,7 @@ export function PdfViewer({ path, className }: PdfViewerProps) {
 
   return (
     <iframe
-      src={url}
+      src={page ? `${url}#page=${page}` : url}
       title={path}
       className={cn("w-full h-full border-0", className)}
     />

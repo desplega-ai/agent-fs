@@ -224,6 +224,10 @@ export interface SearchResultItem {
   path: string
   score: number
   snippet: string
+  /** What the best semantic chunk holds (servers from 0.17.4). */
+  kind?: "text" | "image"
+  /** PDF page of the best semantic chunk (servers from 0.17.3). */
+  page?: number
   author?: string
   modifiedAt?: string
 }

@@ -340,6 +340,20 @@ agent-fs search "financial performance metrics" --limit 5
 agent-fs vec-search "financial performance metrics" --limit 5
 ```
 
+Without `--json`, a PDF hit prints `[page N]` after the score. An image hit prints its marker snippet:
+
+```text
+$ agent-fs search "revenue chart" --limit 3
+/reports/q1.pdf (score: 1.000) [page 2]  by local@agent-fs.local
+  Quarterly <b>revenue</b> grew 12% over Q4...
+
+/charts/revenue.png (score: 0.492)  by local@agent-fs.local
+  [image]
+
+/decks/board.pdf (score: 0.484) [page 1]  by local@agent-fs.local
+  [PDF page 1]
+```
+
 ### Query data files with SQL
 
 ```bash

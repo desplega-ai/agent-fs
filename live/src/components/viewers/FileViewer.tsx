@@ -204,6 +204,10 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     setSearchParams(next, { replace: true })
   }, [wantsEdit, path]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // `?page=N` (set by a search hit on a PDF page) opens the PDF at that page.
+  const pageParam = Number(searchParams.get("page"))
+  const pdfPage = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : undefined
+
   const handleEnterEdit = useCallback(() => {
     setIsEditing(true)
     setMdEditView(defaultMdEditView)
@@ -426,7 +430,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
         {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
-        <PdfViewer path={path} className="flex-1" />
+        <PdfViewer path={path} page={pdfPage} className="flex-1" />
       </div>
     )
   }

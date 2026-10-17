@@ -13,15 +13,20 @@ import { useBrowser } from "@/contexts/browser"
 import { useFtsSearch } from "@/hooks/use-fts-search"
 import { useSemanticSearch } from "@/hooks/use-semantic-search"
 import { useHybridSearch } from "@/hooks/use-hybrid-search"
+import { useSignedUrl } from "@/hooks/use-signed-url"
 import { glyphFor } from "@/lib/file-glyphs"
 import { cn } from "@/lib/utils"
 import { describeRequestError } from "@/lib/request-errors"
+import { searchHitDisplay } from "@/lib/search-hit"
+import type { SearchResultItem } from "@/api/types"
 import type { SearchType } from "./SearchModeToggle"
 
 interface ResultItem {
   path: string
   snippet?: string
   score?: number
+  kind?: SearchResultItem["kind"]
+  page?: number
 }
 
 interface SearchModalProps {
@@ -77,6 +82,8 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
             path: r.path,
             snippet: r.snippet,
             score: r.score,
+            kind: r.kind,
+            page: r.page,
           })),
           fetching: hybridResult.isFetching,
           error: hybridResult.error,
@@ -106,6 +113,8 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
             path: r.path,
             snippet: r.snippet,
             score: r.score,
+            kind: r.kind,
+            page: r.page,
           })),
           fetching: semanticResult.isFetching,
           error: semanticResult.error,
@@ -125,8 +134,8 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
   const hint = success ? activeSearch.hint : undefined
   const tookMs = success ? activeSearch.tookMs : undefined
 
-  const handleResultClick = (path: string) => {
-    selectFile(path)
+  const handleResultClick = (result: ResultItem) => {
+    selectFile(result.path, { page: result.page })
     onOpenChange(false)
   }
 
@@ -165,7 +174,7 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
       const target = results[selectedIndex]
       if (target) {
         e.preventDefault()
-        handleResultClick(target.path)
+        handleResultClick(target)
       }
     }
   }
@@ -240,7 +249,7 @@ export function SearchModal({ open, onOpenChange, initialQuery = "" }: SearchMod
                     key={r.path}
                     result={r}
                     selected={i === selectedIndex}
-                    onClick={() => handleResultClick(r.path)}
+                    onClick={() => handleResultClick(r)}
                     onMouseEnter={() => setSelectedIndex(i)}
                   />
                 ))}
@@ -300,6 +309,7 @@ function ResultRow({
   const dirPath = result.path.slice(0, result.path.length - filename.length).replace(/\/$/, "")
   const glyph = glyphFor(result.path)
   const Icon = glyph?.Icon ?? FileText
+  const { chip, thumbnail } = searchHitDisplay(result)
 
   return (
     <li data-result-row aria-selected={selected}>
@@ -312,15 +322,24 @@ function ResultRow({
           selected ? "bg-muted/80" : "hover:bg-muted/60",
         )}
       >
-        <Icon
-          className={cn(
-            "mt-0.5 size-4 shrink-0",
-            glyph?.className ?? "text-muted-foreground",
-          )}
-        />
+        {thumbnail ? (
+          <ResultThumbnail path={result.path} />
+        ) : (
+          <Icon
+            className={cn(
+              "mt-0.5 size-4 shrink-0",
+              glyph?.className ?? "text-muted-foreground",
+            )}
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="truncate text-sm font-medium">{filename}</span>
+            {chip && (
+              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {chip}
+              </span>
+            )}
             {result.score !== undefined && (
               <span className="ml-auto shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
                 {(result.score * 100).toFixed(0)}%
@@ -330,7 +349,8 @@ function ResultRow({
           {dirPath && (
             <div className="truncate text-[11px] text-muted-foreground">{dirPath}</div>
           )}
-          {result.snippet && (
+          {/* An image hit's snippet is a marker such as `[image]`. The chip says the same. */}
+          {result.snippet && result.kind !== "image" && (
             <p
               className="mt-1 line-clamp-2 text-xs text-muted-foreground/90 [&_mark]:rounded [&_mark]:bg-amber-200/60 [&_mark]:px-0.5 [&_mark]:text-foreground dark:[&_mark]:bg-amber-400/30"
               dangerouslySetInnerHTML={{ __html: result.snippet }}
@@ -339,6 +359,20 @@ function ResultRow({
         </div>
       </button>
     </li>
+  )
+}
+
+function ResultThumbnail({ path }: { path: string }) {
+  const { url } = useSignedUrl(path, "inline")
+
+  if (!url) return <div className="size-10 shrink-0 rounded bg-muted" />
+  return (
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      className="size-10 shrink-0 rounded bg-muted object-cover ring-1 ring-border"
+    />
   )
 }
 

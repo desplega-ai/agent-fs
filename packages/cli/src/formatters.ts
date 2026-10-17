@@ -192,6 +192,7 @@ function formatSearch(result: any): string {
     .map(
       (r: any) =>
         `${r.path} (score: ${typeof r.score === "number" ? r.score.toFixed(3) : r.score})` +
+        (r.page != null ? ` [page ${r.page}]` : "") +
         (r.author ? `  by ${r.author}` : "") +
         `\n  ${r.snippet}`
     )

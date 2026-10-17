@@ -186,6 +186,28 @@ describe("favorite formatters", () => {
   });
 });
 
+describe("search formatter", () => {
+  test("prints the page for PDF hits and the marker snippet for image hits", () => {
+    const result = {
+      results: [
+        { path: "/docs/report.pdf", score: 0.91, snippet: "[PDF page 3]", kind: "image", page: 3 },
+        { path: "/docs/notes.pdf", score: 0.8, snippet: "quarterly revenue", kind: "text", page: 2, author: "a@example.com" },
+        { path: "/img/chart.png", score: 0.75, snippet: "[image]", kind: "image" },
+        { path: "/a.md", score: 0.5, snippet: "plain text" },
+      ],
+    };
+    for (const op of ["search", "vec-search"]) {
+      const lines = captureOutput(() => outputResult(op, result, false)).split("\n");
+      expect(lines).toContain("/docs/report.pdf (score: 0.910) [page 3]");
+      expect(lines).toContain("  [PDF page 3]");
+      expect(lines).toContain("/docs/notes.pdf (score: 0.800) [page 2]  by a@example.com");
+      expect(lines).toContain("/img/chart.png (score: 0.750)");
+      expect(lines).toContain("  [image]");
+      expect(lines).toContain("/a.md (score: 0.500)");
+    }
+  });
+});
+
 describe("diff source warning", () => {
   test("no warning when the versions were compared", () => {
     expect(diffSourceWarning({ changes: [], source: "content" })).toBeNull();
