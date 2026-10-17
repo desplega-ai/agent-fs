@@ -1,13 +1,12 @@
 import type { CommentListEntry } from "@/api/types"
 import type { AnchorInfo } from "@/stores/comment-anchors"
 
-export type CommentSort = "line" | "newest" | "oldest" | "status"
+export type CommentSort = "line" | "newest" | "oldest"
 
 export const COMMENT_SORTS: Array<{ value: CommentSort; label: string }> = [
   { value: "line", label: "Line" },
   { value: "newest", label: "Newest" },
   { value: "oldest", label: "Oldest" },
-  { value: "status", label: "Status" },
 ]
 
 /** Newest first: the order the server returns. */
@@ -51,7 +50,5 @@ export function sortComments(
   const out = [...comments]
   if (sort === "newest") return out.sort(newest)
   if (sort === "oldest") return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-  const line = byLine(anchors)
-  if (sort === "line") return out.sort(line)
-  return out.sort((a, b) => Number(a.resolved) - Number(b.resolved) || line(a, b))
+  return out.sort(byLine(anchors))
 }

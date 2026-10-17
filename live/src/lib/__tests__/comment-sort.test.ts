@@ -57,11 +57,6 @@ describe("sortComments", () => {
     expect(ids(sortComments(all, "line", new Map()))).toEqual(["e", "b", "d", "a", "c"])
   })
 
-  test("status puts open comments first, each group in line order", () => {
-    const resolved = all.map((x) => (x.id === "b" || x.id === "c" ? { ...x, resolved: true } : x))
-    expect(ids(sortComments(resolved, "status", anchors))).toEqual(["e", "a", "d", "b", "c"])
-  })
-
   test("returns a copy", () => {
     const input = [...all]
     sortComments(input, "oldest", anchors)
@@ -73,7 +68,7 @@ describe("isCommentSort", () => {
   test("accepts only known sorts", () => {
     expect(isCommentSort(DEFAULT_COMMENT_SORT)).toBe(true)
     expect(isCommentSort("line")).toBe(true)
-    expect(isCommentSort("size")).toBe(false)
+    expect(isCommentSort("status")).toBe(false)
     expect(isCommentSort(null)).toBe(false)
   })
 })
