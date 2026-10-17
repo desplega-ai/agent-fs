@@ -232,13 +232,14 @@ export class LocalStorageAdapter implements StorageAdapter {
     assertKeyInsideDrive(key);
     try {
       const stored = await this.files.head(key);
-      // files-sdk's fs `head` stats the path without checking its type, so a
-      // folder (the fs also keeps emptied ones) answered as a file. S3 has no
-      // object at a folder key, and the ops rely on that.
+      // A folder (the fs also keeps emptied ones) must not answer as a file:
+      // S3 has no object at a folder key, and the ops rely on that. files-sdk
+      // 3's fs `head` already reports NotFound for folders (2.x did not); this
+      // check keeps that guarantee independent of the dependency.
       const entry = await stat(resolve(this.root, key)).catch(() => undefined);
       if (entry?.isDirectory()) throw noSuchKey(key);
       return {
-        contentType: stored.type,
+        contentType: stored.contentType,
         size: stored.size,
         lastModified:
           stored.lastModified != null

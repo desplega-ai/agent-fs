@@ -87,6 +87,10 @@ The CLI also looks for `packages/cli/dist/fuse-bin.manifest.json` (a SHA-256 man
 
 Each sub-package is a thin wrapper around the cross-compiled binary, published independently to npm as `@desplega.ai/agent-fs-fuse-linux-x64` / `-linux-arm64`. They contain only `package.json`, `README.md`, and `bin/agent-fs-fuse` (populated by the release workflow — locally the `bin/` dir is empty except for `.gitkeep`). The main `@desplega.ai/agent-fs` package lists both in `optionalDependencies`, pinned to the exact main version. `scripts/sync-versions.ts <version>` rewrites every `package.json`, the FUSE Cargo.toml, and `.claude-plugin/plugin.json` together so they stay in lockstep.
 
+## Storage backends
+
+`packages/core/src/storage/factory.ts` picks one of two adapters. `provider: "local"` uses `LocalStorageAdapter`, the only code that imports [`files-sdk`](https://github.com/haydenbleasel/files-sdk) (its `files-sdk/fs` adapter). Every other provider goes through `AgentS3Client` (AWS SDK v3), so a remote store works only if it speaks the S3 API. files-sdk's other provider adapters (Convex, Upstash Blob, Vercel Blob, …) are not wired in. When bumping files-sdk across a major, read its CHANGELOG for `Files`, `files-sdk/fs`, `head`/`list` result shapes and error codes, and run `packages/core/src/storage/__tests__/` plus the `--local-only` E2E.
+
 ## Key Decisions
 
 - **CLI binary name:** `agent-fs` (hyphenated, matches repo name)
