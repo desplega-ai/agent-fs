@@ -229,6 +229,29 @@ describe("LocalStorageAdapter: files-sdk 2.0.0 root after the 3.x upgrade", () =
     }
   });
 
+  test("a root that does not exist yet takes a first reserved write, ordinary key as control", async () => {
+    const first = new LocalStorageAdapter({ root: join(root, "not-yet") });
+    await first.putObject(key("first.fls-tmp"), "payload");
+    expect(dec((await first.getObject(key("first.fls-tmp"))).body)).toBe("payload");
+
+    const control = new LocalStorageAdapter({ root: join(root, "control") });
+    await control.putObject(key("first.txt"), "payload");
+    expect(dec((await control.getObject(key("first.txt"))).body)).toBe("payload");
+  });
+
+  test("a root that does not exist yet reads, deletes and lists as empty, and still refuses an escape", async () => {
+    const fresh = join(root, "not-yet");
+    const missing = new LocalStorageAdapter({ root: fresh });
+    await expect(missing.getObject(key("first.fls-tmp"))).rejects.toMatchObject({ name: "NoSuchKey" });
+    await expect(missing.headObject(key("first.fls-tmp"))).rejects.toMatchObject({ name: "NoSuchKey" });
+    await missing.deleteObject(key("first.fls-tmp"));
+    expect(await missing.listObjects(DRIVE_PREFIX)).toEqual({ objects: [], prefixes: [] });
+    await expect(missing.putObject(key("../../../../x.fls-tmp"), "payload")).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+    });
+    expect(existsSync(fresh)).toBe(false);
+  });
+
   test("a prefix through a symlink lists nothing from behind it, ancestors included", async () => {
     const outside = await mkdtemp(join(tmpdir(), "afs-local-upgrade-outside-"));
     try {

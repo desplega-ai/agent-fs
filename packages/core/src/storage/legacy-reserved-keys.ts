@@ -92,9 +92,17 @@ function keyPath(root: string, key: string): string {
   return target;
 }
 
-/** Refuse a write whose nearest existing ancestor resolves outside the root. */
+/**
+ * Refuse a write whose nearest existing ancestor resolves outside the root.
+ * A root that does not exist yet has no symlinks under it, so the lexical
+ * check in `keyPath` is all there is to enforce; the first put creates it.
+ */
 async function assertParentInsideRoot(root: string, target: string, key: string): Promise<void> {
-  const realRoot = await realpath(root);
+  const realRoot = await realpath(root).catch((err) => {
+    if (isMissing(err)) return undefined;
+    throw err;
+  });
+  if (realRoot === undefined) return;
   for (let dir = dirname(target); ; dir = dirname(dir)) {
     const real = await realpath(dir).catch((err) => {
       if (isMissing(err)) return undefined;
