@@ -71,7 +71,7 @@ agent-fs config set s3.region "auto"
 | **Tigris** | `https://t3.storage.dev` | `auto` | `false` |
 | **Bunny Storage** (S3 API, preview) | `https://<region>-s3.storage.bunnycdn.com` | your region code (e.g. `de`) | `true` |
 
-These rows come from each provider's S3 documentation: [Tigris](https://www.tigrisdata.com/docs/sdks/s3/aws-js-sdk/), [Bunny Storage](https://bunny.net/docs/storage/s3). Bunny Storage enables its S3 API only on a new storage zone and does not support object versioning, so `diff` and `revert` degrade there (see below). Tigris is the default storage for the [Fly.io deploy](https://github.com/desplega-ai/agent-fs/blob/main/DEPLOYMENT.md).
+These rows come from each provider's S3 documentation: [Tigris](https://www.tigrisdata.com/docs/sdks/s3/aws-js-sdk/), [Bunny Storage](https://bunny.net/docs/storage/s3). Bunny Storage enables its S3 API only on a new storage zone and does not support object versioning, so there `revert` returns `UNSUPPORTED_OPERATION` and `diff` falls back to the stored change summary. Tigris is the default storage for the [Fly.io deploy](https://github.com/desplega-ai/agent-fs/blob/main/DEPLOYMENT.md).
 
 ### S3 Versioning
 
