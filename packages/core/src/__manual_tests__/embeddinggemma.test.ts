@@ -62,22 +62,29 @@ describe.skipIf(!home)("EmbeddingGemma 2 cached model", () => {
     expect(dot(circle)).toBeGreaterThan(dot(square));
   }, 120_000);
 
-  test("embeds about 1600 tokens without truncation and rejects more than 8192", async () => {
+  test("keeps the event loop responsive during document embedding and rejects more than 8192 tokens", async () => {
     const text = "The cat sleeps on a warm cushion. ".repeat(200);
-    const prefixed = `title: cats.md | text: ${text}`;
-    // Inspect the same processor that the provider uses for inference.
-    await provider.embedQuery("warmup");
-    const processor = (provider as any).processor;
-    const tokens = processor.tokenizer(prefixed, { truncation: false, return_tensor: false }).input_ids;
-    const inputs = await processor([prefixed], null, null, null, { truncation: false });
-    expect(tokens.length).toBeGreaterThan(1500);
-    expect(tokens.length).toBeLessThan(2100);
-    expect(inputs.input_ids.dims[1]).toBe(tokens.length);
-    const [vector] = await provider.embedDocuments([text], { title: "cats.md" });
+    let last = performance.now();
+    let maxGap = 0;
+    let ticks = 0;
+    const timer = setInterval(() => {
+      const now = performance.now();
+      maxGap = Math.max(maxGap, now - last);
+      last = now;
+      ticks++;
+    }, 10);
+    let vector: number[];
+    try {
+      [vector] = await provider.embedDocuments([text], { title: "cats.md" });
+      await Bun.sleep(20);
+    } finally {
+      clearInterval(timer);
+    }
+    console.log(`EmbeddingGemma worker document max event-loop gap: ${maxGap.toFixed(1)} ms (${ticks} ticks)`);
+    expect(ticks).toBeGreaterThan(0);
+    expect(maxGap).toBeLessThan(200);
     expect(vector).toHaveLength(768);
     expect(Math.hypot(...vector)).toBeCloseTo(1, 5);
-    const longInputs = await processor([prefixed.repeat(6)], null, null, null, { truncation: false });
-    expect(longInputs.input_ids.dims[1]).toBeGreaterThan(8192);
     await expect(provider.embedQuery(text.repeat(6))).rejects.toBeInstanceOf(EmbeddingProviderError);
   }, 120_000);
 });

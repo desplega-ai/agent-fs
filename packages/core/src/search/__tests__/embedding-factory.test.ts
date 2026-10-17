@@ -9,7 +9,7 @@ import { GeminiEmbeddingProvider } from "../embeddings/gemini.js";
 import { embeddingFormat } from "../embedding-migration.js";
 import { getConfig } from "../../config.js";
 
-const availableTransformers: TransformersResult = { module: {} as typeof import("@huggingface/transformers") };
+const availableTransformers: TransformersResult = { module: true };
 const unavailableTransformers: TransformersResult = { reason: "missing (test)", hint: "Run: bun add -g @huggingface/transformers@4.3.1" };
 
 describe("resolveLocalModel", () => {

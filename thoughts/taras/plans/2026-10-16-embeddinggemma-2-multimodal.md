@@ -992,6 +992,32 @@ Deliverable: with `EMBEDDING_PROVIDER=local` (or unset) and an empty `EMBEDDING_
 
 **Follow-up fix (2026-10-17)**: the model and API key in config.json belong to the provider in config.json. When `EMBEDDING_PROVIDER` names another provider, the config loader drops them (an onboarded OpenAI config with `EMBEDDING_PROVIDER=local` no longer turns semantic search off). `config set embedding.provider` clears them on a change, and `setConfig`/`setConfigValue` no longer write env values to config.json.
 
+### Phase 7 additions (2026-10-17, from the local test)
+
+Taras's local test (90 files from ~/Downloads, memo `/tmp/eg2-plan/local-findings.md`) found four problems. Taras chose to fix them in #105, before the default flip.
+
+1. **EmbeddingGemma 2 off the main thread.** onnxruntime-node runs `session.run` and session creation synchronously. Every text chunk (about 1.7 s) and every image held the event loop. GC and vision reloads stalled it for 5 to 10.8 s (9 watchdog stalls, 28 SLOW requests, PDF writes up to 43 s). Run the text and vision models and PDF page rendering in a Bun Worker. The `EmbeddingProvider` interface does not change. Queries go ahead of document work. A dead worker rejects its pending calls, and the next call starts a new worker. The main thread creates and runs no onnxruntime session.
+2. **Hybrid image scoring.** FTS never indexes images, so RRF gave an image only the vector term (at most 0.5). Every file in both lists ranked above the best image. An `image` entry that FTS did not hit now scores on the vector list alone (its term counts twice). Text-only drives do not change.
+3. **Fixed candidate pool.** Both lists asked for `limit * 3` files, so the hybrid order changed with `--limit`. Use `Math.max(limit, 30)` for both lists. Limits up to 30 then give the same order, and the default limit 10 keeps today's pool.
+4. **`kind` on keyword-only hits.** FTS-only hybrid entries get `kind: "text"`.
+
+Not in scope: batching text chunks (after the worker, measure first), the shared 2-slot semaphore that starves the image job, PDF text extraction in the PUT path.
+
+#### Success Criteria (additions):
+
+##### Automated Verification:
+- [ ] `bun run typecheck`, `bun run test`, `bun run build` pass
+- [ ] `AGENT_FS_TEST_EMBEDDINGGEMMA_HOME=/tmp/eg2-plan/p2-home bun test packages/core/src/__manual_tests__/embeddinggemma.test.ts` passes through the worker
+- [ ] E2E `--local-only` and full (MinIO) pass, except the known `share-create` failure
+- [ ] Unit tests: an image at vector rank 1 ranks first over text files in both lists, a text-only drive keeps its scores, `--limit 3` gives the first 3 of `--limit 30`, FTS-only hits carry `kind: "text"`
+
+##### QA (dist build, the same 90 files, `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE=1`):
+- [ ] No watchdog stall. `/health` polled every 200 ms answers within 1 s for the whole prefill (before: 9 stalls of 5 to 10.8 s)
+- [ ] PDF writes finish in a few seconds (before: up to 43 s)
+- [ ] Hybrid: "GitHub octocat logo", "presentation slide about AI event" and "Ramp logo" put the target image in the top 2 (before: ranks 8, 19 and 4)
+- [ ] Boot line still `embeddinggemma-2 (fresh index)`, and peak RSS is no worse than 3.3 GB
+- [ ] Docker smoke (the image, a fresh volume, `EMBEDDING_PROVIDER=local`): `Model ready`, one `.md`, one PNG and one PDF write, a `kind: image` hit and a PDF page hit. The worker loads onnxruntime, sharp and `@napi-rs/canvas` on Linux
+
 **Implementation Note**: After this phase, pause for manual confirmation. Then commit `[phase 7] EmbeddingGemma 2 default for fresh indexes`, run `bun install --frozen-lockfile` and `bun run scripts/sync-versions.ts --check`, run `./scripts/release.sh 0.18.0`, and open the PR.
 
 ---

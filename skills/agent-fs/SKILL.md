@@ -195,7 +195,7 @@ For local semantic search, set `EMBEDDING_PROVIDER=local` and `EMBEDDING_MODEL=e
 With an empty model setting, fresh indexes use EmbeddingGemma 2 when transformers 4.3.1 loads locally. Otherwise, they use nomic.
 Existing nomic indexes stay on nomic. Set `EMBEDDING_MODEL=nomic-embed-text-v1.5` to select nomic explicitly.
 
-`vec-search` scores are cosine similarity. The score scale depends on the model. A good match with nomic scores about 0.6. Ranking matters more than the absolute score. Every query returns its nearest files, so check their relevance before you trust a result. Hybrid `search` scores are ranks, scaled to 0 to 1: 1 means first in both the keyword and the semantic list, 0.5 first in one of them. All three search ops return `tookMs`, the server time for the query. If the embedding provider returns an unusable vector, `search` and `vec-search` fail with `EMBEDDING_PROVIDER_ERROR` (HTTP 502). Check the provider configuration, then try again.
+`vec-search` scores are cosine similarity. The score scale depends on the model. A good match with nomic scores about 0.6. Ranking matters more than the absolute score. Every query returns its nearest files, so check their relevance before you trust a result. Hybrid `search` scores are ranks, scaled to 0 to 1: 1 means first in every list that can match the file. All three search ops return `tookMs`, the server time for the query. If the embedding provider returns an unusable vector, `search` and `vec-search` fail with `EMBEDDING_PROVIDER_ERROR` (HTTP 502). Check the provider configuration, then try again.
 
 `fts` accepts raw FTS5 syntax. Quote punctuation-bearing terms with FTS double quotes inside shell single quotes:
 

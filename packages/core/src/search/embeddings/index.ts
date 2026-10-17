@@ -57,10 +57,10 @@ export async function createEmbeddingProvider(
 ): Promise<EmbeddingProvider> {
   switch (config.provider) {
     case "local": {
-      const { model, transformers } = await resolveLocalProvider(config.model, localIndex);
+      const { model } = await resolveLocalProvider(config.model, localIndex);
       if (model === EMBEDDINGGEMMA_MODEL) {
         const { EmbeddingGemmaProvider } = await import("./embeddinggemma.js");
-        return new EmbeddingGemmaProvider(transformers);
+        return new EmbeddingGemmaProvider();
       }
       if (model && model !== NOMIC_MODEL) {
         throw new Error(`Unknown local embedding model: ${model}. Use nomic-embed-text-v1.5 or embeddinggemma-2.`);

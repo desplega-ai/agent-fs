@@ -1,3 +1,4 @@
+import { EmbeddingGemmaRuntime } from "../embeddings/embeddinggemma-runtime.mjs";
 import { describe, expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import type { DB } from "../../db/index.js";
@@ -184,6 +185,31 @@ describe("PDF text", () => {
 });
 
 describe("PDF page images", () => {
+  test("retries worker failures and caches only canvas import failures", async () => {
+    const workerPath = new URL("../embeddings/embeddinggemma-worker.ts", import.meta.url).pathname;
+    const pdfPath = new URL("../pdf.ts", import.meta.url).pathname;
+    // A fresh process isolates the module cache from earlier PDF indexing tests.
+    const child = Bun.spawn([process.execPath, "-e", `
+      import { expect, spyOn } from "bun:test";
+      import { embeddingGemmaWorker } from ${JSON.stringify(workerPath)};
+      import { canRenderPdfPages } from ${JSON.stringify(pdfPath)};
+      const call = spyOn(embeddingGemmaWorker, "call")
+        .mockRejectedValueOnce(new Error("EmbeddingGemma worker stopped: crashed"))
+        .mockRejectedValueOnce(Object.assign(new Error("@napi-rs/canvas import failed: missing"), { name: "CanvasImportError" }));
+      const warn = spyOn(console, "warn").mockImplementation(() => {});
+      const images = { supportsMime: (mime) => mime === "image/png" };
+      expect(await canRenderPdfPages(images)).toBe(false);
+      expect(warn.mock.calls[0][0]).toContain("worker stopped");
+      expect(warn.mock.calls[0][0]).not.toContain("Install canvas");
+      expect(await canRenderPdfPages(images)).toBe(false);
+      expect(warn.mock.calls[1][0]).toContain("Install canvas");
+      expect(await canRenderPdfPages(images)).toBe(false);
+      expect(call).toHaveBeenCalledTimes(2);
+    `], { stdout: "pipe", stderr: "pipe" });
+    expect(await new Response(child.stderr).text()).toBe("");
+    expect(await child.exited).toBe(0);
+  });
+
   test("renders capped pages as PNGs and preserves source bytes", async () => {
     const bytes = await fixture("text");
     const original = bytes.slice();
@@ -217,7 +243,8 @@ describe("PDF page images", () => {
     const error = spyOn(console, "error").mockImplementation(() => {});
     try {
       const bytes = new Uint8Array([1, 2, 3]);
-      const pages = await renderPdfPages(bytes, PDF_PAGE_IMAGES);
+      const runtime = new EmbeddingGemmaRuntime({ paths: { unpdf: "unpdf" }, cacheDir: "", conflict: null, version: "4.3.1", hint: "" }, async () => unpdf);
+      const pages = await runtime.renderPdfPages(bytes, PDF_PAGE_IMAGES);
       expect(pages.map(({ page, data }) => [page, ...data])).toEqual([[1, 1], [3, 3]]);
       expect(open).toHaveBeenCalledTimes(1);
       expect(open.mock.calls[0][0]).not.toBe(bytes);

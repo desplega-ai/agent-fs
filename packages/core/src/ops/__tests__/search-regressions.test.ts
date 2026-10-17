@@ -305,3 +305,67 @@ describe("Hybrid keyword quoting", () => {
     expect(result.matches.map((item) => item.path)).toEqual(["/both.md"]);
   });
 });
+
+describe("Hybrid image scoring", () => {
+  test("puts the first vector image before three text files in both lists", async () => {
+    const { ctx, db, driveId, userId } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    addFile(db, { path: "/logo.png", driveId, author: userId });
+    addChunk(db, { path: "/logo.png", driveId, distance: 0, kind: "image" });
+    for (let i = 1; i <= 3; i++) {
+      const path = `/text-${i}.md`;
+      addFile(db, { path, driveId, author: userId });
+      addChunk(db, { path, driveId, distance: i / 10 });
+      indexFile(db, { path, driveId, content: "logo" });
+    }
+    const { results } = await search(ctx, { query: "logo" });
+    expect(results.map((hit) => hit.path)).toEqual(["/logo.png", "/text-1.md", "/text-2.md", "/text-3.md"]);
+    expect(results[0].score).toBe(1);
+  });
+
+  test("preserves text scores and order from two-list RRF", async () => {
+    const { ctx, db, driveId, userId } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    for (let i = 0; i < 4; i++) {
+      const path = `/text-${i}.md`;
+      addFile(db, { path, driveId, author: userId });
+      addChunk(db, { path, driveId, distance: i / 10 });
+      if (i > 0) indexFile(db, { path, driveId, content: "logo ".repeat(i) });
+    }
+    indexFile(db, { path: "/keyword.md", driveId, content: "logo" });
+    const reference = [
+      { path: "/text-3.md", score: 0.9765625 },
+      { path: "/text-2.md", score: 0.9760624679979518 },
+      { path: "/text-1.md", score: 0.9684979838709676 },
+      { path: "/text-0.md", score: 0.5 },
+      { path: "/keyword.md", score: 0.4841269841269841 },
+    ];
+    const result = await search(ctx, { query: "logo" });
+    expect(result.results.map(({ path }) => path)).toEqual(reference.map(({ path }) => path));
+    result.results.forEach((hit, index) => expect(hit.score).toBeCloseTo(reference[index].score, 12));
+    expect(result.results.find((hit) => hit.path === "/keyword.md")?.kind).toBe("text");
+  });
+
+  test("returns the same first three results for limits 3 and 30", async () => {
+    const { ctx, db, driveId, userId } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    for (let i = 0; i < 35; i++) {
+      const path = `/text-${i}.md`;
+      addFile(db, { path, driveId, author: userId });
+      addChunk(db, { path, driveId, distance: i / 100 });
+      if (i >= 20) indexFile(db, { path, driveId, content: "logo ".repeat(i - 19) });
+    }
+    const small = await search(ctx, { query: "logo", limit: 3 });
+    const large = await search(ctx, { query: "logo", limit: 30 });
+    expect(small.results).toEqual(large.results.slice(0, 3));
+    expect(small.results.every((hit) => Number(hit.path.match(/\d+/)?.[0]) >= 20)).toBe(true);
+  });
+
+  test("marks keyword-only hits as text without a provider", async () => {
+    const { ctx, db, driveId } = createTestContext();
+    indexFile(db, { path: "/keyword.md", driveId, content: "logo" });
+    const { results } = await search(ctx, { query: "logo" });
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ path: "/keyword.md", kind: "text", score: 1 });
+  });
+});
