@@ -43,7 +43,9 @@ The daemon serves both the HTTP REST API and the MCP endpoint on `127.0.0.1:7433
 
 ## 2. Single Developer, Remote S3
 
-Use Cloudflare R2, AWS S3, or any S3-compatible storage instead of local MinIO.
+Use Cloudflare R2, AWS S3, Tigris, or any S3-compatible storage instead of local MinIO.
+
+agent-fs talks to every remote store through its S3 client (AWS SDK v3), so a store works only if it offers an S3-compatible API. The local filesystem backend (`agent-fs onboard --filesystem`) is the one exception: it stores files through the [files-sdk](https://github.com/haydenbleasel/files-sdk) `fs` adapter. agent-fs does not use files-sdk's other provider adapters, so stores with only a native API, such as Convex File Storage, are not supported.
 
 ### Setup
 
@@ -66,6 +68,10 @@ agent-fs config set s3.region "auto"
 | **Cloudflare R2** | `https://<account>.r2.cloudflarestorage.com` | `auto` | `true` |
 | **AWS S3** | `https://s3.<region>.amazonaws.com` | your region | `false` |
 | **DigitalOcean Spaces** | `https://<region>.digitaloceanspaces.com` | your region | `false` |
+| **Tigris** | `https://t3.storage.dev` | `auto` | `false` |
+| **Bunny Storage** (S3 API, preview) | `https://<region>-s3.storage.bunnycdn.com` | your region code (e.g. `de`) | `true` |
+
+These rows come from each provider's S3 documentation: [Tigris](https://www.tigrisdata.com/docs/sdks/s3/aws-js-sdk/), [Bunny Storage](https://bunny.net/docs/storage/s3). Bunny Storage enables its S3 API only on a new storage zone and does not support object versioning, so there `revert` returns `UNSUPPORTED_OPERATION` and `diff` falls back to the stored change summary. Tigris is the default storage for the [Fly.io deploy](https://github.com/desplega-ai/agent-fs/blob/main/DEPLOYMENT.md).
 
 ### S3 Versioning
 

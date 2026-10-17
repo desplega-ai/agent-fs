@@ -38,7 +38,7 @@ agent-fs stores file bytes in a pluggable storage backend. The durable value —
 
 | Backend | Setup | Versioning tier | `signed-url` |
 |---------|-------|-----------------|--------------|
-| **S3 / MinIO** (default) | `agent-fs onboard -y` (local MinIO, needs Docker) or `--s3-*` flags for AWS/R2/etc. | Full — `revert` + historical `diff` via S3 object versioning | Real presigned URL (public, time-limited) |
+| **S3 / MinIO** (default) | `agent-fs onboard -y` (local MinIO, needs Docker) or `--s3-*` flags for any S3-compatible store (AWS, R2, Tigris, etc.) | Full — `revert` + historical `diff` via S3 object versioning | Real presigned URL (public, time-limited) |
 | **Local filesystem** | `agent-fs onboard --filesystem` (no Docker, no S3) | Full — `revert` + historical `diff` via content-addressed blobs on disk | Falls back to an authenticated in-app link (requires sign-in; does not expire) |
 
 Both backends are **full-tier**: every op — including `revert` and historical `diff` — works. Future backends may be **basic-tier** (no object versioning): on those, `revert` and historical `diff` are unavailable and fail cleanly with an `UNSUPPORTED_OPERATION` error (HTTP 422) rather than a raw storage error — current content, listing, comments, and search keep working. Check a backend's capabilities before relying on versioning if you're unsure which backend a drive uses.

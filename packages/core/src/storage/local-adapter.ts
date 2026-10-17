@@ -5,6 +5,15 @@ import { Files } from "files-sdk";
 import { fs } from "files-sdk/fs";
 import { UnsupportedOperation } from "../errors.js";
 import { assertKeyInsideDrive } from "./key-guard.js";
+import {
+  assertLegacyWritable,
+  isLegacyReservedKey,
+  legacyDelete,
+  legacyGet,
+  legacyHead,
+  legacyList,
+  legacyPut,
+} from "./legacy-reserved-keys.js";
 import type {
   StorageAdapter,
   StorageCapabilities,
@@ -50,6 +59,12 @@ import type {
  * which refuses `.`/`..` segments and NUL bytes. That covers every op, since
  * they all reach storage through this adapter. S3 is not affected: an
  * `a/../b` key is ordinary data there and that adapter is left alone.
+ *
+ * ### Keys files-sdk 3 reserves
+ * files-sdk 2.0.0 stored a key ending in `.fls-tmp` like any other; files-sdk 3
+ * refuses it and hides it from `list`. Every method routes such a key to
+ * `legacy-reserved-keys.ts`, which serves it from the same on-disk layout, so
+ * files written before the upgrade stay readable, writable and listed.
  */
 
 const BLOB_PREFIX = "_afs-blobs/sha256/";
@@ -123,6 +138,9 @@ export class LocalStorageAdapter implements StorageAdapter {
     const bytes =
       typeof body === "string" ? new TextEncoder().encode(body) : body;
     const hash = createHash("sha256").update(bytes).digest("hex");
+    // A refused legacy key must fail before the history blob is written.
+    const legacy = isLegacyReservedKey(key);
+    if (legacy) await assertLegacyWritable(this.root, key);
 
     // Blob-first: persist the content-addressed history blob before the plain
     // key so a crash between the two never loses version history. Dedup:
@@ -133,6 +151,10 @@ export class LocalStorageAdapter implements StorageAdapter {
     }
 
     // Then the current/plain key — read directly by ls/cat/`/raw`.
+    if (legacy) {
+      await legacyPut(this.root, key, bytes, contentType);
+      return { etag: hash, versionId: hash };
+    }
     await this.files.upload(
       key,
       bytes,
@@ -152,6 +174,17 @@ export class LocalStorageAdapter implements StorageAdapter {
     // current key. The handle is spliced into a path, so it is checked too.
     const target = versionId ? blobKey(versionId) : key;
     assertKeyInsideDrive(target);
+    if (!versionId && isLegacyReservedKey(key)) {
+      const legacy = await legacyGet(this.root, key);
+      if (!legacy) throw noSuchKey(key);
+      return {
+        body: legacy.body,
+        contentType: legacy.contentType,
+        size: legacy.size,
+        versionId,
+        etag: legacy.etag,
+      };
+    }
     try {
       const stored = await this.files.download(
         target,
@@ -175,6 +208,7 @@ export class LocalStorageAdapter implements StorageAdapter {
     // (mirrors S3 delete-marker semantics: prior versions stay retrievable by
     // handle). A missing key is a no-op.
     assertKeyInsideDrive(key);
+    if (isLegacyReservedKey(key)) return legacyDelete(this.root, key);
     try {
       await this.files.delete(key);
     } catch (err) {
@@ -225,20 +259,51 @@ export class LocalStorageAdapter implements StorageAdapter {
       cursor = page.cursor;
     } while (cursor);
 
-    return { objects, prefixes: Array.from(prefixes) };
+    // Add the `.fls-tmp` files files-sdk 3 skips, grouped like S3 would.
+    const legacy = await legacyList(this.root, prefix);
+    if (legacy.length === 0) return { objects, prefixes: Array.from(prefixes) };
+    const delimiter = options?.delimiter;
+    for (const it of legacy) {
+      const rest = it.key.slice(prefix.length);
+      const cut = delimiter ? rest.indexOf(delimiter) : -1;
+      if (delimiter && cut >= 0) {
+        prefixes.add(prefix + rest.slice(0, cut + delimiter.length));
+        continue;
+      }
+      objects.push({
+        key: it.key,
+        size: it.size,
+        lastModified: new Date(it.lastModified),
+        etag: it.etag,
+      });
+    }
+    const byKey = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    objects.sort((a, b) => byKey(a.key, b.key));
+    return { objects, prefixes: Array.from(prefixes).sort(byKey) };
   }
 
   async headObject(key: string): Promise<HeadObjectResult> {
     assertKeyInsideDrive(key);
+    if (isLegacyReservedKey(key)) {
+      const legacy = await legacyHead(this.root, key);
+      if (!legacy) throw noSuchKey(key);
+      return {
+        contentType: legacy.contentType,
+        size: legacy.size,
+        lastModified: new Date(legacy.lastModified),
+        etag: legacy.etag,
+      };
+    }
     try {
       const stored = await this.files.head(key);
-      // files-sdk's fs `head` stats the path without checking its type, so a
-      // folder (the fs also keeps emptied ones) answered as a file. S3 has no
-      // object at a folder key, and the ops rely on that.
+      // A folder (the fs also keeps emptied ones) must not answer as a file:
+      // S3 has no object at a folder key, and the ops rely on that. files-sdk
+      // 3's fs `head` already reports NotFound for folders (2.x did not); this
+      // check keeps that guarantee independent of the dependency.
       const entry = await stat(resolve(this.root, key)).catch(() => undefined);
       if (entry?.isDirectory()) throw noSuchKey(key);
       return {
-        contentType: stored.type,
+        contentType: stored.contentType,
         size: stored.size,
         lastModified:
           stored.lastModified != null
