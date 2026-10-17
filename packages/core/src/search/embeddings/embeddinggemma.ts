@@ -2,12 +2,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getHome } from "../../config.js";
 import { EmbeddingProviderError } from "../../errors.js";
-import type { EmbeddingProvider } from "./provider.js";
+import { EmbeddingInitializationError, type EmbeddingPart, type EmbeddingProvider } from "./provider.js";
 
 const MODEL = "onnx-community/embeddinggemma-2-ONNX";
 const TRANSFORMERS_VERSION = "4.3.1";
 const INSTALL_HINT = `Run: bun add -g @huggingface/transformers@${TRANSFORMERS_VERSION}`;
 const MAX_TOKENS = 8192;
+const IMAGE_TOKEN_BUDGET = 140;
+const VISION_IDLE_MS = 60_000;
+const VISION_IMAGE_LIMIT = 50;
 
 // The files a text-only q8 load by model id writes into the cache directory.
 const TEXT_MODEL_FILES = [
@@ -20,6 +23,18 @@ const TEXT_MODEL_FILES = [
   "onnx/model_quantized.onnx",
   "onnx/model_quantized.onnx_data",
 ];
+
+const VISION_MODEL_FILES = [
+  ...TEXT_MODEL_FILES,
+  "onnx/vision_encoder_quantized.onnx",
+  "onnx/vision_encoder_quantized.onnx_data",
+];
+
+export function embeddingGemmaSource(cacheDir: string, vision: boolean): string {
+  const cached = join(cacheDir, MODEL);
+  const files = vision ? VISION_MODEL_FILES : TEXT_MODEL_FILES;
+  return files.every((file) => existsSync(join(cached, file))) ? cached : MODEL;
+}
 
 type TransformersResult =
   | { module: typeof import("@huggingface/transformers") }
@@ -70,6 +85,12 @@ export class EmbeddingGemmaProvider implements EmbeddingProvider {
   private model: any = null;
   private processor: any = null;
   private initPromise: Promise<void> | null = null;
+  private visionModel: any = null;
+  private visionProcessor: any = null;
+  private rawImage: typeof import("@huggingface/transformers").RawImage | null = null;
+  private visionImages = 0;
+  private visionQueue: Promise<void> = Promise.resolve();
+  private visionIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
   private async init(): Promise<void> {
     if (this.model) return;
@@ -82,25 +103,26 @@ export class EmbeddingGemmaProvider implements EmbeddingProvider {
     return this.initPromise;
   }
 
-  private async _doInit(): Promise<void> {
+  private async loader(vision: boolean) {
     const result = await loadTransformers();
     if (!("module" in result)) {
       const hint = result.hint ? `. ${result.hint}` : "";
       throw new Error(`EMBEDDING_MODEL=embeddinggemma-2 needs @huggingface/transformers ${TRANSFORMERS_VERSION} (${result.reason})${hint}`);
     }
-    console.error("[agent-fs] Resolving local embedding model...");
-    const { AutoConfig, AutoProcessor, AutoModel } = result.module;
     const cache_dir = join(getHome(), "models");
-    // A load by model id asks huggingface.co about the tokenizer every time,
-    // even when every file is cached (transformers 4.3.1 drops cache_dir for
-    // that check), so it fails offline. A load from the cache directory path
-    // stays offline. Only a cache with files missing loads by id and downloads.
-    const cached = join(cache_dir, MODEL);
-    const source = TEXT_MODEL_FILES.every((file) => existsSync(join(cached, file))) ? cached : MODEL;
-    const config: any = await AutoConfig.from_pretrained(source, { cache_dir });
-    // Without these configs the model creates no vision or audio session.
-    config.vision_config = null;
+    // Transformers 4.3.1 drops cache_dir in its tokenizer file check.
+    // Load complete caches by path because loading by ID makes a network request.
+    const source = embeddingGemmaSource(cache_dir, vision);
+    const config: any = await result.module.AutoConfig.from_pretrained(source, { cache_dir });
     config.audio_config = null;
+    return { ...result.module, source, cache_dir, config };
+  }
+
+  private async _doInit(): Promise<void> {
+    console.error("[agent-fs] Resolving local embedding model...");
+    const { AutoProcessor, AutoModel, source, cache_dir, config } = await this.loader(false);
+    // Disable the vision session for text embeddings.
+    config.vision_config = null;
     this.processor = await AutoProcessor.from_pretrained(source, { cache_dir });
     this.model = await AutoModel.from_pretrained(source, { config, dtype: "q8", device: "cpu", cache_dir });
     console.error("[agent-fs] Model ready: embeddinggemma-2");
@@ -127,14 +149,100 @@ export class EmbeddingGemmaProvider implements EmbeddingProvider {
     return results;
   }
 
-  async dispose(): Promise<void> {
-    await this.initPromise?.catch(() => {});
+  supportsMime(mime: string): boolean {
+    return ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(mime);
+  }
+
+  private async initVision(): Promise<void> {
+    if (this.visionModel) return;
     try {
-      if (this.model) await this.model.dispose();
+      await this._doInitVision();
+    } catch (err) {
+      throw new EmbeddingInitializationError(err);
+    }
+  }
+
+  private async _doInitVision(): Promise<void> {
+    const { AutoProcessor, AutoModel, RawImage, source, cache_dir, config } = await this.loader(true);
+    const processor: any = await AutoProcessor.from_pretrained(source, { cache_dir });
+    processor.image_processor.max_soft_tokens = IMAGE_TOKEN_BUDGET;
+    const model = await AutoModel.from_pretrained(source, {
+      config, dtype: { model: "q8", vision_encoder: "q8" }, device: "cpu", cache_dir,
+    });
+    this.visionProcessor = processor;
+    this.visionModel = model;
+    this.rawImage = RawImage;
+  }
+
+  private serializeVision<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.visionQueue.then(run);
+    this.visionQueue = result.then(() => {}, () => {});
+    return result;
+  }
+
+  private clearVisionTimer(): void {
+    if (this.visionIdleTimer) clearTimeout(this.visionIdleTimer);
+    this.visionIdleTimer = null;
+  }
+
+  private async disposeVision(): Promise<void> {
+    this.clearVisionTimer();
+    try {
+      if (this.visionModel) await this.visionModel.dispose();
     } finally {
-      this.model = null;
-      this.processor = null;
-      this.initPromise = null;
+      this.visionModel = null;
+      this.visionProcessor = null;
+      this.rawImage = null;
+      this.visionImages = 0;
+    }
+  }
+
+  async embedParts(parts: EmbeddingPart[]): Promise<number[][]> {
+    for (const part of parts) {
+      if (!this.supportsMime(part.mime)) throw new Error(`Unsupported embedding MIME type: ${part.mime}`);
+    }
+    return this.serializeVision(async () => {
+      this.clearVisionTimer();
+      try {
+        const vectors: number[][] = [];
+        for (const { data } of parts) {
+          await this.initVision();
+          const image = await this.rawImage!.fromBlob(new Blob([data.slice()]));
+          const inputs = await this.visionProcessor(null, image);
+          const { sentence_embedding } = await this.visionModel(inputs);
+          vectors.push(Array.from(sentence_embedding.data as Float32Array));
+          this.visionImages++;
+          if (this.visionImages >= VISION_IMAGE_LIMIT) await this.disposeVision();
+        }
+        return vectors;
+      } finally {
+        if (this.visionModel) {
+          const timer = setTimeout(() => {
+            void this.serializeVision(async () => {
+              if (this.visionIdleTimer === timer) await this.disposeVision();
+            }).catch((err) => {
+              console.error("[agent-fs] Vision model cleanup failed:", err);
+            });
+          }, VISION_IDLE_MS);
+          this.visionIdleTimer = timer;
+          timer.unref();
+        }
+      }
+    });
+  }
+
+  async dispose(): Promise<void> {
+    try {
+      await this.serializeVision(() => this.disposeVision());
+    } finally {
+      await this.initPromise?.catch(() => {});
+      try {
+        if (this.model) await this.model.dispose();
+      } finally {
+        this.model = null;
+        this.processor = null;
+        this.initPromise = null;
+      }
     }
   }
 }

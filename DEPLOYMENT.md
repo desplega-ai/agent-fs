@@ -183,6 +183,31 @@ Only the `local` provider is affected. Before 0.16.6 it embedded in batches of 5
 
 On the first start, the daemon re-embeds every file once more, in the background, the same way as in 0.16.5. If the 0.16.5 run has not finished yet, the two runs merge: files still `pending` are embedded once, with the fixed batch. `openai` and `gemini` keep their vectors, and nothing runs for them.
 
+## Upgrading to 0.17.4: image and PDF-page embeddings
+
+EmbeddingGemma 2 indexes PNG, JPEG, WebP, and GIF files with a paced background job.
+It also renders and embeds the first 3 pages of each PDF.
+OpenAI, Gemini, and nomic skip image work.
+PDF text remains searchable with every provider.
+
+The image job uses the text migration CPU share, `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` (default `0.25`), at boot and after writes.
+The job runs after the text migration.
+Pauses count process CPU time across all cores.
+At the default share, measurements were about 26 seconds per image on an M2 Pro.
+A 2 GB arm64 container took about 33 seconds per image.
+Allow about one hour for 100 images.
+Inference itself takes about 1.6 seconds per image on an M2 Pro.
+A share of `1` runs without pauses.
+It uses an image token budget of 140.
+Measure CPU time and peak RSS on your host before you choose capacity.
+The image job loads a separate vision model and disposes it after 60 seconds without image calls.
+
+The Docker image includes `@napi-rs/canvas` for PDF rendering.
+For a global CLI install, also run `bun add -g @napi-rs/canvas@1.0.11`.
+Without canvas, image files remain searchable, but PDFs receive no page images.
+Search results report `kind: "image"` with `[image]` or `[PDF page N]` markers.
+Use `agent-fs signed-url <path> --inline` to view the matching file.
+
 ## Upgrading to 0.17.3: PDF text is searchable
 
 PDF text is searchable with every embedding provider. At boot, the daemon indexes existing PDFs once in the paced background migration.
@@ -257,7 +282,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `AGENT_FS_PUBLIC_URL` | `server.publicUrl` | _(derived from the request)_ | Public address of this API server (e.g. `https://agent-fs-acme.fly.dev`), used to build absolute `/share/<token>` links. Set it when a proxy does not forward `Host` / `X-Forwarded-Proto`. |
 | `AGENT_FS_SHARE_RATE_LIMIT` | `server.shareRateLimit.requestsPerMinute` | `120` | Per-IP requests per minute for the public `/share/*` routes; `0` disables. Behind a reverse proxy other than Fly, all traffic shares the proxy's address, so raise it. |
 | `AGENT_FS_SITE_RATE_LIMIT` | `server.siteRateLimit.requestsPerMinute` | `600` | Per-IP requests per minute for the public `/site/*` routes (folder shares); `0` disables. One page load fetches many files, so it is higher than the share limit. |
-| `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` | _(env only)_ | `0.25` | Share of CPU time the background re-embed may use, above 0 and at most 1. It pauses after each file. `1` runs without pauses. Invalid values use the default. See [Upgrading to 0.16.5](#upgrading-to-0165-embeddings-re-embedded). |
+| `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` | _(env only)_ | `0.25` | Share of CPU time the text migration and image job may use, above 0 and at most 1. Text pauses after each file. Images pause after each part. `1` runs without pauses. Invalid values use the default. See [Upgrading to 0.16.5](#upgrading-to-0165-embeddings-re-embedded). |
 | `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
 
 When both `AWS_*` and `S3_*` variants are set, the `AWS_*` variant takes precedence (Tigris injects `AWS_*` automatically).

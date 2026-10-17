@@ -93,6 +93,9 @@ export const files = sqliteTable(
     embeddingStatus: text("embedding_status", {
       enum: ["pending", "indexed", "failed"],
     }).default("pending"),
+    imageEmbeddingStatus: text("image_embedding_status", {
+      enum: ["pending", "indexed", "failed"],
+    }),
   },
   (table) => ({
     pk: primaryKey({ columns: [table.path, table.driveId] }),
@@ -223,6 +226,7 @@ export const contentChunks = sqliteTable(
     charOffset: integer("char_offset").notNull(),
     tokenCount: integer("token_count").notNull(),
     page: integer("page"),
+    kind: text("kind", { enum: ["text", "image"] }).notNull().default("text"),
   },
   (table) => ({
     drivePathIdx: index("idx_content_chunks_drive_path").on(

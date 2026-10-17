@@ -183,6 +183,13 @@ Search uses the active organization and drive. Check `org current` and `drive cu
 `glob`, `ls`, and `tree` read every S3 listing page. A drive with more than 1,000 objects remains searchable.
 `search` and `vec-search` select semantic candidates within the active drive and count distinct files toward the limit.
 PDF text is searchable. `search` and `vec-search` results carry `page` for PDF text hits.
+With EmbeddingGemma 2, semantic search also finds PNG, JPEG, WebP, GIF, and the first 3 PDF pages as images.
+Results carry `kind: "text"` or `kind: "image"` for semantic matches.
+Image matches use `[image]` snippets. PDF page images use `[PDF page N]` snippets and carry `page`.
+Search still returns one result per file. The best semantic chunk determines `kind` and `page`.
+Image indexing runs in the background, so a new image can take time to appear.
+Use `agent-fs signed-url <path> --inline` to view the file, or omit `--inline` to download it.
+On a local-filesystem backend, the URL requires an authenticated drive member.
 Semantic results require embeddings. `vec-search` returns a hint when no provider exists, and `search` identifies keyword-only results.
 For local semantic search, set `EMBEDDING_PROVIDER=local` and `EMBEDDING_MODEL=embeddinggemma-2` to select EmbeddingGemma 2. An empty model setting keeps nomic as the default.
 

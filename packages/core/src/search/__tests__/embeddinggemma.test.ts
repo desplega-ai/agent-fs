@@ -1,5 +1,11 @@
-import { describe, expect, mock, test } from "bun:test";
-import { EmbeddingGemmaProvider, linuxRuntimeConflict } from "../embeddings/embeddinggemma.js";
+import { describe, expect, mock, spyOn, test } from "bun:test";
+import { EmbeddingGemmaProvider, embeddingGemmaSource, linuxRuntimeConflict } from "../embeddings/embeddinggemma.js";
+import { mkdtempSync, mkdirSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { EmbeddingInitializationError } from "../embeddings/provider.js";
+import { OpenAIEmbeddingProvider } from "../embeddings/openai.js";
+import { GeminiEmbeddingProvider } from "../embeddings/gemini.js";
 import { LocalEmbeddingProvider } from "../embeddings/local.js";
 import { EmbeddingProviderError } from "../../errors.js";
 
@@ -76,5 +82,211 @@ describe("EmbeddingGemma 2", () => {
     expect(attempts).toBe(1);
     expect(await provider.embedQuery("retry")).toHaveLength(768);
     expect(attempts).toBe(2);
+  });
+});
+
+function fakeVision() {
+  const { provider, model: textModel } = fakeProvider();
+  const models: any[] = [];
+  const processor = mock(async (..._args: any[]) => ({ pixel_values: true }));
+  const fromBlob = mock(async (_blob: Blob) => ({ image: true }));
+  const init = mock(async () => {
+    const model = Object.assign(mock(async (_inputs: unknown) => ({
+      sentence_embedding: { data: new Float32Array(768).fill(0.5) },
+    })), { dispose: mock(async () => {}) });
+    models.push(model);
+    Object.assign(provider, { visionModel: model, visionProcessor: processor, rawImage: { fromBlob } });
+  });
+  Object.assign(provider, { _doInitVision: init });
+  return { provider, textModel, models, init, processor, fromBlob };
+}
+
+const part = { mime: "image/png", data: new Uint8Array([1, 2, 3]) };
+
+describe("EmbeddingGemma 2 images", () => {
+  test("selects a local path only when every required file exists", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-fs-eg2-source-"));
+    const id = "onnx-community/embeddinggemma-2-ONNX";
+    const cached = join(dir, id);
+    const files = [
+      "config.json", "preprocessor_config.json", "processor_config.json", "tokenizer_config.json",
+      "tokenizer.json", "chat_template.jinja", "onnx/model_quantized.onnx", "onnx/model_quantized.onnx_data",
+      "onnx/vision_encoder_quantized.onnx", "onnx/vision_encoder_quantized.onnx_data",
+    ];
+    mkdirSync(join(cached, "onnx"), { recursive: true });
+    try {
+      expect(embeddingGemmaSource(dir, true)).toBe(id);
+      for (const file of files) writeFileSync(join(cached, file), "cached");
+      expect(embeddingGemmaSource(dir, true)).toBe(cached);
+      for (const file of files) {
+        unlinkSync(join(cached, file));
+        expect(embeddingGemmaSource(dir, true)).toBe(id);
+        if (file.includes("vision_encoder")) expect(embeddingGemmaSource(dir, false)).toBe(cached);
+        else expect(embeddingGemmaSource(dir, false)).toBe(id);
+        writeFileSync(join(cached, file), "cached");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("supports four image types and rejects unsupported parts before initialization", async () => {
+    const { provider, init } = fakeVision();
+    for (const mime of ["image/png", "image/jpeg", "image/webp", "image/gif"]) expect(provider.supportsMime(mime)).toBe(true);
+    for (const mime of ["image/svg+xml", "application/pdf", "text/plain"]) expect(provider.supportsMime(mime)).toBe(false);
+    await expect(provider.embedParts([{ ...part, mime: "image/svg+xml" }])).rejects.toThrow("Unsupported embedding MIME type");
+    expect(await provider.embedParts([])).toEqual([]);
+    expect(init).not.toHaveBeenCalled();
+  });
+
+  test("text providers omit image methods", () => {
+    for (const provider of [new LocalEmbeddingProvider(), new OpenAIEmbeddingProvider("test"), new GeminiEmbeddingProvider("test")]) {
+      expect("supportsMime" in provider).toBe(false);
+      expect("embedParts" in provider).toBe(false);
+    }
+  });
+
+  test("decodes bytes and embeds one image per call without a prefix", async () => {
+    const { provider, processor, fromBlob, init, models, textModel } = fakeVision();
+    try {
+      expect(await provider.embedParts([part, part])).toHaveLength(2);
+      expect(init).toHaveBeenCalledTimes(1);
+      expect(fromBlob).toHaveBeenCalledTimes(2);
+      expect(await fromBlob.mock.calls[0][0].arrayBuffer()).toEqual(part.data.buffer);
+      expect(processor.mock.calls).toEqual([[null, { image: true }], [null, { image: true }]]);
+      expect(models[0]).toHaveBeenCalledTimes(2);
+      expect(textModel).not.toHaveBeenCalled();
+    } finally {
+      await provider.dispose();
+    }
+    expect(models[0].dispose).toHaveBeenCalledTimes(1);
+    expect(textModel.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  test("serializes concurrent calls and waits for inference before disposal", async () => {
+    const { provider, init, models } = fakeVision();
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const running = new Promise<void>((resolve) => { started = resolve; });
+    await init();
+    models[0].mockImplementationOnce(async () => {
+      started();
+      await gate;
+      return { sentence_embedding: { data: new Float32Array(768) } };
+    });
+    const first = provider.embedParts([part]);
+    await running;
+    const second = provider.embedParts([part]);
+    const disposed = provider.dispose();
+    expect(models[0]).toHaveBeenCalledTimes(1);
+    expect(models[0].dispose).not.toHaveBeenCalled();
+    release();
+    await Promise.all([first, second, disposed]);
+    expect(models[0]).toHaveBeenCalledTimes(2);
+    expect(models[0].dispose).toHaveBeenCalledTimes(1);
+    expect((provider as any).visionIdleTimer).toBeNull();
+  });
+
+  test("clears both models when vision disposal fails", async () => {
+    const { provider, models, textModel } = fakeVision();
+    await provider.embedParts([part]);
+    models[0].dispose.mockRejectedValueOnce(new Error("disposal failed"));
+    await expect(provider.dispose()).rejects.toThrow("disposal failed");
+    expect(textModel.dispose).toHaveBeenCalledTimes(1);
+    expect(provider).toMatchObject({
+      model: null, processor: null, initPromise: null,
+      visionModel: null, visionProcessor: null, rawImage: null, visionIdleTimer: null,
+    });
+  });
+
+  test("recycles after 50 images and creates another model for image 51", async () => {
+    const { provider, models, init } = fakeVision();
+    try {
+      expect(await provider.embedParts(Array.from({ length: 51 }, () => part))).toHaveLength(51);
+      expect(init).toHaveBeenCalledTimes(2);
+      expect(models[0]).toHaveBeenCalledTimes(50);
+      expect(models[0].dispose).toHaveBeenCalledTimes(1);
+      expect(models[1]).toHaveBeenCalledTimes(1);
+      expect(models[1].dispose).not.toHaveBeenCalled();
+    } finally {
+      await provider.dispose();
+    }
+  });
+
+  test("disposes after 60 idle seconds and recreates on the next call", async () => {
+    const { provider, init, models, textModel } = fakeVision();
+    let expire!: () => void;
+    const unref = mock(() => {});
+    const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, ms: number) => {
+      expect(ms).toBe(60_000);
+      expire = callback;
+      return { unref };
+    }) as any);
+    const clear = spyOn(globalThis, "clearTimeout").mockImplementation(() => {});
+    try {
+      await provider.embedParts([part]);
+      expect(unref).toHaveBeenCalledTimes(1);
+      expire();
+      await (provider as any).visionQueue;
+      expect(models[0].dispose).toHaveBeenCalledTimes(1);
+      expect(textModel.dispose).not.toHaveBeenCalled();
+      await provider.embedParts([part]);
+      expect(init).toHaveBeenCalledTimes(2);
+    } finally {
+      await provider.dispose();
+      timer.mockRestore();
+      clear.mockRestore();
+    }
+  });
+
+  test("a stale idle callback cannot dispose the current vision model", async () => {
+    const { provider, models } = fakeVision();
+    const callbacks: Array<() => void> = [];
+    const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void) => {
+      callbacks.push(callback);
+      return { unref() {} };
+    }) as any);
+    const clear = spyOn(globalThis, "clearTimeout").mockImplementation(() => {});
+    try {
+      await provider.embedParts([part]);
+      await provider.embedParts([part]);
+      callbacks[0]();
+      await (provider as any).visionQueue;
+      expect(models[0].dispose).not.toHaveBeenCalled();
+      callbacks[1]();
+      await (provider as any).visionQueue;
+      expect(models[0].dispose).toHaveBeenCalledTimes(1);
+    } finally {
+      await provider.dispose();
+      timer.mockRestore();
+      clear.mockRestore();
+    }
+  });
+
+  test("classifies initialization errors and retries the next call", async () => {
+    const { provider, init } = fakeVision();
+    init.mockImplementationOnce(async () => { throw new Error("download failed"); });
+    const first = provider.embedParts([part]);
+    const concurrent = provider.embedParts([part]);
+    await expect(first).rejects.toBeInstanceOf(EmbeddingInitializationError);
+    try {
+      expect(await concurrent).toHaveLength(1);
+      expect(init).toHaveBeenCalledTimes(2);
+    } finally {
+      await provider.dispose();
+    }
+  });
+
+  test("keeps decode errors separate from initialization errors", async () => {
+    const { provider, fromBlob } = fakeVision();
+    const failure = new Error("invalid image bytes");
+    fromBlob.mockRejectedValueOnce(failure);
+    try {
+      await expect(provider.embedParts([part])).rejects.toBe(failure);
+      expect(await provider.embedParts([part])).toHaveLength(1);
+    } finally {
+      await provider.dispose();
+    }
   });
 });

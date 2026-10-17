@@ -36,6 +36,32 @@ describe.skipIf(!home)("EmbeddingGemma 2 cached model", () => {
     expect(dot(cat)).toBeGreaterThan(dot(car));
   }, 120_000);
 
+  test("ranks a red circle above a blue square", async () => {
+    const { createCanvas } = await import("@napi-rs/canvas");
+    const images: Uint8Array[] = [];
+    for (const circle of [true, false]) {
+      const canvas = createCanvas(512, 512);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, 512, 512);
+      ctx.fillStyle = circle ? "red" : "blue";
+      if (circle) {
+        ctx.beginPath();
+        ctx.arc(256, 256, 180, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(76, 76, 360, 360);
+      }
+      images.push(new Uint8Array(await canvas.encode("png")));
+    }
+    const query = await provider.embedQuery("a red circle");
+    const [circle, square] = await provider.embedParts(images.map((data) => ({ mime: "image/png", data })));
+    const dot = (vector: number[]) => query.reduce((sum, value, i) => sum + value * vector[i], 0);
+    expect(circle).toHaveLength(768);
+    expect(square).toHaveLength(768);
+    expect(dot(circle)).toBeGreaterThan(dot(square));
+  }, 120_000);
+
   test("embeds about 1600 tokens without truncation and rejects more than 8192", async () => {
     const text = "The cat sleeps on a warm cushion. ".repeat(200);
     const prefixed = `title: cats.md | text: ${text}`;

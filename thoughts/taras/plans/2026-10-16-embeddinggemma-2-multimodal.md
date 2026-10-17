@@ -640,7 +640,7 @@ Deliverable: PDFs are searchable by their text with every provider. Text chunks 
 - [x] E2E local mode passes, including the new PDF test: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only` (187/187)
 - [ ] Full E2E passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` (208/209. Only the pre-existing `share-create` failure.)
 - [x] E2E with the real model passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only --local-model embeddinggemma-2 --models-dir /tmp/eg2-plan/tjs-cache` (188/188)
-- [ ] Versions in sync after release: `bun run scripts/sync-versions.ts --check`
+- [x] Versions in sync after release: `bun run scripts/sync-versions.ts --check` (0.17.3)
 
 #### Automated QA:
 - [x] Migration check, with a provider (the backfill runs only when a provider exists): (2026-10-17: a home made by 0.17.2 held text.pdf with status NULL. The new daemon backfilled it to `indexed`, and `fts`, `search` and `vec-search` found it.)
@@ -653,7 +653,7 @@ Deliverable: PDFs are searchable by their text with every provider. Text chunks 
   - Write it to a daemon in a `--cpus=1` linux container, or locally.
   - The event-loop watchdog (`server/src/index.ts:123-134`) logs no `event-loop was blocked` line (it logs only lags over 5 s).
 - [x] Docker arm64 smoke: build the image and run `extractPdfText` on `text.pdf` inside it (inline `bun -e`, `--workdir /app`). (fallback: the image ships only `cli.js`, so its server ran with `--network none`, and `fts` found both page phrases.)
-- [ ] After merge: prod `/health` returns `0.17.2`. `fly logs --no-tail` returns only a short buffer, so watch `fly logs -a agent-fs-taras` live during the deploy. Expect `embedding migration done` with no failures from the PDF backfill.
+- [x] After merge: prod `/health` returns `0.17.2`. `fly logs --no-tail` returns only a short buffer, so watch `fly logs -a agent-fs-taras` live during the deploy. Expect `embedding migration done` with no failures from the PDF backfill. (Shipped as 0.17.3, #102, `e946c73`. Live log: `embedding migration done: 87 embedded, 0 failed, 0 skipped, 0 superseded` about 1.5 min after boot, no PDF extraction errors, no event-loop blocks. `/health` 0.17.3, GHCR amd64 and arm64, npm 0.17.3.)
 
 #### Manual Verification:
 - [ ] Taras confirms that a known prod PDF appears in `agent-fs search` with a page number.
@@ -806,22 +806,34 @@ Deliverable: with EmbeddingGemma 2, a paced background job embeds image files (`
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] Lockfile frozen and versions in sync before release: `bun install --frozen-lockfile && bun run scripts/sync-versions.ts --check`
-- [ ] Typecheck passes: `bun run typecheck`
-- [ ] Unit tests pass (fake providers, no model): `bun run test`
-- [ ] Build passes: `bun run build`
-- [ ] E2E local mode passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only`
-- [ ] Full E2E passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`
-- [ ] Manual model test passes: `AGENT_FS_TEST_EMBEDDINGGEMMA_HOME=/tmp/eg2-plan/p2-home bun test packages/core/src/__manual_tests__/embeddinggemma.test.ts`
-- [ ] E2E with the real model passes, including images: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only --local-model embeddinggemma-2 --models-dir /tmp/eg2-plan/tjs-cache`
+- [x] Lockfile frozen and versions in sync before release: `bun install --frozen-lockfile && bun run scripts/sync-versions.ts --check`
+  - Result: lockfile clean, all targets at 0.17.3 before the release.
+- [x] Typecheck passes: `bun run typecheck`
+- [x] Unit tests pass (fake providers, no model): `bun run test`
+  - Result: 1535 pass, 61 skip, 0 fail.
+- [x] Build passes: `bun run build`
+  - Result: `cli.js` about 460 KB. `@napi-rs/canvas`, `unpdf` and `@huggingface/transformers` stay external (dynamic imports only).
+- [x] E2E local mode passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only`
+  - Result: 187/187 passed, 20 skipped.
+- [x] Full E2E passes: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`
+  - Result: 208/209 passed. The one failure is the known `share-create returns a public link on the API host`, which also fails on clean main.
+- [x] Manual model test passes: `AGENT_FS_TEST_EMBEDDINGGEMMA_HOME=/tmp/eg2-plan/p2-home bun test packages/core/src/__manual_tests__/embeddinggemma.test.ts`
+  - Result: 4 pass, 0 fail.
+- [x] E2E with the real model passes, including images: `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only --local-model embeddinggemma-2 --models-dir /tmp/eg2-plan/tjs-cache`
+  - Result: 189/189 passed, 18 skipped, including "local model indexes image files and PDF page images".
 - [ ] Versions in sync after release: `bun run scripts/sync-versions.ts --check`
 
 #### Automated QA:
-- [ ] The budget table is in the Appendix, and the code constant matches its decision.
-- [ ] RSS check on this Mac: run a daemon with EmbeddingGemma 2, write 20 images, then sample RSS with `ps -o rss= -p <pid>` during the job and 2 minutes after it ends. Expect RSS to drop after the vision instance is disposed. If it does not drop, record it and try `session_options: { enableCpuMemArena: false }`, then measure again.
-- [ ] Index invariants hold on the RSS-check daemon home after the job ends: `cd /Users/taras/worktrees/agent-fs/2026-10-16-embeddinggemma/packages/core && DB=<home>/agent-fs.db bun run - < /tmp/eg2-plan/scripts/index-invariants.js` prints only zeros.
-- [ ] Memory under load: in a `linux/arm64` container with `--memory=2g`, write 100 images and 10 PDFs while a text re-embed also runs. Expect no OOM (`docker inspect -f '{{.State.OOMKilled}}' <container>` prints `false`).
-- [ ] Docker arm64 smoke: render page 1 of `image-only.pdf` with `@napi-rs/canvas` inside the image (inline `bun -e`, `--workdir /app/packages/cli/dist`, so it resolves like `cli.js`). Expect a PNG of width 1024.
+- [x] The budget table is in the Appendix, and the code constant matches its decision.
+  - Result: `IMAGE_TOKEN_BUDGET = 140` in `embeddinggemma.ts`, as the Appendix decides.
+- [x] RSS check on this Mac: run a daemon with EmbeddingGemma 2, write 20 images, then sample RSS with `ps -o rss= -p <pid>` during the job and 2 minutes after it ends. Expect RSS to drop after the vision instance is disposed. If it does not drop, record it and try `session_options: { enableCpuMemArena: false }`, then measure again.
+  - Result: 931 MB with the text model loaded, peak 1915 MB, about 1130 MB during the job, 310-330 MB about 60 s after the last image (vision instance disposed). RSS drops, so `enableCpuMemArena` is not needed. About 26 s per image at the default CPU share 0.25 (20 images in 520 s).
+- [x] Index invariants hold on the RSS-check daemon home after the job ends: `cd /Users/taras/worktrees/agent-fs/2026-10-16-embeddinggemma/packages/core && DB=<home>/agent-fs.db bun run - < /tmp/eg2-plan/scripts/index-invariants.js` prints only zeros.
+  - Result: all zeros, all 20 files `indexed`.
+- [x] Memory under load: in a `linux/arm64` container with `--memory=2g`, write 100 images and 10 PDFs while a text re-embed also runs. Expect no OOM (`docker inspect -f '{{.State.OOMKilled}}' <container>` prints `false`).
+  - Result: 30 markdown files, 99 PNGs and 10 PDFs in a `--memory=2g --network none` arm64 container, text on-write embedding running alongside. Peak 1421 MiB, OOMKilled false, invariants all zeros. One write (`g24.png`) failed with stderr discarded. A rerun after the review fixes wrote 300 PNGs (sequential, during the job, and 4 parallel writers): all exited 0, peak 991 MiB, invariants all zeros. About 30 to 33 s per image in the container.
+- [x] Docker arm64 smoke: render page 1 of `image-only.pdf` with `@napi-rs/canvas` inside the image (inline `bun -e`, `--workdir /app/packages/cli/dist`, so it resolves like `cli.js`). Expect a PNG of width 1024.
+  - Result: page 1 of `image-only.pdf` rendered as a 1024x768 PNG (39,636 bytes).
 - [ ] After merge: prod `/health` returns `0.17.3`. Watch `fly logs -a agent-fs-taras` live during the deploy. The log shows no image job start (OpenAI does not support images).
 
 #### Manual Verification:
@@ -1086,9 +1098,11 @@ Open `https://ui-fs.taras.cc`, search "a red circle", and confirm the thumbnail.
 
   | Budget | R@1 | R@5 | MRR | I R@5 | P R@5 | ms per image (Mac) |
   | --- | --- | --- | --- | --- | --- | --- |
-  | 280 | 0.75 | 1.00 | 0.85 | 1.00 | 1.00 | 3847 |
-  | 140 | | | | | | 1743 |
-  | 70 | | | | | | 887 |
+  | 280 | 0.75 | 1.00 | 0.85 | 1.00 | 1.00 | 3814 (plan run: 3847) |
+  | 140 | 0.75 | 1.00 | 0.86 | 1.00 | 1.00 | 1628 |
+  | 70 | 0.72 | 0.97 | 0.83 | 0.88 | 1.00 | 783 |
+
+  Decision (2026-10-17): budget 140. It keeps I R@5 and P R@5 at 1.00 and R@1 equal to 280, at 2.3x less time per image. 70 fails the rule (I R@5 0.88, R@1 -0.03). All rows are config E3t with q8, from one eval.ts run. Rank moves at 140: I4 3 to 1, H11 1 to 2.
 
 - **References**:
   - Spike: `/Users/taras/Documents/code/agent-fs/thoughts/taras/research/2026-10-16-embeddinggemma-2-spike.md`

@@ -16,7 +16,8 @@
     "deploy:fly": "fly deploy -a agent-fs-taras"
   },
   "dependencies": {
-    "@huggingface/transformers": "4.3.1"
+    "@huggingface/transformers": "4.3.1",
+    "@napi-rs/canvas": "1.0.11"
   },
   "devDependencies": {
     "@duckdb/node-api": "1.5.3-r.3",

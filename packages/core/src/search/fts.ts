@@ -28,6 +28,12 @@ export function indexFile(
   })();
 }
 
+export function indexedContent(db: DB, params: { path: string; driveId: string }): string | null {
+  const row = getRawDb(db).prepare("SELECT content FROM files_fts_docs WHERE drive_id = ? AND path = ?")
+    .get(params.driveId, params.path) as { content: string } | null;
+  return row?.content ?? null;
+}
+
 export function removeFromIndex(
   db: DB,
   params: { path: string; driveId: string }

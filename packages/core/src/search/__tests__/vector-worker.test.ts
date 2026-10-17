@@ -79,10 +79,10 @@ describe("vector search worker", () => {
     expect(viaWorker).toEqual(inline);
   });
 
-  test("search and vec-search carry the PDF page through the worker", async () => {
+  test.each(["text", "image"] as const)("search and vec-search carry the PDF page and %s kind through the worker", async (kind) => {
     const { db, path, driveId, query, orgId, userId } = setup(1);
     raw(db).prepare("UPDATE files SET path = '/report.pdf', content_type = 'application/pdf'").run();
-    raw(db).prepare("UPDATE content_chunks SET file_path = '/report.pdf', page = 3 - chunk_index").run();
+    raw(db).prepare("UPDATE content_chunks SET file_path = '/report.pdf', page = 3 - chunk_index, kind = CASE WHEN chunk_index = 0 THEN ? ELSE 'text' END").run(kind);
     indexFile(db, { path: "/report.pdf", driveId, content: "basalt lighthouse maintenance log" });
     const ctx: OpContext = {
       db, driveId, orgId, userId, s3: new MockS3Client(),
@@ -100,9 +100,13 @@ describe("vector search worker", () => {
       const semantic = await vecSearch(ctx, { query: "basalt" });
       expect(semantic.results[0].path).toBe("/report.pdf");
       expect(semantic.results[0].page).toBe(3);
+      expect(semantic.results[0].kind).toBe(kind);
+      if (kind === "image") expect(semantic.results[0].snippet).toBe("[PDF page 3]");
       const hybrid = await search(ctx, { query: "basalt" });
       expect(hybrid.results[0].page).toBe(3);
-      expect(hybrid.results[0].snippet).toContain("lighthouse");
+      expect(hybrid.results[0].kind).toBe(kind);
+      if (kind === "image") expect(hybrid.results[0].snippet).toBe("[PDF page 3]");
+      else expect(hybrid.results[0].snippet).toContain("lighthouse");
     } finally {
       stopVectorSearchWorker(raw(db));
     }

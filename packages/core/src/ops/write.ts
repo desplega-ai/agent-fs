@@ -122,7 +122,7 @@ async function writeInternal(
   });
 
   if (params.indexableText !== undefined) {
-    indexTextForSearch(ctx, path, params.indexableText);
+    await indexTextForSearch(ctx, path, params.indexableText);
   } else {
     await indexBytesForSearch(ctx, path, bytes, contentType);
   }

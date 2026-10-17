@@ -2,6 +2,7 @@ import type { OpContext } from "./types.js";
 import { ftsQuery } from "../search/fts.js";
 import { findVectorCandidates } from "../search/vector-candidates.js";
 import { toUnitVector } from "../search/vectors.js";
+import type { ChunkKind } from "../search/pipeline.js";
 
 export interface SearchParams {
   query: string;
@@ -13,6 +14,7 @@ export interface SearchResultItem {
   score: number;
   snippet: string;
   page?: number;
+  kind?: ChunkKind;
   author?: string;
   modifiedAt?: Date;
 }
@@ -56,7 +58,7 @@ export async function search(
   const K = 60;
   const merged = new Map<
     string,
-    { score: number; snippet: string; page?: number; author?: string; modifiedAt?: Date }
+    { score: number; snippet: string; page?: number; kind?: ChunkKind; author?: string; modifiedAt?: Date }
   >();
 
   // Score vector results by rank position
@@ -71,6 +73,7 @@ export async function search(
         score: rrfScore,
         snippet: item.snippet,
         page: item.page,
+        kind: item.kind,
         author: item.author,
         modifiedAt: item.modifiedAt,
       });
@@ -85,7 +88,7 @@ export async function search(
     if (existing) {
       existing.score += rrfScore;
       // Prefer FTS snippet (has keyword highlighting)
-      if (item.snippet) {
+      if (item.snippet && existing.kind !== "image") {
         existing.snippet = item.snippet;
       }
     } else {
@@ -108,6 +111,7 @@ export async function search(
       score: data.score / maxScore,
       snippet: data.snippet,
       page: data.page,
+      kind: data.kind,
       author: data.author,
       modifiedAt: data.modifiedAt,
     }));
@@ -131,6 +135,7 @@ interface RankedItem {
   path: string;
   snippet: string;
   page?: number;
+  kind?: ChunkKind;
   author?: string;
   modifiedAt?: Date;
 }
@@ -149,6 +154,7 @@ async function vectorSearch(
       path: candidate.path,
       snippet: candidate.snippet,
       page: candidate.page,
+      kind: candidate.kind,
       author: candidate.author,
       modifiedAt: candidate.modifiedAt,
     })

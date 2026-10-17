@@ -67,6 +67,7 @@ function addChunk(
     distance: number;
     chunkIndex?: number;
     page?: number;
+    kind?: "text" | "image";
   }
 ): void {
   const chunk = db
@@ -79,6 +80,7 @@ function addChunk(
       charOffset: params.chunkIndex ?? 0,
       tokenCount: 1,
       page: params.page,
+      kind: params.kind ?? "text",
     })
     .returning({ id: schema.contentChunks.id })
     .get();
@@ -175,6 +177,23 @@ describe("scoped vector search", () => {
     expect(hybrid.results[0].page).toBe(2);
     expect(hybrid.results[0].snippet).toContain("lighthouse");
     expect(hybrid.results.find((item) => item.path === "/keyword-only.pdf")?.page).toBeUndefined();
+  });
+
+  test.each([undefined, 2])("image matches retain markers and page %s when FTS also hits", async (page) => {
+    const { ctx, db, driveId, userId } = createTestContext();
+    ctx.embeddingProvider = PROVIDER;
+    const path = page ? "/diagram.pdf" : "/diagram.png";
+    addFile(db, { path, driveId, author: userId });
+    addChunk(db, { path, driveId, distance: 0.2, kind: "text", page: 1 });
+    addChunk(db, { path, driveId, distance: 0.1, kind: "image", page, chunkIndex: 1 });
+    indexFile(db, { path, driveId, content: "basalt lighthouse maintenance log" });
+
+    for (const result of [await vecSearch(ctx, { query: "basalt" }), await search(ctx, { query: "basalt" })]) {
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].kind).toBe("image");
+      expect(result.results[0].page).toBe(page);
+      expect(result.results[0].snippet).toBe(page ? `[PDF page ${page}]` : "[image]");
+    }
   });
 
   test("stops after an empty round when the drive has few eligible files", async () => {

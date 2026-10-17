@@ -169,11 +169,11 @@ export type { DriveEvent } from "./events/bus.js";
 export { loadTransformers } from "./search/embeddings/embeddinggemma.js";
 export { createEmbeddingProviderFromEnv, NOMIC_MODEL, EMBEDDINGGEMMA_MODEL } from "./search/embeddings/index.js";
 export {
-  prepareEmbeddingMigrationWithWarmup,
-  runPendingEmbeddings,
+  runEmbeddingMigration,
   migrationCpuShare,
 } from "./search/embedding-migration.js";
-export type { PendingEmbeddingsResult } from "./search/embedding-migration.js";
+export { canRenderPdfPages } from "./search/pdf.js";
+export { prepareImageEmbeddings, scheduleImageEmbeddings } from "./search/image-embedding.js";
 export { startVectorSearchWorker } from "./search/vector-worker.js";
 export type { EmbeddingProvider } from "./search/embeddings/index.js";
 export { generateOpenAPISpec } from "./openapi.js";

@@ -1452,6 +1452,46 @@ async function runStandardTests(daemonUrl: string) {
     skipTest("local model ranks a paraphrased query", "requires --local-model and --models-dir");
   }
 
+  if (localModel === "embeddinggemma-2") {
+    await test("local model indexes image files and PDF page images", async () => {
+      const { createCanvas } = await import("@napi-rs/canvas");
+      const canvas = createCanvas(512, 512);
+      const context = canvas.getContext("2d");
+      context.fillStyle = "white";
+      context.fillRect(0, 0, 512, 512);
+      context.fillStyle = "red";
+      context.beginPath();
+      context.arc(256, 256, 180, 0, Math.PI * 2);
+      context.fill();
+      const png = join(testDir, "red-circle.png");
+      writeFileSync(png, await canvas.encode("png"));
+      const pdf = resolve("packages/core/src/search/__tests__/fixtures/image-only.pdf");
+      runJson(`write /local-model/red-circle.png --file '${png}'`);
+      runJson(`write /local-model/solar-kite.pdf --file '${pdf}'`);
+
+      for (const [query, path, page] of [
+        ["a red circle", "/local-model/red-circle.png", undefined],
+        ["SOLAR KITE", "/local-model/solar-kite.pdf", 1],
+      ] as const) {
+        const deadline = Date.now() + 300_000;
+        let match: { path: string; kind?: string; page?: number; snippet?: string } | undefined;
+        while (Date.now() < deadline) {
+          try {
+            const results = runJson(`vec-search '${query}' --limit 100`).results;
+            match = results.find((result: { path: string }) => result.path === path);
+            if (match?.kind === "image") break;
+          } catch {}
+          await Bun.sleep(1000);
+        }
+        assert(match?.kind, "image", `Expected an image match for ${path} within 300 seconds`);
+        assert(match?.page, page, `Expected the page locator for ${path}`);
+        assert(match?.snippet, page ? `[PDF page ${page}]` : "[image]", `Expected the image marker for ${path}`);
+      }
+    });
+  } else {
+    skipTest("local model indexes image files and PDF page images", "requires --local-model embeddinggemma-2 and --models-dir");
+  }
+
   // -- search (hybrid) --
 
   await test("search (hybrid)", () => {

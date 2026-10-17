@@ -44,6 +44,22 @@ class Semaphore {
 }
 
 const embeddingSemaphore = new Semaphore(2);
+const migrationSemaphores = new WeakMap<DB, Semaphore>();
+
+/** Serialize text migrations and image jobs for this database. */
+export async function withEmbeddingMigrationSlot<T>(db: DB, fn: () => Promise<T>): Promise<T> {
+  let semaphore = migrationSemaphores.get(db);
+  if (!semaphore) {
+    semaphore = new Semaphore(1);
+    migrationSemaphores.set(db, semaphore);
+  }
+  const release = await semaphore.acquire();
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
+}
 
 /** Run `fn` in one of the embedding slots shared with on-write embedding. */
 export async function withEmbeddingSlot<T>(fn: () => Promise<T>): Promise<T> {
@@ -74,7 +90,10 @@ export function chunkPages(chunks: Chunk[], pageStarts: number[]): number[] {
   });
 }
 
-function deleteChunks(db: DB, params: { path: string; driveId: string }): void {
+export type ChunkKind = "text" | "image";
+export type ChunkDeleteScope = ChunkKind | "all";
+
+export function deleteChunks(db: DB, params: { path: string; driveId: string }, kind: ChunkDeleteScope): void {
   const raw = getRawDb(db);
   const oldChunks = db
     .select({ id: schema.contentChunks.id })
@@ -82,7 +101,8 @@ function deleteChunks(db: DB, params: { path: string; driveId: string }): void {
     .where(
       and(
         eq(schema.contentChunks.filePath, params.path),
-        eq(schema.contentChunks.driveId, params.driveId)
+        eq(schema.contentChunks.driveId, params.driveId),
+        kind === "all" ? undefined : eq(schema.contentChunks.kind, kind)
       )
     )
     .all();
@@ -95,7 +115,8 @@ function deleteChunks(db: DB, params: { path: string; driveId: string }): void {
     .where(
       and(
         eq(schema.contentChunks.filePath, params.path),
-        eq(schema.contentChunks.driveId, params.driveId)
+        eq(schema.contentChunks.driveId, params.driveId),
+        kind === "all" ? undefined : eq(schema.contentChunks.kind, kind)
       )
     )
     .run();
@@ -108,13 +129,17 @@ function deleteChunks(db: DB, params: { path: string; driveId: string }): void {
  */
 export function clearEmbeddings(
   db: DB,
-  params: { path: string; driveId: string; version: string | null }
+  params: { path: string; driveId: string; version: string | null },
+  kind: ChunkDeleteScope
 ): boolean {
   return getRawDb(db).transaction(() => {
     if (readCurrentVersion(db, params) !== params.version) return false;
-    deleteChunks(db, params);
+    deleteChunks(db, params, kind);
     db.update(schema.files)
-      .set({ embeddingStatus: null })
+      .set({
+        ...(kind !== "image" ? { embeddingStatus: null } : {}),
+        ...(kind !== "text" ? { imageEmbeddingStatus: null } : {}),
+      })
       .where(
         and(
           eq(schema.files.path, params.path),
@@ -179,17 +204,19 @@ export async function indexFileEmbeddings(
   const isCurrent = () => readCurrentVersion(db, params) === params.version;
 
   if (!isCurrent()) return false;
-  if (params.content.length > MAX_EMBED_CHARS) {
-    clearEmbeddings(db, params);
+  if (params.content.length > MAX_EMBED_CHARS && params.pageStarts === undefined) {
+    clearEmbeddings(db, params, "text");
     return false;
   }
 
   try {
     // 1. Chunk content. Blank text has nothing to embed, and providers reject
     // an empty request.
-    const chunks = params.content.trim() === "" ? [] : await chunkContent(params.content);
+    const chunks = params.content.trim() === "" || params.content.length > MAX_EMBED_CHARS
+      ? []
+      : await chunkContent(params.content);
     if (chunks.length === 0 && params.pageStarts === undefined) {
-      clearEmbeddings(db, params);
+      clearEmbeddings(db, params, "text");
       return false;
     }
 
@@ -219,7 +246,7 @@ export async function indexFileEmbeddings(
       }
 
       // 3. Delete old chunks + vectors for this file
-      deleteChunks(db, params);
+      deleteChunks(db, params, "text");
 
       // 4. Insert new chunks + vectors (paired)
       for (let i = 0; i < chunks.length; i++) {

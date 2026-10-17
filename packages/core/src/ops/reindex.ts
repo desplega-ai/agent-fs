@@ -7,6 +7,7 @@ import { indexFile } from "../search/fts.js";
 import { clearSearchData } from "./search-index.js";
 import { extractIndexableText, detectMimeType } from "./mime.js";
 import { normalizePrefix } from "./paths.js";
+import { queueImageEmbeddings } from "../search/image-embedding.js";
 
 export interface ReindexParams {
   path?: string;
@@ -22,27 +23,31 @@ export async function reindex(
   ctx: OpContext,
   params: ReindexParams
 ): Promise<ReindexResult> {
-  // Find files that need reindexing: failed, null, or pending status
-  const conditions = [
+  const fileConditions = [
     eq(schema.files.driveId, ctx.driveId),
     eq(schema.files.isDeleted, false),
-    or(
-      eq(schema.files.embeddingStatus, "failed"),
-      isNull(schema.files.embeddingStatus),
-      eq(schema.files.embeddingStatus, "pending"),
-    ),
   ];
 
   if (params.path) {
     const { like } = await import("drizzle-orm");
     const prefix = normalizePrefix(params.path);
-    conditions.push(like(schema.files.path, prefix + "%"));
+    fileConditions.push(like(schema.files.path, prefix + "%"));
+  }
+
+  if (ctx.embeddingProvider?.supportsMime?.("image/png")) {
+    ctx.db.update(schema.files).set({ imageEmbeddingStatus: "pending" })
+      .where(and(...fileConditions, eq(schema.files.imageEmbeddingStatus, "failed"))).run();
+    queueImageEmbeddings(ctx);
   }
 
   const files = ctx.db
     .select({ path: schema.files.path, version: schema.files.currentVersionId })
     .from(schema.files)
-    .where(and(...conditions))
+    .where(and(...fileConditions, or(
+      eq(schema.files.embeddingStatus, "failed"),
+      isNull(schema.files.embeddingStatus),
+      eq(schema.files.embeddingStatus, "pending"),
+    )))
     .all();
 
   let reindexed = 0;
@@ -68,7 +73,7 @@ export async function reindex(
           return "skipped" as const;
         }
         if (extracted === null) {
-          clearSearchData(ctx, file.path);
+          clearSearchData(ctx, file.path, "text");
           return "skipped" as const;
         }
 

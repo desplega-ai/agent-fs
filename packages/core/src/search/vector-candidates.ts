@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { Database } from "bun:sqlite";
 import { schema, type DB } from "../db/index.js";
 import { runKnn, type ChunkHit } from "./vector-worker.js";
+import type { ChunkKind } from "./pipeline.js";
 
 const MAX_KNN_RESULTS = 4096;
 /** Chunks fetched per file still needed; files often match with several chunks. */
@@ -12,6 +13,7 @@ export interface VectorCandidate {
   distance: number;
   snippet: string;
   page?: number;
+  kind?: ChunkKind;
   author: string;
   modifiedAt: Date;
 }
@@ -68,6 +70,7 @@ function addDistinctFiles(
       path: schema.contentChunks.filePath,
       content: schema.contentChunks.content,
       page: schema.contentChunks.page,
+      kind: schema.contentChunks.kind,
       author: schema.files.author,
       modifiedAt: schema.files.modifiedAt,
     })
@@ -101,8 +104,11 @@ function addDistinctFiles(
     candidates.push({
       path: match.path,
       distance: hit.distance,
-      snippet: match.content.slice(0, 200),
+      snippet: match.kind === "image"
+        ? match.page === null ? "[image]" : `[PDF page ${match.page}]`
+        : match.content.slice(0, 200),
       page: match.page ?? undefined,
+      kind: match.kind,
       author: match.author,
       modifiedAt: match.modifiedAt,
     });

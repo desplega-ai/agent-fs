@@ -8,8 +8,10 @@ import {
   createEmbeddingProviderFromEnv,
   prepareFtsMigration,
   runFtsMigration,
-  prepareEmbeddingMigrationWithWarmup,
-  runPendingEmbeddings,
+  runEmbeddingMigration,
+  prepareImageEmbeddings,
+  canRenderPdfPages,
+  scheduleImageEmbeddings,
   migrationCpuShare,
   startVectorSearchWorker,
   startServerTelemetry,
@@ -62,6 +64,27 @@ try {
   console.warn("Embedding provider unavailable, semantic search disabled:", err);
 }
 
+await canRenderPdfPages(embeddingProvider);
+let imageEmbeddingsPending = false;
+
+// Re-embed files whose vectors predate the current provider or vector format,
+// plus any file whose on-write embedding never ran. Background, resumable.
+// Reserve the shared slot before requests can schedule image work.
+const provider = embeddingProvider;
+const embeddingMigration = provider
+  ? runEmbeddingMigration(db, s3, provider, {
+    log: (msg) => console.log(msg),
+    cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
+    afterMigration: async () => {
+      try {
+        imageEmbeddingsPending = await prepareImageEmbeddings(sqlite, provider);
+      } catch (err) {
+        console.error("image embedding preparation failed (will retry on next start):", err);
+      }
+    },
+  })
+  : null;
+
 // Create app
 const app = createApp(db, s3, embeddingProvider);
 
@@ -86,21 +109,22 @@ if (ftsMigrationPending) {
 // thread keeps /health and every other request answering meanwhile.
 startVectorSearchWorker(sqlite, getDbPath());
 
-// Re-embed files whose vectors predate the current provider or vector format,
-// plus any file whose on-write embedding never ran. Background, resumable.
-if (embeddingProvider) {
-  const provider = embeddingProvider;
-  prepareEmbeddingMigrationWithWarmup(sqlite, provider)
-    .then(async (pending) => {
-      if (!pending) return;
-      const r = await runPendingEmbeddings(db, s3, provider, {
-        log: (msg) => console.log(msg),
-        cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
-      });
+if (provider && embeddingMigration) {
+  embeddingMigration
+    .then((r) => {
+      if (!r) return;
       console.log(`embedding migration done: ${r.indexed} embedded, ${r.failed} failed, ${r.skipped} skipped, ${r.superseded} superseded`);
     })
     .catch((err) => {
       console.error("embedding migration failed (will resume on next start):", err);
+    })
+    .finally(() => {
+      if (imageEmbeddingsPending) {
+        void scheduleImageEmbeddings(db, s3, provider, {
+          log: (msg) => console.log(msg),
+          cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
+        });
+      }
     });
 }
 

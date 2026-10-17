@@ -7,8 +7,7 @@ import {
 } from "./versioning.js";
 import { NotFoundError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
-import { indexFile } from "../search/fts.js";
-import { scheduleEmbedding } from "../search/pipeline.js";
+import { indexTextForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
 
 export async function append(
@@ -57,15 +56,7 @@ export async function append(
     contentHash,
   });
 
-  // FTS5 index (sync)
-  indexFile(ctx.db, { path, driveId: ctx.driveId, content: newContent });
-
-  // Embedding index (async)
-  scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
-    path,
-    driveId: ctx.driveId,
-    content: newContent,
-  });
+  await indexTextForSearch(ctx, path, newContent);
 
   return { version, size };
 }

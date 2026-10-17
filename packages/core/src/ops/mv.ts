@@ -6,7 +6,7 @@ import {
   createVersion,
   assertExpectedVersion,
 } from "./versioning.js";
-import { indexFile, removeFromIndex } from "../search/fts.js";
+import { indexFile, indexedContent, removeFromIndex } from "../search/fts.js";
 import { readCurrentVersion } from "../search/pipeline.js";
 import { schema } from "../db/index.js";
 import { extractIndexableText, detectMimeType } from "./mime.js";
@@ -15,6 +15,8 @@ import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { normalizePath } from "./paths.js";
 import { ValidationError } from "../errors.js";
 import { favoritesAfterMove } from "./favorite.js";
+import { imageEligible, queueImageEmbeddings } from "../search/image-embedding.js";
+import { canRenderPdfPages } from "../search/pdf.js";
 
 export async function mv(
   ctx: OpContext,
@@ -25,6 +27,7 @@ export async function mv(
   if (from === to) {
     throw new ValidationError("Source and destination are the same path");
   }
+  const pdfPageImages = await canRenderPdfPages(ctx.embeddingProvider);
   const fromKey = getS3Key(ctx.orgId, ctx.driveId, from);
   const toKey = getS3Key(ctx.orgId, ctx.driveId, to);
 
@@ -46,6 +49,14 @@ export async function mv(
   const obj = await ctx.s3.getObject(toKey);
   const contentHash = createHash("sha256").update(obj.body).digest("hex");
   const contentType = head.contentType ?? obj.contentType ?? detectMimeType(to);
+  const preserveImages = imageEligible(ctx.embeddingProvider, contentType, pdfPageImages);
+  const sourceFile = ctx.db.select({
+    imageStatus: schema.files.imageEmbeddingStatus,
+    textStatus: schema.files.embeddingStatus,
+  }).from(schema.files).where(and(eq(schema.files.path, from), eq(schema.files.driveId, ctx.driveId))).get();
+  const pdfText = contentType === "application/pdf"
+    ? indexedContent(ctx.db, { path: from, driveId: ctx.driveId })
+    : null;
 
   // 3. Create version on new path
   const version = await createVersion(ctx, {
@@ -72,26 +83,29 @@ export async function mv(
   });
 
   removeFromIndex(ctx.db, { path: from, driveId: ctx.driveId });
-  const extracted = await extractIndexableText(obj.body, contentType);
+  const preserveText = contentType === "application/pdf" || preserveImages;
+  const extracted = preserveText ? null : await extractIndexableText(obj.body, contentType);
   if (readCurrentVersion(ctx.db, { path: to, driveId: ctx.driveId }) === targetVersion) {
-    if (extracted === null) {
-      clearSearchData(ctx, to);
-    } else {
-      indexFile(ctx.db, { path: to, driveId: ctx.driveId, content: extracted.text });
-      // Update chunk paths in-place (vectors stay the same).
-      ctx.db
-        .update(schema.contentChunks)
-        .set({ filePath: to })
-        .where(
-          and(
-            eq(schema.contentChunks.filePath, from),
-            eq(schema.contentChunks.driveId, ctx.driveId)
-          )
-        )
-        .run();
+    clearSearchData(ctx, to, "all");
+    if (!preserveImages) clearSearchData(ctx, from, "image");
+    const content = preserveText ? pdfText : extracted?.text;
+    if (content !== null && content !== undefined) {
+      indexFile(ctx.db, { path: to, driveId: ctx.driveId, content });
     }
+    if (preserveText || extracted !== null) {
+      // Move chunks in place so their vectors keep the same IDs.
+      ctx.db.update(schema.contentChunks).set({ filePath: to })
+        .where(and(eq(schema.contentChunks.filePath, from), eq(schema.contentChunks.driveId, ctx.driveId))).run();
+    } else {
+      clearSearchData(ctx, from, "text");
+    }
+    ctx.db.update(schema.files).set({
+      imageEmbeddingStatus: preserveImages ? sourceFile?.imageStatus ?? null : null,
+      embeddingStatus: preserveText || extracted !== null ? sourceFile?.textStatus ?? null : null,
+    }).where(and(eq(schema.files.path, to), eq(schema.files.driveId, ctx.driveId))).run();
+    if (preserveImages && sourceFile?.imageStatus === "pending") queueImageEmbeddings(ctx);
   } else {
-    clearSearchData(ctx, from);
+    clearSearchData(ctx, from, "all");
   }
 
   // Stars follow the file.

@@ -9,6 +9,7 @@ import {
   clearEmbeddings,
   indexFileEmbeddings,
   withEmbeddingSlot,
+  withEmbeddingMigrationSlot,
 } from "./pipeline.js";
 
 /**
@@ -18,20 +19,21 @@ import {
  *   1. `prepareEmbeddingMigrationWithWarmup()` (at boot): when the provider or
  *      the vector format differs from the one recorded in `meta`, it first
  *      embeds one query, so a provider that cannot load changes nothing. Then
- *      `prepareEmbeddingMigration()` marks every indexed file `pending`. The
- *      `reindex` op skips indexed files, so this is the only path that
- *      refreshes them. Once per `FAILED_RETRY` and format, it also marks
- *      `failed` files `pending`: nothing else retries them.
+ *      `prepareEmbeddingMigration()` deletes image chunks and their vectors
+ *      when the format changes. It also resets image statuses and marks every
+ *      indexed file `pending`. The `reindex` op skips indexed files, so only
+ *      this path refreshes them. Once per `FAILED_RETRY` and format, it also
+ *      marks `failed` files `pending`: nothing else retries them.
  *      It also marks NULL-status PDFs pending for a one-time text backfill.
  *   2. `runPendingEmbeddings()` (async, in the background): embeds every
  *      `pending` file again. A crash leaves the rest `pending`, so the next
  *      boot resumes. It also picks up files whose on-write job never ran.
  *
- * Search keeps working meanwhile; old and new vectors rank together until the
+ * Search keeps working meanwhile. Old and new vectors rank together until the
  * run ends.
  */
 
-const FORMAT_KEY = "embedding_format";
+export const FORMAT_KEY = "embedding_format";
 
 /**
  * Bump a provider's revision whenever its stored vectors must be rebuilt.
@@ -51,7 +53,7 @@ export function embeddingFormat(provider: EmbeddingProvider): string {
   return `${provider.name}:v${REVISIONS[provider.name] ?? 2}`;
 }
 
-function storedFormat(sqlite: Database): string | undefined {
+export function storedFormat(sqlite: Database): string | undefined {
   const row = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(FORMAT_KEY) as { value: string } | null;
   return row?.value;
 }
@@ -82,6 +84,9 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
       sqlite
         .prepare("UPDATE files SET embedding_status = 'pending' WHERE embedding_status = 'indexed' AND is_deleted = 0")
         .run();
+      sqlite.prepare("DELETE FROM chunk_vectors WHERE chunk_id IN (SELECT id FROM content_chunks WHERE kind = 'image')").run();
+      sqlite.prepare("DELETE FROM content_chunks WHERE kind = 'image'").run();
+      sqlite.prepare("UPDATE files SET image_embedding_status = NULL").run();
       setMeta.run(FORMAT_KEY, format);
     })();
   }
@@ -149,22 +154,51 @@ export function pauseForCpuShare(cpuUsedMs: number, cpuShare: number): number {
   return Math.min(MAX_PAUSE_MS, (cpuUsedMs * (1 - cpuShare)) / cpuShare);
 }
 
-export async function runPendingEmbeddings(
+export interface PendingEmbeddingsOptions {
+  batchSize?: number;
+  log?: (msg: string) => void;
+  /**
+   * After each file, pause so the migration uses at most this share of CPU time.
+   * Full speed can exhaust the CPU quota on a small shared host and slow requests.
+   * Defaults to 0.25. 1 runs without pauses.
+   */
+  cpuShare?: number;
+  cpuMs?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/** Reserve the migration slot before warmup, so writes cannot start image work during startup. */
+export function runEmbeddingMigration(
   db: DB,
   s3: StorageAdapter,
   provider: EmbeddingProvider,
-  opts: {
-    batchSize?: number;
-    log?: (msg: string) => void;
-    /**
-     * After each file, pause long enough that the migration uses at most this
-     * share of CPU time. On a small shared-CPU host, a run at full speed uses
-     * up the CPU quota and slows every request.
-     */
-    cpuShare?: number;
-    cpuMs?: () => number;
-    sleep?: (ms: number) => Promise<void>;
-  } = {}
+  opts: PendingEmbeddingsOptions & { afterMigration?: () => void | Promise<void> } = {}
+): Promise<PendingEmbeddingsResult | null> {
+  return withEmbeddingMigrationSlot(db, async () => {
+    const sqlite = (db as any).$client as Database;
+    try {
+      if (!await prepareEmbeddingMigrationWithWarmup(sqlite, provider)) return null;
+      return await runPendingEmbeddingsUnlocked(db, s3, provider, opts);
+    } finally {
+      await opts.afterMigration?.();
+    }
+  });
+}
+
+export function runPendingEmbeddings(
+  db: DB,
+  s3: StorageAdapter,
+  provider: EmbeddingProvider,
+  opts: PendingEmbeddingsOptions = {}
+): Promise<PendingEmbeddingsResult> {
+  return withEmbeddingMigrationSlot(db, () => runPendingEmbeddingsUnlocked(db, s3, provider, opts));
+}
+
+async function runPendingEmbeddingsUnlocked(
+  db: DB,
+  s3: StorageAdapter,
+  provider: EmbeddingProvider,
+  opts: PendingEmbeddingsOptions = {}
 ): Promise<PendingEmbeddingsResult> {
   const sqlite = (db as any).$client as Database;
   const batchSize = opts.batchSize ?? 50;
@@ -210,9 +244,9 @@ export async function runPendingEmbeddings(
         if (
           extracted === null ||
           (extracted.pageStarts === undefined && extracted.text.trim() === "") ||
-          extracted.text.length > MAX_EMBED_CHARS
+          (extracted.pageStarts === undefined && extracted.text.length > MAX_EMBED_CHARS)
         ) {
-          if (clearEmbeddings(db, row)) result.skipped++;
+          if (clearEmbeddings(db, row, "text")) result.skipped++;
           else result.superseded++;
           continue;
         }

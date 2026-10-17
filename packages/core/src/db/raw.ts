@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS files (
   modified_at INTEGER NOT NULL,
   is_deleted INTEGER NOT NULL DEFAULT 0,
   embedding_status TEXT DEFAULT 'pending' CHECK(embedding_status IN ('pending', 'indexed', 'failed')),
+  image_embedding_status TEXT CHECK(image_embedding_status IN ('pending', 'indexed', 'failed')),
   PRIMARY KEY (path, drive_id)
 );
 
@@ -191,7 +192,8 @@ CREATE TABLE IF NOT EXISTS content_chunks (
   content TEXT NOT NULL,
   char_offset INTEGER NOT NULL,
   token_count INTEGER NOT NULL,
-  page INTEGER
+  page INTEGER,
+  kind TEXT NOT NULL DEFAULT 'text'
 );
 
 -- Every write, rm, mv and the embedding job look chunks up by (drive, path).

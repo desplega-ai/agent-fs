@@ -1,5 +1,4 @@
 import { eq, and, isNull } from "drizzle-orm";
-import { Database } from "bun:sqlite";
 import { schema } from "../db/index.js";
 import type { OpContext, RmParams, RmResult } from "./types.js";
 import {
@@ -7,7 +6,7 @@ import {
   createVersion,
   assertExpectedVersion,
 } from "./versioning.js";
-import { removeFromIndex } from "../search/fts.js";
+import { clearSearchData } from "./search-index.js";
 import { publishDriveEvent } from "../events/bus.js";
 import { normalizePath } from "./paths.js";
 import { favoritesAfterRemove } from "./favorite.js";
@@ -34,39 +33,10 @@ export async function rm(
     operation: "delete",
   });
 
-  // 3. Remove from FTS5 index
-  removeFromIndex(ctx.db, { path, driveId: ctx.driveId });
+  // 3. Clear search data
+  clearSearchData(ctx, path, "all");
 
-  // 4. Remove chunks + vectors
-  const oldChunks = ctx.db
-    .select({ id: schema.contentChunks.id })
-    .from(schema.contentChunks)
-    .where(
-      and(
-        eq(schema.contentChunks.filePath, path),
-        eq(schema.contentChunks.driveId, ctx.driveId)
-      )
-    )
-    .all();
-
-  if (oldChunks.length > 0) {
-    const raw = (ctx.db as any).$client as Database;
-    for (const chunk of oldChunks) {
-      raw.prepare("DELETE FROM chunk_vectors WHERE chunk_id = ?").run(chunk.id);
-    }
-
-    ctx.db
-      .delete(schema.contentChunks)
-      .where(
-        and(
-          eq(schema.contentChunks.filePath, path),
-          eq(schema.contentChunks.driveId, ctx.driveId)
-        )
-      )
-      .run();
-  }
-
-  // 5. Soft-delete comments on this file
+  // 4. Soft-delete comments on this file
   const deletedComments = ctx.db
     .select({ id: schema.comments.id, path: schema.comments.path })
     .from(schema.comments)
@@ -104,7 +74,7 @@ export async function rm(
     });
   }
 
-  // 6. Drop every user's star on the file (and on folders it emptied)
+  // 5. Drop every user's star on the file (and on folders it emptied)
   await favoritesAfterRemove(ctx, path);
 
   return { path, deleted: true };

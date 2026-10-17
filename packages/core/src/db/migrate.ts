@@ -71,6 +71,13 @@ export function runMigrations(sqlite: Database): void {
   if (!chunkCols.some((c) => c.name === "page")) {
     sqlite.exec("ALTER TABLE content_chunks ADD COLUMN page INTEGER");
   }
+  if (!chunkCols.some((c) => c.name === "kind")) {
+    sqlite.exec("ALTER TABLE content_chunks ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'");
+  }
+  const fileCols = sqlite.prepare("PRAGMA table_info(files)").all() as Array<{ name: string }>;
+  if (!fileCols.some((c) => c.name === "image_embedding_status")) {
+    sqlite.exec("ALTER TABLE files ADD COLUMN image_embedding_status TEXT CHECK(image_embedding_status IN ('pending', 'indexed', 'failed'))");
+  }
 
   // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //

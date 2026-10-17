@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import type { DB } from "../../db/index.js";
 import { createTestContext } from "../../test-utils.js";
@@ -6,7 +6,7 @@ import { write, writeRaw } from "../../ops/write.js";
 import { reindex } from "../../ops/reindex.js";
 import { mv } from "../../ops/mv.js";
 import { getS3Key } from "../../ops/versioning.js";
-import { extractPdfText } from "../pdf.js";
+import { extractPdfText, PDF_PAGE_IMAGES, renderPdfPages } from "../pdf.js";
 import { ftsQuery, removeFromIndex } from "../fts.js";
 import { prepareEmbeddingMigration, runPendingEmbeddings } from "../embedding-migration.js";
 import { chunkPages, indexFileEmbeddings, readCurrentVersion } from "../pipeline.js";
@@ -180,5 +180,55 @@ describe("PDF text", () => {
     expect(raw(db).query("SELECT 1 FROM content_chunks WHERE file_path = '/target.pdf'").get()).toBeNull();
     expect(raw(db).query("SELECT 1 FROM content_chunks WHERE file_path = '/source.pdf'").get()).toBeNull();
     expect(raw(db).query("SELECT 1 FROM chunk_vectors LIMIT 1").get()).toBeNull();
+  });
+});
+
+describe("PDF page images", () => {
+  test("renders capped pages as PNGs and preserves source bytes", async () => {
+    const bytes = await fixture("text");
+    const original = bytes.slice();
+    const pages = await renderPdfPages(bytes, 1);
+    expect(PDF_PAGE_IMAGES).toBe(3);
+    expect(pages.map((page) => page.page)).toEqual([1]);
+    expect(Array.from(pages[0].data.slice(0, 8))).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(bytes).toEqual(original);
+  });
+
+  test("keeps original page locators after a render error and cleans the document", async () => {
+    const unpdf = await import("unpdf");
+    const destroy = async () => {};
+    const pdf = { numPages: 3, loadingTask: { destroy } };
+    const open = spyOn(unpdf, "getDocumentProxy").mockResolvedValue(pdf as any);
+    const cleanup = spyOn(pdf.loadingTask, "destroy");
+    let inFlight = false;
+    const render = spyOn(unpdf, "renderPageAsImage").mockImplementation((async (
+      document: unknown, page: number, options?: { width?: number; canvasImport?: () => Promise<unknown> }
+    ) => {
+      expect(document).toBe(pdf);
+      expect(options?.width).toBe(1024);
+      expect(typeof options?.canvasImport).toBe("function");
+      expect(inFlight).toBe(false);
+      inFlight = true;
+      await Promise.resolve();
+      inFlight = false;
+      if (page === 2) throw new Error("broken page");
+      return new Uint8Array([page]).buffer;
+    }) as any);
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const bytes = new Uint8Array([1, 2, 3]);
+      const pages = await renderPdfPages(bytes, PDF_PAGE_IMAGES);
+      expect(pages.map(({ page, data }) => [page, ...data])).toEqual([[1, 1], [3, 3]]);
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(open.mock.calls[0][0]).not.toBe(bytes);
+      expect(render).toHaveBeenCalledTimes(3);
+      expect(cleanup).toHaveBeenCalledTimes(1);
+      expect(error).toHaveBeenCalledTimes(1);
+    } finally {
+      open.mockRestore();
+      render.mockRestore();
+      cleanup.mockRestore();
+      error.mockRestore();
+    }
   });
 });

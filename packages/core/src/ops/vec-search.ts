@@ -1,6 +1,7 @@
 import type { OpContext } from "./types.js";
 import { findVectorCandidates } from "../search/vector-candidates.js";
 import { similarityFromDistance, toUnitVector } from "../search/vectors.js";
+import type { ChunkKind } from "../search/pipeline.js";
 
 export interface VecSearchParams {
   query: string;
@@ -12,6 +13,7 @@ export interface VecSearchResultItem {
   score: number;
   snippet: string;
   page?: number;
+  kind?: ChunkKind;
   author?: string;
   modifiedAt?: Date;
 }
@@ -48,6 +50,7 @@ export async function vecSearch(
       score: similarityFromDistance(candidate.distance),
       snippet: candidate.snippet,
       page: candidate.page,
+      kind: candidate.kind,
       author: candidate.author,
       modifiedAt: candidate.modifiedAt,
     })
