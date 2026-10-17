@@ -191,6 +191,15 @@ The scan runs on a worker thread with its own read-only connection, so a slow se
 
 0.16.7 had an opt-in `AGENT_FS_VECTOR_INDEX=int8` index. It was slower than the exact scan on a real disk, so 0.16.8 removes it and drops its table on start.
 
+## Upgrading to 0.17.1: failed embeddings retried once
+
+Until 0.17.1 nothing retried a file whose embedding failed. Three causes are fixed:
+- Blank text sent an empty request, which providers reject. Blank files are now skipped, like binary files.
+- OpenAI got a large file in one request, over its limits of 2,048 inputs and 300,000 tokens. The OpenAI provider now splits a file into several requests.
+- A transient error (rate limit, network) left the file failed for good.
+
+On the first start of 0.17.1, every `failed` file is marked `pending` and the background job embeds it again, with the same CPU pacing as a re-embed. This happens once (and again after a provider change). The log names each file that still fails, with the provider error.
+
 ## Upgrading to 0.17.0: explicit EMBEDDING_PROVIDER wins
 
 An explicit, non-empty `EMBEDDING_PROVIDER` now takes priority over `OPENAI_API_KEY` and `GEMINI_API_KEY`.

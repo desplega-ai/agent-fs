@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEmbeddingProviderFromEnv } from "../embeddings/index.js";
-import { OpenAIEmbeddingProvider } from "../embeddings/openai.js";
+import { OpenAIEmbeddingProvider, requestBatches } from "../embeddings/openai.js";
 import { GeminiEmbeddingProvider } from "../embeddings/gemini.js";
 import { embeddingFormat } from "../embedding-migration.js";
 import { getConfig } from "../../config.js";
@@ -177,5 +177,38 @@ describe("provider request inputs", () => {
       contents,
       config: { outputDimensionality: 768 },
     }]));
+  });
+
+  test("OpenAI splits a large document into requests within its limits, in order", async () => {
+    const provider = new OpenAIEmbeddingProvider("sk-test-key");
+    const create = mock(async (request: { input: string[] }) => ({
+      // Out of order on purpose: the provider sorts by index.
+      data: request.input.map((text, index) => ({ index, embedding: [Number(text)] })).reverse(),
+    }));
+    Object.assign(provider, { client: { embeddings: { create } } });
+
+    // 3,000 chunks of 900 characters: over both the 2,048-input and the token limit of one request.
+    const chunks = Array.from({ length: 3000 }, (_, i) => String(i).padStart(900, "0"));
+    const vectors = await provider.embedDocuments(chunks, { title: "big.csv" });
+
+    expect(vectors).toEqual(chunks.map((_, i) => [i]));
+    const sizes = create.mock.calls.map(([request]) => request.input.length);
+    expect(sizes.reduce((a, b) => a + b, 0)).toBe(3000);
+    for (const [request] of create.mock.calls) {
+      expect(request.input.length).toBeLessThanOrEqual(2048);
+      expect(request.input.join("").length).toBeLessThanOrEqual(250_000);
+    }
+  });
+});
+
+describe("requestBatches", () => {
+  test("keeps order and splits on either limit", () => {
+    expect(requestBatches(["a", "b", "c"], { inputs: 2, chars: 100 })).toEqual([["a", "b"], ["c"]]);
+    expect(requestBatches(["aaa", "bb", "c"], { inputs: 10, chars: 5 })).toEqual([["aaa", "bb"], ["c"]]);
+    expect(requestBatches([], { inputs: 2, chars: 5 })).toEqual([]);
+  });
+
+  test("an input over the character budget goes alone, so the provider reports it", () => {
+    expect(requestBatches(["a", "x".repeat(10), "b"], { inputs: 10, chars: 5 })).toEqual([["a"], ["x".repeat(10)], ["b"]]);
   });
 });

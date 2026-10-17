@@ -18,7 +18,8 @@ import {
  *   1. `prepareEmbeddingMigration()` (sync, at boot): when the provider or the
  *      vector format differs from the one recorded in `meta`, marks every
  *      indexed file `pending`. The `reindex` op skips indexed files, so this is
- *      the only path that refreshes them.
+ *      the only path that refreshes them. Once per `FAILED_RETRY`, it also
+ *      marks `failed` files `pending`: nothing else retries them.
  *   2. `runPendingEmbeddings()` (async, in the background): embeds every
  *      `pending` file again. A crash leaves the rest `pending`, so the next
  *      boot resumes. It also picks up files whose on-write job never ran.
@@ -35,6 +36,14 @@ const FORMAT_KEY = "embedding_format";
  */
 const REVISIONS: Record<string, number> = { local: 3 };
 
+const FAILED_RETRY_KEY = "embedding_failed_retry";
+
+/**
+ * Bump to retry every `failed` file once more on the next boot, after a fix
+ * to the embedding path. 1: empty text, and OpenAI requests over its limits.
+ */
+const FAILED_RETRY = 1;
+
 export function embeddingFormat(provider: EmbeddingProvider): string {
   return `${provider.name}:v${REVISIONS[provider.name] ?? 2}`;
 }
@@ -46,16 +55,30 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
     | { value: string }
     | null;
 
+  const setMeta = sqlite.prepare(
+    "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  );
+
   if (stored?.value !== format) {
     sqlite.transaction(() => {
       sqlite
         .prepare("UPDATE files SET embedding_status = 'pending' WHERE embedding_status = 'indexed' AND is_deleted = 0")
         .run();
+      setMeta.run(FORMAT_KEY, format);
+    })();
+  }
+
+  // Keyed by format too: a new provider gets its own try at old failures.
+  const retry = `${format}#${FAILED_RETRY}`;
+  const retried = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(FAILED_RETRY_KEY) as
+    | { value: string }
+    | null;
+  if (retried?.value !== retry) {
+    sqlite.transaction(() => {
       sqlite
-        .prepare(
-          "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-        )
-        .run(FORMAT_KEY, format);
+        .prepare("UPDATE files SET embedding_status = 'pending' WHERE embedding_status = 'failed' AND is_deleted = 0")
+        .run();
+      setMeta.run(FAILED_RETRY_KEY, retry);
     })();
   }
 
@@ -67,7 +90,7 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
 export interface PendingEmbeddingsResult {
   indexed: number;
   failed: number;
-  /** Files with no indexable text, or text over `MAX_EMBED_CHARS`; their status is cleared. */
+  /** Files with no indexable or only blank text, or text over `MAX_EMBED_CHARS`; their status is cleared. */
   skipped: number;
   /** Files written again during the run; the write's own job embeds them. */
   superseded: number;
@@ -156,7 +179,7 @@ export async function runPendingEmbeddings(
           object.body,
           object.contentType ?? detectMimeType(row.path)
         );
-        if (content === null) {
+        if (content === null || content.trim() === "") {
           if (setStatus.run(null, row.driveId, row.path, row.version).changes > 0) result.skipped++;
           else result.superseded++;
           continue;
@@ -176,10 +199,11 @@ export async function runPendingEmbeddings(
         );
         if (replaced) result.indexed++;
         else result.superseded++;
-      } catch {
+      } catch (err) {
         // indexFileEmbeddings marks its own failures; this covers the read.
         setStatus.run("failed", row.driveId, row.path, row.version);
         result.failed++;
+        log(`embedding failed for ${row.path}: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
         // CPU used / pause = share / (1 - share). Requests run during the pause.
         const pauseMs = pauseForCpuShare(cpuMs() - cpuStart, cpuShare);

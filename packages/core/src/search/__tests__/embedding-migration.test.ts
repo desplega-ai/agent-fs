@@ -386,3 +386,64 @@ describe("oversized text", () => {
   });
 });
 
+describe("failed and blank files", () => {
+  test("retries failed files once, logs each failure, and clears blank files", async () => {
+    const { ctx, db, s3 } = createTestContext();
+    await write(ctx, { path: "/ok.md", content: "fine now" });
+    await write(ctx, { path: "/blank.txt", content: "  \n " });
+    await write(ctx, { path: "/bad.md", content: "still bad" });
+    raw(db).prepare("UPDATE files SET embedding_status = 'failed'").run();
+
+    expect(prepareEmbeddingMigration(raw(db), PROVIDER)).toBe(true);
+    expect(statusOf(db, "/ok.md")).toBe("pending");
+
+    const failing: EmbeddingProvider = {
+      ...PROVIDER,
+      async embedDocuments(texts, opts) {
+        if (texts.some((t) => t.includes("bad"))) throw new EmbeddingProviderError("400 too many tokens");
+        return PROVIDER.embedDocuments(texts, opts);
+      },
+    };
+    const logs: string[] = [];
+    const result = await runPendingEmbeddings(db, s3, failing, { log: (m) => logs.push(m), cpuShare: 1 });
+
+    expect(result).toEqual({ indexed: 1, failed: 1, skipped: 1, superseded: 0 });
+    expect(statusOf(db, "/ok.md")).toBe("indexed");
+    expect(statusOf(db, "/blank.txt")).toBeNull();
+    expect(statusOf(db, "/bad.md")).toBe("failed");
+    expect(logs).toContain("embedding failed for /bad.md: 400 too many tokens");
+
+    // Once per retry revision: the next boot leaves the failure alone.
+    expect(prepareEmbeddingMigration(raw(db), PROVIDER)).toBe(false);
+    expect(statusOf(db, "/bad.md")).toBe("failed");
+  });
+
+  test("blank text never reaches the provider", async () => {
+    const { ctx, db } = createTestContext();
+    await write(ctx, { path: "/empty.txt", content: "" });
+    const path = "/empty.txt";
+    const driveId = (raw(db).prepare("SELECT drive_id AS d FROM files WHERE path = ?").get(path) as { d: string }).d;
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+    const calls: string[][] = [];
+    const recording: EmbeddingProvider = {
+      ...PROVIDER,
+      async embedDocuments(texts, opts) {
+        calls.push(texts);
+        return PROVIDER.embedDocuments(texts, opts);
+      },
+    };
+
+    for (const content of ["", "   \n\t "]) {
+      expect(
+        await indexFileEmbeddings(db, recording, {
+          path,
+          driveId,
+          content,
+          version: readCurrentVersion(db, { path, driveId }) ?? null,
+        })
+      ).toBe(false);
+    }
+    expect(calls).toEqual([]);
+    expect(statusOf(db, path)).toBeNull();
+  });
+});

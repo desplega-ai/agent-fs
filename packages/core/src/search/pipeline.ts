@@ -144,8 +144,8 @@ export function readCurrentVersion(
  * the status. The check and the whole replacement run in one transaction, so
  * a failed insert rolls back to the previous index.
  *
- * Text over `MAX_EMBED_CHARS` is not embedded: the job drops the file's chunks,
- * clears its status, and returns `false`.
+ * Text over `MAX_EMBED_CHARS`, or blank text, is not embedded: the job drops
+ * the file's chunks, clears its status, and returns `false`.
  */
 export async function indexFileEmbeddings(
   db: DB,
@@ -162,8 +162,13 @@ export async function indexFileEmbeddings(
   }
 
   try {
-    // 1. Chunk content
-    const chunks = await chunkContent(params.content);
+    // 1. Chunk content. Blank text has nothing to embed, and providers reject
+    // an empty request.
+    const chunks = params.content.trim() === "" ? [] : await chunkContent(params.content);
+    if (chunks.length === 0) {
+      clearEmbeddings(db, params);
+      return false;
+    }
 
     // 2. Generate and validate embeddings FIRST (before any DB writes)
     const texts = chunks.map((c) => c.content);
