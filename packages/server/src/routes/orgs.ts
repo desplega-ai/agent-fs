@@ -9,6 +9,7 @@ import {
   removeOrgMember,
   listDrivesForUser,
   createDrive,
+  setDriveMember,
   listDriveMembers,
   updateDriveMemberRole,
   removeDriveMember,
@@ -179,6 +180,42 @@ export function orgRoutes(db: DB) {
     requireDriveAdmin(db, { userId: user.id, driveId });
     const members = listDriveMembers(db, driveId);
     return c.json({ members });
+  });
+
+  router.post("/:orgId/drives/:driveId/members", async (c) => {
+    const user = c.get("user");
+    const orgId = c.req.param("orgId");
+    const driveId = c.req.param("driveId");
+    assertDriveInOrg(db, { driveId, orgId });
+    requireDriveAdmin(db, { userId: user.id, driveId });
+    const { userId, email, role } = await c.req.json<{
+      userId?: string;
+      email?: string;
+      role?: string;
+    }>();
+    if ((!userId && !email) || (userId && email)) {
+      return c.json(
+        { error: "BAD_REQUEST", message: "Provide exactly one of userId or email" },
+        400
+      );
+    }
+    if (role !== "viewer" && role !== "editor" && role !== "admin") {
+      return c.json(
+        { error: "BAD_REQUEST", message: "Role must be viewer, editor, or admin" },
+        400
+      );
+    }
+    const member = listOrgMembers(db, orgId).find((candidate) =>
+      userId ? candidate.userId === userId : candidate.email === email
+    );
+    if (!member) {
+      return c.json(
+        { error: "BAD_REQUEST", message: "User is not a member of the org" },
+        400
+      );
+    }
+    setDriveMember(db, { driveId, userId: member.userId, role });
+    return c.json({ ok: true });
   });
 
   router.patch("/:orgId/drives/:driveId/members/:userId", async (c) => {

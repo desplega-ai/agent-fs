@@ -250,7 +250,7 @@ Stars follow files: `mv` moves every user's star on the file to the new path, `r
 |---------|-------|-------------|
 | `members` | `agent-fs members` | List the active drive's members with user ID, email, and display name. Available to every drive member. Roles are omitted. |
 | `member list` | `agent-fs member list` | List org members (use `--drive <id>` for drive members) |
-| `member invite` | `agent-fs member invite <email> --role <role>` | Invite user to org (viewer/editor/admin) |
+| `member invite` | `agent-fs member invite <email> --role <role>` | Invite user to org (use `--drive <id>` to add an existing org member to a drive) |
 | `member update-role` | `agent-fs member update-role <email> --role <role>` | Update org role (use `--drive <id>` for drive role) |
 | `member remove` | `agent-fs member remove <email>` | Remove from org (use `--drive <id>` for drive only) |
 | `member reset-key` | `agent-fs member reset-key <email>` | Reset a member's API key (org admin only). The old key stops working immediately. |
@@ -266,7 +266,7 @@ The `--drive` flag is a global option — place it before the subcommand: `agent
 | `drive list` | `agent-fs drive list` | List drives in current org |
 | `drive create` | `agent-fs drive create <name>` | Create a new drive (requires org admin) |
 | `drive current` | `agent-fs drive current` | Show current drive context |
-| `drive invite` | `agent-fs drive invite <email> --role <role>` | Invite user (viewer/editor/admin) |
+| `drive invite` | `agent-fs drive invite <email> --role <role>` | Invite user to org (use `--drive <id>` to add an existing org member to a drive) |
 
 Drive membership is explicit: `drive list` shows only drives you're a member of. Creating a drive automatically grants you admin membership on it; other users must be invited per drive (or via org invite, which grants access to the default drive).
 
@@ -409,8 +409,9 @@ agent-fs comment resolve <comment-id>
 # Create a shared drive
 agent-fs drive create "team-docs"
 
-# Invite a teammate
+# Invite a teammate to the org, then grant access to the new drive
 agent-fs drive invite alice@company.com --role editor
+agent-fs --drive <driveId> drive invite alice@company.com --role editor
 
 # Check current drive context
 agent-fs drive current
@@ -430,6 +431,9 @@ agent-fs --drive <driveId> member list
 
 # Invite a user
 agent-fs member invite alice@company.com --role editor
+
+# Add an existing org member to a specific drive
+agent-fs --drive <driveId> member invite alice@company.com --role editor
 
 # Change role
 agent-fs member update-role alice@company.com --role admin
