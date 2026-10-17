@@ -96,7 +96,7 @@ const opRegistry: Record<string, OpDefinition> = {
     schema: z.object({ path: z.string().optional() }),
   },
   stat: {
-    description: "Get file metadata without reading content. Returns path, size, contentType, author, currentVersion, createdAt, modifiedAt, isDeleted, embeddingStatus, etag (opaque id of the current bytes, compare for equality).",
+    description: "Get file metadata without reading content. Returns path, size, contentType, author, currentVersion, createdAt, modifiedAt, isDeleted, embeddingStatus, etag (opaque id of the current bytes, compare for equality). Embedding status is pending, indexed, failed, or skipped.",
     handler: stat,
     schema: z.object({ path: z.string() }),
   },
@@ -208,7 +208,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   reindex: {
-    description: "Re-index files with failed or missing FTS5/embedding entries. Optionally scope to a path prefix. Use after bulk writes or provider changes.",
+    description: "Re-index files with failed or missing FTS5/embedding entries. Skip files with indexed or skipped status. Optionally scope to a path prefix. Use after bulk writes or provider changes.",
     handler: reindex,
     schema: z.object({
       path: z.string().optional(),

@@ -229,6 +229,7 @@ describe("image embedding job", () => {
     expect(chunks(db, path, "text")).toHaveLength(0);
     expect(chunks(db, path).map((chunk) => chunk.page)).toEqual([1, 2]);
     expect(status(db, path)).toBe("indexed");
+    expect(raw(db).prepare("SELECT embedding_status FROM files WHERE path = ?").get(path)).toEqual({ embedding_status: "skipped" });
   });
 
   test("text-only providers skip image work without image methods", async () => {

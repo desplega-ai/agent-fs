@@ -6,6 +6,7 @@ import {
   setConfig,
   setConfigValue,
   getHome,
+  getEmbeddingMaxBytes,
 } from "./config.js";
 import type { S3StorageConfig } from "./config.js";
 import { createTestConfigDir } from "./test-utils.js";
@@ -30,6 +31,7 @@ const OVERRIDE_ENV_VARS = [
   "AGENT_FS_STORAGE_PROVIDER",
   "AGENT_FS_LOCAL_ROOT",
   "AGENT_FS_MAX_UPLOAD_BYTES",
+  "AGENT_FS_EMBEDDING_MAX_BYTES",
   "AGENT_FS_RATE_LIMIT",
   "SERVER_PORT",
   "SERVER_HOST",
@@ -78,6 +80,19 @@ describe("Config system", () => {
   afterEach(() => {
     cleanup();
     restoreEnvVars(savedEnv);
+  });
+
+  test.each(["", "0", "-1", "1.5", "1e3", "+1", "12bytes", "Infinity", "9007199254740992"])("invalid embedding byte cap %s means no cap", (value) => {
+    process.env.AGENT_FS_EMBEDDING_MAX_BYTES = value;
+    expect(getEmbeddingMaxBytes()).toBeUndefined();
+  });
+
+  test("embedding byte cap accepts positive integer bytes", () => {
+    expect(getEmbeddingMaxBytes()).toBeUndefined();
+    for (const value of ["1", "1048576", " 42 ", "0042"]) {
+      process.env.AGENT_FS_EMBEDDING_MAX_BYTES = value;
+      expect(getEmbeddingMaxBytes()).toBe(Number(value));
+    }
   });
 
   test("getHome returns AGENT_FS_HOME when set", () => {

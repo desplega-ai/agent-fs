@@ -2,7 +2,7 @@ import { join } from "node:path";
 import { getHome } from "../../config.js";
 import { EmbeddingProviderError } from "../../errors.js";
 import { EmbeddingInitializationError } from "./provider.js";
-import { transformersRuntimeConflict, TRANSFORMERS_VERSION, INSTALL_HINT, type TransformersResult } from "./embeddinggemma.js";
+import { TRANSFORMERS_VERSION, INSTALL_HINT, type TransformersResult } from "./embeddinggemma.js";
 import source from "./embeddinggemma-runtime.mjs" with { type: "text" };
 import type { EmbeddingPart } from "./provider.js";
 import type { RuntimeOptions } from "./embeddinggemma-runtime.mjs";
@@ -45,7 +45,6 @@ export class EmbeddingGemmaWorker {
     }) as [keyof RuntimeOptions["paths"], string][]) {
       try { paths[key] = Bun.resolveSync(name, import.meta.dir); } catch {}
     }
-    const conflict = transformersRuntimeConflict();
     const url = URL.createObjectURL(new Blob([source, "\nstartWorker(self);"], { type: "application/javascript" }));
     let worker: Worker;
     try {
@@ -79,7 +78,7 @@ export class EmbeddingGemmaWorker {
     (worker as Worker & { unref(): void }).unref();
     try {
       const open: WorkerRequest = {
-        type: "open", options: { paths, conflict, cacheDir: join(getHome(), "models"), version: TRANSFORMERS_VERSION, hint: INSTALL_HINT },
+        type: "open", options: { paths, cacheDir: join(getHome(), "models"), version: TRANSFORMERS_VERSION, hint: INSTALL_HINT },
       };
       worker.postMessage(open);
     } catch (err) {

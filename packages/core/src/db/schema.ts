@@ -91,7 +91,7 @@ export const files = sqliteTable(
       .notNull()
       .default(false),
     embeddingStatus: text("embedding_status", {
-      enum: ["pending", "indexed", "failed"],
+      enum: ["pending", "indexed", "failed", "skipped"],
     }).default("pending"),
     imageEmbeddingStatus: text("image_embedding_status", {
       enum: ["pending", "indexed", "failed"],

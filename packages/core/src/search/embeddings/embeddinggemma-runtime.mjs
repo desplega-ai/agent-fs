@@ -66,7 +66,6 @@ export class EmbeddingGemmaRuntime {
 
   async loadTransformers() {
     try {
-      if (this.options.conflict) return { reason: this.options.conflict, hint: "" };
       if (!this.options.paths.transformers) throw new Error("Cannot resolve @huggingface/transformers");
       const mod = await this.loadModule(this.options.paths.transformers);
       if (mod.env.version !== this.options.version) {

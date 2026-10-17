@@ -10,6 +10,13 @@ export function getMaxUploadBytes(): number {
   return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : DEFAULT_MAX_UPLOAD_BYTES;
 }
 
+/** Env-only UTF-8 text limit. Invalid or unset values leave embedding uncapped. */
+export function getEmbeddingMaxBytes(): number | undefined {
+  const raw = process.env.AGENT_FS_EMBEDDING_MAX_BYTES?.trim();
+  const bytes = raw && /^[0-9]+$/.test(raw) ? Number(raw) : NaN;
+  return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : undefined;
+}
+
 function resolveHome(): string {
   const home = process.env.AGENT_FS_HOME ?? join(process.env.HOME ?? "/tmp", ".agent-fs");
   // Expand ~ since env vars loaded by bun/.env don't do shell expansion

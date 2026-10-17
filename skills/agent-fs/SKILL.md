@@ -133,7 +133,7 @@ symlinks are unsupported and throw `EPERM`.
 | `append` | `agent-fs append <path> [--content <text>] [-m <msg>]` | Append to file (stdin or --content) |
 | `tail` | `agent-fs tail <path> [--lines <n>]` | Last N lines (default: 20) |
 | `ls` | `agent-fs ls [path]` | List directory contents (defaults to /) |
-| `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps, `etag` of the current bytes: compare for equality to tell whether content changed) |
+| `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps, embedding status: `pending`, `indexed`, `failed`, or `skipped`, `etag` of the current bytes: compare for equality to tell whether content changed) |
 | `reveal` | `agent-fs reveal <path>` | Everything needed to show one file in a tree, in one call: the `ls` listing of every ancestor (root first, as `listings: [{ path, entries }]`) plus the file's `stat`. Same permissions as `ls`; `NOT_FOUND` for a missing file. Prefer `ls`/`stat` for ordinary reads. |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
 | `glob` | `agent-fs glob <pattern> [--path <prefix>]` | Find files by pattern (`*.md`, `**/*.md`) across all storage pages |
@@ -171,7 +171,7 @@ Every `diff` result carries `source`: `content` (both versions compared), `summa
 | `search` | `agent-fs search <query> [--limit <n>]` | Hybrid search (semantic + keyword, best for general queries) |
 | `vec-search` | `agent-fs vec-search <query> [--limit <n>]` | Semantic search over distinct files in the active drive |
 | `recent` | `agent-fs recent [path] [--since <duration>] [--limit <n>]` | Recent activity (e.g., `--since 24h`) |
-| `reindex` | `agent-fs reindex [path]` | Re-index files with failed/missing embeddings |
+| `reindex` | `agent-fs reindex [path]` | Re-index files with failed/missing embeddings. Skip `indexed` and `skipped` files |
 
 **When to use which:**
 - `grep` — you know the exact pattern and path (regex)
@@ -192,6 +192,14 @@ Lower similarities keep one vector contribution. An FTS match still adds its key
 Image indexing runs in the background, so a new image can take time to appear.
 Use `agent-fs signed-url <path> --inline` to view the file, or omit `--inline` to download it.
 On a local-filesystem backend, the URL requires an authenticated drive member.
+Set `AGENT_FS_EMBEDDING_MAX_BYTES` on the server to cap text embeddings by UTF-8 bytes.
+Use a positive integer. Unset or invalid values mean no cap.
+Text over the cap keeps full-text search, loses text chunks and vectors, and reports `skipped`.
+Text over 2,000,000 characters also reports `skipped`, even without a byte cap.
+The cap measures extracted text for PDFs. Images and PDF-page embeddings stay unchanged.
+Restart after a cap change. At boot, the daemon queues skipped files and indexed files larger than the new cap.
+When a cap is set, it also queues legacy NULL-status files whose FTS text exceeds the cap in bytes.
+
 Semantic results require embeddings. `vec-search` returns a hint when no provider exists, and `search` identifies keyword-only results.
 For local semantic search, set `EMBEDDING_PROVIDER=local` and `EMBEDDING_MODEL=embeddinggemma-2` to select EmbeddingGemma 2.
 With an empty model setting, fresh indexes use EmbeddingGemma 2 when transformers 4.3.1 loads locally. Otherwise, they use nomic.

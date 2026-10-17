@@ -1,3 +1,4 @@
+import { getEmbeddingMaxBytes } from "../config.js";
 import type { Database } from "bun:sqlite";
 import type { DB } from "../db/index.js";
 import type { StorageAdapter } from "../storage/adapter.js";
@@ -5,7 +6,6 @@ import type { EmbeddingProvider } from "./embeddings/provider.js";
 import { getS3Key } from "../ops/versioning.js";
 import { extractIndexableText, detectMimeType } from "../ops/mime.js";
 import {
-  MAX_EMBED_CHARS,
   clearEmbeddings,
   indexFileEmbeddings,
   withEmbeddingSlot,
@@ -34,6 +34,7 @@ import {
  */
 
 export const FORMAT_KEY = "embedding_format";
+export const MAX_BYTES_KEY = "embedding_max_bytes";
 
 /**
  * Bump a provider's revision whenever its stored vectors must be rebuilt.
@@ -86,13 +87,41 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
   if (storedFormat(sqlite) !== format) {
     sqlite.transaction(() => {
       sqlite
-        .prepare("UPDATE files SET embedding_status = 'pending' WHERE embedding_status = 'indexed' AND is_deleted = 0")
+        .prepare("UPDATE files SET embedding_status = 'pending' WHERE embedding_status IN ('indexed', 'skipped') AND is_deleted = 0")
         .run();
       sqlite.prepare("DELETE FROM chunk_vectors WHERE chunk_id IN (SELECT id FROM content_chunks WHERE kind = 'image')").run();
       sqlite.prepare("DELETE FROM content_chunks WHERE kind = 'image'").run();
       sqlite.prepare("UPDATE files SET image_embedding_status = NULL").run();
       setMeta.run(FORMAT_KEY, format);
     })();
+  }
+
+  const maxBytes = getEmbeddingMaxBytes();
+  const cap = maxBytes === undefined ? "" : String(maxBytes);
+  const storedCap = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(MAX_BYTES_KEY) as { value: string } | null;
+  if ((storedCap?.value ?? "") !== cap) {
+    sqlite.transaction(() => {
+      sqlite.prepare(
+        `UPDATE files SET embedding_status = 'pending'
+         WHERE is_deleted = 0 AND (
+           embedding_status = 'skipped' OR (
+             embedding_status = 'indexed' AND COALESCE((
+               SELECT octet_length(d.content) FROM files_fts_docs d
+               WHERE d.drive_id = files.drive_id AND d.path = files.path
+             ), CASE WHEN content_type = 'application/pdf' THEN 0 ELSE size END) > ?
+           ) OR (
+             embedding_status IS NULL AND ? IS NOT NULL AND EXISTS (
+               SELECT 1 FROM files_fts_docs d
+               WHERE d.drive_id = files.drive_id AND d.path = files.path
+                 AND octet_length(d.content) > ?
+             )
+           )
+         )`
+      ).run(maxBytes ?? Number.MAX_SAFE_INTEGER, maxBytes ?? null, maxBytes ?? null);
+      setMeta.run(MAX_BYTES_KEY, cap);
+    })();
+  } else if (!storedCap) {
+    setMeta.run(MAX_BYTES_KEY, cap);
   }
 
   // Keyed by format too: a new provider gets its own try at old failures.
@@ -109,7 +138,7 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
     })();
   }
 
-  // A processed PDF always ends indexed or failed, so IS NULL selects only PDFs that still need the backfill.
+  // A processed PDF always ends indexed, skipped or failed, so IS NULL selects only PDFs that still need the backfill.
   // See indexFileEmbeddings.pageStarts for the terminal PDF status rule.
   sqlite
     .prepare(
@@ -126,7 +155,7 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
 export interface PendingEmbeddingsResult {
   indexed: number;
   failed: number;
-  /** Files with no indexable or only blank text, or text over `MAX_EMBED_CHARS`; their status is cleared. */
+  /** Files over either size limit, or files with no text eligible for embedding. */
   skipped: number;
   /** Files written again during the run; the write's own job embeds them. */
   superseded: number;
@@ -245,16 +274,12 @@ async function runPendingEmbeddingsUnlocked(
           object.contentType ?? detectMimeType(row.path)
         );
         // Nothing to embed: drop chunks of an older, text version too.
-        if (
-          extracted === null ||
-          (extracted.pageStarts === undefined && extracted.text.trim() === "") ||
-          (extracted.pageStarts === undefined && extracted.text.length > MAX_EMBED_CHARS)
-        ) {
+        if (extracted === null) {
           if (clearEmbeddings(db, row, "text")) result.skipped++;
           else result.superseded++;
           continue;
         }
-        const replaced = await withEmbeddingSlot(() =>
+        const outcome = await withEmbeddingSlot(() =>
           indexFileEmbeddings(db, provider, {
             path: row.path,
             driveId: row.driveId,
@@ -264,8 +289,7 @@ async function runPendingEmbeddingsUnlocked(
             version: row.version,
           })
         );
-        if (replaced) result.indexed++;
-        else result.superseded++;
+        result[outcome]++;
       } catch (err) {
         // indexFileEmbeddings marks its own failures; this covers the read.
         setStatus.run("failed", row.driveId, row.path, row.version);

@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { z } from "zod";
 import {
+  schema,
   getRegisteredOps,
   getOpDefinition,
   createUser,
@@ -98,6 +99,23 @@ describe("registerTools", () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.version).toBe(1);
     expect(parsed.path).toBe("/mcp-test.txt");
+  });
+
+  test("stat preserves skipped embedding status", async () => {
+    const handlers = new Map<string, (params: any) => Promise<any>>();
+    const mockServer = {
+      tool: (name: string, _description: string, _schema: any, handler: any) => {
+        handlers.set(name, handler);
+      },
+    };
+    const { ctx } = createTestContext();
+    registerTools(mockServer as any, () => ctx);
+    await handlers.get("write")!({ path: "/large.txt", content: "large text" });
+    ctx.db.update(schema.files).set({ embeddingStatus: "skipped" }).run();
+
+    const result = await handlers.get("stat")!({ path: "/large.txt" });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse(result.content[0].text).embeddingStatus).toBe("skipped");
   });
 
   test("share-create on a folder returns a site share with a /site/ URL", async () => {

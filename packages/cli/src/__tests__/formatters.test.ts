@@ -112,6 +112,16 @@ describe("share-create formatter", () => {
   });
 });
 
+describe("stat formatter embedding status", () => {
+  test("shows skipped embedding status in text and JSON", () => {
+    const result = { path: "/large.txt", embeddingStatus: "skipped" };
+    const text = captureOutput(() => outputResult("stat", result, false));
+    expect(text).toMatch(/Embedding:\s+skipped/);
+    const json = captureOutput(() => outputResult("stat", result, true));
+    expect(JSON.parse(json).embeddingStatus).toBe("skipped");
+  });
+});
+
 describe("stat formatter with appUrl", () => {
   test("includes App URL when present in stat result", () => {
     const result = {

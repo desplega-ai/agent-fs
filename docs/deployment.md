@@ -194,6 +194,20 @@ Priority: an explicit `EMBEDDING_PROVIDER` (`local`, `openai`, or `gemini`) > `O
 
 When `EMBEDDING_PROVIDER` names another provider than config.json, agent-fs does not use the model and API key from config.json. `EMBEDDING_MODEL` and `EMBEDDING_API_KEY` still apply.
 
+### Text embedding size cap
+
+| Environment variable | Default | Description |
+|----------------------|---------|-------------|
+| `AGENT_FS_EMBEDDING_MAX_BYTES` | No cap | Positive integer limit for text embeddings, in UTF-8 bytes. Unset or invalid means no cap. Restart after changes. |
+
+The cap measures file text or extracted PDF text.
+Text over the cap keeps its full-text search index.
+The indexer deletes its text chunks and vectors and reports `embeddingStatus: "skipped"`.
+Image and PDF-page embeddings stay unchanged.
+At boot, a changed cap queues skipped files and indexed files larger than the new cap.
+`reindex` skips files with `skipped` status, as it skips files with `indexed` status.
+`stat`, CLI, MCP, and the live file metadata show `skipped`.
+
 ### Configuring in config.json
 
 ```json

@@ -39,6 +39,7 @@ beforeAll(() => {
   db.insert(schema.files).values({ ...baseFile, path: "/failed.md", embeddingStatus: "failed" }).run();
   db.insert(schema.files).values({ ...baseFile, path: "/null.md", embeddingStatus: null }).run();
   db.insert(schema.files).values({ ...baseFile, path: "/indexed.md", embeddingStatus: "indexed" }).run();
+  db.insert(schema.files).values({ ...baseFile, path: "/skipped.md", embeddingStatus: "skipped" }).run();
   db.insert(schema.files).values({ ...baseFile, path: "/deleted.md", embeddingStatus: "pending", isDeleted: true }).run();
 }, 30_000);
 
@@ -70,7 +71,7 @@ describe("reindex query", () => {
     expect(paths).toEqual(["/failed.md", "/null.md", "/pending.md"]);
   });
 
-  test("excludes indexed files", () => {
+  test("excludes indexed and skipped files", () => {
     const files = db
       .select({ path: schema.files.path })
       .from(schema.files)
@@ -89,6 +90,7 @@ describe("reindex query", () => {
 
     const paths = files.map(f => f.path);
     expect(paths).not.toContain("/indexed.md");
+    expect(paths).not.toContain("/skipped.md");
   });
 
   test("excludes deleted files even with pending status", () => {

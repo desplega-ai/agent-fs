@@ -4,7 +4,6 @@ import type { WorkerRequest, WorkerReply } from "./embeddinggemma-worker.js";
 
 export interface RuntimeOptions {
   paths: { transformers?: string; unpdf?: string; canvas?: string };
-  conflict: string | null;
   cacheDir: string;
   version: string;
   hint: string;

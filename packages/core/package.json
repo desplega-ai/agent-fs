@@ -9,7 +9,7 @@
     "@aws-sdk/s3-request-presigner": "^3.750.0",
     "@duckdb/node-api": "1.5.3-r.3",
     "@google/genai": "^1.45.0",
-    "chonkie": "^0.3.0",
+    "@chonkiejs/core": "0.0.12",
     "diff": "^8.0.3",
     "drizzle-orm": "^0.44.0",
     "files-sdk": "^3.1.1",

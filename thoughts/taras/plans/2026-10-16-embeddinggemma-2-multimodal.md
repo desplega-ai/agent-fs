@@ -986,7 +986,7 @@ Deliverable: with `EMBEDDING_PROVIDER=local` (or unset) and an empty `EMBEDDING_
 
 #### Manual Verification:
 - [x] Before this PR merges: 0.17.4 runs on the swarm (Manual E2E §3, first run), and the Appendix multimodal column is filled. **Waived by Taras (2026-10-17)**: his local test with 90 files from ~/Downloads and the additions QA cover the same checks on real data. The swarm measurements can run later.
-- [ ] Taras confirms the upgrade note reads clearly for self-hosters.
+- [x] Taras confirms the upgrade note reads clearly for self-hosters. (2026-10-17: "lgtm")
 
 **Review changes (2026-10-17)**: the resolver probes transformers only on the branches that need it (not for a configured model or a sticky nomic index). A stored EmbeddingGemma 2 index whose transformers cannot load keeps its model and format, and the boot line carries the cause plus the install hint (checked with a preload that blocks the import). Chunks from another provider give the reason "index built by another provider". `.env.example`, README and the docs say local runs nomic on llama.cpp or EmbeddingGemma 2 on transformers.js.
 
@@ -1003,11 +1003,15 @@ Taras's local test (90 files from ~/Downloads, memo `/tmp/eg2-plan/local-finding
 
 Not in scope: batching text chunks (after the worker, measure first), the shared 2-slot semaphore that starves the image job, PDF text extraction in the PUT path.
 
+#### Success Criteria (additions):
+
+##### Automated Verification:
 - [x] `bun run typecheck`, `bun run test`, `bun run build` pass
 - [x] `AGENT_FS_TEST_EMBEDDINGGEMMA_HOME=/tmp/eg2-plan/p2-home bun test packages/core/src/__manual_tests__/embeddinggemma.test.ts` passes through the worker
 - [x] E2E `--local-only` and full (MinIO) pass, except the known `share-create` failure
 - [x] Unit tests: an image at vector rank 1 ranks first over text files in both lists, a text-only drive keeps its scores, `--limit 3` gives the first 3 of `--limit 30`, FTS-only hits carry `kind: "text"`
 
+##### QA (dist build, the same 90 files, `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE=1`):
 - [x] No watchdog stall. `/health` polled every 200 ms answers within 1 s for the whole prefill (before: 9 stalls of 5 to 10.8 s)
 - [x] PDF writes finish in a few seconds (before: up to 43 s)
 - [x] Hybrid: "GitHub octocat logo", "presentation slide about AI event" and "Ramp logo" put the target image in the top 2 (before: ranks 8, 19 and 4)
@@ -1044,18 +1048,20 @@ Taras's choices (2026-10-17): swap `chonkie` for `@chonkiejs/core` before the pr
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `bun install --frozen-lockfile`, `bun run typecheck`, `bun run test`, `bun run build`
-- [ ] `bun pm ls --all | grep -E "transformers|onnxruntime-node|chonkie"`: one transformers (4.3.1), one onnxruntime-node (1.30.0), `@chonkiejs/core` only
-- [ ] Golden chunk test (markdown with a code fence, CRLF, CJK, a long URL, a base64 line, CSV rows): `[charOffset, length]` snapshot, every chunk at most 2000 characters, chunks join back to the text
-- [ ] `/tmp/eg2-plan/scripts/chunk-compare.ts` on the 20 baseline files: offsets map back, no chunk over 2000 characters. Report chunk count and size against `chunks-before.json`
-- [ ] Manual: nomic and EmbeddingGemma 2 vectors for 3 fixed strings are equal before and after the swap. nomic token count of every chunk is at most 2048
-- [ ] Cap unit tests: a file over the cap is FTS-indexed, has no text chunks and is `skipped`. A cap change re-queues the right files. `reindex` skips `skipped` files. No cap gives today's behavior
-- [ ] E2E `--local-only` and full pass, except the known `share-create` failure
+- [x] `bun install --frozen-lockfile`, `bun run typecheck`, `bun run test`, `bun run build`
+- [x] `bun pm ls --all | grep -E "transformers|onnxruntime-node|chonkie"`: one transformers (4.3.1), one onnxruntime-node (1.30.0), `@chonkiejs/core` only
+- [x] Golden chunk test (markdown with a code fence, CRLF, CJK, a long URL, a base64 line, CSV rows): `[charOffset, length]` snapshot, every chunk at most 2000 characters, chunks join back to the text
+- [x] `/tmp/eg2-plan/scripts/chunk-compare.ts` on the 20 baseline files: offsets map back, no chunk over 2000 characters. Report chunk count and size against `chunks-before.json`
+- [x] Manual: nomic and EmbeddingGemma 2 vectors for 3 fixed strings are equal before and after the swap. nomic token count of every chunk is at most 2048
+- [x] Cap unit tests: a file over the cap is FTS-indexed, has no text chunks and is `skipped`. A cap change re-queues the right files. `reindex` skips `skipped` files. No cap gives today's behavior
+- [x] E2E `--local-only` and full pass, except the known `share-create` failure
 
 #### QA:
-- [ ] Docker image (arm64): one onnxruntime-node, EmbeddingGemma 2 indexes a file, a 2 MB text file is `skipped` with `AGENT_FS_EMBEDDING_MAX_BYTES=1048576`
-- [ ] Linux global install (`bun add -g` of the packed tgz plus `@huggingface/transformers@4.3.1`) in arm64 and amd64 containers: `config validate` reports that transformers loads, and a fresh index picks `embeddinggemma-2` and finds a file with `vec-search`. Then update the Linux limits in `DEPLOYMENT.md`
-- [ ] Spike eval rerun as a smoke check (40 queries)
+- [x] Docker image (arm64): one onnxruntime-node, EmbeddingGemma 2 indexes a file, a 2 MB text file is `skipped` with `AGENT_FS_EMBEDDING_MAX_BYTES=1048576`
+- [x] Linux global install (`bun add -g` of the packed tgz plus `@huggingface/transformers@4.3.1`) in arm64 and amd64 containers: `config validate` reports that transformers loads, and a fresh index picks `embeddinggemma-2` and finds a file with `vec-search`. Then update the Linux limits in `DEPLOYMENT.md`
+- [x] Spike eval rerun as a smoke check (40 queries)
+
+Results (2026-10-17, commit 8bb8c35): nomic and EmbeddingGemma 2 vectors identical (max difference 0). Max nomic token count 2000 of 2048. Baseline chunks 98 to 77, largest 3193 to 1999 characters. Eval smoke: R@1 77.5 % to 82.5 %, MRR 0.872 to 0.897, R@5 100 %. E2E 187/187 local-only, 208/209 full (the known `share-create`). Docker arm64 (2 GB, no network): one onnxruntime-node 1.30.0, no chonkie, the 2,000,000-byte file `skipped` with FTS, then `pending` and `indexed` (1039 chunks) after the cap was removed, peak about 920 MiB. Global `bun add -g` on linux/arm64 and linux/amd64 (emulated): `config validate` reports that transformers 4.3.1 loads, the boot picks `embeddinggemma-2 (fresh index)`, `vec-search` finds the file, one transformers and one onnxruntime-node. `npm i -g` not tested (no npm in `oven/bun:1.4.1`). The Linux limits in `DEPLOYMENT.md` now say that bun global installs work on Linux.
 
 Release checklist: SKILL.md (status list, cap env if documented there), E2E as a regression check, `./scripts/release.sh 0.18.1`.
 
@@ -1066,6 +1072,8 @@ Release checklist: SKILL.md (status list, cap env if documented there), E2E as a
 Target: `agent-fs-taras` on Fly, org `swarm`, drive `default`. Every step below changes prod and needs Taras's explicit go at the time.
 
 Drive (2026-10-17): 10,333 files. About 45k text chunks under the 1 MB cap (31 files over 1 MB hold 189 MB of the 302 MB of text), about 4,000 images and 87 PDFs. Last 7 days: 869 text files (27.5 MB) and 976 images.
+
+Cost (Fly list prices for `iad`, `ams` may be higher): today `performance-1x` 2 GB is $33 per 30 days. The switch month is about $70 to $75 (12 to 18 h of `performance-8x` at about $0.37/h, extrapolated, then `performance-2x` 4 GB). After that, $66 per month for `performance-2x`, or about $45 for `performance-1x` with 4 GB (slower search during indexing bursts). OpenAI embeddings cost about $0.60 per month today.
 
 ### Steps:
 1. Check the volume has room for the models (about 530 MB): `fly volumes list -a agent-fs-taras`.
@@ -1167,6 +1175,7 @@ Open `https://ui-fs.taras.cc`, search "a red circle", and confirm the thumbnail.
 - **Follow-up plans**:
   - Configurable vector width (needed for Cohere, Voyage, Nova).
   - `gemini-embedding-2` cloud provider (6 images and 6 PDF pages per request, separate vector space).
+  - **Done in Phase 8 (0.18.1)**, with 2000-character chunks instead of 3600 (see `/tmp/eg2-plan/chonkie-swap.md` §6).
   - Chunker swap: move from `chonkie@0.3.0` (the last release, June 2025) to `@chonkiejs/core` (no transformers dependency, 1 char = 1 token). Size chunks in characters (about 3600 for today's 900 gpt2 tokens). This drops transformers 3.8.1, ORT 1.21 and a sharp copy from every install, makes Linux global installs work with EmbeddingGemma 2, and lets the Linux guard go. `@chonkiejs/token` still needs transformers ^3.5.1, so do not use it. New writes get new chunk boundaries.
 - **Derail notes**:
   - `formatSearch` drops the `hint` field (`packages/cli/src/formatters.ts:187-200`). `formatFts` prints it.
@@ -1175,12 +1184,14 @@ Open `https://ui-fs.taras.cc`, search "a red circle", and confirm the thumbnail.
   - `live/src/components/search/SearchResults.tsx` is dead code.
   - The live UI shows the hybrid RRF score (about 0.03) as "3%".
   - The Docker image carries `onnxruntime-node` binaries for every platform (about 200 MB, one version after the Phase 2 override). Pruning `darwin` and `win32` in the runtime stage would shrink it.
+  - **Resolved by Phase 8**: chonkie is gone, so a global install has one transformers.
   - npm and bun global installs still nest chonkie's transformers 3.8.1. So an opt-in global install on Linux loads two ORT versions. Phase 2 QA states whether that works.
   - Garbled PDF text (fonts without a Unicode map) still gets embedded.
   - The image token budget is one code constant. A later change needs a way to re-queue all image units (for example a revision in `meta`). Not built until a change is needed.
   - `onnxruntime` uses all cores per inference. On the shared swarm box, an `intraOpNumThreads` limit may help the API and lead stay responsive.
   - The swarm compose fallback `AGENT_FS_VERSION:-0.16.7` drifts from `.env`.
   - The `Dockerfile` `HEALTHCHECK` runs `curl`, but the `oven/bun:1.4.1-slim` runtime image has no `curl` (checked on the 0.17.0 image). Docker always marks the container unhealthy. Fly uses its own checks.
+  - **Resolved by Phase 8**: `@chonkiejs/core` counts characters and downloads no tokenizer.
   - chonkie loads its `Xenova/gpt2` tokenizer into the transformers default cache inside `node_modules`. In Docker that cache is not on the volume, so each new container downloads it again. Offline, chonkie fails and `chunkContent` silently falls back to paragraph chunks.
   - Under the explicit `EMBEDDING_PROVIDER=local` path, a cloud model name that onboarding left in `config.json` (`text-embedding-3-small`) now gives "Unknown local embedding model" and no provider. Before 0.17.1, nomic loaded.
 - **Dual-runtime spike** (filled in Phase 2 §0): chonkie `RecursiveChunker`, then EmbeddingGemma 2 q8 text-only, in one bun process.
