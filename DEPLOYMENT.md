@@ -263,9 +263,8 @@ Existing nomic indexes stay on nomic.
 - First use downloads 339 MB for text into `$AGENT_FS_HOME/models`. Image indexing downloads another 195 MB.
 - Text inference uses about 0.5 GB RSS at rest and about 1.1 GB at peak on the measured Mac.
 - A model switch re-embeds every indexed file and retries every failed file. `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` controls the pace. Search quality drops until the migration finishes.
-- For macOS global installs, run `bun add -g @desplega.ai/agent-fs`, then `bun add -g @huggingface/transformers@4.3.1`. The Docker image includes transformers.
-- `npm i -g` installs do not support EmbeddingGemma 2. The CLI resolves chonkie's transformers 3.8.1 first.
-- Linux global installs are not supported. Chonkie's ONNX runtime and the model's cannot share one Linux process, so Linux uses the Docker image.
+- For global installs on macOS and Linux (arm64 and amd64), run `bun add -g @desplega.ai/agent-fs`, then `bun add -g @huggingface/transformers@4.3.1`. For PDF page images, also run `bun add -g @napi-rs/canvas@1.0.11`. The Docker image includes all of them.
+- `npm i -g` installs are not tested with EmbeddingGemma 2.
 - After the first download, the model loads from `$AGENT_FS_HOME/models` without network access.
 - Intel Macs lack an `onnxruntime-node` darwin x64 binary. Alpine/musl is also unsupported.
 

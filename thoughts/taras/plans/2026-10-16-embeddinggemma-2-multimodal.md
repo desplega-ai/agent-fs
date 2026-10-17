@@ -1003,11 +1003,15 @@ Taras's local test (90 files from ~/Downloads, memo `/tmp/eg2-plan/local-finding
 
 Not in scope: batching text chunks (after the worker, measure first), the shared 2-slot semaphore that starves the image job, PDF text extraction in the PUT path.
 
+#### Success Criteria (additions):
+
+##### Automated Verification:
 - [x] `bun run typecheck`, `bun run test`, `bun run build` pass
 - [x] `AGENT_FS_TEST_EMBEDDINGGEMMA_HOME=/tmp/eg2-plan/p2-home bun test packages/core/src/__manual_tests__/embeddinggemma.test.ts` passes through the worker
 - [x] E2E `--local-only` and full (MinIO) pass, except the known `share-create` failure
 - [x] Unit tests: an image at vector rank 1 ranks first over text files in both lists, a text-only drive keeps its scores, `--limit 3` gives the first 3 of `--limit 30`, FTS-only hits carry `kind: "text"`
 
+##### QA (dist build, the same 90 files, `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE=1`):
 - [x] No watchdog stall. `/health` polled every 200 ms answers within 1 s for the whole prefill (before: 9 stalls of 5 to 10.8 s)
 - [x] PDF writes finish in a few seconds (before: up to 43 s)
 - [x] Hybrid: "GitHub octocat logo", "presentation slide about AI event" and "Ramp logo" put the target image in the top 2 (before: ranks 8, 19 and 4)
@@ -1044,18 +1048,20 @@ Taras's choices (2026-10-17): swap `chonkie` for `@chonkiejs/core` before the pr
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] `bun install --frozen-lockfile`, `bun run typecheck`, `bun run test`, `bun run build`
-- [ ] `bun pm ls --all | grep -E "transformers|onnxruntime-node|chonkie"`: one transformers (4.3.1), one onnxruntime-node (1.30.0), `@chonkiejs/core` only
-- [ ] Golden chunk test (markdown with a code fence, CRLF, CJK, a long URL, a base64 line, CSV rows): `[charOffset, length]` snapshot, every chunk at most 2000 characters, chunks join back to the text
-- [ ] `/tmp/eg2-plan/scripts/chunk-compare.ts` on the 20 baseline files: offsets map back, no chunk over 2000 characters. Report chunk count and size against `chunks-before.json`
-- [ ] Manual: nomic and EmbeddingGemma 2 vectors for 3 fixed strings are equal before and after the swap. nomic token count of every chunk is at most 2048
-- [ ] Cap unit tests: a file over the cap is FTS-indexed, has no text chunks and is `skipped`. A cap change re-queues the right files. `reindex` skips `skipped` files. No cap gives today's behavior
-- [ ] E2E `--local-only` and full pass, except the known `share-create` failure
+- [x] `bun install --frozen-lockfile`, `bun run typecheck`, `bun run test`, `bun run build`
+- [x] `bun pm ls --all | grep -E "transformers|onnxruntime-node|chonkie"`: one transformers (4.3.1), one onnxruntime-node (1.30.0), `@chonkiejs/core` only
+- [x] Golden chunk test (markdown with a code fence, CRLF, CJK, a long URL, a base64 line, CSV rows): `[charOffset, length]` snapshot, every chunk at most 2000 characters, chunks join back to the text
+- [x] `/tmp/eg2-plan/scripts/chunk-compare.ts` on the 20 baseline files: offsets map back, no chunk over 2000 characters. Report chunk count and size against `chunks-before.json`
+- [x] Manual: nomic and EmbeddingGemma 2 vectors for 3 fixed strings are equal before and after the swap. nomic token count of every chunk is at most 2048
+- [x] Cap unit tests: a file over the cap is FTS-indexed, has no text chunks and is `skipped`. A cap change re-queues the right files. `reindex` skips `skipped` files. No cap gives today's behavior
+- [x] E2E `--local-only` and full pass, except the known `share-create` failure
 
 #### QA:
-- [ ] Docker image (arm64): one onnxruntime-node, EmbeddingGemma 2 indexes a file, a 2 MB text file is `skipped` with `AGENT_FS_EMBEDDING_MAX_BYTES=1048576`
-- [ ] Linux global install (`bun add -g` of the packed tgz plus `@huggingface/transformers@4.3.1`) in arm64 and amd64 containers: `config validate` reports that transformers loads, and a fresh index picks `embeddinggemma-2` and finds a file with `vec-search`. Then update the Linux limits in `DEPLOYMENT.md`
-- [ ] Spike eval rerun as a smoke check (40 queries)
+- [x] Docker image (arm64): one onnxruntime-node, EmbeddingGemma 2 indexes a file, a 2 MB text file is `skipped` with `AGENT_FS_EMBEDDING_MAX_BYTES=1048576`
+- [x] Linux global install (`bun add -g` of the packed tgz plus `@huggingface/transformers@4.3.1`) in arm64 and amd64 containers: `config validate` reports that transformers loads, and a fresh index picks `embeddinggemma-2` and finds a file with `vec-search`. Then update the Linux limits in `DEPLOYMENT.md`
+- [x] Spike eval rerun as a smoke check (40 queries)
+
+Results (2026-10-17, commit 8bb8c35): nomic and EmbeddingGemma 2 vectors identical (max difference 0). Max nomic token count 2000 of 2048. Baseline chunks 98 to 77, largest 3193 to 1999 characters. Eval smoke: R@1 77.5 % to 82.5 %, MRR 0.872 to 0.897, R@5 100 %. E2E 187/187 local-only, 208/209 full (the known `share-create`). Docker arm64 (2 GB, no network): one onnxruntime-node 1.30.0, no chonkie, the 2,000,000-byte file `skipped` with FTS, then `pending` and `indexed` (1039 chunks) after the cap was removed, peak about 920 MiB. Global `bun add -g` on linux/arm64 and linux/amd64 (emulated): `config validate` reports that transformers 4.3.1 loads, the boot picks `embeddinggemma-2 (fresh index)`, `vec-search` finds the file, one transformers and one onnxruntime-node. `npm i -g` not tested (no npm in `oven/bun:1.4.1`). The Linux limits in `DEPLOYMENT.md` now say that bun global installs work on Linux.
 
 Release checklist: SKILL.md (status list, cap env if documented there), E2E as a regression check, `./scripts/release.sh 0.18.1`.
 
