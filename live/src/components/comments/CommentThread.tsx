@@ -1,6 +1,7 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Check, Trash2, Pencil, MessageSquare, RotateCcw, X, ChevronDown, ChevronRight, TriangleAlert } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { scrollBehavior } from "@/lib/outline"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -11,7 +12,7 @@ import {
 import { useResolveComment, useDeleteComment, useUpdateComment } from "@/hooks/use-comments"
 import { UserName, useDisplayName } from "@/components/UserName"
 import { AddComment } from "./AddComment"
-import { commentAnchors, useCommentAnchor, useHoveredComment } from "@/stores/comment-anchors"
+import { commentAnchors, useCommentAnchor, useFocusedComment, useHoveredComment } from "@/stores/comment-anchors"
 import type { CommentListEntry, CommentEntry } from "@/api/types"
 
 function timeAgo(dateStr: string): string {
@@ -72,8 +73,23 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
   const anchor = useCommentAnchor(comment.id)
   const hovered = useHoveredComment()
   const docHovered = hovered?.id === comment.id && hovered.source === "doc"
+  const focused = useFocusedComment()
+  const cardRef = useRef<HTMLDivElement>(null)
   const lineStart = anchor?.lineStart ?? comment.lineStart
   const lineEnd = anchor?.lineStart != null ? anchor.lineEnd : comment.lineEnd
+
+  // A highlight click in the document asked to reveal this card. Only a visible
+  // card consumes the request: on mobile the desktop rail stays mounted but
+  // hidden, and the request must wait for the sheet's card.
+  useEffect(() => {
+    const el = cardRef.current
+    if (focused !== comment.id || !el?.offsetParent) return
+    commentAnchors.setFocused(null)
+    el.scrollIntoView({ behavior: scrollBehavior(), block: "center" })
+    el.classList.remove("comment-card-pulse")
+    void el.offsetWidth // restart the animation
+    el.classList.add("comment-card-pulse")
+  }, [focused, comment.id])
 
   const handleThreadClick = () => {
     if (onCommentClick) {
@@ -84,6 +100,7 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
   return (
     <div className={cn("border-b border-border last:border-b-0", comment.resolved && "opacity-60")}>
       <div
+        ref={cardRef}
         className={cn(
           "px-3 py-2.5",
           !isGeneralComment && "cursor-pointer hover:bg-accent/50 transition-colors",

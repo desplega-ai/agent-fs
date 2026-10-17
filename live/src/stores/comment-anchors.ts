@@ -1,11 +1,14 @@
 import { useSyncExternalStore } from "react"
 import type { AnchorStatus } from "@/lib/comment-anchor"
+import { sidePanelStore } from "@/stores/side-panel"
+import { uiChromeStore } from "@/stores/ui-chrome"
 
 /**
  * Shared state between the viewer that resolves comment anchors and the
  * comment sidebar: each comment's resolved status/lines (so cards can show a
  * "moved"/"lost" badge), and which comment is hovered on either side (so the
- * card and its highlight pulse together).
+ * card and its highlight pulse together), and which comment a highlight click
+ * asked the sidebar to reveal.
  */
 export interface AnchorInfo {
   status: AnchorStatus
@@ -23,6 +26,10 @@ type Listener = () => void
 class CommentAnchorStore {
   private anchors = new Map<string, AnchorInfo>()
   private hovered: HoveredComment | null = null
+  // A pending "reveal this card" request, set by a highlight click and consumed
+  // by the matching card. A flag rather than an event so it survives the rail
+  // mounting (or the comments loading) after it is set.
+  private focused: string | null = null
   private listeners = new Set<Listener>()
 
   private emit() {
@@ -68,6 +75,16 @@ class CommentAnchorStore {
     }
     this.emit()
   }
+
+  getFocused(): string | null {
+    return this.focused
+  }
+
+  setFocused(id: string | null) {
+    if (this.focused === id) return
+    this.focused = id
+    this.emit()
+  }
 }
 
 export const commentAnchors = new CommentAnchorStore()
@@ -76,6 +93,20 @@ export function useCommentAnchor(id: string): AnchorInfo | undefined {
   return useSyncExternalStore(
     (cb) => commentAnchors.subscribe(cb),
     () => commentAnchors.getAnchor(id),
+  )
+}
+
+/** Open the Comments surface and scroll the comment's card into view. */
+export function revealComment(id: string) {
+  sidePanelStore.setTab("comments")
+  uiChromeStore.openComments()
+  commentAnchors.setFocused(id)
+}
+
+export function useFocusedComment(): string | null {
+  return useSyncExternalStore(
+    (cb) => commentAnchors.subscribe(cb),
+    () => commentAnchors.getFocused(),
   )
 }
 

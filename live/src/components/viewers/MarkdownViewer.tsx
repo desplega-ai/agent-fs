@@ -28,7 +28,7 @@ import { computeActiveHeadings } from "@/hooks/use-active-headings"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
 import { captureQuote, type AnchorResolution } from "@/lib/comment-anchor"
 import { buildDomTextSpace, rehypeSourceLines, type DomTextSpace } from "@/lib/dom-text-space"
-import { commentAnchors, useHoveredComment } from "@/stores/comment-anchors"
+import { commentAnchors, revealComment, useHoveredComment } from "@/stores/comment-anchors"
 import { toast } from "@/stores/toast"
 import type { CommentListEntry, CommentQuote } from "@/api/types"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
@@ -385,38 +385,51 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
     }
   }, [domSpace, anchors, hovered])
 
-  // Hovering a highlighted range pulses its sidebar card.
+  // Hovering a highlighted range pulses its sidebar card. Clicking it scrolls
+  // the card into view.
   useEffect(() => {
     const container = contentRef.current
     if (!container || !anchors.size) return
+    // Innermost (shortest) comment range under the point, if any.
+    const hitTest = (x: number, y: number) => {
+      let hit: string | null = null
+      let hitLen = Infinity
+      anchorRangesRef.current.forEach((range, id) => {
+        const len = range.toString().length
+        if (len >= hitLen) return
+        for (const rect of range.getClientRects()) {
+          if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            hit = id
+            hitLen = len
+            break
+          }
+        }
+      })
+      return hit
+    }
     let raf = 0
     const onMove = (e: MouseEvent) => {
       if (raf) return
       const { clientX: x, clientY: y } = e
       raf = requestAnimationFrame(() => {
         raf = 0
-        let hit: string | null = null
-        let hitLen = Infinity
-        anchorRangesRef.current.forEach((range, id) => {
-          const len = range.toString().length
-          if (len >= hitLen) return
-          for (const rect of range.getClientRects()) {
-            if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-              hit = id
-              hitLen = len
-              break
-            }
-          }
-        })
-        commentAnchors.setHovered(hit, "doc")
+        commentAnchors.setHovered(hitTest(x, y), "doc")
       })
     }
     const onLeave = () => commentAnchors.setHovered(null, "doc")
+    const onClick = (e: MouseEvent) => {
+      // A drag that selected text starts a new comment instead.
+      if (window.getSelection()?.isCollapsed === false) return
+      const hit = hitTest(e.clientX, e.clientY)
+      if (hit) revealComment(hit)
+    }
     container.addEventListener("mousemove", onMove)
     container.addEventListener("mouseleave", onLeave)
+    container.addEventListener("click", onClick)
     return () => {
       container.removeEventListener("mousemove", onMove)
       container.removeEventListener("mouseleave", onLeave)
+      container.removeEventListener("click", onClick)
       if (raf) cancelAnimationFrame(raf)
       commentAnchors.setHovered(null, "doc")
     }

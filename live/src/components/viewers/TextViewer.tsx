@@ -11,7 +11,7 @@ import { EditToolbar } from "./EditToolbar"
 import { TextViewerSkeleton } from "./TextViewerSkeleton"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
 import { captureQuote, sourceTextSpace, type AnchorResolution } from "@/lib/comment-anchor"
-import { commentAnchors, useHoveredComment } from "@/stores/comment-anchors"
+import { commentAnchors, revealComment, useHoveredComment } from "@/stores/comment-anchors"
 import { toast } from "@/stores/toast"
 import type { CommentListEntry } from "@/api/types"
 import type { editor } from "monaco-editor"
@@ -215,6 +215,16 @@ export function TextViewer({
       commentAnchors.setHovered(anchorAt(anchorsRef.current, offset), "doc")
     })
     editor.onMouseLeave(() => commentAnchors.setHovered(null, "doc"))
+
+    // Clicking a highlighted range scrolls its sidebar card into view.
+    editor.onMouseUp((e) => {
+      if (editable || e.target.type !== 6 /* CONTENT_TEXT */) return
+      const model = editor.getModel()
+      const pos = e.target.position
+      if (!model || !pos || editor.getSelection()?.isEmpty() === false) return
+      const hit = anchorAt(anchorsRef.current, model.getOffsetAt(pos))
+      if (hit) revealComment(hit)
+    })
 
     // Gutter click → line comment (disabled in edit mode)
     editor.onMouseDown((e) => {
