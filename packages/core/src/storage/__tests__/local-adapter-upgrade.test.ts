@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -139,12 +139,126 @@ describe("LocalStorageAdapter: files-sdk 2.0.0 root after the 3.x upgrade", () =
     );
   });
 
-  test("files-sdk's own staging files never surface, and cannot be written as keys", async () => {
+  const STAGING_SHAPED = "report.txt.0b6f3c1e-2d4a-4c5b-9e7f-1a2b3c4d5e6f.fls-tmp";
+
+  test("a 2.0.0 key shaped like a files-sdk staging file is kept when its sidecar proves it", async () => {
     await writeV2(root, key("report.txt"), "control", "text/plain");
-    const staging = "report.txt.0b6f3c1e-2d4a-4c5b-9e7f-1a2b3c4d5e6f.fls-tmp";
-    await writeFile(join(root, key(staging)), "half-written");
+    await writeV2(root, key(STAGING_SHAPED), "user bytes", "text/plain");
+
+    expect((await adapter.listObjects(DRIVE_PREFIX)).objects.map((o) => o.key)).toEqual([
+      key("report.txt"),
+      key(STAGING_SHAPED),
+    ]);
+    expect(dec((await adapter.getObject(key(STAGING_SHAPED))).body)).toBe("user bytes");
+
+    await adapter.putObject(key(STAGING_SHAPED), "rewritten", undefined, "text/csv");
+    const got = await adapter.getObject(key(STAGING_SHAPED));
+    expect(dec(got.body)).toBe("rewritten");
+    expect(got.contentType).toBe("text/csv");
+
+    await adapter.deleteObject(key(STAGING_SHAPED));
     expect((await adapter.listObjects(DRIVE_PREFIX)).objects.map((o) => o.key)).toEqual([key("report.txt")]);
-    await expect(adapter.putObject(key(staging), "x")).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
+  test("a sidecarless staging-shaped file is kept and readable but not listed, and a put adopts it", async () => {
+    await writeV2(root, key("report.txt"), "control", "text/plain");
+    await writeFile(join(root, key(STAGING_SHAPED)), "half-written");
+
+    // Indistinguishable from files-sdk mid-write, so not listed, but never removed.
+    expect((await adapter.listObjects(DRIVE_PREFIX)).objects.map((o) => o.key)).toEqual([key("report.txt")]);
+    expect(dec((await adapter.getObject(key(STAGING_SHAPED))).body)).toBe("half-written");
+    expect(existsSync(join(root, key(STAGING_SHAPED)))).toBe(true);
+
+    await adapter.putObject(key(STAGING_SHAPED), "adopted", undefined, "text/plain");
+    expect((await adapter.listObjects(DRIVE_PREFIX)).objects.map((o) => o.key)).toEqual([
+      key("report.txt"),
+      key(STAGING_SHAPED),
+    ]);
+    expect(dec((await adapter.getObject(key(STAGING_SHAPED))).body)).toBe("adopted");
+  });
+
+  test("concurrent puts leave one writer's body, content type and etag together", async () => {
+    const sha1Etag = (b: Uint8Array) =>
+      `"${new Bun.CryptoHasher("sha1").update(b).digest("hex").slice(0, 16)}"`;
+    // The ordinary key is the control: files-sdk commits it the same way.
+    for (const name of ["race.fls-tmp", "race.txt"]) {
+      for (let round = 0; round < 5; round++) {
+        await Promise.all(
+          Array.from({ length: 32 }, (_, i) =>
+            adapter.putObject(key(name), new Uint8Array(32768 + i).fill(i), undefined, `type/${i}`),
+          ),
+        );
+        const got = await adapter.getObject(key(name));
+        const writer = got.body.length - 32768;
+        expect(got.body.every((b) => b === writer)).toBe(true);
+        expect(got.contentType).toBe(`type/${writer}`);
+        if (name.endsWith(".fls-tmp")) expect(got.etag).toBe(sha1Etag(got.body));
+        expect((await adapter.headObject(key(name))).contentType).toBe(`type/${writer}`);
+      }
+    }
+    // No staging file outlives its put.
+    const left = (await readdir(join(root, DRIVE_PREFIX))).filter((n) => /\.[0-9a-f-]{36}\.fls-tmp$/.test(n));
+    expect(left).toEqual([]);
+  });
+
+  test("a failed commit leaves no staging file behind", async () => {
+    // Body rename fails: the key path is a non-empty folder.
+    await mkdir(join(root, key("folder.fls-tmp/inner")), { recursive: true });
+    await expect(adapter.putObject(key("folder.fls-tmp"), "x")).rejects.toThrow();
+    // Sidecar rename fails: the sidecar path is a non-empty folder.
+    await mkdir(join(root, key("side.fls-tmp.meta.json/inner")), { recursive: true });
+    await expect(adapter.putObject(key("side.fls-tmp"), "next")).rejects.toThrow();
+
+    const names = await readdir(join(root, DRIVE_PREFIX));
+    expect(names.filter((n) => /\.[0-9a-f-]{36}\.fls-tmp$/.test(n))).toEqual([]);
+    expect(existsSync(join(root, key("folder.fls-tmp/inner")))).toBe(true);
+  });
+
+  test("a refused put writes nothing, not even the history blob", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "afs-local-upgrade-outside-"));
+    try {
+      await mkdir(join(root, DRIVE_PREFIX), { recursive: true });
+      await symlink(outside, join(root, key("escape")));
+      await expect(adapter.putObject(key("escape/x.fls-tmp"), "payload")).rejects.toMatchObject({
+        code: "VALIDATION_ERROR",
+      });
+      expect(existsSync(join(root, "_afs-blobs"))).toBe(false);
+      expect(await readdir(outside)).toEqual([]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("a prefix through a symlink lists nothing from behind it, ancestors included", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "afs-local-upgrade-outside-"));
+    try {
+      await writeV2(outside, "secret.fls-tmp", "secret", "text/plain");
+      await writeV2(outside, "sub/deeper.fls-tmp", "secret", "text/plain");
+      await writeV2(outside, "plain.txt", "secret", "text/plain");
+      await writeV2(root, key("report.txt"), "control", "text/plain");
+      await symlink(outside, join(root, key("link")));
+
+      for (const p of ["link/", "link/s", "link/sub/", "link/secret"]) {
+        expect(await adapter.listObjects(key(p))).toEqual({ objects: [], prefixes: [] });
+        expect(await adapter.listObjects(key(p), { delimiter: "/" })).toEqual({ objects: [], prefixes: [] });
+      }
+      // The whole drive's listing is the control: the symlink is skipped there too.
+      expect((await adapter.listObjects(DRIVE_PREFIX)).objects.map((o) => o.key)).toEqual([key("report.txt")]);
+
+      // The drive folder itself behind a symlink: nothing under it lists either.
+      const other = await mkdtemp(join(tmpdir(), "afs-local-upgrade-root-"));
+      try {
+        await mkdir(join(other, "org1/drives"), { recursive: true });
+        await symlink(outside, join(other, "org1/drives/drive1"));
+        const viaAncestor = new LocalStorageAdapter({ root: other });
+        expect((await viaAncestor.listObjects(DRIVE_PREFIX)).objects).toEqual([]);
+        expect((await viaAncestor.listObjects(key("sub/"))).objects).toEqual([]);
+      } finally {
+        await rm(other, { recursive: true, force: true });
+      }
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   test("a reserved-named symlink cannot read outside the root", async () => {

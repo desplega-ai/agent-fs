@@ -31,7 +31,18 @@ import { ValidationError } from "../errors.js";
  * ends in them; `.fls-tmp` is the only suffix the upgrade newly reserved.
  *
  * Containment matches files-sdk's: a key must resolve inside the root, and a
- * symlink may not lead a read or write outside it.
+ * symlink may not lead a read or write outside it. Writes match its commit:
+ * body and sidecar are both staged, then renamed in place under one per-path
+ * lock, so concurrent writers never pair one body with another's sidecar.
+ *
+ * files-sdk 3 stages at `<final name>.<uuid>.fls-tmp`, which 2.0.0 also took
+ * as a user key. A sidecar settles it: files-sdk never writes one for a
+ * staging file and 2.0.0 always wrote one, so such a name with a valid sidecar
+ * is a stored object and is listed and writable like any other. Without a
+ * sidecar the name is ambiguous (a live or crashed staging file, or a 2.0.0
+ * upload cut off before its sidecar). It is left on disk untouched and
+ * readable by its exact key, but not listed, because a staging file mid-write
+ * looks exactly like it. A put of that key writes a sidecar and adopts it.
  */
 
 const TMP_SUFFIX = ".fls-tmp";
@@ -39,10 +50,7 @@ const SIDECAR_SUFFIX = ".meta.json";
 const DEFAULT_CONTENT_TYPE = "application/octet-stream";
 /** files-sdk's own check strips trailing dots/spaces before matching. */
 const FS_TRAILING_NOISE = /(?<![. ])[. ]+$/u;
-/**
- * files-sdk 3's own staging files (`<final name>.<randomUUID()>.fls-tmp`).
- * They exist only mid-write or after a crash and are never user data.
- */
+/** The shape of files-sdk 3's staging files (`<final name>.<randomUUID()>.fls-tmp`). */
 const SDK_STAGING_NAME =
   /\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.fls-tmp$/;
 
@@ -117,15 +125,23 @@ async function readSidecar(
   }
 }
 
-async function writeThenRename(dest: string, data: string | Uint8Array): Promise<void> {
-  // A files-sdk-shaped staging name, so neither files-sdk nor legacyList shows it.
-  const staged = `${dest}.${randomUUID()}${TMP_SUFFIX}`;
+/** A files-sdk-shaped staging name with no sidecar, so nothing lists it. */
+const stagingPath = (dest: string) => `${dest}.${randomUUID()}${TMP_SUFFIX}`;
+
+const commitLocks = new Map<string, Promise<unknown>>();
+
+/** Run `fn` after every earlier commit on `bodyPath`, as files-sdk's fs adapter does. */
+async function withCommitLock<T>(bodyPath: string, fn: () => Promise<T>): Promise<T> {
+  const previous = commitLocks.get(bodyPath);
+  const current = (async () => {
+    await previous?.catch(() => {});
+    return fn();
+  })();
+  commitLocks.set(bodyPath, current);
   try {
-    await writeFile(staged, data);
-    await rename(staged, dest);
-  } catch (err) {
-    await rm(staged, { force: true }).catch(() => {});
-    throw err;
+    return await current;
+  } finally {
+    if (commitLocks.get(bodyPath) === current) commitLocks.delete(bodyPath);
   }
 }
 
@@ -176,56 +192,91 @@ export async function legacyHead(root: string, key: string): Promise<LegacyObjec
   }
 }
 
-/** Write a legacy key in the 2.0.0 layout (body, then its sidecar). */
+/**
+ * Throw if a put of `key` would be refused, without writing anything. Callers
+ * run it before any other write the put depends on (the history blob).
+ */
+export async function assertLegacyWritable(root: string, key: string): Promise<string> {
+  const bodyPath = keyPath(root, key);
+  await assertParentInsideRoot(root, bodyPath, key);
+  return bodyPath;
+}
+
+/**
+ * Write a legacy key in the 2.0.0 layout. Body and sidecar are staged first,
+ * then both renames run under the key's commit lock, so the last writer's body
+ * and sidecar always land together.
+ */
 export async function legacyPut(
   root: string,
   key: string,
   bytes: Uint8Array,
   contentType?: string,
 ): Promise<void> {
-  const bodyPath = keyPath(root, key);
-  if (SDK_STAGING_NAME.test(basename(bodyPath))) {
-    throw new ValidationError(
-      "File names ending in .<uuid>.fls-tmp are reserved for in-progress local uploads",
-      { field: "path" },
-    );
-  }
-  await assertParentInsideRoot(root, bodyPath, key);
+  const bodyPath = await assertLegacyWritable(root, key);
+  const sidecarPath = bodyPath + SIDECAR_SUFFIX;
   await mkdir(dirname(bodyPath), { recursive: true });
   const etag = `"${createHash("sha1").update(bytes).digest("hex").slice(0, 16)}"`;
-  await writeThenRename(bodyPath, bytes);
-  await writeThenRename(
-    bodyPath + SIDECAR_SUFFIX,
-    JSON.stringify({ contentType: contentType ?? DEFAULT_CONTENT_TYPE, etag, lastModified: Date.now() }),
-  );
+  const sidecar = { contentType: contentType ?? DEFAULT_CONTENT_TYPE, etag, lastModified: Date.now() };
+  const stagedBody = stagingPath(bodyPath);
+  const stagedSidecar = stagingPath(sidecarPath);
+  try {
+    await writeFile(stagedBody, bytes);
+    await writeFile(stagedSidecar, JSON.stringify(sidecar));
+    await withCommitLock(bodyPath, async () => {
+      await rename(stagedBody, bodyPath);
+      await rename(stagedSidecar, sidecarPath);
+    });
+  } catch (err) {
+    await rm(stagedBody, { force: true }).catch(() => {});
+    await rm(stagedSidecar, { force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 /** Delete a legacy key and its sidecar. A missing key or a folder is a no-op. */
 export async function legacyDelete(root: string, key: string): Promise<void> {
   const bodyPath = keyPath(root, key);
   await assertParentInsideRoot(root, bodyPath, key);
-  const entry = await lstat(bodyPath).catch((err) => {
-    if (isMissing(err)) return undefined;
-    throw err;
+  // Under the commit lock, so a delete never lands between a put's two renames.
+  await withCommitLock(bodyPath, async () => {
+    const entry = await lstat(bodyPath).catch((err) => {
+      if (isMissing(err)) return undefined;
+      throw err;
+    });
+    if (!entry || entry.isDirectory()) return;
+    await rm(bodyPath, { force: true });
+    await rm(bodyPath + SIDECAR_SUFFIX, { force: true });
   });
-  if (!entry || entry.isDirectory()) return;
-  await rm(bodyPath, { force: true });
-  await rm(bodyPath + SIDECAR_SUFFIX, { force: true });
 }
 
 /**
  * Every file under `prefix` that files-sdk 3's `list` skips but 2.0.0 listed:
- * names ending in exactly `.fls-tmp`, minus files-sdk's own staging files.
+ * names ending in exactly `.fls-tmp`, minus sidecarless staging-shaped names.
  * Variants such as `.FLS-TMP` are still listed by files-sdk, so they are not
- * repeated here. Like files-sdk, symlinks are not followed.
+ * repeated here. Like files-sdk's walk from the root, no symlink is followed:
+ * not one met in the walk, and not one in the prefix's own path (a
+ * `link/` prefix whose `link` is a symlink lists nothing).
  */
 export async function legacyList(root: string, prefix: string): Promise<LegacyListEntry[]> {
   const base = resolve(root);
   const start = resolve(base, prefix.slice(0, prefix.lastIndexOf("/") + 1));
   if (start !== base && !isInside(base, start)) throw outsideRoot(prefix);
+  const realBase = await realpath(base).catch((err) => {
+    if (isMissing(err)) return undefined;
+    throw err;
+  });
+  if (realBase === undefined) return [];
   const found: LegacyListEntry[] = [];
   const stack = [start];
   for (let dir = stack.pop(); dir !== undefined; dir = stack.pop()) {
+    // A directory whose real path differs from its lexical one sits behind a
+    // symlink, in the prefix or swapped in during the walk: skip it.
+    const real = await realpath(dir).catch((err) => {
+      if (isMissing(err) || (err as { code?: unknown } | null)?.code === "ELOOP") return undefined;
+      throw err;
+    });
+    if (real !== join(realBase, relative(base, dir))) continue;
     let entries: Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -240,15 +291,15 @@ export async function legacyList(root: string, prefix: string): Promise<LegacyLi
         continue;
       }
       if (!entry.isFile() || !entry.name.endsWith(TMP_SUFFIX)) continue;
-      if (SDK_STAGING_NAME.test(entry.name)) continue;
       const key = relative(base, abs).split(sep).join("/");
       if (!key.startsWith(prefix)) continue;
-      const info = await stat(abs).catch((err) => {
+      const info = await lstat(abs).catch((err) => {
         if (isMissing(err)) return undefined;
         throw err;
       });
-      if (!info) continue;
+      if (!info?.isFile()) continue;
       const sidecar = await readSidecar(abs);
+      if (!sidecar && SDK_STAGING_NAME.test(entry.name)) continue;
       found.push({
         key,
         size: info.size,

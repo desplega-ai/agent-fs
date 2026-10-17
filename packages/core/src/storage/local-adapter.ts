@@ -6,6 +6,7 @@ import { fs } from "files-sdk/fs";
 import { UnsupportedOperation } from "../errors.js";
 import { assertKeyInsideDrive } from "./key-guard.js";
 import {
+  assertLegacyWritable,
   isLegacyReservedKey,
   legacyDelete,
   legacyGet,
@@ -137,6 +138,9 @@ export class LocalStorageAdapter implements StorageAdapter {
     const bytes =
       typeof body === "string" ? new TextEncoder().encode(body) : body;
     const hash = createHash("sha256").update(bytes).digest("hex");
+    // A refused legacy key must fail before the history blob is written.
+    const legacy = isLegacyReservedKey(key);
+    if (legacy) await assertLegacyWritable(this.root, key);
 
     // Blob-first: persist the content-addressed history blob before the plain
     // key so a crash between the two never loses version history. Dedup:
@@ -147,7 +151,7 @@ export class LocalStorageAdapter implements StorageAdapter {
     }
 
     // Then the current/plain key — read directly by ls/cat/`/raw`.
-    if (isLegacyReservedKey(key)) {
+    if (legacy) {
       await legacyPut(this.root, key, bytes, contentType);
       return { etag: hash, versionId: hash };
     }
