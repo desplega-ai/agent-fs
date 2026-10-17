@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setSystemTime, test } from "bun:test";
 import { AgentFsFileSystem } from "../index.js";
 import { createMockFetch } from "./mock-agent-fs.js";
 
@@ -317,15 +317,26 @@ describe("AgentFsFileSystem stat/ls cache", () => {
 
   test("drops expired entries for other paths as new ones arrive", async () => {
     const mock = createMockFetch();
-    const fs = drive(mock, { cacheTtlMs: 1 });
-    for (let i = 0; i < 1000; i++) await fs.exists(`/missing-${i}`);
-    // Before the fix both caches kept all 1000 entries.
-    expect(cacheSizes(fs).stat).toBeLessThan(1000);
+    const fs = drive(mock, { cacheTtlMs: 100 });
+    // A set clock: with the real one, a millisecond tick during the insert
+    // can expire the answer that just arrived.
+    let now = Date.now();
+    setSystemTime(now);
+    try {
+      for (let i = 0; i < 1000; i++) {
+        await fs.exists(`/missing-${i}`);
+        setSystemTime((now += 1));
+      }
+      // Before the fix both caches kept all 1000 entries.
+      expect(cacheSizes(fs).stat).toBeLessThan(1000);
 
-    await Bun.sleep(20);
-    await fs.exists("/one-more");
+      setSystemTime((now += 200));
+      await fs.exists("/one-more");
 
-    expect(cacheSizes(fs)).toEqual({ stat: 1, ls: 1 });
+      expect(cacheSizes(fs)).toEqual({ stat: 1, ls: 1 });
+    } finally {
+      setSystemTime();
+    }
   });
 
   test("keeps at most 10,000 entries per cache", async () => {
