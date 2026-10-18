@@ -7,7 +7,7 @@ worktree: /Users/taras/worktrees/agent-fs/2026-10-16-embeddinggemma
 repository: agent-fs
 topic: EmbeddingGemma 2 local model, multimodal indexing (images, PDFs), deploy to my swarm
 tags: [plan, search, embeddings, embeddinggemma, multimodal, pdf, transformers-js, my-swarm]
-status: in-progress
+status: completed
 autonomy: critical
 commit_per_phase: true
 last_updated: 2026-10-17
@@ -1084,11 +1084,22 @@ Cost (Fly list prices for `iad`, `ams` may be higher): today `performance-1x` 2 
 6. Rollback at any point: `EMBEDDING_PROVIDER=openai`. The OpenAI re-embed takes minutes.
 
 ### Success Criteria:
-- [ ] Boot line names `embeddinggemma-2`, and the stored format becomes `embeddinggemma:v2`
-- [ ] All text files `indexed` or `skipped`, images `indexed` (or `failed` for files that are not real images)
+- [x] Boot line names `embeddinggemma-2`, and the stored format becomes `embeddinggemma:v2`
+- [x] All text files `indexed` or `skipped`, images `indexed` (or `failed` for files that are not real images)
 - [ ] `/health` stays under 1 s during the migration
-- [ ] Image and PDF-page search works on the drive (3 hand-picked queries)
-- [ ] After the scale-down, a new write is searchable within a few minutes
+- [x] Image and PDF-page search works on the drive (3 hand-picked queries)
+- [x] After the scale-down, a new write is searchable within a few minutes
+
+Results (2026-10-18, all times BCN):
+- Boot: every boot logs `local embedding model: embeddinggemma-2 (configured)`. Nobody read `meta` directly (ssh is blocked). The restarts at 10:11, 10:24 and 10:40 did not start a new full re-embed, so the stored format matches the running one.
+- Text: `embedding migration done: 4809 embedded, 0 failed, 2698 skipped` at 06:22. `skipped` covers the excluded `t` drives and the files over the cap.
+- Images: done at 08:19, 3,998 embedded and 239 failed. The failed files are not real images: 213 are 15-byte `fake-jpeg` placeholders (`/tasks/*/IMG_1357.jpeg`), 12 are PNGs that a text upload damaged (the first byte is U+FFFD), and 4 are PNGs stored as base64 text.
+- `/health`: not met. At 06:20 the Fly health check failed for about 65 s while the migration skipped the excluded `t` files (about 50 files per second). The fast skip loop blocks the server. All other failed checks were at deploys and restarts. Follow-up: yield in the skip loop.
+- Search: 3 image queries on the default drive returned images in 1.1 to 2.3 s. "screenshot of a dashboard with a sidebar": 5 of 5 results are images. "bar chart comparing numbers": 2 of 5. "architecture diagram with boxes and arrows": 2 of 5. No PDF-page query ran.
+- New write on 1x (11:27): a 132-byte dummy doc on the default drive was `indexed` after 3.2 s, and `vec-search` with a paraphrase ranked it first (1.2 s). The doc was deleted after. Larger files are slower on 1x: after the 10:24 boot, 6 pending files (probably about 300 KB of JSON) took about 12 min, and some API requests took 2 to 2.5 s meanwhile.
+- Machine: 8x with 16 GB was too slow (about 40 h projected), so Taras chose a manual `fly scale vm performance-16x --memory 32768` at 21:09 on 2026-10-17. The #115 deploy at 10:11 put back 8x from `fly.toml`. #109 set `performance-1x` with 4 GB at 10:24 (not `performance-2x` as step 5 says), and that deploy removed `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE`.
+- Cap: `AGENT_FS_EMBEDDING_MAX_BYTES=262144` (256 KB, not 1 MB) since 21:09 on 2026-10-17. The text work fell from 123 MB to 87.5 MB. Taras chose to keep 256 KB after the re-embed.
+- Fly deploy failure: the deploy of #107 (59c56f9, 10:34 to 10:40) failed. `flyctl` lost its machine lease (HTTP 408) and retried while the machine was already replacing ("concurrent update in progress"). The update went through anyway: prod reports 0.18.4 since 10:40, and the health check passes. Fly marked release v153 `failed`. A re-run of the failed job at 11:03 passed (release v154, the same image).
 
 ### Phase 9 addition: drive exclusion (0.18.2)
 
@@ -1103,12 +1114,12 @@ Found on 2026-10-17 during the switch: the re-embed covers every drive on prod, 
 #### Success Criteria:
 - [x] Unit tests: an excluded drive's write is FTS-indexed, `skipped`, with no chunks. The migration skips excluded files without a model call. The image job ignores excluded drives. Adding and removing a drive re-queues the right files. No list gives today's behavior
 - [x] `bun run typecheck`, `bun run test`, `bun run build`, E2E `--local-only`
-- [ ] Prod after the deploy: the boot line still names `embeddinggemma-2`, the migration keeps going on the swarm drive, and `t/default` files end `skipped` within minutes of the migration reaching them
+- [x] Prod after the deploy: the boot line still names `embeddinggemma-2`, the migration keeps going on the swarm drive, and `t/default` files end `skipped` within minutes of the migration reaching them
 
 **Base64 stripping (2026-10-17, also 0.18.2)**: the migration spent about 15 min of model time per file in `/assets/infographics/2026-09-10/images/` (about 36 HTML and SVG files of about 500 KB, 92 to 97 % base64 data URIs). Taras chose to strip base64 before embedding: data URIs with a payload of 100 characters or more and bare base64 runs of 1000 characters or more become short markers in the embedded text. FTS keeps the full text. The cap and `MAX_EMBED_CHARS` apply to the stripped text. No `REVISIONS` bump.
 
 - [x] Helper and pipeline tests pass. A 95 % data-URI HTML file embeds only its remaining text
-- [ ] On prod after the deploy, the infographic files pass in seconds each
+- [ ] On prod after the deploy, the infographic files pass in seconds each. Not met on 8x: from 20:35 to 21:06 BCN on 2026-10-17 they took about 3 min each. After the 16x and 256 KB cap change at 21:09, the 79 files passed in under 11 min, because the largest are now over the cap and `skipped`.
 
 ---
 
