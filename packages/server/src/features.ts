@@ -6,4 +6,5 @@ export const SERVER_FEATURES = [
   "change-stream",
   "html-sites",
   "favorites",
+  "presence",
 ] as const;

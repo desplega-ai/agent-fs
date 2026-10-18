@@ -25,7 +25,7 @@ Run it on Taras's swarm (`fs.taras.cc`) after the text model ships, and again af
 
 - **Motivation**: on 208 files and 40 queries, prod today scores R@1 0.42. EmbeddingGemma 2 with images and PDF pages scores R@1 0.75 and R@5 1.00. On text only, the two models are within noise. The gain comes from multimodal search.
 - **Related**:
-  - Spike: `/Users/taras/Documents/code/agent-fs/thoughts/taras/research/2026-10-16-embeddinggemma-2-spike.md` (untracked, use the absolute path)
+  - Spike: `thoughts/taras/research/2026-10-16-embeddinggemma-2-spike.md`
   - Planning research reports: `/tmp/eg2-plan/reports/*.md` (providers, index, write, surfaces, packaging, libs_tjs, libs_pdf, measure, swarm)
   - Planning measurement scripts and model cache: `/tmp/eg2-plan/measure/src/`, `/tmp/eg2-plan/tjs-cache/` (535 MB, q8 text + vision)
   - Code: `packages/core/src/search/`, `packages/core/src/ops/`, `packages/server/src/index.ts`, `live/src/components/search/`
@@ -1090,6 +1090,26 @@ Cost (Fly list prices for `iad`, `ams` may be higher): today `performance-1x` 2 
 - [ ] Image and PDF-page search works on the drive (3 hand-picked queries)
 - [ ] After the scale-down, a new write is searchable within a few minutes
 
+### Phase 9 addition: drive exclusion (0.18.2)
+
+Found on 2026-10-17 during the switch: the re-embed covers every drive on prod, in `(drive_id, path)` order. Taras's swarm drive sorts first. The `t` org's drives come later: `t/default` holds 2,604 JSON files (about 60k chunks) and 103,954 PNGs. That doubles the text work and adds days of image work, and new images on the swarm drive would wait behind that backlog, because the image job walks in the same order. Taras does not need search on `t` and chose an exclusion list.
+
+- `AGENT_FS_EMBEDDING_EXCLUDE_DRIVES`: comma-separated drive IDs. Unset means no exclusion.
+- Files in an excluded drive keep FTS, get no text or image vectors (old ones are deleted), and end `skipped`. Their image status stays empty, and the image job never selects them.
+- The list is stored in `meta` like the cap. When it changes at boot, files of newly excluded drives that are `indexed` or `pending` become `pending` (the pipeline then skips them fast), and `skipped` files of drives that left the list become `pending` (and their images become eligible again).
+- Prod: exclude `t/default` (`a8dc7a37-9fab-4ab6-9e55-67a5d5e74d35`) and `t/e2e` (`7bd98470-2f51-40e2-88a9-09ced02fb661`).
+- The release deploy uses the `fly.toml` VM size, so this PR sets `[[vm]]` to `performance-8x` with 16 GB for the rest of the re-embed. PR #109 sets `performance-1x` with 4 GB when it ends.
+
+#### Success Criteria:
+- [x] Unit tests: an excluded drive's write is FTS-indexed, `skipped`, with no chunks. The migration skips excluded files without a model call. The image job ignores excluded drives. Adding and removing a drive re-queues the right files. No list gives today's behavior
+- [x] `bun run typecheck`, `bun run test`, `bun run build`, E2E `--local-only`
+- [ ] Prod after the deploy: the boot line still names `embeddinggemma-2`, the migration keeps going on the swarm drive, and `t/default` files end `skipped` within minutes of the migration reaching them
+
+**Base64 stripping (2026-10-17, also 0.18.2)**: the migration spent about 15 min of model time per file in `/assets/infographics/2026-09-10/images/` (about 36 HTML and SVG files of about 500 KB, 92 to 97 % base64 data URIs). Taras chose to strip base64 before embedding: data URIs with a payload of 100 characters or more and bare base64 runs of 1000 characters or more become short markers in the embedded text. FTS keeps the full text. The cap and `MAX_EMBED_CHARS` apply to the stripped text. No `REVISIONS` bump.
+
+- [x] Helper and pipeline tests pass. A 95 % data-URI HTML file embeds only its remaining text
+- [ ] On prod after the deploy, the infographic files pass in seconds each
+
 ---
 
 ## Manual E2E
@@ -1222,7 +1242,7 @@ Open `https://ui-fs.taras.cc`, search "a red circle", and confirm the thumbnail.
   Decision (2026-10-17): budget 140. It keeps I R@5 and P R@5 at 1.00 and R@1 equal to 280, at 2.3x less time per image. 70 fails the rule (I R@5 0.88, R@1 -0.03). All rows are config E3t with q8, from one eval.ts run. Rank moves at 140: I4 3 to 1, H11 1 to 2.
 
 - **References**:
-  - Spike: `/Users/taras/Documents/code/agent-fs/thoughts/taras/research/2026-10-16-embeddinggemma-2-spike.md`
+  - Spike: `thoughts/taras/research/2026-10-16-embeddinggemma-2-spike.md`
   - Planning reports: `/tmp/eg2-plan/reports/` (not durable, copied here where it matters)
   - Model card: https://huggingface.co/onnx-community/embeddinggemma-2-ONNX
   - transformers.js darwin x64 gap: https://github.com/huggingface/transformers.js/issues/1634

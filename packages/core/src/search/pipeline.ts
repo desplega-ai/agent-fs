@@ -6,8 +6,9 @@ import type { DB } from "../db/index.js";
 import type { EmbeddingProvider } from "./embeddings/provider.js";
 import { indexFile } from "./fts.js";
 import { chunkContent, type Chunk } from "./chunker.js";
+import { stripBase64 } from "./strip-base64.js";
 import { toUnitVector } from "./vectors.js";
-import { getEmbeddingMaxBytes } from "../config.js";
+import { getEmbeddingExcludeDrives, getEmbeddingMaxBytes } from "../config.js";
 import { EmbeddingProviderError } from "../errors.js";
 
 function getRawDb(db: DB): Database {
@@ -183,7 +184,7 @@ export function readCurrentVersion(
  * the status. The check and the whole replacement run in one transaction, so
  * a failed insert rolls back to the previous index.
  *
- * Text over either size limit clears text chunks and ends skipped.
+ * Excluded drives and text over either size limit clear text chunks and end skipped.
  * Blank non-PDF text clears the chunks and status, and returns skipped.
  * Empty PDF text ends indexed with no chunks.
  */
@@ -206,17 +207,19 @@ export async function indexFileEmbeddings(
   const isCurrent = () => readCurrentVersion(db, params) === params.version;
 
   if (!isCurrent()) return "superseded";
+  // Preserve PDF offsets for chunkPages. Other offsets refer to the stripped text.
+  const content = params.pageStarts === undefined ? stripBase64(params.content) : params.content;
   const maxBytes = getEmbeddingMaxBytes();
-  const oversized = params.content.length > MAX_EMBED_CHARS ||
-    (maxBytes !== undefined && Buffer.byteLength(params.content, "utf8") > maxBytes);
+  const skipped = getEmbeddingExcludeDrives().includes(params.driveId) || content.length > MAX_EMBED_CHARS ||
+    (maxBytes !== undefined && Buffer.byteLength(content, "utf8") > maxBytes);
 
   try {
     // 1. Chunk content. Blank text has nothing to embed, and providers reject
     // an empty request.
-    const chunks = oversized || params.content.trim() === ""
+    const chunks = skipped || content.trim() === ""
       ? []
-      : await chunkContent(params.content);
-    const status = oversized ? "skipped" : chunks.length === 0 && params.pageStarts === undefined ? null : "indexed";
+      : await chunkContent(content);
+    const status = skipped ? "skipped" : chunks.length === 0 && params.pageStarts === undefined ? null : "indexed";
 
     // 2. Generate and validate embeddings FIRST (before any DB writes)
     const texts = chunks.map((c) => c.content);

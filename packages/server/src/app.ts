@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { VERSION, getConfig, DEFAULT_MAX_UPLOAD_BYTES } from "@/core";
+import { VERSION, getConfig, DEFAULT_MAX_UPLOAD_BYTES, PresenceRegistry, getProfile } from "@/core";
 import type { DB, StorageAdapter, EmbeddingProvider } from "@/core";
 import { createMcpServer } from "@/mcp/server.js";
 import type { AppEnv } from "./types.js";
@@ -16,6 +16,7 @@ import { opsRoutes } from "./routes/ops.js";
 import { orgRoutes } from "./routes/orgs.js";
 import { docsRoutes } from "./routes/docs.js";
 import { fileRoutes } from "./routes/files.js";
+import { presenceRoutes } from "./routes/presence.js";
 import { eventRoutes } from "./routes/events.js";
 import { shareRoutes } from "./routes/share.js";
 import { siteRoutes } from "./routes/site.js";
@@ -24,6 +25,7 @@ import { SERVER_FEATURES } from "./features.js";
 export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null) {
   const app = new Hono<AppEnv>();
   const config = getConfig();
+  const presence = new PresenceRegistry({ getDisplayName: (userId) => getProfile(db, userId).displayName });
 
   const maxUploadBytes = config.server.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
 
@@ -65,9 +67,16 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   // Rate limiting (default 3000 rpm per API key, override via AGENT_FS_RATE_LIMIT) — skip /health
   const rpm = config.server?.rateLimit?.requestsPerMinute ?? 3000;
   if (rpm > 0) {
-    app.use("/orgs/*", rateLimitMiddleware(rpm));
+    const generalLimiter = rateLimitMiddleware(rpm);
+    app.use("/orgs/*", (c, next) => isPresencePath(c.req.path) ? next() : generalLimiter(c, next));
     app.use("/auth/*", rateLimitMiddleware(rpm));
     app.use("/mcp", rateLimitMiddleware(rpm));
+  }
+
+  const presenceRpm = config.server?.presenceRateLimit?.requestsPerMinute ?? 1200;
+  if (presenceRpm > 0) {
+    const presenceLimiter = rateLimitMiddleware(presenceRpm);
+    app.use("/orgs/*", (c, next) => isPresencePath(c.req.path) ? presenceLimiter(c, next) : next());
   }
 
   // Error handler
@@ -112,11 +121,17 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   app.route("/orgs", opsRoutes(db, s3, embeddingProvider, config.appUrl, config.server?.publicUrl));
   app.route("/docs", docsRoutes());
   app.route("/orgs", fileRoutes(db, s3, embeddingProvider, config.appUrl));
-  app.route("/orgs", eventRoutes(db));
+  app.route("/orgs", eventRoutes(db, undefined, presence));
+
+  app.route("/orgs", presenceRoutes(db, presence));
 
   return app;
 }
 
 function isSitePath(path: string): boolean {
   return path === "/site" || path.startsWith("/site/");
+}
+
+function isPresencePath(path: string): boolean {
+  return /^\/orgs\/[^/]+\/drives\/[^/]+\/presence(?:\/[^/]+)?$/.test(path);
 }

@@ -17,6 +17,11 @@ export function getEmbeddingMaxBytes(): number | undefined {
   return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : undefined;
 }
 
+export function getEmbeddingExcludeDrives(): string[] {
+  return [...new Set((process.env.AGENT_FS_EMBEDDING_EXCLUDE_DRIVES ?? "")
+    .split(",").map((id) => id.trim()).filter(Boolean))].sort();
+}
+
 function resolveHome(): string {
   const home = process.env.AGENT_FS_HOME ?? join(process.env.HOME ?? "/tmp", ".agent-fs");
   // Expand ~ since env vars loaded by bun/.env don't do shell expansion
@@ -93,6 +98,10 @@ export interface AgentFSConfig {
       origins: string[];
     };
     rateLimit?: {
+      requestsPerMinute: number;
+    };
+    /** Per-key limit for presence routes (default 1200). */
+    presenceRateLimit?: {
       requestsPerMinute: number;
     };
     /** Per-IP limit for the public /share/:token routes (default 120). */
@@ -296,6 +305,11 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
   if (env.AGENT_FS_RATE_LIMIT) {
     if (!config.server.rateLimit) config.server.rateLimit = { requestsPerMinute: 3000 };
     config.server.rateLimit.requestsPerMinute = parseInt(env.AGENT_FS_RATE_LIMIT, 10);
+  }
+
+  if (env.AGENT_FS_PRESENCE_RATE_LIMIT) {
+    const rpm = parseInt(env.AGENT_FS_PRESENCE_RATE_LIMIT, 10);
+    if (Number.isFinite(rpm) && rpm >= 0) config.server.presenceRateLimit = { requestsPerMinute: rpm };
   }
 
   // Share-link overrides

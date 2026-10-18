@@ -198,13 +198,16 @@ When `EMBEDDING_PROVIDER` names another provider than config.json, agent-fs does
 
 | Environment variable | Default | Description |
 |----------------------|---------|-------------|
-| `AGENT_FS_EMBEDDING_MAX_BYTES` | No cap | Positive integer limit for text embeddings, in UTF-8 bytes. Unset or invalid means no cap. Restart after changes. |
+| `AGENT_FS_EMBEDDING_MAX_BYTES` | No cap | Positive integer limit for text embeddings, in UTF-8 bytes after base64 stripping (except PDF text). Unset or invalid means no cap. Restart after changes. |
+| `AGENT_FS_EMBEDDING_EXCLUDE_DRIVES` | No exclusion | Comma-separated drive IDs. The parser trims IDs and ignores empty entries. Excluded drives keep FTS and lose text and image vectors. Text reports `skipped`. Restart after changes. |
 
-The cap measures file text or extracted PDF text.
+The cap measures text after base64 stripping.
+PDF text keeps base64 to preserve page offsets.
 Text over the cap keeps its full-text search index.
 The indexer deletes its text chunks and vectors and reports `embeddingStatus: "skipped"`.
 Image and PDF-page embeddings stay unchanged.
 At boot, a changed cap queues skipped files and indexed files larger than the new cap.
+This check uses original FTS bytes and can queue extra files that contain base64.
 `reindex` skips files with `skipped` status, as it skips files with `indexed` status.
 `stat`, CLI, MCP, and the live file metadata show `skipped`.
 

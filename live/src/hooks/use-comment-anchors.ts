@@ -124,7 +124,7 @@ export function useCommentAnchors(
     for (const id of ids) {
       const r = resolutions.get(id)
       if (!r || (pendingIds.has(id) && r.status === "lost")) continue
-      next.set(id, { status: r.status, lineStart: r.lineStart, lineEnd: r.lineEnd })
+      next.set(id, { status: r.status, lineStart: r.lineStart, lineEnd: r.lineEnd, start: r.start })
     }
     commentAnchors.setAnchors(ids, next)
     return () => commentAnchors.setAnchors(ids, new Map())

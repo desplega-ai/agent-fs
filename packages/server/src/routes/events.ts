@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { getUserByApiKey, resolveContext, subscribeDrive } from "@/core";
-import type { DB } from "@/core";
+import { getUserByApiKey, resolveContext, subscribeDrive, presenceSessionIdSchema } from "@/core";
+import type { DB, PresenceRegistry } from "@/core";
 import type { AppEnv } from "../types.js";
 
 const MAX_STREAMS_PER_USER = 8;
 const HEARTBEAT_MS = 5000;
 
-export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS) {
+export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: PresenceRegistry) {
   const router = new Hono<AppEnv>();
   const streams = new Map<string, number>();
 
@@ -23,6 +23,9 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS) {
     if (count >= MAX_STREAMS_PER_USER) {
       return c.json({ error: "RATE_LIMITED", message: "Too many concurrent event streams" }, 429);
     }
+    const withPresence = presence && c.req.query("presence") === "1" ? presence : undefined;
+    const sessionId = presenceSessionIdSchema.safeParse(c.req.query("sessionId"));
+    const unbind = withPresence && sessionId.success ? withPresence.bind(driveId, sessionId.data, userId) : () => {};
     streams.set(userId, count + 1);
 
     let released = false;
@@ -36,6 +39,7 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS) {
 
     return streamSSE(c, async (stream) => {
       let unsubscribe = () => {};
+      let unsubscribePresence = () => {};
       let timer: ReturnType<typeof setInterval> | undefined;
       let finish!: () => void;
       let cleaned = false;
@@ -44,6 +48,8 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS) {
         if (cleaned) return;
         cleaned = true;
         unsubscribe();
+        unsubscribePresence();
+        unbind();
         clearInterval(timer);
         c.req.raw.signal.removeEventListener("abort", abort);
         release();
@@ -65,6 +71,13 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS) {
           event: "ready",
           data: JSON.stringify({ driveId, at: new Date().toISOString() }),
         });
+        if (withPresence) {
+          const snapshot = withPresence.snapshot(driveId);
+          pending = pending.then(() => stream.writeSSE({ event: "presence.snapshot", data: JSON.stringify(snapshot) }));
+          unsubscribePresence = withPresence.subscribe(driveId, (event) => {
+            pending = pending.then(() => stream.writeSSE({ event: event.type, data: JSON.stringify(event) }));
+          });
+        }
         unsubscribe = subscribeDrive(driveId, (event) => {
           pending = pending.then(() => stream.writeSSE({
             event: event.type,

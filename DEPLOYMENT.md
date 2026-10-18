@@ -154,7 +154,11 @@ curl -X POST https://your-app.fly.dev/auth/register \
 | `shared-cpu-2x` | 2 shared | 512 MB–1 GB | Small teams, moderate traffic |
 | `performance-1x` | 1 dedicated | 2 GB | Production, heavy embedding workloads |
 
-The repo's `fly.toml` uses `performance-1x` with 2 GB. On `shared-cpu-1x`, a large index (100k+ chunks) used up the shared CPU budget: searches took seconds and health checks failed. `flyctl deploy` applies the `[[vm]]` size on every deploy, so a manual `fly scale vm` is undone by the next one. Adjust in `fly.toml` under `[[vm]]` or pass the instance size when prompted by the deploy script.
+The repo's `fly.toml` temporarily uses `performance-8x` with 16 GB for the prod re-embed.
+A later PR sets `performance-1x` with 4 GB.
+On `shared-cpu-1x`, a large index exhausted the shared CPU budget and delayed searches and health checks.
+`flyctl deploy` applies the `[[vm]]` size on every deploy and overrides manual scaling.
+Adjust `[[vm]]` in `fly.toml` or select the instance size when the deploy script prompts you.
 
 ## Upgrading to 0.13.1: search index migration
 
@@ -241,7 +245,7 @@ New writes use new chunk boundaries. Existing chunks stay unchanged.
 The chunker change does not trigger re-embedding.
 Chunking works offline and does not download a tokenizer.
 
-Set `AGENT_FS_EMBEDDING_MAX_BYTES` to limit text embeddings by UTF-8 bytes.
+Set `AGENT_FS_EMBEDDING_MAX_BYTES` to limit text embeddings by UTF-8 bytes after base64 stripping.
 The cap accepts a positive integer. Unset or invalid values mean no cap.
 For PDFs, the cap measures extracted text, not the PDF file size.
 Text over the cap keeps its full-text search index.
@@ -250,9 +254,21 @@ Image and PDF-page embeddings stay unchanged.
 
 Restart the daemon after a cap change.
 At boot, a changed cap queues skipped files and indexed files larger than the new cap.
+This check uses original FTS bytes and can queue extra files that contain base64.
 The indexer then applies the new cap.
 `reindex` skips files with `skipped` status, as it skips files with `indexed` status.
 `stat`, CLI, MCP, and the live file metadata show `skipped`.
+
+## Upgrading to 0.18.2: embedding drive exclusions and base64 stripping
+
+New embeddings strip large base64 payloads except in PDF text. Existing chunks stay until the file changes.
+
+Set `AGENT_FS_EMBEDDING_EXCLUDE_DRIVES` to a comma-separated list of drive IDs, then restart the daemon.
+Unset or empty values exclude no drives.
+Excluded drives keep FTS. Their text files report `skipped`, and their image status stays NULL.
+At boot, the daemon queues newly excluded text files to delete their text vectors and immediately deletes their image chunks and vectors.
+When a drive leaves the list, the daemon queues its skipped text files and makes its images eligible again.
+The exclusion list, size cap and embedding format can change during the same boot.
 
 ## Using EmbeddingGemma 2 (0.17.2)
 
@@ -314,8 +330,10 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `DO_NOT_TRACK` | _(env only)_ | _(unset)_ | Any value except empty, `0`, `false`, `no`, or `off` also stops telemetry. |
 | `AGENT_FS_PUBLIC_URL` | `server.publicUrl` | _(derived from the request)_ | Public address of this API server (e.g. `https://agent-fs-acme.fly.dev`), used to build absolute `/share/<token>` links. Set it when a proxy does not forward `Host` / `X-Forwarded-Proto`. |
 | `AGENT_FS_SHARE_RATE_LIMIT` | `server.shareRateLimit.requestsPerMinute` | `120` | Per-IP requests per minute for the public `/share/*` routes; `0` disables. Behind a reverse proxy other than Fly, all traffic shares the proxy's address, so raise it. |
+| `AGENT_FS_PRESENCE_RATE_LIMIT` | `server.presenceRateLimit.requestsPerMinute` | `1200` | Per-API-key requests per minute for the live UI presence routes (`/orgs/*/drives/*/presence`). They skip the general limit, so cursor updates cannot use up the normal API budget. `0` disables. |
 | `AGENT_FS_SITE_RATE_LIMIT` | `server.siteRateLimit.requestsPerMinute` | `600` | Per-IP requests per minute for the public `/site/*` routes (folder shares); `0` disables. One page load fetches many files, so it is higher than the share limit. |
-| `AGENT_FS_EMBEDDING_MAX_BYTES` | _(env only)_ | No cap | Positive integer limit for text embeddings, in UTF-8 bytes. Unset or invalid means no cap. Text over the cap keeps full-text search and reports `skipped`. Restart after changes. |
+| `AGENT_FS_EMBEDDING_MAX_BYTES` | _(env only)_ | No cap | Positive integer limit for text embeddings, in UTF-8 bytes after base64 stripping (except PDF text). Unset or invalid means no cap. Text over the cap keeps full-text search and reports `skipped`. Restart after changes. |
+| `AGENT_FS_EMBEDDING_EXCLUDE_DRIVES` | _(env only)_ | No exclusion | Comma-separated drive IDs. The parser trims IDs and ignores empty entries. Excluded drives keep FTS and lose text and image vectors. Text reports `skipped`. Restart after changes. |
 | `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` | _(env only)_ | `0.25` | Share of CPU time the text migration and image job may use, above 0 and at most 1. Text pauses after each file. Images pause after each part. `1` runs without pauses. Invalid values use the default. See [Upgrading to 0.16.5](#upgrading-to-0165-embeddings-re-embedded). |
 | `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
 

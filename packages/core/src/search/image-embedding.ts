@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { getEmbeddingExcludeDrives } from "../config.js";
 import type { OpContext } from "../ops/types.js";
 import type { DB } from "../db/index.js";
 import type { StorageAdapter } from "../storage/adapter.js";
@@ -11,7 +12,8 @@ import { toUnitVector } from "./vectors.js";
 
 const CURRENT_KEY = "image_job_current";
 
-export function imageEligible(provider: EmbeddingProvider | null | undefined, mime: string, pdfPageImages: boolean): boolean {
+export function imageEligible(provider: EmbeddingProvider | null | undefined, mime: string, pdfPageImages: boolean, driveId: string): boolean {
+  if (getEmbeddingExcludeDrives().includes(driveId)) return false;
   return mime === "application/pdf" ? pdfPageImages : !!provider?.supportsMime?.(mime);
 }
 
@@ -44,14 +46,15 @@ export async function prepareImageEmbeddings(
 ): Promise<boolean> {
   const pdfPageImages = await canRenderPdfPages(provider);
   if (storedFormat(sqlite) !== embeddingFormat(provider)) return false;
+  const excludedDrives = getEmbeddingExcludeDrives();
   const current = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(CURRENT_KEY) as { value: string } | null;
   sqlite.transaction(() => {
     if (current) {
       try {
         const file = JSON.parse(current.value) as { driveId: string; path: string; version: string | null };
         sqlite.prepare(
-          "UPDATE files SET image_embedding_status = 'failed' WHERE drive_id = ? AND path = ? AND current_version_id IS ? AND is_deleted = 0"
-        ).run(file.driveId, file.path, file.version);
+          "UPDATE files SET image_embedding_status = ? WHERE drive_id = ? AND path = ? AND current_version_id IS ? AND is_deleted = 0"
+        ).run(excludedDrives.includes(file.driveId) ? null : "failed", file.driveId, file.path, file.version);
       } catch {
         // A malformed marker must not prevent startup.
       }
@@ -59,14 +62,16 @@ export async function prepareImageEmbeddings(
     }
     const mimes = (sqlite.prepare("SELECT DISTINCT content_type AS mime FROM files WHERE is_deleted = 0").all() as { mime: string | null }[])
       .map((row) => row.mime ?? "")
-      .filter((mime) => imageEligible(provider, mime, pdfPageImages));
+      .filter((mime) => mime === "application/pdf" ? pdfPageImages : !!provider.supportsMime?.(mime));
     if (mimes.length > 0) {
       sqlite.prepare(
-        `UPDATE files SET image_embedding_status = 'pending' WHERE image_embedding_status IS NULL AND is_deleted = 0 AND content_type IN (${mimes.map(() => "?").join(",")})`
-      ).run(...mimes);
+        `UPDATE files SET image_embedding_status = 'pending' WHERE image_embedding_status IS NULL AND is_deleted = 0 AND content_type IN (${mimes.map(() => "?").join(",")}) AND drive_id NOT IN (SELECT value FROM json_each(?))`
+      ).run(...mimes, JSON.stringify(excludedDrives));
     }
   })();
-  return !!sqlite.prepare("SELECT 1 FROM files WHERE image_embedding_status = 'pending' AND is_deleted = 0 LIMIT 1").get();
+  return !!sqlite.prepare(
+    "SELECT 1 FROM files WHERE image_embedding_status = 'pending' AND is_deleted = 0 AND drive_id NOT IN (SELECT value FROM json_each(?)) LIMIT 1"
+  ).get(JSON.stringify(excludedDrives));
 }
 
 export function runPendingImageEmbeddings(
@@ -93,6 +98,7 @@ export function runPendingImageEmbeddings(
        FROM files INNER JOIN drives ON drives.id = files.drive_id
        WHERE files.image_embedding_status = 'pending' AND files.is_deleted = 0
          AND (files.drive_id, files.path) > (?, ?)
+         AND files.drive_id NOT IN (SELECT value FROM json_each(?))
        ORDER BY files.drive_id, files.path LIMIT ?`
     );
     const setStatus = sqlite.prepare(
@@ -108,7 +114,7 @@ export function runPendingImageEmbeddings(
     const insertVector = sqlite.prepare("INSERT INTO chunk_vectors(chunk_id, embedding) VALUES (?, ?)");
     let cursor = ["", ""];
     for (;;) {
-      const rows = selectBatch.all(cursor[0], cursor[1], opts.batchSize ?? 50) as ImageRow[];
+      const rows = selectBatch.all(cursor[0], cursor[1], JSON.stringify(getEmbeddingExcludeDrives()), opts.batchSize ?? 50) as ImageRow[];
       if (rows.length === 0) break;
       for (const row of rows) {
         cursor = [row.driveId, row.path];
@@ -117,7 +123,7 @@ export function runPendingImageEmbeddings(
           result.superseded++;
           continue;
         }
-        if (!imageEligible(provider, row.mime ?? "", pdfPageImages)) {
+        if (!imageEligible(provider, row.mime ?? "", pdfPageImages, row.driveId)) {
           setStatus.run(null, row.driveId, row.path, version);
           continue;
         }

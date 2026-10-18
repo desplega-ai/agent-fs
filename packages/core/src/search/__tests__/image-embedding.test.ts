@@ -246,11 +246,11 @@ describe("image embedding job", () => {
   });
 
   test("eligibility follows provider MIME support and PDF capability", () => {
-    expect(imageEligible(PROVIDER, "image/png", false)).toBe(true);
-    expect(imageEligible(PROVIDER, "image/jpeg", true)).toBe(false);
-    expect(imageEligible(PROVIDER, "application/pdf", false)).toBe(false);
-    expect(imageEligible(PROVIDER, "application/pdf", true)).toBe(true);
-    expect(imageEligible(null, "image/png", true)).toBe(false);
+    expect(imageEligible(PROVIDER, "image/png", false, "drive")).toBe(true);
+    expect(imageEligible(PROVIDER, "image/jpeg", true, "drive")).toBe(false);
+    expect(imageEligible(PROVIDER, "application/pdf", false, "drive")).toBe(false);
+    expect(imageEligible(PROVIDER, "application/pdf", true, "drive")).toBe(true);
+    expect(imageEligible(null, "image/png", true, "drive")).toBe(false);
   });
 
   test("boot marks only the interrupted file failed before it queues new files", async () => {

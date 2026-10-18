@@ -1,4 +1,4 @@
-import { getEmbeddingMaxBytes } from "../config.js";
+import { getEmbeddingExcludeDrives, getEmbeddingMaxBytes } from "../config.js";
 import type { Database } from "bun:sqlite";
 import type { DB } from "../db/index.js";
 import type { StorageAdapter } from "../storage/adapter.js";
@@ -35,6 +35,7 @@ import {
 
 export const FORMAT_KEY = "embedding_format";
 export const MAX_BYTES_KEY = "embedding_max_bytes";
+export const EXCLUDE_DRIVES_KEY = "embedding_exclude_drives";
 
 /**
  * Bump a provider's revision whenever its stored vectors must be rebuilt.
@@ -97,13 +98,29 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
   }
 
   const maxBytes = getEmbeddingMaxBytes();
-  const cap = maxBytes === undefined ? "" : String(maxBytes);
-  const storedCap = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(MAX_BYTES_KEY) as { value: string } | null;
-  if ((storedCap?.value ?? "") !== cap) {
-    sqlite.transaction(() => {
+  const excludedDrives = getEmbeddingExcludeDrives();
+  const settings = [
+    { key: MAX_BYTES_KEY, value: maxBytes === undefined ? "" : String(maxBytes), fallback: "" },
+    { key: EXCLUDE_DRIVES_KEY, value: JSON.stringify(excludedDrives), fallback: "[]" },
+  ].map((setting) => {
+    const stored = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(setting.key) as { value: string } | null;
+    const previous = stored?.value ?? setting.fallback;
+    return { ...setting, previous, changed: previous !== setting.value };
+  });
+  let previousDrives: string[] = [];
+  try {
+    const parsed = JSON.parse(settings[1].previous);
+    if (Array.isArray(parsed)) previousDrives = parsed.filter((id): id is string => typeof id === "string");
+  } catch {
+    // A malformed list must not prevent startup.
+  }
+  const addedDrives = JSON.stringify(excludedDrives.filter((id) => !previousDrives.includes(id)));
+  const removedDrives = JSON.stringify(previousDrives.filter((id) => !excludedDrives.includes(id)));
+  sqlite.transaction(() => {
+    if (settings[0].changed) {
       sqlite.prepare(
         `UPDATE files SET embedding_status = 'pending'
-         WHERE is_deleted = 0 AND (
+         WHERE is_deleted = 0 AND drive_id NOT IN (SELECT value FROM json_each(?)) AND (
            embedding_status = 'skipped' OR (
              embedding_status = 'indexed' AND COALESCE((
                SELECT octet_length(d.content) FROM files_fts_docs d
@@ -117,12 +134,28 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
              )
            )
          )`
-      ).run(maxBytes ?? Number.MAX_SAFE_INTEGER, maxBytes ?? null, maxBytes ?? null);
-      setMeta.run(MAX_BYTES_KEY, cap);
-    })();
-  } else if (!storedCap) {
-    setMeta.run(MAX_BYTES_KEY, cap);
-  }
+      ).run(JSON.stringify(excludedDrives), maxBytes ?? Number.MAX_SAFE_INTEGER, maxBytes ?? null, maxBytes ?? null);
+    }
+    if (settings[1].changed) {
+      sqlite.prepare(
+        `UPDATE files SET embedding_status = 'pending'
+         WHERE is_deleted = 0 AND drive_id IN (SELECT value FROM json_each(?))
+           AND embedding_status IN ('indexed', 'pending', 'failed')`
+      ).run(addedDrives);
+      sqlite.prepare(
+        `UPDATE files SET embedding_status = 'pending'
+         WHERE is_deleted = 0 AND drive_id IN (SELECT value FROM json_each(?)) AND embedding_status = 'skipped'`
+      ).run(removedDrives);
+      sqlite.prepare(
+        `DELETE FROM chunk_vectors WHERE chunk_id IN (
+           SELECT id FROM content_chunks WHERE kind = 'image' AND drive_id IN (SELECT value FROM json_each(?))
+         )`
+      ).run(addedDrives);
+      sqlite.prepare("DELETE FROM content_chunks WHERE kind = 'image' AND drive_id IN (SELECT value FROM json_each(?))").run(addedDrives);
+      sqlite.prepare("UPDATE files SET image_embedding_status = NULL WHERE drive_id IN (SELECT value FROM json_each(?))").run(addedDrives);
+    }
+    for (const setting of settings) setMeta.run(setting.key, setting.value);
+  })();
 
   // Keyed by format too: a new provider gets its own try at old failures.
   const retry = `${format}#${FAILED_RETRY}`;
@@ -155,7 +188,7 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
 export interface PendingEmbeddingsResult {
   indexed: number;
   failed: number;
-  /** Files over either size limit, or files with no text eligible for embedding. */
+  /** Files in excluded drives, over either size limit, or with no text eligible for embedding. */
   skipped: number;
   /** Files written again during the run; the write's own job embeds them. */
   superseded: number;
@@ -268,6 +301,10 @@ async function runPendingEmbeddingsUnlocked(
       cursor = [row.driveId, row.path];
       const cpuStart = cpuMs();
       try {
+        if (getEmbeddingExcludeDrives().includes(row.driveId)) {
+          result[await indexFileEmbeddings(db, provider, { ...row, content: "" })]++;
+          continue;
+        }
         const object = await s3.getObject(getS3Key(row.orgId, row.driveId, row.path));
         const extracted = await extractIndexableText(
           object.body,

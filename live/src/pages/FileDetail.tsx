@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { ShareButton } from "@/components/ShareDialog"
 import { FileFavoriteButton } from "@/components/FavoriteToggle"
+import { PresenceAvatars } from "@/components/presence/PresenceAvatars"
 import {
   Tooltip,
   TooltipContent,
@@ -77,6 +78,7 @@ export function FileDetailPage() {
             )}
           </div>
           <div className="flex items-center gap-1 px-2 shrink-0">
+            <PresenceAvatars path={filePath} />
             {isQueryablePath(filePath) && orgId && driveId && (
               <Tooltip>
                 <TooltipTrigger
