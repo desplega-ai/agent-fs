@@ -1,7 +1,7 @@
 ---
 date: 2026-10-17T23:27:23Z
 topic: "Presence in the live/ UI (avatars, cursors, selections, pointers, comment presence)"
-status: in-progress
+status: done
 ---
 
 # Presence in the live/ UI
@@ -30,6 +30,7 @@ Research and rationale: `thoughts/taras/research/2026-10-17-live-ui-presence.md`
 - UI reads the health query via `healthQueryOptions` instead of a second `useHealth()` poller (assumed, UI agent).
 - Caret encoding: `exact` = up to 24 chars before the caret; pointer `exact` = word under the mouse (assumed, UI agent).
 - Pre-existing Playwright failures at HEAD ce28b37 (`comments-polling` 2, `mobile-overflow` 6: fixtures throw on `reveal` / `drive-members` ops) left untouched, out of scope (assumed, UI agent verified on a detached HEAD worktree).
+- Presence selections: faint tint plus a solid underline in the person's color, so they never look like a comment highlight (asked, Taras feedback after QA).
 - Version bump via `bun run scripts/sync-versions.ts 0.18.3`, not `release.sh`, because `release.sh` pushes (assumed).
 
 ## Contract (server and UI must match exactly)
@@ -118,8 +119,8 @@ Limits (zod): `sessionId` matches `^[A-Za-z0-9_-]{8,64}$`. `path` ≤ 4096. `quo
 ### Orchestrator
 - [x] review both diffs, run all verification
 - [x] two-user browser E2E against a local MinIO daemon (agent-browser): avatars, popover, both toggles (persisted), Markdown selection + caret + pointer, Monaco selection + caret + pointer, comment card avatar + "Bob is replying...", Bob closes tab -> gone within 2 s
-- [ ] `desplega:code-reviewing`, fix Critical / Important
-- [ ] version sync 0.18.3, commit
+- [x] `desplega:code-reviewing`, fix Critical / Important
+- [x] version sync 0.18.3, commit (rebased onto origin/main 2d6fe37, one conflict in CommentThread.tsx imports)
 
 ## Verification
 
@@ -131,3 +132,28 @@ Limits (zod): `sessionId` matches `^[A-Za-z0-9_-]{8,64}$`. `path` ≤ 4096. `quo
 - `cd live && pnpm lint` (if the script exists)
 - `bun run scripts/sync-versions.ts --check`
 - Manual: two browser sessions (two users) on the same doc against a local MinIO daemon: avatars, popover toggles, selection, caret, pointer, comment "replying".
+
+## Outcome (2026-10-18)
+
+Verification on the rebased branch:
+- `bun run typecheck`: pass
+- `bun run test`: 1794 tests, 0 fail
+- `docs/openapi.json` regenerated and committed (it embeds the version)
+- `bun run scripts/sync-versions.ts --check`: every target at 0.18.3; `bun install --frozen-lockfile` clean
+- `scripts/e2e.ts --local-only`: 188/188 (includes "presence stream, snapshot and delete")
+- `cd live && pnpm build`: pass
+- `pnpm test:e2e`: 22 pass, 8 fail. The same 8 fail on origin/main 2d6fe37 (`comments-polling` 2, `mobile-overflow` 6; fixtures abort ops the app now calls). All 4 presence specs pass.
+- Manual two-user QA (agent-browser, MinIO daemon): all surfaces work, before and after the review fixes.
+
+Code review (Opus, two axes). Spec: no Critical / Important. Standards: 2 Important, both fixed:
+- `useDocPresence` re-rendered every subscriber on every remote change on the drive. Now a per-path cached snapshot.
+- Duplicated tabs shared one sessionId through sessionStorage. Now a fresh id per page load.
+Minor fixed: PUTs serialized; clean stream end handled like an error; `PresenceLimitError` mapped centrally; registry unsubscribe guard; unused option removed; one Monaco decorations collection; 409 documented on `/events`; `AGENT_FS_PRESENCE_RATE_LIMIT` in DEPLOYMENT.md; the Playwright fixture keeps the mocked stream open.
+Minor, not fixed (noted):
+- `events.ts` writes presence frames into the same unbounded `pending` chain (pre-existing pattern; presence raises the frame rate).
+- `eventRoutes(db, undefined, presence)` positional optional arg.
+- Monaco enums spelled as numbers in `use-monaco-presence.ts`.
+- sessionId regex repeated in `openapi.ts`; `onComment` in `lib/sse.ts` only used by tests.
+- `scripts/e2e.ts` lacks the "plain stream gets no presence" and "bound stream close emits left" checks (server unit tests cover both).
+- No automated test for the UI connection logic (429 poll, backoff, liveness, PUT 429 pause).
+- The avatar stack also shows in the file-browser viewer header (small, intended scope addition).

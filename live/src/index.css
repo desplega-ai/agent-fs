@@ -259,22 +259,24 @@
    slot (`colorSlot` in lib/presence.ts, hue = slot * 45). The markdown preview
    paints selections with the CSS Custom Highlight API; Monaco uses the
    classes. */
-::highlight(presence-0) { background-color: oklch(0.65 0.15 0 / 0.25); }
-::highlight(presence-1) { background-color: oklch(0.65 0.15 45 / 0.25); }
-::highlight(presence-2) { background-color: oklch(0.65 0.15 90 / 0.25); }
-::highlight(presence-3) { background-color: oklch(0.65 0.15 135 / 0.25); }
-::highlight(presence-4) { background-color: oklch(0.65 0.15 180 / 0.25); }
-::highlight(presence-5) { background-color: oklch(0.65 0.15 225 / 0.25); }
-::highlight(presence-6) { background-color: oklch(0.65 0.15 270 / 0.25); }
-::highlight(presence-7) { background-color: oklch(0.65 0.15 315 / 0.25); }
-.presence-sel-0 { background-color: oklch(0.65 0.15 0 / 0.25); }
-.presence-sel-1 { background-color: oklch(0.65 0.15 45 / 0.25); }
-.presence-sel-2 { background-color: oklch(0.65 0.15 90 / 0.25); }
-.presence-sel-3 { background-color: oklch(0.65 0.15 135 / 0.25); }
-.presence-sel-4 { background-color: oklch(0.65 0.15 180 / 0.25); }
-.presence-sel-5 { background-color: oklch(0.65 0.15 225 / 0.25); }
-.presence-sel-6 { background-color: oklch(0.65 0.15 270 / 0.25); }
-.presence-sel-7 { background-color: oklch(0.65 0.15 315 / 0.25); }
+/* Remote selections: a faint tint plus a solid underline in the person's color,
+   so they never read as a comment highlight (a yellow fill, or wavy when moved). */
+::highlight(presence-0) { background-color: oklch(0.65 0.15 0 / 0.12); text-decoration: underline 2px oklch(0.65 0.15 0); text-underline-offset: 3px; }
+::highlight(presence-1) { background-color: oklch(0.65 0.15 45 / 0.12); text-decoration: underline 2px oklch(0.65 0.15 45); text-underline-offset: 3px; }
+::highlight(presence-2) { background-color: oklch(0.65 0.15 90 / 0.12); text-decoration: underline 2px oklch(0.65 0.15 90); text-underline-offset: 3px; }
+::highlight(presence-3) { background-color: oklch(0.65 0.15 135 / 0.12); text-decoration: underline 2px oklch(0.65 0.15 135); text-underline-offset: 3px; }
+::highlight(presence-4) { background-color: oklch(0.65 0.15 180 / 0.12); text-decoration: underline 2px oklch(0.65 0.15 180); text-underline-offset: 3px; }
+::highlight(presence-5) { background-color: oklch(0.65 0.15 225 / 0.12); text-decoration: underline 2px oklch(0.65 0.15 225); text-underline-offset: 3px; }
+::highlight(presence-6) { background-color: oklch(0.65 0.15 270 / 0.12); text-decoration: underline 2px oklch(0.65 0.15 270); text-underline-offset: 3px; }
+::highlight(presence-7) { background-color: oklch(0.65 0.15 315 / 0.12); text-decoration: underline 2px oklch(0.65 0.15 315); text-underline-offset: 3px; }
+.presence-sel-0 { background-color: oklch(0.65 0.15 0 / 0.12); border-bottom: 2px solid oklch(0.65 0.15 0); }
+.presence-sel-1 { background-color: oklch(0.65 0.15 45 / 0.12); border-bottom: 2px solid oklch(0.65 0.15 45); }
+.presence-sel-2 { background-color: oklch(0.65 0.15 90 / 0.12); border-bottom: 2px solid oklch(0.65 0.15 90); }
+.presence-sel-3 { background-color: oklch(0.65 0.15 135 / 0.12); border-bottom: 2px solid oklch(0.65 0.15 135); }
+.presence-sel-4 { background-color: oklch(0.65 0.15 180 / 0.12); border-bottom: 2px solid oklch(0.65 0.15 180); }
+.presence-sel-5 { background-color: oklch(0.65 0.15 225 / 0.12); border-bottom: 2px solid oklch(0.65 0.15 225); }
+.presence-sel-6 { background-color: oklch(0.65 0.15 270 / 0.12); border-bottom: 2px solid oklch(0.65 0.15 270); }
+.presence-sel-7 { background-color: oklch(0.65 0.15 315 / 0.12); border-bottom: 2px solid oklch(0.65 0.15 315); }
 /* Monaco caret: a decoration's before-content span at the caret position. */
 .presence-caret {
   position: absolute;
