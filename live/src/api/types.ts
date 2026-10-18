@@ -373,3 +373,60 @@ export interface Favorite {
 export interface FavoriteListResult {
   favorites: Favorite[]
 }
+
+// Presence (live UI only). Mirrors packages/core/src/presence/types.ts.
+
+export interface PresenceQuote {
+  /** At most 256 chars. */
+  exact: string
+  /** At most 64 chars each. */
+  prefix?: string
+  suffix?: string
+}
+
+/** A text selection, or the text caret when `collapsed`. */
+export interface PresenceSelection {
+  quote: PresenceQuote
+  lineStart: number
+  lineEnd: number
+  fileVersion?: number | null
+  collapsed: boolean
+}
+
+/** A point in the text (the mouse pointer): `charOffset` chars into the quote. */
+export interface PresenceTextPos {
+  quote: PresenceQuote
+  charOffset: number
+  lineStart: number
+  fileVersion?: number | null
+}
+
+/** Body of `PUT .../presence/:sessionId`. */
+export interface PresenceState {
+  /** null = on the drive, no doc open. */
+  path: string | null
+  mode: "view" | "edit"
+  selection?: PresenceSelection | null
+  pointer?: PresenceTextPos | null
+  commentId?: string | null
+  commentState?: "viewing" | "replying" | null
+}
+
+export interface PresenceSession extends PresenceState {
+  sessionId: string
+  userId: string
+  email: string
+  displayName: string | null
+  /** ISO time of the last state change. */
+  updatedAt: string
+}
+
+export interface PresenceSnapshot {
+  driveId: string
+  sessions: PresenceSession[]
+  at: string
+}
+
+export type PresenceEvent =
+  | { type: "presence.updated"; driveId: string; session: PresenceSession; at: string }
+  | { type: "presence.left"; driveId: string; sessionId: string; userId: string; at: string }

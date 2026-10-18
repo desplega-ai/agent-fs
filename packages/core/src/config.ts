@@ -100,6 +100,10 @@ export interface AgentFSConfig {
     rateLimit?: {
       requestsPerMinute: number;
     };
+    /** Per-key limit for presence routes (default 1200). */
+    presenceRateLimit?: {
+      requestsPerMinute: number;
+    };
     /** Per-IP limit for the public /share/:token routes (default 120). */
     shareRateLimit?: {
       requestsPerMinute: number;
@@ -301,6 +305,11 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
   if (env.AGENT_FS_RATE_LIMIT) {
     if (!config.server.rateLimit) config.server.rateLimit = { requestsPerMinute: 3000 };
     config.server.rateLimit.requestsPerMinute = parseInt(env.AGENT_FS_RATE_LIMIT, 10);
+  }
+
+  if (env.AGENT_FS_PRESENCE_RATE_LIMIT) {
+    const rpm = parseInt(env.AGENT_FS_PRESENCE_RATE_LIMIT, 10);
+    if (Number.isFinite(rpm) && rpm >= 0) config.server.presenceRateLimit = { requestsPerMinute: rpm };
   }
 
   // Share-link overrides

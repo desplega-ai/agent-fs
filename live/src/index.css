@@ -255,6 +255,73 @@
   }
 }
 
+/* Presence: other people's selections, carets and pointers. One color per
+   slot (`colorSlot` in lib/presence.ts, hue = slot * 45). The markdown preview
+   paints selections with the CSS Custom Highlight API; Monaco uses the
+   classes. */
+::highlight(presence-0) { background-color: oklch(0.65 0.15 0 / 0.25); }
+::highlight(presence-1) { background-color: oklch(0.65 0.15 45 / 0.25); }
+::highlight(presence-2) { background-color: oklch(0.65 0.15 90 / 0.25); }
+::highlight(presence-3) { background-color: oklch(0.65 0.15 135 / 0.25); }
+::highlight(presence-4) { background-color: oklch(0.65 0.15 180 / 0.25); }
+::highlight(presence-5) { background-color: oklch(0.65 0.15 225 / 0.25); }
+::highlight(presence-6) { background-color: oklch(0.65 0.15 270 / 0.25); }
+::highlight(presence-7) { background-color: oklch(0.65 0.15 315 / 0.25); }
+.presence-sel-0 { background-color: oklch(0.65 0.15 0 / 0.25); }
+.presence-sel-1 { background-color: oklch(0.65 0.15 45 / 0.25); }
+.presence-sel-2 { background-color: oklch(0.65 0.15 90 / 0.25); }
+.presence-sel-3 { background-color: oklch(0.65 0.15 135 / 0.25); }
+.presence-sel-4 { background-color: oklch(0.65 0.15 180 / 0.25); }
+.presence-sel-5 { background-color: oklch(0.65 0.15 225 / 0.25); }
+.presence-sel-6 { background-color: oklch(0.65 0.15 270 / 0.25); }
+.presence-sel-7 { background-color: oklch(0.65 0.15 315 / 0.25); }
+/* Monaco caret: a decoration's before-content span at the caret position. */
+.presence-caret {
+  position: absolute;
+  height: 100%;
+  border-left: 2px solid;
+  margin-left: -1px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.presence-caret-0 { border-color: oklch(0.65 0.15 0); }
+.presence-caret-1 { border-color: oklch(0.65 0.15 45); }
+.presence-caret-2 { border-color: oklch(0.65 0.15 90); }
+.presence-caret-3 { border-color: oklch(0.65 0.15 135); }
+.presence-caret-4 { border-color: oklch(0.65 0.15 180); }
+.presence-caret-5 { border-color: oklch(0.65 0.15 225); }
+.presence-caret-6 { border-color: oklch(0.65 0.15 270); }
+.presence-caret-7 { border-color: oklch(0.65 0.15 315); }
+/* Remote mouse pointer (markdown overlay and Monaco content widget): an arrow
+   plus a name tag. It glides to each new position. */
+.presence-pointer {
+  pointer-events: none;
+  transition: transform 0.1s linear, top 0.1s linear, left 0.1s linear;
+}
+.presence-pointer svg {
+  display: block;
+}
+.presence-pointer .presence-tag {
+  margin: -5px 0 0 10px;
+}
+.presence-tag {
+  display: block;
+  width: max-content;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 0.25rem;
+  padding: 0 0.25rem;
+  font: 500 10px/16px var(--font-sans);
+  color: white;
+}
+@media (prefers-reduced-motion: reduce) {
+  .presence-pointer {
+    transition: none;
+  }
+}
+
 /* highlight.js token colors — themed via CSS variables so light/dark share the
    same selectors. Tokens picked to be readable against the prose-pre muted bg. */
 :root {

@@ -16,4 +16,7 @@ package instead of the CDN. To use a preinstalled Chromium, set
 
 Coverage: document/pane widths at 360, 390 and 768 px, independent table and fenced
 code scrolling, table-row comment controls, and wrapping of long raw preview lines.
+`presence.spec.ts` mocks the drive event stream (`/events?presence=1`) to cover the
+presence avatars, the See cursors / See selections toggles, comment-card presence,
+and the absence of presence requests on servers without the `presence` feature.
 Screenshots are written to `test-results/`.

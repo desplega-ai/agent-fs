@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.18.2",
+    "version": "0.18.3",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -565,6 +565,559 @@
         }
       }
     },
+    "/orgs/{orgId}/drives/{driveId}/presence": {
+      "get": {
+        "summary": "Get drive presence",
+        "operationId": "getPresence",
+        "tags": [
+          "Drives"
+        ],
+        "description": "Any drive member can read the in-memory snapshot. Presence expires after 45 seconds without a PUT.",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "driveId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Presence snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "driveId",
+                    "sessions",
+                    "at"
+                  ],
+                  "properties": {
+                    "driveId": {
+                      "type": "string"
+                    },
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "path",
+                          "mode",
+                          "sessionId",
+                          "userId",
+                          "email",
+                          "displayName",
+                          "updatedAt"
+                        ],
+                        "properties": {
+                          "path": {
+                            "type": "string",
+                            "maxLength": 4096,
+                            "nullable": true
+                          },
+                          "mode": {
+                            "type": "string",
+                            "enum": [
+                              "view",
+                              "edit"
+                            ]
+                          },
+                          "selection": {
+                            "type": "object",
+                            "properties": {
+                              "quote": {
+                                "type": "object",
+                                "properties": {
+                                  "exact": {
+                                    "type": "string",
+                                    "maxLength": 256
+                                  },
+                                  "prefix": {
+                                    "type": "string",
+                                    "maxLength": 64
+                                  },
+                                  "suffix": {
+                                    "type": "string",
+                                    "maxLength": 64
+                                  }
+                                },
+                                "required": [
+                                  "exact"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "lineStart": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "lineEnd": {
+                                "$ref": "#/properties/selection/properties/lineStart"
+                              },
+                              "fileVersion": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "collapsed": {
+                                "type": "boolean"
+                              }
+                            },
+                            "required": [
+                              "quote",
+                              "lineStart",
+                              "lineEnd",
+                              "collapsed"
+                            ],
+                            "additionalProperties": false,
+                            "nullable": true
+                          },
+                          "pointer": {
+                            "type": "object",
+                            "properties": {
+                              "quote": {
+                                "$ref": "#/properties/selection/properties/quote"
+                              },
+                              "charOffset": {
+                                "$ref": "#/properties/selection/properties/lineStart"
+                              },
+                              "lineStart": {
+                                "$ref": "#/properties/selection/properties/lineStart"
+                              },
+                              "fileVersion": {
+                                "$ref": "#/properties/selection/properties/fileVersion"
+                              }
+                            },
+                            "required": [
+                              "quote",
+                              "charOffset",
+                              "lineStart"
+                            ],
+                            "additionalProperties": false,
+                            "nullable": true
+                          },
+                          "commentId": {
+                            "type": "string",
+                            "maxLength": 128,
+                            "nullable": true
+                          },
+                          "commentState": {
+                            "type": "string",
+                            "enum": [
+                              "viewing",
+                              "replying"
+                            ],
+                            "nullable": true
+                          },
+                          "sessionId": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]{8,64}$"
+                          },
+                          "userId": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "displayName": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "updatedAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "description": "Last state change"
+                          }
+                        }
+                      }
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid Bearer key"
+          },
+          "404": {
+            "description": "Drive not found or the user is not a member"
+          },
+          "429": {
+            "description": "RATE_LIMITED: presence request limit or 32 sessions per user per drive exceeded"
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/drives/{driveId}/presence/{sessionId}": {
+      "parameters": [
+        {
+          "name": "orgId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "driveId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "sessionId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{8,64}$"
+          }
+        }
+      ],
+      "put": {
+        "summary": "Update a presence session",
+        "operationId": "putPresence",
+        "tags": [
+          "Drives"
+        ],
+        "description": "Any drive member can insert or replace their session. Unknown body keys are stripped. Equal states refresh TTL without broadcasting.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string",
+                    "maxLength": 4096,
+                    "nullable": true
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "view",
+                      "edit"
+                    ]
+                  },
+                  "selection": {
+                    "type": "object",
+                    "properties": {
+                      "quote": {
+                        "type": "object",
+                        "properties": {
+                          "exact": {
+                            "type": "string",
+                            "maxLength": 256
+                          },
+                          "prefix": {
+                            "type": "string",
+                            "maxLength": 64
+                          },
+                          "suffix": {
+                            "type": "string",
+                            "maxLength": 64
+                          }
+                        },
+                        "required": [
+                          "exact"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "lineStart": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "lineEnd": {
+                        "$ref": "#/properties/selection/properties/lineStart"
+                      },
+                      "fileVersion": {
+                        "type": "number",
+                        "nullable": true
+                      },
+                      "collapsed": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "quote",
+                      "lineStart",
+                      "lineEnd",
+                      "collapsed"
+                    ],
+                    "additionalProperties": false,
+                    "nullable": true
+                  },
+                  "pointer": {
+                    "type": "object",
+                    "properties": {
+                      "quote": {
+                        "$ref": "#/properties/selection/properties/quote"
+                      },
+                      "charOffset": {
+                        "$ref": "#/properties/selection/properties/lineStart"
+                      },
+                      "lineStart": {
+                        "$ref": "#/properties/selection/properties/lineStart"
+                      },
+                      "fileVersion": {
+                        "$ref": "#/properties/selection/properties/fileVersion"
+                      }
+                    },
+                    "required": [
+                      "quote",
+                      "charOffset",
+                      "lineStart"
+                    ],
+                    "additionalProperties": false,
+                    "nullable": true
+                  },
+                  "commentId": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "nullable": true
+                  },
+                  "commentState": {
+                    "type": "string",
+                    "enum": [
+                      "viewing",
+                      "replying"
+                    ],
+                    "nullable": true
+                  }
+                },
+                "required": [
+                  "path",
+                  "mode"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Presence session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "session"
+                  ],
+                  "properties": {
+                    "session": {
+                      "type": "object",
+                      "required": [
+                        "path",
+                        "mode",
+                        "sessionId",
+                        "userId",
+                        "email",
+                        "displayName",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "maxLength": 4096,
+                          "nullable": true
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "view",
+                            "edit"
+                          ]
+                        },
+                        "selection": {
+                          "type": "object",
+                          "properties": {
+                            "quote": {
+                              "type": "object",
+                              "properties": {
+                                "exact": {
+                                  "type": "string",
+                                  "maxLength": 256
+                                },
+                                "prefix": {
+                                  "type": "string",
+                                  "maxLength": 64
+                                },
+                                "suffix": {
+                                  "type": "string",
+                                  "maxLength": 64
+                                }
+                              },
+                              "required": [
+                                "exact"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "lineStart": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "lineEnd": {
+                              "$ref": "#/properties/selection/properties/lineStart"
+                            },
+                            "fileVersion": {
+                              "type": "number",
+                              "nullable": true
+                            },
+                            "collapsed": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "quote",
+                            "lineStart",
+                            "lineEnd",
+                            "collapsed"
+                          ],
+                          "additionalProperties": false,
+                          "nullable": true
+                        },
+                        "pointer": {
+                          "type": "object",
+                          "properties": {
+                            "quote": {
+                              "$ref": "#/properties/selection/properties/quote"
+                            },
+                            "charOffset": {
+                              "$ref": "#/properties/selection/properties/lineStart"
+                            },
+                            "lineStart": {
+                              "$ref": "#/properties/selection/properties/lineStart"
+                            },
+                            "fileVersion": {
+                              "$ref": "#/properties/selection/properties/fileVersion"
+                            }
+                          },
+                          "required": [
+                            "quote",
+                            "charOffset",
+                            "lineStart"
+                          ],
+                          "additionalProperties": false,
+                          "nullable": true
+                        },
+                        "commentId": {
+                          "type": "string",
+                          "maxLength": 128,
+                          "nullable": true
+                        },
+                        "commentState": {
+                          "type": "string",
+                          "enum": [
+                            "viewing",
+                            "replying"
+                          ],
+                          "nullable": true
+                        },
+                        "sessionId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{8,64}$"
+                        },
+                        "userId": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "Last state change"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_ERROR: invalid sessionId or body"
+          },
+          "401": {
+            "description": "Missing or invalid Bearer key"
+          },
+          "404": {
+            "description": "Drive not found or the user is not a member"
+          },
+          "409": {
+            "description": "EDIT_CONFLICT: sessionId belongs to another user"
+          },
+          "429": {
+            "description": "RATE_LIMITED: presence request limit or 32 sessions per user per drive exceeded"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a presence session",
+        "operationId": "deletePresence",
+        "tags": [
+          "Drives"
+        ],
+        "description": "Only the owner can delete a session. An unknown session also succeeds.",
+        "responses": {
+          "200": {
+            "description": "Session removed or unknown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_ERROR: invalid sessionId"
+          },
+          "401": {
+            "description": "Missing or invalid Bearer key"
+          },
+          "404": {
+            "description": "Drive not found or the user is not a member"
+          },
+          "409": {
+            "description": "EDIT_CONFLICT: sessionId belongs to another user"
+          },
+          "429": {
+            "description": "RATE_LIMITED: presence request limit or 32 sessions per user per drive exceeded"
+          }
+        }
+      }
+    },
     "/orgs/{orgId}/drives/{driveId}/events": {
       "get": {
         "summary": "Stream drive changes",
@@ -574,6 +1127,26 @@
         ],
         "description": "Drive members can stream committed changes with Bearer authentication. The first event is ready. Heartbeat comments (: ping) arrive every 5 seconds. Each user can open at most 8 concurrent streams. Events are live only, with no replay.",
         "parameters": [
+          {
+            "name": "presence",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "1"
+              ]
+            },
+            "description": "Opt in to presence frames. Without presence=1 no presence frames are sent."
+          },
+          {
+            "name": "sessionId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{8,64}$"
+            },
+            "description": "With presence=1, bind a valid sessionId. The last stream to close removes its session."
+          },
           {
             "name": "orgId",
             "in": "path",
@@ -603,6 +1176,340 @@
               }
             },
             "x-sse-events": {
+              "presence.snapshot": {
+                "type": "object",
+                "required": [
+                  "driveId",
+                  "sessions",
+                  "at"
+                ],
+                "properties": {
+                  "driveId": {
+                    "type": "string"
+                  },
+                  "sessions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "path",
+                        "mode",
+                        "sessionId",
+                        "userId",
+                        "email",
+                        "displayName",
+                        "updatedAt"
+                      ],
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "maxLength": 4096,
+                          "nullable": true
+                        },
+                        "mode": {
+                          "type": "string",
+                          "enum": [
+                            "view",
+                            "edit"
+                          ]
+                        },
+                        "selection": {
+                          "type": "object",
+                          "properties": {
+                            "quote": {
+                              "type": "object",
+                              "properties": {
+                                "exact": {
+                                  "type": "string",
+                                  "maxLength": 256
+                                },
+                                "prefix": {
+                                  "type": "string",
+                                  "maxLength": 64
+                                },
+                                "suffix": {
+                                  "type": "string",
+                                  "maxLength": 64
+                                }
+                              },
+                              "required": [
+                                "exact"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "lineStart": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "lineEnd": {
+                              "$ref": "#/properties/selection/properties/lineStart"
+                            },
+                            "fileVersion": {
+                              "type": "number",
+                              "nullable": true
+                            },
+                            "collapsed": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "quote",
+                            "lineStart",
+                            "lineEnd",
+                            "collapsed"
+                          ],
+                          "additionalProperties": false,
+                          "nullable": true
+                        },
+                        "pointer": {
+                          "type": "object",
+                          "properties": {
+                            "quote": {
+                              "$ref": "#/properties/selection/properties/quote"
+                            },
+                            "charOffset": {
+                              "$ref": "#/properties/selection/properties/lineStart"
+                            },
+                            "lineStart": {
+                              "$ref": "#/properties/selection/properties/lineStart"
+                            },
+                            "fileVersion": {
+                              "$ref": "#/properties/selection/properties/fileVersion"
+                            }
+                          },
+                          "required": [
+                            "quote",
+                            "charOffset",
+                            "lineStart"
+                          ],
+                          "additionalProperties": false,
+                          "nullable": true
+                        },
+                        "commentId": {
+                          "type": "string",
+                          "maxLength": 128,
+                          "nullable": true
+                        },
+                        "commentState": {
+                          "type": "string",
+                          "enum": [
+                            "viewing",
+                            "replying"
+                          ],
+                          "nullable": true
+                        },
+                        "sessionId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{8,64}$"
+                        },
+                        "userId": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "displayName": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "description": "Last state change"
+                        }
+                      }
+                    }
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "description": "Only sent when presence=1, immediately after ready."
+              },
+              "presence.updated": {
+                "type": "object",
+                "description": "Only sent when presence=1.",
+                "required": [
+                  "type",
+                  "driveId",
+                  "session",
+                  "at"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "presence.updated"
+                  },
+                  "driveId": {
+                    "type": "string"
+                  },
+                  "session": {
+                    "type": "object",
+                    "required": [
+                      "path",
+                      "mode",
+                      "sessionId",
+                      "userId",
+                      "email",
+                      "displayName",
+                      "updatedAt"
+                    ],
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "maxLength": 4096,
+                        "nullable": true
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "view",
+                          "edit"
+                        ]
+                      },
+                      "selection": {
+                        "type": "object",
+                        "properties": {
+                          "quote": {
+                            "type": "object",
+                            "properties": {
+                              "exact": {
+                                "type": "string",
+                                "maxLength": 256
+                              },
+                              "prefix": {
+                                "type": "string",
+                                "maxLength": 64
+                              },
+                              "suffix": {
+                                "type": "string",
+                                "maxLength": 64
+                              }
+                            },
+                            "required": [
+                              "exact"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "lineStart": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "lineEnd": {
+                            "$ref": "#/properties/selection/properties/lineStart"
+                          },
+                          "fileVersion": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "collapsed": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "quote",
+                          "lineStart",
+                          "lineEnd",
+                          "collapsed"
+                        ],
+                        "additionalProperties": false,
+                        "nullable": true
+                      },
+                      "pointer": {
+                        "type": "object",
+                        "properties": {
+                          "quote": {
+                            "$ref": "#/properties/selection/properties/quote"
+                          },
+                          "charOffset": {
+                            "$ref": "#/properties/selection/properties/lineStart"
+                          },
+                          "lineStart": {
+                            "$ref": "#/properties/selection/properties/lineStart"
+                          },
+                          "fileVersion": {
+                            "$ref": "#/properties/selection/properties/fileVersion"
+                          }
+                        },
+                        "required": [
+                          "quote",
+                          "charOffset",
+                          "lineStart"
+                        ],
+                        "additionalProperties": false,
+                        "nullable": true
+                      },
+                      "commentId": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "nullable": true
+                      },
+                      "commentState": {
+                        "type": "string",
+                        "enum": [
+                          "viewing",
+                          "replying"
+                        ],
+                        "nullable": true
+                      },
+                      "sessionId": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9_-]{8,64}$"
+                      },
+                      "userId": {
+                        "type": "string"
+                      },
+                      "email": {
+                        "type": "string"
+                      },
+                      "displayName": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "updatedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Last state change"
+                      }
+                    }
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
+              "presence.left": {
+                "type": "object",
+                "description": "Only sent when presence=1.",
+                "required": [
+                  "type",
+                  "driveId",
+                  "sessionId",
+                  "userId",
+                  "at"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "presence.left"
+                  },
+                  "driveId": {
+                    "type": "string"
+                  },
+                  "sessionId": {
+                    "type": "string"
+                  },
+                  "userId": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                }
+              },
               "ready": {
                 "type": "object",
                 "required": [
@@ -724,6 +1631,9 @@
           },
           "404": {
             "description": "Drive not found or the user is not a member"
+          },
+          "409": {
+            "description": "EDIT_CONFLICT: with presence=1, the sessionId belongs to another user"
           },
           "429": {
             "description": "Concurrent stream cap or request rate limit exceeded"

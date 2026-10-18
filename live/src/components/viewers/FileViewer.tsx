@@ -16,6 +16,8 @@ import { toast } from "@/stores/toast"
 import { Kbd } from "@/components/ui/kbd"
 import { ShareButton } from "@/components/ShareDialog"
 import { FileFavoriteButton } from "@/components/FavoriteToggle"
+import { PresenceAvatars } from "@/components/presence/PresenceAvatars"
+import { usePresenceDoc } from "@/stores/presence"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import type { OutlineItem } from "@/lib/outline"
 import { useFileContent } from "@/hooks/use-file-content"
@@ -167,6 +169,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   // Editing state
   const [isEditing, setIsEditing] = useState(false)
   const [isDirty, setIsDirty] = useState(false)
+  usePresenceDoc(path, isEditing ? "edit" : "view")
   const { save, isSaving, error: saveError, clearError } = useFileSave(path)
 
   // Markdown edit layout (only in edit mode). The rich (MDXEditor) opt-in is
@@ -750,6 +753,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
+        <PresenceAvatars path={path} />
         {/* Markdown edit layout toggle (only in edit mode) */}
         {mdEditView && onMdEditViewChange && (
           <>

@@ -179,3 +179,5 @@ export { prepareImageEmbeddings, scheduleImageEmbeddings } from "./search/image-
 export { startVectorSearchWorker } from "./search/vector-worker.js";
 export type { EmbeddingProvider } from "./search/embeddings/index.js";
 export { generateOpenAPISpec } from "./openapi.js";
+
+export * from "./presence/index.js";

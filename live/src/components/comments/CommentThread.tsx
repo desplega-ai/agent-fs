@@ -10,9 +10,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useResolveComment, useDeleteComment, useUpdateComment } from "@/hooks/use-comments"
-import { UserName, useDisplayName } from "@/components/UserName"
+import { UserName } from "@/components/UserName"
+import { UserAvatar } from "@/components/UserAvatar"
+import { CommentReplying, CommentViewers } from "@/components/presence/CommentPresence"
 import { AddComment } from "./AddComment"
 import { commentAnchors, useActiveComment, useCommentAnchor, useFocusedComment, useHoveredComment } from "@/stores/comment-anchors"
+import { presenceStore } from "@/stores/presence"
 import type { CommentListEntry, CommentEntry } from "@/api/types"
 
 function timeAgo(dateStr: string): string {
@@ -24,26 +27,6 @@ function timeAgo(dateStr: string): string {
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
   return `${days}d ago`
-}
-
-function avatarColor(id: string): string {
-  let hash = 0
-  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash)
-  const hue = Math.abs(hash) % 360
-  return `oklch(0.65 0.15 ${hue})`
-}
-
-function Avatar({ userId, displayName }: { userId: string; displayName?: string }) {
-  const { display } = useDisplayName(userId, displayName)
-  const initial = display.charAt(0).toUpperCase()
-  return (
-    <div
-      className="flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium text-white"
-      style={{ backgroundColor: avatarColor(userId) }}
-    >
-      {initial}
-    </div>
-  )
 }
 
 interface CommentThreadProps {
@@ -92,6 +75,14 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
     el.classList.add("comment-card-pulse")
   }, [focused, comment.id])
 
+  // Presence: while the reply box is open and focused, others see "replying".
+  // Closing the box (or the thread going away) ends it even without a blur.
+  useEffect(() => {
+    if (!replying) return
+    return () => presenceStore.endCommentActivity("reply", comment.id)
+  }, [replying, comment.id])
+  useEffect(() => () => presenceStore.endCommentActivity("focus", comment.id), [comment.id])
+
   const handleThreadClick = () => {
     if (onCommentClick) {
       onCommentClick(comment.lineStart, comment.lineEnd ?? comment.lineStart, comment.quotedContent, comment.id)
@@ -99,7 +90,14 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
   }
 
   return (
-    <div className={cn("border-b border-border last:border-b-0", comment.resolved && "opacity-60")}>
+    <div
+      className={cn("border-b border-border last:border-b-0", comment.resolved && "opacity-60")}
+      // Presence: keyboard focus anywhere in the thread counts as viewing it.
+      onFocus={() => presenceStore.setCommentActivity("focus", comment.id)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) presenceStore.endCommentActivity("focus", comment.id)
+      }}
+    >
       <div
         ref={cardRef}
         className={cn(
@@ -115,7 +113,7 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
         {/* Header */}
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-1.5 min-w-0">
-            <Avatar userId={comment.author} displayName={comment.authorDisplayName} />
+            <UserAvatar userId={comment.author} displayName={comment.authorDisplayName} />
             <UserName userId={comment.author} displayName={comment.authorDisplayName} />
             <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(comment.createdAt)}</span>
             {isGeneralComment && (
@@ -152,6 +150,7 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
             )}
           </div>
           <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <CommentViewers path={path} commentId={comment.id} />
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -239,6 +238,7 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
               Reply
             </button>
           </div>
+          <CommentReplying path={path} commentId={comment.id} />
         </div>
       </div>
 
@@ -253,7 +253,14 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
 
       {/* Reply form */}
       {replying && (
-        <div className="border-t border-border px-3 py-2.5 bg-muted/30" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="border-t border-border px-3 py-2.5 bg-muted/30"
+          onClick={(e) => e.stopPropagation()}
+          onFocus={() => presenceStore.setCommentActivity("reply", comment.id)}
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget)) presenceStore.endCommentActivity("reply", comment.id)
+          }}
+        >
           <AddComment
             path={path}
             parentId={comment.id}
@@ -297,7 +304,7 @@ function ReplyItem({ reply, path, currentUserId }: { reply: CommentEntry; path: 
     <div className="border-b border-border last:border-b-0 px-3 py-2">
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5 min-w-0">
-          <Avatar userId={reply.author} displayName={reply.authorDisplayName} />
+          <UserAvatar userId={reply.author} displayName={reply.authorDisplayName} />
           <UserName userId={reply.author} displayName={reply.authorDisplayName} />
           <span className="text-[11px] text-muted-foreground shrink-0">{timeAgo(reply.createdAt)}</span>
         </div>

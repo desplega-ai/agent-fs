@@ -12,6 +12,7 @@ import { CredentialsPage } from "@/pages/Credentials"
 import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
 import { Spinner } from "@/components/ui/spinner"
+import { PresenceConnection } from "@/components/presence/PresenceConnection"
 
 // The SQL page embeds a Monaco editor; keep it out of the entry bundle.
 const SqlPage = lazy(() => import("@/pages/SqlPage").then((m) => ({ default: m.SqlPage })))
@@ -35,6 +36,7 @@ function AuthenticatedLayout() {
     <AuthProvider>
       <BrowserProvider>
         <QueryParamHandler />
+        <PresenceConnection />
         <Outlet />
       </BrowserProvider>
     </AuthProvider>

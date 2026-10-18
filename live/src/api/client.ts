@@ -6,6 +6,9 @@ import type {
   RegisterResponse,
   RmResult,
   FavoriteListResult,
+  PresenceSession,
+  PresenceSnapshot,
+  PresenceState,
   SqlResult,
   SqlTableBinding,
   WriteParams,
@@ -204,6 +207,42 @@ export class AgentFsClient {
   /** Star or unstar `path` for the signed-in user. The server takes the user from the API key. */
   async setFavorite(orgId: string, driveId: string, path: string, favorite: boolean): Promise<void> {
     await this.callOp(orgId, favorite ? "favorite-add" : "favorite-remove", { path }, driveId)
+  }
+
+  /** Who is on the drive right now (presence fallback when the event stream is unavailable). */
+  async getPresence(orgId: string, driveId: string, opts?: { signal?: AbortSignal }): Promise<PresenceSnapshot> {
+    return this.get<PresenceSnapshot>(`/orgs/${orgId}/drives/${driveId}/presence`, { signal: opts?.signal })
+  }
+
+  /** Publish this tab's presence. The server stamps who it is from the API key. */
+  async putPresence(orgId: string, driveId: string, sessionId: string, state: PresenceState): Promise<{ session: PresenceSession }> {
+    return this.request(`/orgs/${orgId}/drives/${driveId}/presence/${encodeURIComponent(sessionId)}`, {
+      method: "PUT",
+      body: JSON.stringify(state),
+    })
+  }
+
+  /** `keepalive` lets the request outlive the page (sent from `pagehide`). */
+  async deletePresence(orgId: string, driveId: string, sessionId: string, opts?: { keepalive?: boolean }): Promise<void> {
+    await this.request(`/orgs/${orgId}/drives/${driveId}/presence/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+      keepalive: opts?.keepalive,
+    })
+  }
+
+  /**
+   * Open the drive's SSE change-stream with presence frames (`presence=1`),
+   * bound to `sessionId` so the server drops the session when the stream
+   * closes. Returns the raw response: `EventSource` cannot send the Bearer
+   * header, so the caller reads `body` itself.
+   */
+  async openDriveEvents(orgId: string, driveId: string, opts: { sessionId: string; signal?: AbortSignal }): Promise<Response> {
+    const query = new URLSearchParams({ presence: "1", sessionId: opts.sessionId })
+    return fetch(`${this.endpoint}/orgs/${orgId}/drives/${driveId}/events?${query}`, {
+      cache: "no-store",
+      headers: { Accept: "text/event-stream", Authorization: `Bearer ${this.apiKey}` },
+      signal: opts.signal,
+    })
   }
 
   async sqlQuery(

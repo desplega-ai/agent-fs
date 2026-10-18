@@ -10,6 +10,7 @@ import { AddComment } from "@/components/comments/AddComment"
 import { EditToolbar } from "./EditToolbar"
 import { TextViewerSkeleton } from "./TextViewerSkeleton"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
+import { useMonacoPresence } from "@/components/presence/use-monaco-presence"
 import { captureQuote, sourceTextSpace, type AnchorResolution } from "@/lib/comment-anchor"
 import { commentAnchors, revealComment, useActiveComment, useHoveredComment } from "@/stores/comment-anchors"
 import { toast } from "@/stores/toast"
@@ -115,6 +116,9 @@ export function TextViewer({
   useEffect(() => { anchorsRef.current = anchors }, [anchors])
   const hovered = useHoveredComment()
   const activeId = useActiveComment()
+
+  // Other people's selections, carets and pointers; publish this tab's.
+  useMonacoPresence(mountedEditor, { path, text: displayContent, source: displayContent === content ? undefined : content })
 
   // Decorate each comment's resolved range: the matched text for quote
   // anchors, whole lines for line anchors. The hovered or revealed comment is

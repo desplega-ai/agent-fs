@@ -1,6 +1,7 @@
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { getRegisteredOps, getOpDefinition } from "./ops/index.js";
 import { profileUpdateSchema } from "./identity/users.js";
+import { presenceStateSchema } from "./presence/schema.js";
 import { VERSION } from "./version.js";
 
 export function generateOpenAPISpec() {
@@ -31,6 +32,36 @@ export function generateOpenAPISpec() {
     },
     additionalProperties: false,
   }));
+
+  const presenceState = zodToJsonSchema(presenceStateSchema, { target: "openApi3" }) as any;
+  delete presenceState.$schema;
+  const presenceSession = {
+    type: "object",
+    required: [...presenceState.required, "sessionId", "userId", "email", "displayName", "updatedAt"],
+    properties: {
+      ...presenceState.properties,
+      sessionId: { type: "string", pattern: "^[A-Za-z0-9_-]{8,64}$" },
+      userId: { type: "string" }, email: { type: "string" },
+      displayName: { type: "string", nullable: true },
+      updatedAt: { type: "string", format: "date-time", description: "Last state change" },
+    },
+  };
+  const presenceSnapshot = {
+    type: "object", required: ["driveId", "sessions", "at"],
+    properties: {
+      driveId: { type: "string" }, sessions: { type: "array", items: presenceSession },
+      at: { type: "string", format: "date-time" },
+    },
+  };
+  const presenceParameters = [
+    { name: "orgId", in: "path", required: true, schema: { type: "string" } },
+    { name: "driveId", in: "path", required: true, schema: { type: "string" } },
+  ];
+  const presenceErrors = {
+    "401": { description: "Missing or invalid Bearer key" },
+    "404": { description: "Drive not found or the user is not a member" },
+    "429": { description: "RATE_LIMITED: presence request limit or 32 sessions per user per drive exceeded" },
+  };
 
   return {
     openapi: "3.1.0",
@@ -369,6 +400,48 @@ export function generateOpenAPISpec() {
           },
         },
       },
+      "/orgs/{orgId}/drives/{driveId}/presence": {
+        get: {
+          summary: "Get drive presence", operationId: "getPresence", tags: ["Drives"],
+          description: "Any drive member can read the in-memory snapshot. Presence expires after 45 seconds without a PUT.",
+          parameters: presenceParameters,
+          responses: {
+            "200": { description: "Presence snapshot", content: { "application/json": { schema: presenceSnapshot } } },
+            ...presenceErrors,
+          },
+        },
+      },
+      "/orgs/{orgId}/drives/{driveId}/presence/{sessionId}": {
+        parameters: [...presenceParameters, {
+          name: "sessionId", in: "path", required: true,
+          schema: { type: "string", pattern: "^[A-Za-z0-9_-]{8,64}$" },
+        }],
+        put: {
+          summary: "Update a presence session", operationId: "putPresence", tags: ["Drives"],
+          description: "Any drive member can insert or replace their session. Unknown body keys are stripped. Equal states refresh TTL without broadcasting.",
+          requestBody: { required: true, content: { "application/json": { schema: presenceState } } },
+          responses: {
+            "200": { description: "Presence session", content: { "application/json": { schema: {
+              type: "object", required: ["session"], properties: { session: presenceSession },
+            } } } },
+            "400": { description: "VALIDATION_ERROR: invalid sessionId or body" },
+            "409": { description: "EDIT_CONFLICT: sessionId belongs to another user" },
+            ...presenceErrors,
+          },
+        },
+        delete: {
+          summary: "Delete a presence session", operationId: "deletePresence", tags: ["Drives"],
+          description: "Only the owner can delete a session. An unknown session also succeeds.",
+          responses: {
+            "200": { description: "Session removed or unknown", content: { "application/json": { schema: {
+              type: "object", required: ["ok"], properties: { ok: { type: "boolean", const: true } },
+            } } } },
+            "400": { description: "VALIDATION_ERROR: invalid sessionId" },
+            "409": { description: "EDIT_CONFLICT: sessionId belongs to another user" },
+            ...presenceErrors,
+          },
+        },
+      },
       "/orgs/{orgId}/drives/{driveId}/events": {
         get: {
           summary: "Stream drive changes",
@@ -377,6 +450,8 @@ export function generateOpenAPISpec() {
           description:
             "Drive members can stream committed changes with Bearer authentication. The first event is ready. Heartbeat comments (: ping) arrive every 5 seconds. Each user can open at most 8 concurrent streams. Events are live only, with no replay.",
           parameters: [
+            { name: "presence", in: "query", schema: { type: "string", enum: ["1"] }, description: "Opt in to presence frames. Without presence=1 no presence frames are sent." },
+            { name: "sessionId", in: "query", schema: { type: "string", pattern: "^[A-Za-z0-9_-]{8,64}$" }, description: "With presence=1, bind a valid sessionId. The last stream to close removes its session." },
             { name: "orgId", in: "path", required: true, schema: { type: "string" } },
             { name: "driveId", in: "path", required: true, schema: { type: "string" } },
           ],
@@ -388,6 +463,23 @@ export function generateOpenAPISpec() {
                 example: 'event: ready\ndata: {"driveId":"drive-id","at":"2026-09-30T12:00:00.000Z"}\n\n: ping\n\n',
               } },
               "x-sse-events": {
+                "presence.snapshot": { ...presenceSnapshot, description: "Only sent when presence=1, immediately after ready." },
+                "presence.updated": {
+                  type: "object", description: "Only sent when presence=1.",
+                  required: ["type", "driveId", "session", "at"],
+                  properties: {
+                    type: { type: "string", const: "presence.updated" }, driveId: { type: "string" },
+                    session: presenceSession, at: { type: "string", format: "date-time" },
+                  },
+                },
+                "presence.left": {
+                  type: "object", description: "Only sent when presence=1.",
+                  required: ["type", "driveId", "sessionId", "userId", "at"],
+                  properties: {
+                    type: { type: "string", const: "presence.left" }, driveId: { type: "string" },
+                    sessionId: { type: "string" }, userId: { type: "string" }, at: { type: "string", format: "date-time" },
+                  },
+                },
                 ready: {
                   type: "object",
                   required: ["driveId", "at"],
@@ -424,6 +516,7 @@ export function generateOpenAPISpec() {
             },
             "401": { description: "Missing or invalid Bearer key" },
             "404": { description: "Drive not found or the user is not a member" },
+            "409": { description: "EDIT_CONFLICT: with presence=1, the sessionId belongs to another user" },
             "429": { description: "Concurrent stream cap or request rate limit exceeded" },
           },
         },

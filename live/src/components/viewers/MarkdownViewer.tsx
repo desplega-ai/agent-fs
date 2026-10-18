@@ -8,6 +8,7 @@ import { AddComment } from "@/components/comments/AddComment"
 import { MermaidDiagram } from "./MermaidDiagram"
 import { MarkdownImage, MarkdownDocContext } from "./MarkdownImage"
 import { CodeBlock } from "./CodeBlock"
+import { MarkdownPresence } from "@/components/presence/MarkdownPresence"
 import { Button } from "@/components/ui/button"
 import {
   Tooltip,
@@ -646,7 +647,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
       <div
         ref={contentRef}
         data-markdown-scroll
-        className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-8 lg:px-12"
+        className="relative min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-8 lg:px-12"
         onMouseUp={handleMouseUp}
       >
         <div
@@ -660,6 +661,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
             {renderedMarkdown}
           </MarkdownDocContext.Provider>
         </div>
+        <MarkdownPresence containerRef={contentRef} path={path} content={content} />
       </div>
 
       {/* Hover comment button on left margin */}

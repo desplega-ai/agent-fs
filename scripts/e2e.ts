@@ -1049,6 +1049,62 @@ async function runStandardTests(daemonUrl: string) {
     }
   });
 
+  await test("presence stream, snapshot and delete", async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    const base = `${daemonUrl}/orgs/${personalOrgId}/drives/${personalDriveId}`;
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
+    const sessionA = crypto.randomUUID();
+    const sessionB = crypto.randomUUID();
+    try {
+      const response = await fetch(`${base}/events?presence=1&sessionId=${sessionA}`, {
+        headers, signal: controller.signal,
+      });
+      assert(response.status, 200);
+      reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const nextFrame = async (): Promise<string> => {
+        while (true) {
+          const end = buffer.indexOf("\n\n");
+          if (end >= 0) {
+            const frame = buffer.slice(0, end);
+            buffer = buffer.slice(end + 2);
+            if (frame.startsWith(": ping")) continue;
+            return frame;
+          }
+          const { done, value } = await reader!.read();
+          if (done) throw new Error("Presence stream closed before the expected event");
+          buffer += decoder.decode(value, { stream: true });
+        }
+      };
+      assertIncludes(await nextFrame(), "event: ready");
+      assertIncludes(await nextFrame(), "event: presence.snapshot");
+      const put = await fetch(`${base}/presence/${sessionB}`, {
+        method: "PUT", headers, body: JSON.stringify({ path: null, mode: "view" }),
+      });
+      assert(put.status, 200);
+      const updated = await nextFrame();
+      assertIncludes(updated, "event: presence.updated");
+      assertIncludes(updated, sessionB);
+      const snapshot = await fetch(`${base}/presence`, { headers });
+      assert(snapshot.status, 200);
+      const data = await snapshot.json() as { sessions: Array<{ sessionId: string }> };
+      assert(data.sessions.some((session) => session.sessionId === sessionB), true);
+      const removed = await fetch(`${base}/presence/${sessionB}`, { method: "DELETE", headers });
+      assert(removed.status, 200);
+      const left = await nextFrame();
+      assertIncludes(left, "event: presence.left");
+      assertIncludes(left, sessionB);
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
+      await reader?.cancel().catch(() => {});
+      await fetch(`${base}/presence/${sessionB}`, { method: "DELETE", headers }).catch(() => {});
+    }
+  });
+
   await test("write + cat roundtrip", () => {
     const result = runJson('write /hello.txt --content "Hello, agent-fs!"');
     assert(result.version, 1);

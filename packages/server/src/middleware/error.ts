@@ -7,6 +7,7 @@ import {
   ValidationError,
   UnsupportedOperation,
   EmbeddingProviderError,
+  PresenceLimitError,
 } from "@/core";
 
 function getStatusCode(err: Error): number {
@@ -21,6 +22,7 @@ function getStatusCode(err: Error): number {
   if (err instanceof UnsupportedOperation) return 422;
   // 502 Bad Gateway: the upstream embedding provider sent an unusable vector.
   if (err instanceof EmbeddingProviderError) return 502;
+  if (err instanceof PresenceLimitError) return 429;
   if ("code" in err) return 400; // AgentFSError base
   return 500;
 }

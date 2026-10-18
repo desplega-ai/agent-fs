@@ -54,6 +54,7 @@ describe("Health check", () => {
       "comment-mentions",
       "change-stream",
       "favorites",
+      "presence",
     ]));
   });
 });
