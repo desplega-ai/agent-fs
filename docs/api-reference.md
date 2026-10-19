@@ -139,7 +139,7 @@ All 26 operations are dispatched through `POST /orgs/{orgId}/ops`. Each expects 
 | Category | Operations |
 |----------|-----------|
 | **Content** | `write`, `cat`, `edit`, `append`, `tail` |
-| **Navigation** | `ls`, `stat`, `tree`, `glob` |
+| **Navigation** | `ls`, `stat`, `tree`, `glob`, `find` |
 | **File Management** | `rm`, `mv`, `cp` |
 | **Version Control** | `log`, `diff`, `revert` |
 | **Search** | `grep`, `fts`, `search` |

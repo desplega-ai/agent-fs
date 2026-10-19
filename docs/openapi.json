@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.18.4",
+    "version": "0.18.5",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -2260,7 +2260,7 @@
                   {
                     "type": "object",
                     "title": "glob",
-                    "description": "Find files by name pattern. Use `*.md` for root-level files only, `**/*.md` for recursive matching across all subdirectories. Supports `*` (any chars except /), `?` (single char), `**` (any path depth). Optionally scope to a path prefix. Returns { matches } with path, size, and modifiedAt.",
+                    "description": "Find files by name pattern. Use `*.md` for root-level files only, `**/*.md` for recursive matching across all subdirectories. Supports `*` (any chars except /), `?` (single char), `**` (any path depth). Optionally scope to a path prefix. Case-sensitive. To look up a file by an approximate name, use find. Returns { matches } with path, size, and modifiedAt.",
                     "required": [
                       "op",
                       "pattern"
@@ -2279,6 +2279,38 @@
                       },
                       "path": {
                         "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "find",
+                    "description": "Find files by approximate name. Matching is case- and accent-insensitive. Every query word must match the path, in any order. When no file has every word as typed, letters can be skipped (\"zphr\" finds \"Zephyr.pdf\"). File-name hits rank above folder hits. Optionally scope to a path prefix. Returns { matches, total }: matches holds path, size, modifiedAt, and score, best first, capped at limit (default 50). total counts all matching files.",
+                    "required": [
+                      "op",
+                      "query"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "find"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "query": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 500
                       }
                     },
                     "additionalProperties": false

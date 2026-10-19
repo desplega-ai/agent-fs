@@ -23,6 +23,7 @@ import { search } from "./search.js";
 import { reindex } from "./reindex.js";
 import { tree } from "./tree.js";
 import { glob } from "./glob.js";
+import { find } from "./find.js";
 import { sql } from "./sql.js";
 import { signedUrl } from "./signed-url.js";
 import { shareCreate, shareRevoke } from "./share.js";
@@ -223,11 +224,20 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   glob: {
-    description: "Find files by name pattern. Use `*.md` for root-level files only, `**/*.md` for recursive matching across all subdirectories. Supports `*` (any chars except /), `?` (single char), `**` (any path depth). Optionally scope to a path prefix. Returns { matches } with path, size, and modifiedAt.",
+    description: "Find files by name pattern. Use `*.md` for root-level files only, `**/*.md` for recursive matching across all subdirectories. Supports `*` (any chars except /), `?` (single char), `**` (any path depth). Optionally scope to a path prefix. Case-sensitive. To look up a file by an approximate name, use find. Returns { matches } with path, size, and modifiedAt.",
     handler: glob,
     schema: z.object({
       pattern: z.string(),
       path: z.string().optional(),
+    }),
+  },
+  find: {
+    description: "Find files by approximate name. Matching is case- and accent-insensitive. Every query word must match the path, in any order. When no file has every word as typed, letters can be skipped (\"zphr\" finds \"Zephyr.pdf\"). File-name hits rank above folder hits. Optionally scope to a path prefix. Returns { matches, total }: matches holds path, size, modifiedAt, and score, best first, capped at limit (default 50). total counts all matching files.",
+    handler: find,
+    schema: z.object({
+      query: z.string().min(1),
+      path: z.string().optional(),
+      limit: z.number().int().min(1).max(500).optional(),
     }),
   },
   sql: {
@@ -435,5 +445,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList };
+export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, find, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList };
 export type * from "./types.js";

@@ -57,6 +57,7 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "reindex", args: [], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
   { name: "tree", args: [{ name: "path", required: false }], options: [{ flag: "--depth <n>", description: "Max recursion depth" }] },
   { name: "glob", args: [{ name: "pattern", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }] },
+  { name: "find", args: [{ name: "query", required: true }], options: [{ flag: "--path <prefix>", description: "Path prefix filter" }, { flag: "--limit <n>", description: "Max results (default: 50)" }] },
   {
     name: "signed-url",
     args: [{ name: "path", required: true }],

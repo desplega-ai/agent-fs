@@ -110,6 +110,20 @@ export interface GlobResult {
   matches: GlobMatch[]
 }
 
+export interface FindMatch {
+  path: string
+  size: number
+  modifiedAt?: string
+  score: number
+}
+
+export interface FindResult {
+  /** Best first, capped at the request's `limit`. */
+  matches: FindMatch[]
+  /** Number of matching files before the cap. */
+  total: number
+}
+
 // Comment types
 
 export interface CommentQuote {

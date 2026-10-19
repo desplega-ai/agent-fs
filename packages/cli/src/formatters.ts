@@ -208,6 +208,12 @@ function formatGlob(result: any): string {
     .join("\n");
 }
 
+function formatFind(result: any): string {
+  const out = formatGlob(result);
+  const shown = result.matches?.length ?? 0;
+  return result.total > shown ? `${out}\n(showing ${shown} of ${result.total}, use --limit for more)` : out;
+}
+
 function formatDiff(result: any): string {
   const changes: any[] = result.changes ?? [];
   if (changes.length === 0) return "(no changes)";
@@ -403,6 +409,7 @@ const formatters: Record<string, (result: any) => string> = {
   search: formatSearch,
   "vec-search": formatSearch,
   glob: formatGlob,
+  find: formatFind,
   diff: formatDiff,
   tail: formatTail,
   revert: formatRevert,

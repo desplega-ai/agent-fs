@@ -1381,6 +1381,47 @@ async function runStandardTests(daemonUrl: string) {
     assert(paths.includes("/hello.txt"), true, `Expected /hello.txt in glob, got ${JSON.stringify(paths)}`);
   });
 
+  // -- find --
+
+  await test("find (fuzzy, case- and accent-insensitive file names)", () => {
+    const deck = "/find-e2e/decks/Zephyr Pitch Déck.md";
+    runJson(`write "${deck}" --content "deck"`);
+    runJson(`write "/find-e2e/zephyr/notes.md" --content "notes"`);
+
+    const byName = runJson("find zephyr");
+    assert(byName.matches[0]?.path, deck, `name hit must rank first, got ${JSON.stringify(byName.matches)}`);
+    assert(byName.total >= 2, true, "folder hit must also match");
+    assert(typeof byName.matches[0].score, "number");
+
+    for (const query of ["'deck ZEPHYR'", "zphr", "zephyr_deck"]) {
+      const paths = runJson(`find ${query}`).matches.map((m: any) => m.path);
+      assert(paths.includes(deck), true, `find ${query} missed ${deck}: ${JSON.stringify(paths)}`);
+    }
+
+    const scoped = runJson("find notes --path /find-e2e/zephyr --limit 1");
+    assert(scoped.matches.length, 1);
+    assert(scoped.matches[0].path, "/find-e2e/zephyr/notes.md");
+
+    assert(run("find zzqxj").trim(), "(no matches)");
+  });
+
+  await test("find via MCP tools/call", async () => {
+    const callRes = await fetch(`${daemonUrl}/mcp`, {
+      method: "POST",
+      headers: mcpHeaders(apiKey),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "find", arguments: { query: "pitch deck zephyr" } },
+      }),
+    });
+    assert(callRes.ok, true, `MCP tools/call failed: ${callRes.status}`);
+    const body = await callRes.json() as any;
+    const parsed = JSON.parse(body.result?.content?.[0]?.text ?? "{}");
+    assert(parsed.matches?.[0]?.path, "/find-e2e/decks/Zephyr Pitch Déck.md", `got ${JSON.stringify(body)}`);
+  });
+
   if (localOnly) {
     skipTest("glob and tree traverse S3 pages", "requires MinIO continuation tokens");
   } else {
@@ -3912,6 +3953,11 @@ async function coreOpsSuite(b: Backend) {
   await test(`[${b.label}] glob`, () => {
     const paths = rj(`glob 'cos/*.txt'`).matches.map((m: any) => m.path);
     assert(paths.includes(`${P}/hello.txt`), true, `expected ${P}/hello.txt in glob, got ${JSON.stringify(paths)}`);
+  });
+
+  await test(`[${b.label}] find`, () => {
+    const paths = rj(`find HELLO --path ${P}`).matches.map((m: any) => m.path);
+    assert(paths.includes(`${P}/hello.txt`), true, `expected ${P}/hello.txt in find, got ${JSON.stringify(paths)}`);
   });
 
   await test(`[${b.label}] recent`, () => {

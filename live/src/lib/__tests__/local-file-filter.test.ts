@@ -7,16 +7,22 @@ function listing(...entries: Array<[name: string, type: "file" | "directory"]>):
 }
 
 describe("fileNameMatcher", () => {
-  test("matches a substring of the name, case-sensitively like glob", () => {
-    expect(fileNameMatcher("port").test("report.md")).toBe(true)
-    expect(fileNameMatcher("Port").test("report.md")).toBe(false)
+  test("ignores case and accents", () => {
+    expect(fileNameMatcher("zephyr")("Zephyr Pitch Deck.pdf")).toBe(true)
+    expect(fileNameMatcher("CAFE")("Café.md")).toBe(true)
+    expect(fileNameMatcher("café")("cafe.md")).toBe(true)
+    expect(fileNameMatcher("σημειωσεις")("ΣΗΜΕΙΩΣΕΙΣ.pdf")).toBe(true)
   })
 
-  test("keeps * and ? as wildcards and escapes regex syntax", () => {
-    expect(fileNameMatcher("re*.md").test("report.md")).toBe(true)
-    expect(fileNameMatcher("v?.txt").test("v2.txt")).toBe(true)
-    expect(fileNameMatcher("a.b").test("axb")).toBe(false)
-    expect(fileNameMatcher("(draft)").test("notes (draft).md")).toBe(true)
+  test("needs every word, in any order, split on spaces and punctuation", () => {
+    expect(fileNameMatcher("deck zephyr")("Zephyr Pitch Deck.pdf")).toBe(true)
+    expect(fileNameMatcher("zephyr_deck")("Zephyr Pitch Deck.pdf")).toBe(true)
+    expect(fileNameMatcher("zephyr memo")("Zephyr Pitch Deck.pdf")).toBe(false)
+    expect(fileNameMatcher("(draft)")("notes (draft).md")).toBe(true)
+  })
+
+  test("matches nothing for a query with no words", () => {
+    expect(fileNameMatcher(" -- ")("a.md")).toBe(false)
   })
 })
 
@@ -29,7 +35,7 @@ describe("filterLoadedListings", () => {
         ["/archive/", listing(["old-report.txt", "file"])],
         ["pending", undefined],
       ],
-      "report",
+      "REPORT",
     )
     expect(paths).toEqual(["archive/old-report.txt", "report.md", "reports/q3-report.pdf"])
   })

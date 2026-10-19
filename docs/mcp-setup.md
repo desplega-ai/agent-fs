@@ -75,7 +75,8 @@ The server advertises tools via the standard MCP `tools/list` method.
 | `ls` | List immediate children of a directory. Path defaults to `/` (root). |
 | `stat` | Get file metadata without reading content. |
 | `tree` | Recursively list all files and directories. Path defaults to `/` (root). Use `depth` to limit. |
-| `glob` | Find files by pattern. `*.md` matches root only; `**/*.md` matches recursively. |
+| `glob` | Find files by pattern. `*.md` matches root only; `**/*.md` matches recursively. Case-sensitive. |
+| `find` | Find files by approximate name. Ignores case and accents and takes words in any order. When no file has every word as typed, letters can be skipped. Best match first. |
 
 ### File Management
 

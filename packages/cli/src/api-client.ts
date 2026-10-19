@@ -4,7 +4,7 @@ const DEFAULT_HTTP_TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 2;
 const READ_ONLY_OPS = new Set([
   "cat", "ls", "stat", "reveal", "tail", "log", "diff", "recent",
-  "grep", "fts", "search", "vec-search", "tree", "glob", "sql",
+  "grep", "fts", "search", "vec-search", "tree", "glob", "find", "sql",
   "signed-url", "comment-list", "comment-get", "comment-notification-list",
   "drive-members",
 ]);

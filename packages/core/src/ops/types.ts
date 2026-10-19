@@ -555,3 +555,26 @@ export interface GlobMatch {
 export interface GlobResult {
   matches: GlobMatch[];
 }
+
+// --- Find types ---
+
+export interface FindParams {
+  query: string;
+  path?: string;
+  limit?: number;
+}
+
+export interface FindMatch {
+  path: string;
+  size: number;
+  modifiedAt?: Date;
+  /** Match quality. Higher is better. Only comparable within one result. */
+  score: number;
+}
+
+export interface FindResult {
+  /** Best first, capped at `limit`. */
+  matches: FindMatch[];
+  /** Number of matching files before the `limit` cap. */
+  total: number;
+}

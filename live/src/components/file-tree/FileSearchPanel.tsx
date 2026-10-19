@@ -47,7 +47,7 @@ export function FileSearchPanel() {
   if (filter.status === "error") {
     const retry = () => {
       void queryClient.refetchQueries({
-        queryKey: ["glob", orgId, driveId, filter.query],
+        queryKey: ["find", orgId, driveId, filter.query],
         exact: true,
       })
     }
@@ -109,8 +109,8 @@ export function FileSearchPanel() {
   return (
     <div className="border-b border-sidebar-border">
       <p className="px-3 pt-2 pb-1 text-xs text-muted-foreground">
-        {countLabel(matches.length)} named like "{filter.query}".
-        {matches.length > MAX_RESULTS && ` Showing the first ${MAX_RESULTS}; type more to narrow it.`}
+        {countLabel(filter.total)} named like "{filter.query}".
+        {filter.total > matches.length && ` Showing the first ${matches.length}; type more to narrow it.`}
       </p>
       <SearchResultList key={filter.query} paths={matches} />
     </div>

@@ -1,16 +1,16 @@
 /**
  * Files-tab search store. When the user types into the sidebar's "Files" tab,
- * the SearchBar populates this store with the drive-wide glob results. The
+ * the SearchBar populates this store with the drive-wide `find` results. The
  * FileTree renders them as a flat result list above the tree, which stays
  * rendered and unfiltered, so a search costs one request and a failed search
  * never hides the drive.
  *
  * Four states:
  *   - idle: query is empty or too short → no search panel
- *   - loading: a drive-wide glob request is running
- *   - success: glob returned → FileTree lists matchedPaths, or a "no matches"
- *     state when it is empty
- *   - error: glob failed → FileTree shows the error inline, with Retry and a
+ *   - loading: a drive-wide `find` request is running
+ *   - success: `find` returned → FileTree lists matchedPaths (best first), or
+ *     a "no matches" state when it is empty
+ *   - error: `find` failed → FileTree shows the error inline, with Retry and a
  *     local filter over the folders the tree has already loaded
  */
 
@@ -20,7 +20,10 @@ export interface FileSearchState {
   status: Status
   query: string
   driveId: string
+  /** Ranked matches, best first. */
   matchedPaths: readonly string[]
+  /** All matching files on the server, including those past the result cap. */
+  total: number
   error: string | null
 }
 
@@ -29,6 +32,7 @@ const IDLE_STATE: FileSearchState = {
   query: "",
   driveId: "",
   matchedPaths: [],
+  total: 0,
   error: null,
 }
 
@@ -59,21 +63,27 @@ export function setSearchLoading(query: string, driveId: string) {
   ) {
     return
   }
-  snapshot = { status: "loading", query, driveId, matchedPaths: [], error: null }
+  snapshot = { status: "loading", query, driveId, matchedPaths: [], total: 0, error: null }
   emit()
 }
 
-export function setSearchResults(query: string, driveId: string, paths: readonly string[]) {
+export function setSearchResults(
+  query: string,
+  driveId: string,
+  paths: readonly string[],
+  total: number,
+) {
   const normalized = [...new Set(paths.map(normalize))]
   if (
     snapshot.status === "success" &&
     snapshot.query === query &&
     snapshot.driveId === driveId &&
+    snapshot.total === total &&
     pathsEqual(normalized, snapshot.matchedPaths)
   ) {
     return
   }
-  snapshot = { status: "success", query, driveId, matchedPaths: normalized, error: null }
+  snapshot = { status: "success", query, driveId, matchedPaths: normalized, total, error: null }
   emit()
 }
 
@@ -86,7 +96,7 @@ export function setSearchError(query: string, driveId: string, error: string) {
   ) {
     return
   }
-  snapshot = { status: "error", query, driveId, matchedPaths: [], error }
+  snapshot = { status: "error", query, driveId, matchedPaths: [], total: 0, error }
   emit()
 }
 

@@ -3,7 +3,7 @@ name: agent-fs
 description: >-
   Use when the user wants to store, retrieve, search, or manage files in agent-fs —
   an agent-first filesystem backed by S3. Triggers on: "save this to agent-fs",
-  "find that file", "store this document", "search agent-fs", "list my files",
+  "find that file", "find a file by name", "store this document", "search agent-fs", "list my files",
   "show version history", "revert file", "set up agent-fs", "get a signed url",
   "share this file", "share link", "public link", "one-off link", "revoke a share link",
   "publish a site", "host this html", "share a folder", "manage members", "invite user", "list members", "remove member",
@@ -136,7 +136,8 @@ symlinks are unsupported and throw `EPERM`.
 | `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps, embedding status: `pending`, `indexed`, `failed`, or `skipped`, `etag` of the current bytes: compare for equality to tell whether content changed) |
 | `reveal` | `agent-fs reveal <path>` | Everything needed to show one file in a tree, in one call: the `ls` listing of every ancestor (root first, as `listings: [{ path, entries }]`) plus the file's `stat`. Same permissions as `ls`; `NOT_FOUND` for a missing file. Prefer `ls`/`stat` for ordinary reads. |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
-| `glob` | `agent-fs glob <pattern> [--path <prefix>]` | Find files by pattern (`*.md`, `**/*.md`) across all storage pages |
+| `glob` | `agent-fs glob <pattern> [--path <prefix>]` | Find files by pattern (`*.md`, `**/*.md`) across all storage pages. Case-sensitive |
+| `find` | `agent-fs find <query> [--path <prefix>] [--limit <n>]` | Find files by approximate name. Ignores case and accents and takes words in any order. When no file has every word as typed, letters can be skipped (`zphr` finds `Zephyr.pdf`). Best match first: file-name hits rank above folder hits. Default limit 50. Returns `{ matches, total }` |
 | `rm` | `agent-fs rm <path>` | Delete a file |
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
@@ -174,6 +175,7 @@ Every `diff` result carries `source`: `content` (both versions compared), `summa
 | `reindex` | `agent-fs reindex [path]` | Re-index files with failed/missing embeddings. Skip `indexed` and `skipped` files |
 
 **When to use which:**
+- `find`: you know roughly what the file is called (`agent-fs find "zephyr deck"`)
 - `grep` — you know the exact pattern and path (regex)
 - `fts` — keyword search across all files (fast, FTS5-based)
 - `search` — general-purpose search combining keywords and meaning (recommended default)
@@ -219,12 +221,15 @@ Existing nomic indexes stay on nomic. Set `EMBEDDING_MODEL=nomic-embed-text-v1.5
 ```bash
 agent-fs glob '**/*ai-tinkerers*'
 agent-fs glob '**/*ai-tinkerers*' --path thoughts/research
+agent-fs find 'ai tinkerers'
+agent-fs find 'ai tinkerers' --path thoughts/research
 agent-fs fts '"ai-tinkerers"'
 agent-fs fts 'ai AND tinkerers'
 ```
 
 Double an embedded quote inside an FTS quoted term. Backslash escaping does not escape an FTS quote.
-Filename patterns are case-sensitive. Full-text matches indexed tokens, so neither mode corrects spelling errors.
+Glob patterns are case-sensitive. Full-text matches indexed tokens. Neither mode corrects spelling errors.
+`find` ignores case and accents. It matches skipped letters only when no file has every word as typed. It does not correct swapped or wrong letters.
 
 ### SQL Queries (DuckDB)
 

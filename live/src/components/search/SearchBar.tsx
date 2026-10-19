@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/tooltip"
 import { SearchModeToggle, type SearchTab } from "./SearchModeToggle"
 import { SearchModal } from "./SearchModal"
-import { isGlobQueryLongEnough, useGlobSearch } from "@/hooks/use-glob-search"
+import { isFindQueryLongEnough, useFindSearch } from "@/hooks/use-find-search"
 import { useAuth } from "@/contexts/auth"
 import { useSearchInput } from "@/contexts/search-input"
 import { uiChromeStore } from "@/stores/ui-chrome"
@@ -46,55 +46,55 @@ export function SearchBar() {
     return () => clearTimeout(t)
   }, [query])
 
-  // Glob search drives the in-tree filter for the Files tab.
-  const globResult = useGlobSearch(tab === "files" ? debouncedQuery : "")
+  // Fuzzy file-name search drives the result list for the Files tab.
+  const findResult = useFindSearch(tab === "files" ? debouncedQuery : "")
 
   // Hide stale results as soon as the query or drive changes. The debounced
   // request effect below replaces this state with its exact outcome.
   useLayoutEffect(() => {
-    if (tab !== "files" || !isGlobQueryLongEnough(query)) {
+    if (tab !== "files" || !isFindQueryLongEnough(query)) {
       clearSearchFilter()
       return
     }
     setSearchLoading(query, driveId)
   }, [tab, query, driveId])
 
-  // Files tab: populate the in-tree filter from the active drive-wide glob.
+  // Files tab: populate the result list from the active drive-wide search.
   useEffect(() => {
     if (
       tab !== "files" ||
-      !isGlobQueryLongEnough(debouncedQuery) ||
+      !isFindQueryLongEnough(debouncedQuery) ||
       debouncedQuery !== query ||
       !driveId
     ) {
       return
     }
-    if (globResult.isFetching) {
+    if (findResult.isFetching) {
       setSearchLoading(debouncedQuery, driveId)
       return
     }
-    if (globResult.isError) {
+    if (findResult.isError) {
       const message = describeRequestError(
-        globResult.error,
+        findResult.error,
         "The file search request failed.",
       )
       setSearchError(debouncedQuery, driveId, message)
       return
     }
-    if (globResult.isSuccess) {
-      const matches = globResult.data.matches.map((m) => m.path)
-      setSearchResults(debouncedQuery, driveId, matches)
+    if (findResult.isSuccess) {
+      const matches = findResult.data.matches.map((m) => m.path)
+      setSearchResults(debouncedQuery, driveId, matches, findResult.data.total)
     }
   }, [
     tab,
     query,
     debouncedQuery,
     driveId,
-    globResult.data,
-    globResult.error,
-    globResult.isError,
-    globResult.isFetching,
-    globResult.isSuccess,
+    findResult.data,
+    findResult.error,
+    findResult.isError,
+    findResult.isFetching,
+    findResult.isSuccess,
   ])
 
   // Always clear the filter on unmount so the tree returns to normal.

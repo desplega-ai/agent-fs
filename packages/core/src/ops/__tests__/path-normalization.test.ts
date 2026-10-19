@@ -299,11 +299,15 @@ describe("directory-prefix operation path normalization", () => {
     });
   }
 
-  for (const op of ["ls", "tree", "glob", "grep"] as const) {
+  for (const op of ["ls", "tree", "glob", "grep", "find"] as const) {
     test(`${op} resolves bare and slash directory prefixes identically`, async () => {
       const { ctx } = createTestContext();
       await seedPrefixes(ctx);
-      const extra = op === "glob" ? { pattern: "**/*.md" } : op === "grep" ? { pattern: "normalized" } : {};
+      const extra =
+        op === "glob" ? { pattern: "**/*.md" }
+        : op === "grep" ? { pattern: "normalized" }
+        : op === "find" ? { query: "md" }
+        : {};
       const bare = await dispatchOp(ctx, op, { path: "docs", ...extra });
       const slash = await dispatchOp(ctx, op, { path: "/docs/", ...extra });
       if (op === "ls") {
@@ -403,6 +407,7 @@ test("every registered top-level path, from, or to parameter has normalization c
     "edit",
     "favorite-add",
     "favorite-remove",
+    "find",
     "fts",
     "glob",
     "grep",
