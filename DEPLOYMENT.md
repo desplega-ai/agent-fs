@@ -321,9 +321,10 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `S3_PUBLIC_ENDPOINT` | `s3.publicEndpoint` | _(falls back to `S3_ENDPOINT`)_ | Externally-reachable S3 endpoint used only when generating presigned URLs. Falls back to `S3_ENDPOINT`. |
 | `SERVER_PORT` | `server.port` | `7433` | |
 | `SERVER_HOST` | `server.host` | `127.0.0.1` | Set to `0.0.0.0` in containers |
-| `EMBEDDING_PROVIDER` | `embedding.provider` | `local` | `local`, `openai`, or `gemini`. A non-empty value takes priority over API key variables. |
-| `EMBEDDING_MODEL` | `embedding.model` | (empty) | Selects the local model: `nomic-embed-text-v1.5` or `embeddinggemma-2`. OpenAI and Gemini ignore it. |
-| `EMBEDDING_API_KEY` | `embedding.apiKey` | _(unset)_ | API key for `openai` or `gemini`. An explicit provider uses this key before its own API key variable. |
+| `EMBEDDING_PROVIDER` | `embedding.provider` | `local` | `local`, `openai`, `gemini`, or `openrouter`. A non-empty value takes priority over API key variables. |
+| `EMBEDDING_MODEL` | `embedding.model` | (empty) | Selects the local model or OpenRouter model (default `openai/text-embedding-3-small`, must return 768 dimensions). OpenAI and Gemini ignore it. |
+| `EMBEDDING_API_KEY` | `embedding.apiKey` | _(unset)_ | API key for `openai`, `gemini`, or `openrouter`. An explicit provider uses this key before its own API key variable. |
+| `OPENROUTER_API_KEY` | _(env only)_ | _(unset)_ | Supplies the key when OpenRouter is selected through `EMBEDDING_PROVIDER` or config and `embedding.apiKey` is empty. Does not select a provider on its own. |
 | `OPENAI_API_KEY` | _(env only)_ | _(unset)_ | Selects OpenAI when `EMBEDDING_PROVIDER` is absent. Supplies the key for explicit OpenAI when `embedding.apiKey` is empty. |
 | `GEMINI_API_KEY` | _(env only)_ | _(unset)_ | Selects Gemini when the explicit provider and `OPENAI_API_KEY` are absent. Supplies the key for explicit Gemini when `embedding.apiKey` is empty. |
 | `ANONYMIZED_TELEMETRY` | _(env only)_ | `true` | Set to `false` to stop anonymous usage events. See [docs/telemetry.md](./docs/telemetry.md). |

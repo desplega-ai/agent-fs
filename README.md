@@ -18,7 +18,7 @@ agent-fs was built to power the shared filesystem in [agent-swarm](https://githu
 
 ## Key Features
 
-- **Semantic search**: Index and search files using vector embeddings (OpenAI, Google GenAI, or local). Local runs nomic-embed-text-v1.5 on llama.cpp or EmbeddingGemma 2 on transformers.js.
+- **Semantic search**: Index and search files using vector embeddings (OpenAI, Google GenAI, OpenRouter, or local). Local runs nomic-embed-text-v1.5 on llama.cpp or EmbeddingGemma 2 on transformers.js.
 - **SQL queries** — Run sandboxed DuckDB SQL over stored documents (CSV, TSV, Parquet, Excel, JSON, NDJSON, SQLite, DuckDB) — see [docs/sql.md](./docs/sql.md)
 - **Structured storage** — SQLite-backed file operations with metadata and versioning
 - **S3-compatible sync** — Sync agent workspaces to any S3-compatible object store

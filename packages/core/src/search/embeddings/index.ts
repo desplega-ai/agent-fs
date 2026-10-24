@@ -75,6 +75,13 @@ export async function createEmbeddingProvider(
       const { OpenAIEmbeddingProvider } = await import("./openai.js");
       return new OpenAIEmbeddingProvider(config.apiKey);
     }
+    case "openrouter": {
+      if (!config.apiKey) {
+        throw new Error("OpenRouter API key required. Set embedding.apiKey in config or OPENROUTER_API_KEY with EMBEDDING_PROVIDER=openrouter.");
+      }
+      const { OpenRouterEmbeddingProvider } = await import("./openrouter.js");
+      return new OpenRouterEmbeddingProvider(config.apiKey, config.model || undefined);
+    }
     case "gemini": {
       if (!config.apiKey) {
         throw new Error("Gemini API key required. Set embedding.apiKey in config.");
@@ -102,6 +109,7 @@ export async function createEmbeddingProviderFromEnv(
     const envKeys: Record<string, string | undefined> = {
       openai: process.env.OPENAI_API_KEY,
       gemini: process.env.GEMINI_API_KEY,
+      openrouter: process.env.OPENROUTER_API_KEY,
     };
     try {
       return await createEmbeddingProvider({
@@ -135,9 +143,10 @@ export async function createEmbeddingProviderFromEnv(
   }
 
   // 2. Fall back to config file
-  if (config?.provider && config.provider !== "local" && config.apiKey) {
+  const configKey = config?.apiKey || (config?.provider === "openrouter" ? process.env.OPENROUTER_API_KEY : undefined);
+  if (config?.provider && config.provider !== "local" && configKey) {
     try {
-      return await createEmbeddingProvider(config, localIndex);
+      return await createEmbeddingProvider({ ...config, apiKey: configKey }, localIndex);
     } catch (e) {
       console.error("[agent-fs] Failed to create embedding provider from config:", e);
     }

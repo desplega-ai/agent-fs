@@ -146,8 +146,10 @@ export function configCommands() {
 
       // 6. Embedding provider
       const embProvider = config.embedding.provider;
-      const hasEmbKey = !!config.embedding.apiKey || !!process.env.OPENAI_API_KEY || !!process.env.GEMINI_API_KEY;
-      if (embProvider === "openai" || embProvider === "gemini") {
+      const hasEmbKey = !!config.embedding.apiKey || (embProvider === "openrouter"
+        ? !!process.env.OPENROUTER_API_KEY
+        : !!process.env.OPENAI_API_KEY || !!process.env.GEMINI_API_KEY);
+      if (embProvider === "openai" || embProvider === "gemini" || embProvider === "openrouter") {
         if (hasEmbKey) {
           try {
             const provider = await createEmbeddingProviderFromEnv(config.embedding);

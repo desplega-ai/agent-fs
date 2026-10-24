@@ -38,9 +38,10 @@ export function onboardCommand() {
     .option("--s3-access-key <key>", "S3 access key ID")
     .option("--s3-secret-key <key>", "S3 secret access key")
     .option("--s3-region <region>", "S3 region")
-    .option("--embeddings <provider>", "Embedding provider: openai, gemini, local, none")
+    .option("--embeddings <provider>", "Embedding provider: openai, gemini, openrouter, local, none")
     .option("--openai-key <key>", "OpenAI API key for embeddings")
     .option("--gemini-key <key>", "Gemini API key for embeddings")
+    .option("--openrouter-key <key>", "OpenRouter API key for embeddings")
     .option("--no-daemon", "Skip starting the daemon")
     .action(async (opts) => {
       // Step 0: API mode
@@ -142,7 +143,7 @@ export function onboardCommand() {
 
 function configureEmbeddings(
   provider: string,
-  opts: { openaiKey?: string; geminiKey?: string }
+  opts: { openaiKey?: string; geminiKey?: string; openrouterKey?: string }
 ) {
   switch (provider) {
     case "openai":
@@ -161,6 +162,14 @@ function configureEmbeddings(
       }
       console.log("Embeddings: Google Gemini (text-embedding-004)");
       break;
+    case "openrouter":
+      setConfigValue("embedding.provider", "openrouter");
+      setConfigValue("embedding.model", "openai/text-embedding-3-small");
+      if (opts.openrouterKey) {
+        setConfigValue("embedding.apiKey", opts.openrouterKey);
+      }
+      console.log("Embeddings: OpenRouter (openai/text-embedding-3-small)");
+      break;
     case "local":
       setConfigValue("embedding.provider", "local");
       console.log("Embeddings: local llama.cpp");
@@ -173,7 +182,7 @@ function configureEmbeddings(
       break;
     default:
       console.error(`Unknown embedding provider: ${provider}`);
-      console.error("Valid options: openai, gemini, local, none");
+      console.error("Valid options: openai, gemini, openrouter, local, none");
       process.exit(1);
   }
 }

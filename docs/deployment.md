@@ -188,11 +188,37 @@ Semantic search requires an embedding provider. Configure via environment variab
 |----------|-------------|------|-------|
 | **OpenAI** | `OPENAI_API_KEY` | ~$0.02/1M tokens | Best quality, requires API key |
 | **Google Gemini** | `GEMINI_API_KEY` | Free tier available | Good quality, generous free tier |
+| **OpenRouter** | `EMBEDDING_PROVIDER=openrouter` + `OPENROUTER_API_KEY` | Depends on model | Defaults to `openai/text-embedding-3-small`; requires 768-dimensional text embeddings. |
 | **Local** | None | Free | Runs nomic-embed-text-v1.5 on llama.cpp or EmbeddingGemma 2 on transformers.js. Requires a model download. |
 
-Priority: an explicit `EMBEDDING_PROVIDER` (`local`, `openai`, or `gemini`) > `OPENAI_API_KEY` > `GEMINI_API_KEY` > `config.json` > none (semantic search disabled). An explicit `openai` or `gemini` takes its key from `EMBEDDING_API_KEY` or `config.json` first, then from its own API key variable.
+Priority: an explicit `EMBEDDING_PROVIDER` (`local`, `openai`, `gemini`, or `openrouter`) > `OPENAI_API_KEY` > `GEMINI_API_KEY` > `config.json` > none (semantic search disabled). An explicit hosted provider takes its key from `EMBEDDING_API_KEY` or `config.json` first, then from its own API key variable. `OPENROUTER_API_KEY` alone does not select a provider; select OpenRouter through `EMBEDDING_PROVIDER` or `config.json`.
 
 When `EMBEDDING_PROVIDER` names another provider than config.json, agent-fs does not use the model and API key from config.json. `EMBEDDING_MODEL` and `EMBEDDING_API_KEY` still apply.
+
+### OpenRouter
+
+Set these variables on the agent-fs server (or local daemon):
+
+```bash
+EMBEDDING_PROVIDER=openrouter
+EMBEDDING_MODEL=openai/text-embedding-3-small
+EMBEDDING_API_KEY=<your-openrouter-key>
+```
+
+`OPENROUTER_API_KEY` is also accepted when no embedding-specific key is configured.
+The provider uses `https://openrouter.ai/api/v1/embeddings` and requests float vectors with 768 dimensions.
+`EMBEDDING_MODEL` defaults to `openai/text-embedding-3-small`. Other text embedding models must support 768-dimensional output; incompatible responses fail validation.
+Restart after changing the provider or model. The existing background migration regenerates stored embeddings after a successful warmup. It may incur API charges; search can mix old and new vectors until the migration finishes.
+
+With Agent Swarm's Compose deployment, use `AGENT_FS_EMBEDDING_PROVIDER`, `AGENT_FS_EMBEDDING_MODEL`, and `AGENT_FS_EMBEDDING_API_KEY` instead. These configure the agent-fs container, independently of Swarm's memory embeddings. The agent-fs image must include OpenRouter support.
+
+For CLI onboarding, use `agent-fs onboard --embeddings openrouter --openrouter-key <key>`. Configure a different model afterward with `agent-fs config set embedding.model <model>`.
+
+The opt-in live test makes billable requests using `OPENROUTER_API_KEY`:
+
+```bash
+AGENT_FS_TEST_OPENROUTER=1 bun test packages/core/src/__manual_tests__/openrouter.test.ts
+```
 
 ### Text embedding size cap
 

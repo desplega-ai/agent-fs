@@ -85,7 +85,7 @@ export interface AgentFSConfig {
    */
   s3: AgentFSStorageConfig;
   embedding: {
-    provider: "local" | "openai" | "gemini";
+    provider: "local" | "openai" | "gemini" | "openrouter";
     model: string;
     apiKey: string;
   };
@@ -294,7 +294,7 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
       config.embedding.model = "";
       config.embedding.apiKey = "";
     }
-    config.embedding.provider = env.EMBEDDING_PROVIDER as "local" | "openai" | "gemini";
+    config.embedding.provider = env.EMBEDDING_PROVIDER as AgentFSConfig["embedding"]["provider"];
   }
   if (env.EMBEDDING_MODEL) config.embedding.model = env.EMBEDDING_MODEL;
   if (env.EMBEDDING_API_KEY) config.embedding.apiKey = env.EMBEDDING_API_KEY;

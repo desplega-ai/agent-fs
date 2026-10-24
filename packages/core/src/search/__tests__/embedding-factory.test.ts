@@ -63,6 +63,7 @@ describe("createEmbeddingProviderFromEnv", () => {
     "EMBEDDING_MODEL",
     "EMBEDDING_API_KEY",
     "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
   ] as const;
@@ -293,6 +294,51 @@ describe("createEmbeddingProviderFromEnv", () => {
     process.env.OPENAI_API_KEY = "sk-test-key";
     process.env.GEMINI_API_KEY = "gemini-test-key";
     expect((await createEmbeddingProviderFromEnv())!.name).toBe("openai");
+  });
+
+  test("explicit OpenRouter uses its own key and configured model", async () => {
+    process.env.EMBEDDING_PROVIDER = "openrouter";
+    process.env.OPENAI_API_KEY = "openai-key";
+    process.env.GEMINI_API_KEY = "gemini-key";
+    process.env.OPENROUTER_API_KEY = "router-key";
+    process.env.EMBEDDING_MODEL = "openai/text-embedding-3-large";
+    const home = mkdtempSync(join(tmpdir(), "agent-fs-openrouter-"));
+    process.env.AGENT_FS_HOME = home;
+    try {
+      const provider = await createEmbeddingProviderFromEnv(getConfig().embedding);
+      expect(provider!.name).toBe("openrouter/openai/text-embedding-3-large");
+      expect(provider).toMatchObject({ client: { apiKey: "router-key", baseURL: "https://openrouter.ai/api/v1" } });
+      process.env.EMBEDDING_API_KEY = "embedding-key";
+      expect(await createEmbeddingProviderFromEnv(getConfig().embedding)).toMatchObject({ client: { apiKey: "embedding-key" } });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("OpenRouter config uses a stored key before its provider environment key", async () => {
+    process.env.OPENROUTER_API_KEY = "router-key";
+    const config = { provider: "openrouter" as const, model: "", apiKey: "config-key" };
+    expect(await createEmbeddingProviderFromEnv(config)).toMatchObject({ client: { apiKey: "config-key" } });
+    expect(await createEmbeddingProviderFromEnv({ ...config, apiKey: "" })).toMatchObject({ client: { apiKey: "router-key" } });
+  });
+
+  test("an OpenRouter key alone does not change automatic provider selection", async () => {
+    process.env.OPENROUTER_API_KEY = "router-key";
+    expect(await createEmbeddingProviderFromEnv()).toBeNull();
+    process.env.OPENAI_API_KEY = "openai-key";
+    expect((await createEmbeddingProviderFromEnv())!.name).toBe("openai");
+  });
+
+  test("explicit OpenRouter without a key does not fall back to OpenAI", async () => {
+    process.env.EMBEDDING_PROVIDER = "openrouter";
+    process.env.OPENAI_API_KEY = "openai-key";
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await createEmbeddingProviderFromEnv()).toBeNull();
+      expect(error.mock.calls[0][0]).toContain("OpenRouter API key required");
+    } finally {
+      error.mockRestore();
+    }
   });
 });
 

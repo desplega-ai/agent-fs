@@ -239,6 +239,8 @@ describe("Env var overrides", () => {
     { provider: "local", model: "nomic-embed-text-v1.5", apiKey: "", expectedModel: "nomic-embed-text-v1.5", expectedKey: "" },
     { provider: "gemini", model: "", apiKey: "", expectedModel: "", expectedKey: "" },
     { provider: "gemini", model: "gemini-model", apiKey: "gemini-key", expectedModel: "gemini-model", expectedKey: "gemini-key" },
+    { provider: "openrouter", model: "", apiKey: "", expectedModel: "", expectedKey: "" },
+    { provider: "openrouter", model: "openai/text-embedding-3-small", apiKey: "router-key", expectedModel: "openai/text-embedding-3-small", expectedKey: "router-key" },
     { provider: "openai", model: "", apiKey: "", expectedModel: "text-embedding-3-small", expectedKey: "openai-key" },
     { provider: "", model: "", apiKey: "", expectedModel: "text-embedding-3-small", expectedKey: "openai-key" },
   ])("embedding override $provider model=$model key=$apiKey", ({ provider, model, apiKey, expectedModel, expectedKey }) => {
@@ -254,7 +256,7 @@ describe("Env var overrides", () => {
     });
   });
 
-  test.each(["local", "openai", "gemini"] as const)("embedding provider %s compares against the default local provider", (provider) => {
+  test.each(["local", "openai", "gemini", "openrouter"] as const)("embedding provider %s compares against the default local provider", (provider) => {
     process.env.EMBEDDING_PROVIDER = provider;
     for (const file of [{}, { embedding: { model: "file-model", apiKey: "file-key" } }]) {
       writeFileSync(join(testHome, "config.json"), JSON.stringify(file));

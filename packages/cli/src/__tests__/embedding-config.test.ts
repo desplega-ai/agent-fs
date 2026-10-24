@@ -13,7 +13,7 @@ let savedEnv: Record<string, string | undefined>;
 beforeEach(() => {
   ({ dir: testHome, cleanup } = createTestConfigDir());
   savedEnv = {};
-  for (const key of ["EMBEDDING_PROVIDER", "EMBEDDING_MODEL", "EMBEDDING_API_KEY"]) {
+  for (const key of ["EMBEDDING_PROVIDER", "EMBEDDING_MODEL", "EMBEDDING_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"]) {
     savedEnv[key] = process.env[key];
     process.env[key] = "";
   }
@@ -49,6 +49,7 @@ test.each([
   ["none", ""],
   ["gemini", "text-embedding-004"],
   ["openai", "text-embedding-3-small"],
+  ["openrouter", "openai/text-embedding-3-small"],
 ])("onboard %s leaves a consistent model and key", async (provider, model) => {
   await onboardCommand().parseAsync([
     "--filesystem", "--yes", "--no-daemon", "--embeddings", provider,
@@ -77,4 +78,27 @@ test("onboard local preserves an explicit local model", async () => {
   expect(JSON.parse(readFileSync(join(testHome, "config.json"), "utf-8")).embedding).toEqual({
     provider: "local", model: "embeddinggemma-2", apiKey: "",
   });
+});
+
+test("onboard OpenRouter stores its key without printing it", async () => {
+  await onboardCommand().parseAsync([
+    "--filesystem", "--yes", "--no-daemon", "--embeddings", "openrouter", "--openrouter-key", "router-test-secret",
+  ], { from: "user" });
+  expect(JSON.parse(readFileSync(join(testHome, "config.json"), "utf-8")).embedding).toEqual({
+    provider: "openrouter", model: "openai/text-embedding-3-small", apiKey: "router-test-secret",
+  });
+  expect(JSON.stringify(log.mock.calls)).not.toContain("router-test-secret");
+});
+
+test.each([false, true])("config validate recognizes OpenRouter with explicit env selection %s", async (explicit) => {
+  await onboardCommand().parseAsync([
+    "--filesystem", "--yes", "--no-daemon", "--embeddings", "openrouter",
+  ], { from: "user" });
+  if (explicit) process.env.EMBEDDING_PROVIDER = "openrouter";
+  process.env.OPENROUTER_API_KEY = "router-test-secret";
+  log.mockClear();
+  await configCommands().parseAsync(["validate"], { from: "user" });
+  expect(log.mock.calls.flat().join("\n")).toContain("Embeddings: openrouter ready");
+  expect(log.mock.calls).toContainEqual(["All checks passed."]);
+  expect(JSON.stringify(log.mock.calls)).not.toContain("router-test-secret");
 });
