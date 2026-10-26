@@ -4,10 +4,12 @@ import {
   getOrg,
   createOrg,
   inviteToOrg,
+  addDriveMember,
   listOrgMembers,
   updateOrgMemberRole,
   removeOrgMember,
   listDrivesForUser,
+  listManageableDrives,
   createDrive,
   listDriveMembers,
   updateDriveMemberRole,
@@ -19,8 +21,9 @@ import {
   resetApiKey,
   NotFoundError,
   PermissionDeniedError,
+  ValidationError,
 } from "@/core";
-import type { DB, Role } from "@/core";
+import type { DB, Role, DriveGrant, MemberRole } from "@/core";
 import type { AppEnv } from "../types.js";
 
 /**
@@ -57,6 +60,41 @@ function requireOrgAdmin(db: DB, userId: string, orgId: string): Role {
   return role;
 }
 
+const MEMBER_ROLES: readonly MemberRole[] = ["viewer", "editor", "admin"];
+
+function parseRole(value: unknown, field: string): MemberRole {
+  if (!MEMBER_ROLES.includes(value as MemberRole)) {
+    throw new ValidationError(`${field} must be one of: ${MEMBER_ROLES.join(", ")}`, {
+      field,
+    });
+  }
+  return value as MemberRole;
+}
+
+function parseEmail(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new ValidationError("email is required", { field: "email" });
+  }
+  return value;
+}
+
+function parseDriveGrants(value: unknown): DriveGrant[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new ValidationError("drives must be an array of { driveId, role }", {
+      field: "drives",
+    });
+  }
+  return value.map((grant, i) => {
+    if (!grant || typeof grant.driveId !== "string" || !grant.driveId) {
+      throw new ValidationError(`drives[${i}].driveId is required`, {
+        field: `drives[${i}].driveId`,
+      });
+    }
+    return { driveId: grant.driveId, role: parseRole(grant.role, `drives[${i}].role`) };
+  });
+}
+
 export function orgRoutes(db: DB) {
   const router = new Hono<AppEnv>();
 
@@ -86,6 +124,12 @@ export function orgRoutes(db: DB) {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
     requireOrgMember(db, user.id, orgId);
+    // `scope=manageable` lists the drives whose members the caller can manage
+    // (every drive for an org admin). The default stays "drives I am on":
+    // FUSE and the drive switcher depend on it.
+    if (c.req.query("scope") === "manageable") {
+      return c.json({ drives: listManageableDrives(db, orgId, user.id) });
+    }
     const drives = listDrivesForUser(db, orgId, user.id);
     return c.json({ drives });
   });
@@ -105,9 +149,14 @@ export function orgRoutes(db: DB) {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
     requireOrgAdmin(db, user.id, orgId);
-    const { email, role } = await c.req.json();
-    inviteToOrg(db, { orgId, email, role });
-    return c.json({ ok: true });
+    const body = await c.req.json();
+    const result = inviteToOrg(db, {
+      orgId,
+      email: parseEmail(body.email),
+      role: parseRole(body.role, "role"),
+      drives: parseDriveGrants(body.drives),
+    });
+    return c.json({ ok: true, ...result });
   });
 
   // --- Org member management (org admin only) ---
@@ -179,6 +228,21 @@ export function orgRoutes(db: DB) {
     requireDriveAdmin(db, { userId: user.id, driveId });
     const members = listDriveMembers(db, driveId);
     return c.json({ members });
+  });
+
+  router.post("/:orgId/drives/:driveId/members", async (c) => {
+    const user = c.get("user");
+    const orgId = c.req.param("orgId");
+    const driveId = c.req.param("driveId");
+    assertDriveInOrg(db, { driveId, orgId });
+    requireDriveAdmin(db, { userId: user.id, driveId });
+    const body = await c.req.json();
+    const role = parseRole(body.role, "role");
+    const result =
+      typeof body.userId === "string" && body.userId
+        ? addDriveMember(db, { orgId, driveId, role, userId: body.userId })
+        : addDriveMember(db, { orgId, driveId, role, email: parseEmail(body.email) });
+    return c.json(result, result.created ? 201 : 200);
   });
 
   router.patch("/:orgId/drives/:driveId/members/:userId", async (c) => {

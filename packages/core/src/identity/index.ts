@@ -9,8 +9,9 @@ export {
   resetApiKeyOrgless,
 } from "./users.js";
 export type { ResetApiKeyResult } from "./users.js";
-export { createOrg, listUserOrgs, getOrg, inviteToOrg, listOrgMembers, updateOrgMemberRole, removeOrgMember } from "./orgs.js";
-export { createDrive, listDrives, listDrivesForUser, getDrive, setDriveMember, listDriveMembers, listDriveMembersPublic, updateDriveMemberRole, removeDriveMember } from "./drives.js";
+export { createOrg, listUserOrgs, getOrg, inviteToOrg, addDriveMember, listOrgMembers, updateOrgMemberRole, removeOrgMember } from "./orgs.js";
+export type { MemberRole, DriveGrant, InviteResult } from "./orgs.js";
+export { createDrive, listDrives, listDrivesForUser, listManageableDrives, getDrive, setDriveMember, listDriveMembers, listDriveMembersPublic, updateDriveMemberRole, removeDriveMember } from "./drives.js";
 export {
   checkPermission,
   getRequiredRole,

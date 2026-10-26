@@ -42,16 +42,76 @@ export function memberCommands(
   cmd
     .command("invite")
     .argument("<email>", "User email to invite")
-    .requiredOption("--role <role>", "Role: viewer, editor, or admin")
+    .requiredOption("--role <role>", "Org role: viewer, editor, or admin")
+    .option(
+      "--to <drive[:role]>",
+      "Grant a drive by id or name, optionally with its own role (repeatable; role defaults to --role)",
+      collect
+    )
     .description("Invite a user to the current org")
-    .action(async (email: string, opts: { role: string }) => {
+    .addHelpText(
+      "after",
+      "\nWithout --to, the user gets the org's default drive with --role." +
+        "\nWith --to, the user gets exactly the listed drives and nothing else." +
+        "\n\nExample:\n  agent-fs member invite ana@example.com --role viewer --to context:editor --to ledger"
+    )
+    .action(async (email: string, opts: { role: string; to?: string[] }) => {
+      const json = cmd.parent?.opts().json;
       try {
         const orgId = await getOrgId();
-        await client.post(`/orgs/${orgId}/members/invite`, {
+        let manageable: DriveRef[] = [];
+        let grants: Array<{ driveId: string; role: string }> | undefined;
+        if (opts.to) {
+          await requireDriveInvites(client);
+          manageable = await listManageableDrives(client, orgId);
+          grants = opts.to.map((spec) => {
+            const { ref, role } = parseDriveSpec(spec, opts.role);
+            return { driveId: pickDrive(manageable, ref).id, role };
+          });
+        }
+        const result = await inviteMember(client, orgId, email, opts.role, grants);
+        if (json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        printInviteResult(email, opts.role, result, manageable);
+      } catch (err: any) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+    });
+
+  cmd
+    .command("add")
+    .argument("<email>", "Email of an existing org member")
+    .requiredOption("--role <role>", "Drive role: viewer, editor, or admin")
+    .description("Add an existing org member to a drive (requires global --drive)")
+    .addHelpText(
+      "after",
+      "\nRequires drive admin on the target drive, or org admin. The person must already be in the org;" +
+        "\nuse 'member invite --to' for someone new.\n\nExample:\n  agent-fs --drive ledger member add ana@example.com --role viewer"
+    )
+    .action(async (email: string, opts: { role: string }) => {
+      const json = cmd.parent?.opts().json;
+      const driveRef = cmd.parent?.opts().drive;
+      try {
+        if (!driveRef) {
+          throw new Error(
+            "member add needs a target drive: pass the global --drive <id-or-name>, e.g. agent-fs --drive ledger member add <email> --role viewer"
+          );
+        }
+        const orgId = await getOrgId();
+        const drive = pickDrive(await listManageableDrives(client, orgId), driveRef);
+        const result = await client.post(`/orgs/${orgId}/drives/${drive.id}/members`, {
           email,
           role: opts.role,
         });
-        console.log(`Invited ${email} as ${opts.role}`);
+        if (json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        const verb = result.created ? "Added" : "Updated";
+        console.log(`${verb} ${email} on drive ${drive.name} as ${opts.role}`);
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
         process.exit(1);
@@ -67,7 +127,12 @@ export function memberCommands(
       const driveId = cmd.parent?.opts().drive;
       try {
         const orgId = await getOrgId();
-        const userId = await resolveUserId(client, orgId, email, driveId);
+        const userId = await resolveUserId(client, orgId, email, driveId).catch((err) => {
+          if (!driveId) throw err;
+          throw new Error(
+            `${email} is not on drive ${driveId}. To grant access, run: agent-fs --drive ${driveId} member add ${email} --role ${opts.role}`
+          );
+        });
         if (driveId) {
           await client.patch(
             `/orgs/${orgId}/drives/${driveId}/members/${userId}`,
@@ -179,4 +244,86 @@ async function resolveUserId(
     throw new Error(`Member with email ${email} not found`);
   }
   return member.userId;
+}
+
+function collect(value: string, previous?: string[]): string[] {
+  return [...(previous ?? []), value];
+}
+
+const ROLES = ["viewer", "editor", "admin"];
+
+/** Parse `<drive>[:<role>]`; the role defaults to the invite's org role. */
+export function parseDriveSpec(spec: string, defaultRole: string): { ref: string; role: string } {
+  const sep = spec.lastIndexOf(":");
+  if (sep <= 0) return { ref: spec, role: defaultRole };
+  const role = spec.slice(sep + 1);
+  if (!ROLES.includes(role)) {
+    throw new Error(`Invalid role "${role}" in --to ${spec}. Use <drive>:viewer, <drive>:editor, or <drive>:admin.`);
+  }
+  return { ref: spec.slice(0, sep), role };
+}
+
+type DriveRef = { id: string; name: string };
+
+export async function listManageableDrives(client: ApiClient, orgId: string): Promise<DriveRef[]> {
+  return (await client.get(`/orgs/${orgId}/drives?scope=manageable`)).drives;
+}
+
+/**
+ * Resolve a drive id or name among the drives the caller can manage.
+ * Anything else passes through unchanged as an id, so the server stays the
+ * one that answers 403 or 404.
+ */
+export function pickDrive(drives: DriveRef[], ref: string): DriveRef {
+  const byId = drives.find((d) => d.id === ref);
+  if (byId) return byId;
+  const byName = drives.filter((d) => d.name === ref);
+  if (byName.length > 1) {
+    throw new Error(`Drive name "${ref}" is ambiguous in this org; use the drive id`);
+  }
+  return byName[0] ?? { id: ref, name: ref };
+}
+
+/** Fail before writing when the server would silently ignore drive grants. */
+export async function requireDriveInvites(client: ApiClient): Promise<void> {
+  const health = await client.get("/health");
+  if (!health.features?.includes("drive-invites")) {
+    throw new Error(
+      "This server cannot grant specific drives on invite. Upgrade the agent-fs server, or use 'member invite' without --to (default drive only)."
+    );
+  }
+}
+
+export async function inviteMember(
+  client: ApiClient,
+  orgId: string,
+  email: string,
+  role: string,
+  drives?: Array<{ driveId: string; role: string }>
+): Promise<{ drives?: Array<{ driveId: string; role: string }> }> {
+  return client.post(`/orgs/${orgId}/members/invite`, {
+    email,
+    role,
+    ...(drives ? { drives } : {}),
+  });
+}
+
+export function printInviteResult(
+  email: string,
+  role: string,
+  result: { drives?: Array<{ driveId: string; role: string }> },
+  drives: DriveRef[]
+): void {
+  const names = new Map(drives.map((d) => [d.id, d.name]));
+  console.log(`Invited ${email} as ${role}`);
+  // Servers older than the drive-invites feature return no drive list.
+  if (!result.drives) return;
+  if (result.drives.length === 0) {
+    console.log("  (no drive access granted)");
+    return;
+  }
+  for (const d of result.drives) {
+    const name = names.get(d.driveId);
+    console.log(`  drive ${name ? `${name} (${d.driveId})` : d.driveId}  [${d.role}]`);
+  }
 }

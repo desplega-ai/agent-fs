@@ -251,7 +251,7 @@ describe("member tool RBAC", () => {
   test("registers whoami and all member tools", () => {
     const h = createIdentityHarness();
     expect([...h.handlers.keys()].sort()).toEqual(
-      ["member-invite", "member-list", "member-remove", "member-update-role", "whoami", "profile-get", "profile-set"].sort()
+      ["member-add", "member-invite", "member-list", "member-remove", "member-update-role", "whoami", "profile-get", "profile-set"].sort()
     );
   });
 
@@ -399,6 +399,40 @@ describe("member tool RBAC", () => {
     expect(getUserOrgRole(h.db, h.viewer.id, h.sharedOrg.id)).toBe("viewer");
   });
 
+  test("member-invite grants only the listed drives", async () => {
+    const h = createIdentityHarness();
+    const ledger = createDrive(h.db, { orgId: h.sharedOrg.id, name: "ledger", creatorUserId: h.admin.id });
+
+    const { result, body } = await h.call(
+      "member-invite",
+      { email: h.outsider.email, role: "viewer", drives: [{ driveId: ledger.id, role: "editor" }] },
+      h.admin
+    );
+    expect(result.isError).toBeUndefined();
+    expect(body.drives).toEqual([{ driveId: ledger.id, role: "editor" }]);
+    expect(getUserDriveRole(h.db, h.outsider.id, ledger.id)).toBe("editor");
+    expect(getUserDriveRole(h.db, h.outsider.id, h.sharedDriveId)).toBeNull();
+  });
+
+  test("member-add: drive admin adds an org member; non-admins and non-members fail", async () => {
+    const h = createIdentityHarness();
+    const ledger = createDrive(h.db, { orgId: h.sharedOrg.id, name: "ledger", creatorUserId: h.admin.id });
+
+    const denied = await h.call("member-add", { email: h.viewer.email, driveId: ledger.id, role: "viewer" }, h.editor);
+    expect(denied.result.isError).toBe(true);
+    expect(denied.body.error).toContain("requires drive admin");
+
+    setDriveMember(h.db, { driveId: ledger.id, userId: h.editor.id, role: "admin" });
+    const added = await h.call("member-add", { email: h.viewer.email, driveId: ledger.id, role: "viewer" }, h.editor);
+    expect(added.result.isError).toBeUndefined();
+    expect(added.body.created).toBe(true);
+    expect(getUserDriveRole(h.db, h.viewer.id, ledger.id)).toBe("viewer");
+
+    const outsider = await h.call("member-add", { email: h.outsider.email, driveId: ledger.id, role: "viewer" }, h.editor);
+    expect(outsider.result.isError).toBe(true);
+    expect(outsider.body.error).toBe("Not a member of this org");
+  });
+
   test("drive-scoped tools reject driveIds outside the active org", async () => {
     const h = createIdentityHarness();
 
@@ -407,6 +441,7 @@ describe("member tool RBAC", () => {
       ["member-list", { driveId: h.foreignDriveId }],
       ["member-update-role", { email: h.viewer.email, role: "viewer", driveId: h.foreignDriveId }],
       ["member-remove", { email: h.viewer.email, driveId: h.foreignDriveId }],
+      ["member-add", { email: h.viewer.email, role: "viewer", driveId: h.foreignDriveId }],
     ] as const) {
       const { result, body } = await h.call(tool, params, h.admin);
       expect(result.isError).toBe(true);

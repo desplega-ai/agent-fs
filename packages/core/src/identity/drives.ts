@@ -1,6 +1,8 @@
 import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
+import { getUserOrgRole } from "./rbac.js";
+import type { Role } from "./rbac.js";
 
 export function createDrive(
   db: DB,
@@ -86,6 +88,30 @@ export function listDrivesForUser(
     )
     .all()
     .map((d) => ({ id: d.id, name: d.name, isDefault: d.isDefault }));
+}
+
+/**
+ * Drives whose membership `userId` may manage: every drive in the org for an
+ * org admin, otherwise the drives where the user is drive admin. `myRole` is
+ * the caller's own drive role (null when an org admin is not on the drive).
+ */
+export function listManageableDrives(
+  db: DB,
+  orgId: string,
+  userId: string
+): Array<{ id: string; name: string; isDefault: boolean; myRole: Role | null }> {
+  const myRoles = new Map(
+    db
+      .select({ driveId: schema.driveMembers.driveId, role: schema.driveMembers.role })
+      .from(schema.driveMembers)
+      .where(eq(schema.driveMembers.userId, userId))
+      .all()
+      .map((m) => [m.driveId, m.role as Role] as const)
+  );
+  const orgAdmin = getUserOrgRole(db, userId, orgId) === "admin";
+  return listDrives(db, orgId)
+    .map((d) => ({ ...d, myRole: myRoles.get(d.id) ?? null }))
+    .filter((d) => orgAdmin || d.myRole === "admin");
 }
 
 export function getDrive(

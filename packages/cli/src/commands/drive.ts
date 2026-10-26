@@ -1,10 +1,18 @@
 import { Command } from "commander";
 import { setConfigValue, getConfig } from "@/core";
 import type { ApiClient } from "../api-client.js";
+import {
+  inviteMember,
+  listManageableDrives,
+  pickDrive,
+  printInviteResult,
+  requireDriveInvites,
+} from "./member.js";
 
 export function driveCommands(
   client: ApiClient,
-  getOrgId: () => string | Promise<string>
+  getOrgId: () => string | Promise<string>,
+  getDriveId: (orgId?: string) => string | Promise<string>
 ) {
   const cmd = new Command("drive").description("Drive management");
 
@@ -163,19 +171,28 @@ export function driveCommands(
     .command("invite")
     .argument("<email>", "User email to invite")
     .requiredOption("--role <role>", "Role: viewer, editor, or admin")
-    .description("Invite a user to the current org")
+    .description("Invite a user to the current org and the current drive")
     .addHelpText(
       "after",
-      "\nThis invites the user to the organization that owns the current drive. The user will have access to all drives in the org based on their role."
+      "\nAdds the user to the org that owns the current drive, with --role, and grants that role on the" +
+        "\ncurrent drive only. Other drives are untouched: use 'member invite --to' to choose several drives," +
+        "\nor 'member add' to give an existing org member access to another drive."
     )
     .action(async (email: string, opts: { role: string }) => {
+      const json = cmd.parent?.opts().json;
       try {
         const orgId = await getOrgId();
-        await client.post(`/orgs/${orgId}/members/invite`, {
-          email,
-          role: opts.role,
-        });
-        console.log(`Invited ${email} as ${opts.role}`);
+        await requireDriveInvites(client);
+        const manageable = await listManageableDrives(client, orgId);
+        const drive = pickDrive(manageable, await getDriveId(orgId));
+        const result = await inviteMember(client, orgId, email, opts.role, [
+          { driveId: drive.id, role: opts.role },
+        ]);
+        if (json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        printInviteResult(email, opts.role, result, manageable);
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
         process.exit(1);

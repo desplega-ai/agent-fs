@@ -2982,6 +2982,86 @@ async function runStandardTests(daemonUrl: string) {
     assert(!user2, true, "Expected user2 gone from org");
   });
 
+  // -- Drive-aware invites: one org, separate drives --
+
+  const user2Env = () => ({ AGENT_FS_API_KEY: user2ApiKey });
+  const expectCliError = (fn: () => unknown, needle: string) => {
+    try {
+      fn();
+    } catch (e: any) {
+      assertIncludes(`${e.stderr ?? ""}${e.message}`, needle);
+      return;
+    }
+    throw new Error(`Expected CLI to fail with: ${needle}`);
+  };
+  let workDriveId = "";
+  let ledgerDriveId = "";
+
+  await test("member invite --to grants only the chosen drive", () => {
+    workDriveId = JSON.parse(run("drive create e2e-work")).id;
+    ledgerDriveId = JSON.parse(run("drive create e2e-ledger")).id;
+    const out = run("member invite USER2@e2e.local --role viewer --to e2e-work:editor");
+    assertIncludes(out, "Invited USER2@e2e.local as viewer");
+    assertIncludes(out, `drive e2e-work (${workDriveId})  [editor]`);
+    const work = runJson(`--drive ${workDriveId} member list`);
+    assert(work.find((m: any) => m.email === "user2@e2e.local")?.role, "editor");
+    const def = runJson(`--drive ${secondDriveId} member list`);
+    assert(!def.some((m: any) => m.email === "user2@e2e.local"), true, "Expected no default-drive grant");
+  });
+
+  await test("member add grants an existing org member another drive", () => {
+    assertIncludes(
+      run(`--drive e2e-ledger member add user2@e2e.local --role viewer`),
+      "Added user2@e2e.local on drive e2e-ledger as viewer"
+    );
+    const drives = runJsonWithEnv(`--org ${secondOrgId} drive list`, user2Env()).drives;
+    assert(
+      drives.map((d: any) => d.name).sort().join(","),
+      "e2e-ledger,e2e-work",
+      "user2 should see exactly the granted drives"
+    );
+  });
+
+  await test("member add without --drive and update-role on a non-member explain the fix", () => {
+    expectCliError(() => run("member add user2@e2e.local --role viewer"), "needs a target drive");
+    expectCliError(
+      () => run(`--drive ${secondDriveId} member update-role user2@e2e.local --role viewer`),
+      "member add user2@e2e.local"
+    );
+  });
+
+  await test("drive admin manages their drive but cannot add people outside the org", () => {
+    run(`--drive ${workDriveId} member add user2@e2e.local --role admin`);
+    expectCliError(
+      () => runWithEnv(`--org ${secondOrgId} --drive ${workDriveId} member add nobody@e2e.local --role viewer`, user2Env()),
+      "Not a member of this org"
+    );
+    expectCliError(
+      () => runWithEnv(`--org ${secondOrgId} member invite test@e2e.local --role viewer`, user2Env()),
+      "requires 'admin' role in the org"
+    );
+    expectCliError(
+      () => runWithEnv(`--org ${secondOrgId} --drive ${ledgerDriveId} member add test@e2e.local --role viewer`, user2Env()),
+      "requires drive admin or org admin"
+    );
+  });
+
+  await test("member remove --drive drops one drive and keeps the rest", () => {
+    run(`--drive ${ledgerDriveId} member remove user2@e2e.local`);
+    const drives = runJsonWithEnv(`--org ${secondOrgId} drive list`, user2Env()).drives;
+    assert(drives.map((d: any) => d.name).join(","), "e2e-work");
+  });
+
+  await test("drive invite grants the current drive only", () => {
+    assertIncludes(run("drive invite --help"), "current drive only");
+    run("member remove user2@e2e.local");
+    const out = run("--drive e2e-ledger drive invite user2@e2e.local --role viewer");
+    assertIncludes(out, `drive e2e-ledger (${ledgerDriveId})  [viewer]`);
+    const drives = runJsonWithEnv(`--org ${secondOrgId} drive list`, user2Env()).drives;
+    assert(drives.map((d: any) => d.name).join(","), "e2e-ledger");
+    run("member remove user2@e2e.local");
+  });
+
   await test("member remove last admin fails", () => {
     // Switch to personal org — only one admin (self)
     run(`org switch ${personalOrgId}`);

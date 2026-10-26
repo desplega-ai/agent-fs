@@ -116,7 +116,7 @@ program.addCommand(authCommands(client));
 program.addCommand(profileCommands(client));
 program.addCommand(daemonCommands());
 program.addCommand(configCommands());
-program.addCommand(driveCommands(client, getOrgId));
+program.addCommand(driveCommands(client, getOrgId, getDriveId));
 program.addCommand(orgCommands(client));
 program.addCommand(initCommand());
 program.addCommand(onboardCommand());

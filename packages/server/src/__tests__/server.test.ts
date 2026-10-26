@@ -51,6 +51,7 @@ describe("Health check", () => {
       "share-links",
       "comment-path-prefix",
       "drive-members",
+      "drive-invites",
       "comment-mentions",
       "change-stream",
       "favorites",
@@ -540,6 +541,93 @@ describe("Multi-tenant RBAC", () => {
 
     const after = await (await keyReq(ownerKey, `/orgs/${tenantOrgId}/members`)).json();
     expect(after.members.some((m: any) => m.userId === removableUserId)).toBe(false);
+  });
+
+  test("invite grants chosen drives and drive admins add existing org members", async () => {
+    const makeDrive = async (name: string) => {
+      const res = await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives`, {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      expect(res.status).toBe(201);
+      return (await res.json()).id as string;
+    };
+    const workId = await makeDrive("inv-work");
+    const ledgerId = await makeDrive("inv-ledger");
+    const invitee = await register("rbac-drive-invitee@example.com");
+    const post = (key: string, path: string, body: unknown) =>
+      keyReq(key, path, { method: "POST", body: JSON.stringify(body) });
+
+    // Bad input is a 400; a drive from another org is a 404 and writes nothing.
+    expect(
+      (await post(ownerKey, `/orgs/${tenantOrgId}/members/invite`, {
+        email: "rbac-drive-invitee@example.com", role: "owner",
+      })).status
+    ).toBe(400);
+    expect(
+      (await post(ownerKey, `/orgs/${tenantOrgId}/members/invite`, {
+        email: "rbac-drive-invitee@example.com",
+        role: "viewer",
+        drives: [{ driveId: ledgerId, role: "viewer" }, { driveId: outsiderDriveId, role: "viewer" }],
+      })).status
+    ).toBe(404);
+    const orgMembers = (await (await keyReq(ownerKey, `/orgs/${tenantOrgId}/members`)).json()).members;
+    expect(orgMembers.some((m: any) => m.userId === invitee.userId)).toBe(false);
+
+    // Case-insensitive email, grants only the listed drive.
+    const inviteRes = await post(ownerKey, `/orgs/${tenantOrgId}/members/invite`, {
+      email: " RBAC-Drive-Invitee@example.com ",
+      role: "viewer",
+      drives: [{ driveId: ledgerId, role: "editor" }],
+    });
+    expect(inviteRes.status).toBe(200);
+    expect((await inviteRes.json()).drives).toEqual([{ driveId: ledgerId, role: "editor" }]);
+    const visible = (await (await keyReq(invitee.apiKey, `/orgs/${tenantOrgId}/drives`)).json()).drives;
+    expect(visible.map((d: any) => d.id)).toEqual([ledgerId]);
+
+    // Adding to a drive: non-admin 403, wrong org 404, non-org email 404.
+    const addPath = `/orgs/${tenantOrgId}/drives/${workId}/members`;
+    expect((await post(viewerKey, addPath, { email: "rbac-drive-invitee@example.com", role: "viewer" })).status).toBe(403);
+    expect(
+      (await post(ownerKey, `/orgs/${outsiderOrgId}/drives/${workId}/members`, {
+        email: "rbac-drive-invitee@example.com", role: "viewer",
+      })).status
+    ).toBe(404);
+    for (const email of ["nobody-at-all@example.com", "rbac-outsider@example.com"]) {
+      const res = await post(ownerKey, addPath, { email, role: "viewer" });
+      expect(res.status).toBe(404);
+      expect((await res.json()).message).toBe("Not a member of this org");
+    }
+
+    // 201 on add, 200 on role change.
+    expect((await post(ownerKey, addPath, { email: "rbac-drive-invitee@example.com", role: "editor" })).status).toBe(201);
+    expect((await post(ownerKey, addPath, { userId: invitee.userId, role: "viewer" })).status).toBe(200);
+
+    // A drive admin manages their own drive only.
+    expect(
+      (await post(ownerKey, `/orgs/${tenantOrgId}/drives/${ledgerId}/members`, {
+        email: "rbac-drive-invitee@example.com", role: "admin",
+      })).status
+    ).toBe(200);
+    expect(
+      (await post(invitee.apiKey, `/orgs/${tenantOrgId}/drives/${ledgerId}/members`, {
+        email: "rbac-viewer@example.com", role: "viewer",
+      })).status
+    ).toBe(201);
+    expect((await post(invitee.apiKey, addPath, { email: "rbac-viewer@example.com", role: "viewer" })).status).toBe(403);
+
+    // scope=manageable: drive admin sees exactly their admin drive; org admin
+    // sees every drive, including ones they are not on.
+    const manageable = async (key: string) =>
+      (await (await keyReq(key, `/orgs/${tenantOrgId}/drives?scope=manageable`)).json()).drives;
+    expect((await manageable(invitee.apiKey)).map((d: any) => [d.id, d.myRole])).toEqual([[ledgerId, "admin"]]);
+    expect(await manageable(viewerKey)).toEqual([]);
+    const ownerDrives = await manageable(ownerKey);
+    expect(ownerDrives.map((d: any) => d.id)).toEqual(expect.arrayContaining([workId, ledgerId, tenantDriveId]));
+
+    await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives/${workId}/members/${ownerUserId}`, { method: "DELETE" });
+    const afterLeave = (await manageable(ownerKey)).find((d: any) => d.id === workId);
+    expect(afterLeave.myRole).toBeNull();
   });
 
   test("inaccessible drive is indistinguishable from a missing drive on ops (404)", async () => {
