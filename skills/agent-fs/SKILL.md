@@ -292,7 +292,7 @@ Stars follow files: `mv` moves every user's star on the file to the new path, `r
 | `member update-role` | `agent-fs member update-role <email> --role <role>` | Update org role (use `--drive <id>` for drive role) |
 | `member remove` | `agent-fs member remove <email>` | Remove from org (use `--drive <id>` for drive only) |
 | `member reset-key` | `agent-fs member reset-key <email>` | Reset a member's API key (org admin only). The old key stops working immediately. |
-| `invite accept` | `agent-fs invite accept <link-or-token>` | Accept an org invite as the signed-in account (its email must match the invite) |
+| `invite accept` | `agent-fs invite accept <link-or-token>` | Accept an org invite as the signed-in account (its email must match the invite: an exact match, or the only account whose email differs just in letter case) |
 
 The `--drive` flag is a global option — place it before the subcommand: `agent-fs --drive <id> member list`.
 

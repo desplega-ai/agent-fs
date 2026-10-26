@@ -4,6 +4,7 @@ import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { NotFoundError, PermissionDeniedError } from "../errors.js";
 import type { DriveGrant, MemberRole } from "./orgs.js";
+import { ambiguousEmailError, resolveUserByEmail } from "./users.js";
 
 /** How long an accept link stays valid. */
 export const INVITE_TTL_SECONDS = 7 * 24 * 3600;
@@ -220,8 +221,10 @@ export function getInvitePreview(db: DB, token: string): InvitePreview {
 
 /**
  * Accept an invite as `userId`. The token proves the link was received; the
- * account email must also match, so a forwarded link cannot land on someone
- * else's account. Org role and drive grants apply in one transaction, and the
+ * invite email must also resolve to that account (exact match, else a sole
+ * case-insensitive match), so a forwarded link cannot land on someone else's
+ * account. Several case-variant accounts with no exact match are ambiguous
+ * and refused. Org role and drive grants apply in one transaction, and the
  * invite is consumed in the same transaction so a token works exactly once.
  */
 export function acceptInvite(
@@ -231,12 +234,11 @@ export function acceptInvite(
   const invite = getInviteByToken(db, params.token);
   if (!invite) throw invalidInvite();
 
-  const user = db
-    .select({ email: schema.users.email })
-    .from(schema.users)
-    .where(eq(schema.users.id, params.userId))
-    .get();
-  if (!user || normalizeInviteEmail(user.email) !== invite.email) {
+  // Same rule as inviting an existing account: the invite email must resolve
+  // to the caller, not merely equal their email ignoring case.
+  const lookup = resolveUserByEmail(db, invite.email);
+  if (lookup.kind === "ambiguous") throw ambiguousEmailError(invite.email, lookup.candidates.length);
+  if (lookup.kind !== "found" || lookup.user.id !== params.userId) {
     throw new PermissionDeniedError(`This invite is for ${invite.email}`, {
       suggestion: `Sign in as ${invite.email} (register that email if it has no account yet), then accept again`,
     });

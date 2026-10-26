@@ -19,7 +19,7 @@ import {
 } from "../invites.js";
 import type { PendingInviteResult } from "../invites.js";
 import type { DriveGrant } from "../orgs.js";
-import { NotFoundError, PermissionDeniedError } from "../../errors.js";
+import { NotFoundError, PermissionDeniedError, ValidationError } from "../../errors.js";
 
 const TEST_DB = join(tmpdir(), `agent-fs-invites-test-${Date.now()}.db`);
 let db: DB;
@@ -161,6 +161,40 @@ describe("pending invites", () => {
     expect(getUserOrgRole(db, otherId, t.orgId)).toBeNull();
     expect(getUserDriveRole(db, otherId, t.workId)).toBeNull();
     expect(getInvitePreview(db, invite.token).email).toBe("pend-wrong-new@example.com");
+  });
+
+  test("a case variant cannot accept when the exact account exists", () => {
+    const t = setup("pend-case-exact");
+    const invite = invitePending(t, "pend-case-exact@example.com");
+    const exactId = createUser(db, { email: "pend-case-exact@example.com" }).user.id;
+    const variantId = createUser(db, { email: "PEND-case-exact@example.com" }).user.id;
+
+    expect(() => acceptInvite(db, { token: invite.token, userId: variantId })).toThrow(PermissionDeniedError);
+    expect(getUserOrgRole(db, variantId, t.orgId)).toBeNull();
+    acceptInvite(db, { token: invite.token, userId: exactId });
+    expect(getUserOrgRole(db, exactId, t.orgId)).toBe("viewer");
+  });
+
+  test("several case variants and no exact account is ambiguous and refused", () => {
+    const t = setup("pend-case-amb");
+    const invite = invitePending(t, "pend-case-amb@example.com");
+    const upperId = createUser(db, { email: "PEND-case-amb@example.com" }).user.id;
+    const mixedId = createUser(db, { email: "Pend-Case-Amb@example.com" }).user.id;
+
+    for (const userId of [upperId, mixedId]) {
+      expect(() => acceptInvite(db, { token: invite.token, userId })).toThrow(ValidationError);
+      expect(getUserOrgRole(db, userId, t.orgId)).toBeNull();
+    }
+    expect(getInvitePreview(db, invite.token).email).toBe("pend-case-amb@example.com");
+  });
+
+  test("a sole case-variant account accepts", () => {
+    const t = setup("pend-case-sole");
+    const invite = invitePending(t, "pend-case-sole@example.com");
+    const userId = createUser(db, { email: "PEND-Case-Sole@example.com" }).user.id;
+
+    acceptInvite(db, { token: invite.token, userId });
+    expect(getUserOrgRole(db, userId, t.orgId)).toBe("viewer");
   });
 
   test("an expired invite fails", () => {
