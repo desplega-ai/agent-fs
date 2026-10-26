@@ -56,7 +56,7 @@ const markdownComponents: Components = {
   },
   pre({ node: _node, ...props }) {
     const code = extractMermaidCode(props.children)
-    if (code !== null) return <MermaidDiagram code={code} />
+    if (code !== null) return <MermaidDiagram {...props} code={code} />
     return <CodeBlock {...props} />
   },
   img({ src, alt, title }) {

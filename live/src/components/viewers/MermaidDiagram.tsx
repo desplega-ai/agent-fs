@@ -46,9 +46,11 @@ function currentTheme(): "default" | "dark" {
 
 interface MermaidDiagramProps {
   code: string
+  "data-line-start"?: number
+  "data-line-end"?: number
 }
 
-export function MermaidDiagram({ code }: MermaidDiagramProps) {
+export function MermaidDiagram({ code, "data-line-start": lineStart, "data-line-end": lineEnd }: MermaidDiagramProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const reactId = useId()
   const diagramId = `mermaid-${reactId.replace(/:/g, "")}`
@@ -124,7 +126,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
   if (error) {
     return (
-      <div className="my-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs">
+      <div data-line-start={lineStart} data-line-end={lineEnd} className="my-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs">
         <div className="font-medium text-destructive">Mermaid render error</div>
         <pre className="mt-1 whitespace-pre-wrap text-muted-foreground">{error}</pre>
         <pre className="mt-2 whitespace-pre-wrap text-muted-foreground">{code}</pre>
@@ -134,7 +136,7 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
   return (
     <>
-      <div className="group relative my-4">
+      <div data-line-start={lineStart} data-line-end={lineEnd} className="group relative my-4">
         <div
           ref={containerRef}
           className="flex justify-center overflow-auto rounded-md border border-border bg-card p-4"

@@ -13,7 +13,7 @@ const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const localMarkdown = "# Local\n\n![pic](../pic.png)"
 
 // Production app shell against deterministic API fixtures; no live account.
-async function installFixture(page: Page) {
+async function installFixture(page: Page, diagramComment = false) {
   await page.addInitScript(() => {
     localStorage.setItem("agent-fs-credentials", JSON.stringify([
       { id: "qa", name: "QA", endpoint: "http://fixture.test", apiKey: "fixture" },
@@ -26,6 +26,7 @@ async function installFixture(page: Page) {
     if (url.pathname === "/auth/me") json = { userId: "qa", email: "qa@example.test", defaultOrgId: "org", defaultDriveId: "drive" }
     else if (url.pathname === "/orgs") json = { orgs: [{ id: "org", name: "QA" }] }
     else if (url.pathname.endsWith("/drives")) json = { drives: [{ id: "drive", name: "QA", orgId: "org" }] }
+    else if (url.pathname.endsWith("/members")) json = { members: [] }
     else if (url.pathname === "/content") {
       const body = url.searchParams.get("path") === "docs/local.md" ? localMarkdown : markdown
       return route.fulfill({ body, contentType: "text/plain" })
@@ -41,7 +42,12 @@ async function installFixture(page: Page) {
             ? { url: "http://fixture.test/file/~/org/drive/pic.png", kind: "app" }
             : { url: `http://fixture.test/content?path=${path}` }
           break
-        case "comment-list": json = { comments: [] }; break
+        case "comment-list": json = { comments: diagramComment ? [{
+          id: "diagram-comment", path: "lightbox.md", body: "Review this diagram",
+          author: "qa", resolved: false, replyCount: 0, replies: [],
+          lineStart: 3, lineEnd: 6, fileVersion: 1,
+          createdAt: "2026-01-01", updatedAt: "2026-01-01",
+        }] : [] }; break
         case "comment-notification-list": json = { notifications: [], unreadCount: 0 }; break
         case "ls": json = { entries: [] }; break
         case "tree": json = { tree: [] }; break
@@ -104,4 +110,15 @@ test("an embedded image read through the raw route downloads under its drive nam
   const download = page.waitForEvent("download")
   await dialog.getByRole("button", { name: "Download" }).click()
   expect((await download).suggestedFilename()).toBe("pic.png")
+})
+
+// Comb saves the fenced diagram's source lines, without a rendered-text quote.
+test("a diagram comment from Comb resolves by source lines instead of showing anchor lost", async ({ page }) => {
+  await installFixture(page, true)
+  await page.goto("/file/~/org/drive/lightbox.md")
+  await expect(page.getByText("Review this diagram", { exact: true })).toBeVisible()
+  await expect(page.getByText("L3-6", { exact: true })).toBeVisible()
+  await expect(page.getByText("anchor lost", { exact: true })).toHaveCount(0)
+  const diagram = page.locator('[data-line-start="3"][data-line-end="6"]')
+  await expect(diagram.locator("svg").filter({ hasText: "Start" })).toBeVisible()
 })
