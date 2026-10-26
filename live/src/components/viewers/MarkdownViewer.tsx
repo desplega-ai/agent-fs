@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, isV
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeHighlight from "rehype-highlight"
-import { MessageSquarePlus, MessageSquare, Maximize2, Minimize2, ListTree } from "lucide-react"
+import { MessageSquarePlus, MessageSquare, UnfoldHorizontal, FoldHorizontal, ListTree } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { AddComment } from "@/components/comments/AddComment"
 import { MermaidDiagram } from "./MermaidDiagram"
@@ -637,7 +637,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
                 className="text-muted-foreground bg-background/70 backdrop-blur"
                 aria-label={fullWidth ? "Reading width" : "Full width"}
               >
-                {fullWidth ? <Minimize2 /> : <Maximize2 />}
+                {fullWidth ? <FoldHorizontal /> : <UnfoldHorizontal />}
               </Button>
             }
           />

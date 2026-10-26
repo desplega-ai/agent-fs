@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef, type MutableRefObject } from "react"
-import { Maximize2, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid, Type } from "lucide-react"
+import { SquareArrowOutUpRight, History, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid, Type } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { isQueryablePath } from "@/lib/sql-engine/types"
@@ -318,10 +318,18 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       setShowRaw((v) => !v)
     }
   }
+  // The full page also hosts version history; `history` lands there with the
+  // panel already open (FileDetail reads it from the navigation state).
+  const openDetail = (opts?: { history?: boolean }) =>
+    navigate(`/detail/~/${orgId}/${driveId}/${path}`, opts?.history ? { state: { history: true } } : undefined)
   if (showExpandButton) {
     fileShortcuts.f = (e) => {
       e.preventDefault()
-      navigate(`/detail/~/${orgId}/${driveId}/${path}`)
+      openDetail()
+    }
+    fileShortcuts.h = (e) => {
+      e.preventDefault()
+      openDetail({ history: true })
     }
   }
 
@@ -342,7 +350,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isImg) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={openDetail} onQuery={onQuery} />}
         <ImageViewer path={path} className="flex-1" />
       </div>
     )
@@ -353,7 +361,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isTabBin) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={openDetail} onQuery={onQuery} />}
         <TablePreviewViewer path={path} size={stat?.size} className="flex-1 min-h-0" />
       </div>
     )
@@ -363,7 +371,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isDb) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={openDetail} onQuery={onQuery} />}
         <DatabasePreviewViewer path={path} size={stat?.size} className="flex-1 min-h-0" />
       </div>
     )
@@ -380,7 +388,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
             path={path}
             actions={fileActions}
             showExpand={showExpandButton}
-            onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)}
+            onExpand={openDetail}
             onQuery={onQuery}
             showViewToggle
             showRaw={showRaw}
@@ -414,7 +422,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isVid) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={openDetail} onQuery={onQuery} />}
         <VideoViewer path={path} className="flex-1" />
       </div>
     )
@@ -423,7 +431,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isAud || (sniffAudio && sniffedAudio)) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={openDetail} onQuery={onQuery} />}
         <AudioViewer path={path} className="flex-1" />
       </div>
     )
@@ -432,7 +440,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (isPdf(path)) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={openDetail} onQuery={onQuery} />}
         <PdfViewer path={path} page={pdfPage} className="flex-1" />
       </div>
     )
@@ -451,7 +459,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     // so their actions — including Query with SQL for tabular data — are reachable.
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={openDetail} onQuery={onQuery} />}
         <FallbackViewer path={path} className="flex-1" />
       </div>
     )
@@ -462,7 +470,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   if (!textable) {
     return (
       <div className={cn("flex flex-col h-full min-w-0", className)}>
-        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)} onQuery={onQuery} />}
+        {showHeader && <ViewerHeader path={path} actions={fileActions} showExpand={showExpandButton} onExpand={openDetail} onQuery={onQuery} />}
         <FallbackViewer path={path} className="flex-1" />
       </div>
     )
@@ -481,7 +489,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           path={path}
           actions={fileActions}
           showExpand={showExpandButton}
-          onExpand={() => navigate(`/detail/~/${orgId}/${driveId}/${path}`)}
+          onExpand={openDetail}
           onQuery={onQuery}
           commentCount={commentCount}
           showViewToggle={(isMd || isHtml) && !isEditing}
@@ -719,7 +727,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
   path: string
   actions: ReturnType<typeof useFileActions>
   showExpand: boolean
-  onExpand: () => void
+  onExpand: (opts?: { history?: boolean }) => void
   onQuery?: () => void
   commentCount?: number
   showViewToggle?: boolean
@@ -956,11 +964,29 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
                 <Button
                   variant="ghost"
                   size="icon-xs"
-                  onClick={onExpand}
+                  onClick={() => onExpand({ history: true })}
+                  className="text-muted-foreground"
+                  aria-label="Version history"
+                >
+                  <History />
+                </Button>
+              }
+            />
+            <TooltipContent>Version history <Kbd className="ml-1">H</Kbd></TooltipContent>
+          </Tooltip>
+        )}
+        {showExpand && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => onExpand()}
                   className="text-muted-foreground"
                   aria-label="Open full page"
                 >
-                  <Maximize2 />
+                  <SquareArrowOutUpRight />
                 </Button>
               }
             />
