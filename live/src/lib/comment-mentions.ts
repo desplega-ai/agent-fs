@@ -16,6 +16,10 @@ export interface MentionQuery {
 }
 
 const MAX_QUERY_LENGTH = 64
+/** What may precede a mention's `@`, besides the start of the text. */
+const MENTION_OPENER = /[\s([{]/
+/** A character that would extend a mention token past its label. */
+const MENTION_CONTINUES = /[\p{L}\p{N}_@]/u
 
 /**
  * The mention the caret is in, if any. The `@` must open the text or follow
@@ -27,7 +31,7 @@ export function findMentionQuery(text: string, caret: number): MentionQuery | nu
   if (at < 0) return null
   const query = before.slice(at + 1)
   if (query.length > MAX_QUERY_LENGTH || /[\s@]/.test(query)) return null
-  if (at > 0 && !/[\s([{]/.test(before[at - 1])) return null
+  if (at > 0 && !MENTION_OPENER.test(before[at - 1])) return null
   return { start: at, end: caret, query }
 }
 
@@ -81,12 +85,28 @@ export function insertMention(
 
 /**
  * The `mentions` param for comment-add: user IDs of picked members whose
- * `@Label` is still in the body. Deleting the text drops the mention.
+ * `@Label` token is still intact in the body. A token opens like a typed
+ * mention and must end at end of text, whitespace or punctuation, so
+ * `@Ada LovelaceX` mentions nobody. At each `@` only the longest picked label
+ * counts, so `@Ada Lovelace` never also mentions a picked `Ada`.
  */
 export function collectMentions(body: string, picked: readonly DriveMember[]): string[] {
-  const userIds = new Set<string>()
+  const idsByLabel = new Map<string, string[]>()
   for (const member of picked) {
-    if (body.includes(`@${mentionLabel(member)}`)) userIds.add(member.userId)
+    const label = mentionLabel(member)
+    idsByLabel.set(label, [...(idsByLabel.get(label) ?? []), member.userId])
+  }
+  const labels = [...idsByLabel.keys()].sort((a, b) => b.length - a.length)
+  const userIds = new Set<string>()
+  for (let at = body.indexOf("@"); at >= 0; at = body.indexOf("@", at + 1)) {
+    if (at > 0 && !MENTION_OPENER.test(body[at - 1])) continue
+    const label = labels.find((l) => body.startsWith(l, at + 1))
+    if (label === undefined) continue
+    const end = at + 1 + label.length
+    if (end < body.length && MENTION_CONTINUES.test(body[end])) continue
+    for (const id of idsByLabel.get(label)!) userIds.add(id)
+    // Skip the token so an `@` inside an email label is not read as a new mention.
+    at = end - 1
   }
   return [...userIds]
 }

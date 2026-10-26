@@ -88,4 +88,35 @@ describe("collectMentions", () => {
     expect(collectMentions("only @Grace Hopper", [ada, grace])).toEqual(["u-grace"])
     expect(collectMentions("nobody", [ada])).toEqual([])
   })
+
+  test("drops a mention whose token was extended past the label", () => {
+    expect(collectMentions("cc @Ada LovelaceX", [ada])).toEqual([])
+    expect(collectMentions("cc @Ada Lovelace_2", [ada])).toEqual([])
+  })
+
+  test("a shorter picked label does not match inside a longer one", () => {
+    const shortAda: DriveMember = { userId: "u-ada2", email: "ada2@example.test", displayName: "Ada" }
+    expect(collectMentions("cc @Ada Lovelace", [shortAda, ada])).toEqual(["u-ada"])
+    expect(collectMentions("cc @Ada LovelaceX", [shortAda, ada])).toEqual([])
+    expect(collectMentions("@Ada and @Ada Lovelace", [shortAda, ada]).sort()).toEqual([
+      "u-ada",
+      "u-ada2",
+    ])
+  })
+
+  test("an intact mention followed by punctuation or at end of text counts", () => {
+    expect(collectMentions("thanks @Ada Lovelace, see this", [ada])).toEqual(["u-ada"])
+    expect(collectMentions("thanks @Ada Lovelace.", [ada])).toEqual(["u-ada"])
+    expect(collectMentions("thanks @Ada Lovelace", [ada])).toEqual(["u-ada"])
+  })
+
+  test("needs the @ to open like a typed mention", () => {
+    expect(collectMentions("x@Ada Lovelace", [ada])).toEqual([])
+    expect(collectMentions("(@Ada Lovelace)", [ada])).toEqual(["u-ada"])
+  })
+
+  test("an email label is one token", () => {
+    const agents: DriveMember = { userId: "u-agents", email: "x", displayName: "agents.test" }
+    expect(collectMentions("@review-bot@agents.test", [bot, agents])).toEqual(["u-bot"])
+  })
 })
