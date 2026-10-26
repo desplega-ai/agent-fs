@@ -142,6 +142,13 @@ export {
   listOrgMembers,
   updateOrgMemberRole,
   removeOrgMember,
+  INVITE_TTL_SECONDS,
+  acceptInvite,
+  getInvitePreview,
+  listInvites,
+  revokeInvite,
+  parseInviteToken,
+  inviteAcceptUrl,
   createDrive,
   listDrives,
   listDrivesForUser,
@@ -164,7 +171,18 @@ export {
   resolveContext,
   ensureLocalUser,
 } from "./identity/index.js";
-export type { Role, ResolvedContext, ResetApiKeyResult, MemberRole, DriveGrant, InviteResult } from "./identity/index.js";
+export type {
+  Role,
+  ResolvedContext,
+  ResetApiKeyResult,
+  MemberRole,
+  DriveGrant,
+  InviteResult,
+  AddedInviteResult,
+  PendingInviteResult,
+  InvitePreview,
+  AcceptInviteResult,
+} from "./identity/index.js";
 export { VERSION } from "./version.js";
 export { publishDriveEvent, subscribeDrive } from "./events/bus.js";
 export type { DriveEvent } from "./events/bus.js";

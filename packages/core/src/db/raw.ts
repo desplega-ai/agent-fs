@@ -3,6 +3,35 @@
 
 export const EMBEDDING_STATUS_COLUMN_SQL = "embedding_status TEXT DEFAULT 'pending' CHECK(embedding_status IN ('pending', 'indexed', 'failed', 'skipped'))";
 
+/**
+ * Pending org invites for emails that have no account yet. Only the SHA-256 of
+ * the accept token is stored. `drives` is a JSON array of { driveId, role }.
+ * At most one open (not accepted, not revoked) invite per org and email, so a
+ * re-invite has to revoke the previous one first. No foreign keys, same
+ * reasoning as shares: an invite must never block deleting a user, drive or
+ * org. Shared with runMigrations, which adds it to older databases.
+ */
+export const ORG_INVITES_SQL = `
+CREATE TABLE IF NOT EXISTS org_invites (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  org_role TEXT NOT NULL CHECK(org_role IN ('viewer', 'editor', 'admin')),
+  drives TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  accepted_at INTEGER,
+  accepted_by TEXT,
+  revoked_at INTEGER
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS org_invites_token_hash_uq ON org_invites(token_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS org_invites_open_email_uq
+  ON org_invites(org_id, email) WHERE accepted_at IS NULL AND revoked_at IS NULL;
+`;
+
 export const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -185,6 +214,8 @@ CREATE TABLE IF NOT EXISTS favorites (
 
 -- rm and mv find every user's star on a path through this.
 CREATE INDEX IF NOT EXISTS idx_favorites_drive_path ON favorites(drive_id, path);
+
+${ORG_INVITES_SQL}
 
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

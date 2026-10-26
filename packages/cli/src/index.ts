@@ -13,6 +13,7 @@ import { initCommand } from "./commands/init.js";
 import { onboardCommand } from "./commands/onboard.js";
 import { commentCommands } from "./commands/comment.js";
 import { memberCommands } from "./commands/member.js";
+import { inviteCommands } from "./commands/invite.js";
 import { membersCommand } from "./commands/members.js";
 import { docsCommand } from "./commands/docs.js";
 import { mountCommand, umountCommand } from "./commands/mount.js";
@@ -124,6 +125,7 @@ program.addCommand(commentCommands(client, getOrgId, getDriveId));
 program.addCommand(membersCommand(program, client, getOrgId, getDriveId));
 program.addCommand(watchCommand(program, client, getOrgId, getDriveId));
 program.addCommand(memberCommands(client, getOrgId));
+program.addCommand(inviteCommands(client));
 program.addCommand(mountCommand());
 program.addCommand(umountCommand());
 

@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { ORG_INVITES_SQL } from "./raw.js";
 
 /**
  * Idempotent, additive migrations for existing databases.
@@ -78,6 +79,10 @@ export function runMigrations(sqlite: Database): void {
   if (!fileCols.some((c) => c.name === "image_embedding_status")) {
     sqlite.exec("ALTER TABLE files ADD COLUMN image_embedding_status TEXT CHECK(image_embedding_status IN ('pending', 'indexed', 'failed'))");
   }
+
+  // Migration 3e: pending org invites (accept links for emails without an
+  // account). Same statements as CREATE_TABLES_SQL, all IF NOT EXISTS.
+  sqlite.exec(ORG_INVITES_SQL);
 
   // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //

@@ -53,6 +53,8 @@ export function memberCommands(
       "after",
       "\nWithout --to, the user gets the org's default drive with --role." +
         "\nWith --to, the user gets exactly the listed drives and nothing else." +
+        "\nAn email with an account is added at once. An email without one gets a pending invite:" +
+        "\nsend them the printed accept link (valid 7 days). See 'member invites' to list or revoke." +
         "\n\nExample:\n  agent-fs member invite ana@example.com --role viewer --to context:editor --to ledger"
     )
     .action(async (email: string, opts: { role: string; to?: string[] }) => {
@@ -112,6 +114,49 @@ export function memberCommands(
         }
         const verb = result.created ? "Added" : "Updated";
         console.log(`${verb} ${email} on drive ${drive.name} as ${opts.role}`);
+      } catch (err: any) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+    });
+
+  cmd
+    .command("invites")
+    .description("List pending invites of the current org (org admin only)")
+    .action(async () => {
+      const json = cmd.parent?.opts().json;
+      try {
+        const orgId = await getOrgId();
+        const { invites } = await client.get(`/orgs/${orgId}/invites`);
+        if (json) {
+          console.log(JSON.stringify(invites, null, 2));
+          return;
+        }
+        if (!invites || invites.length === 0) {
+          console.log("(no pending invites)");
+          return;
+        }
+        const names = new Map((await listManageableDrives(client, orgId)).map((d) => [d.id, d.name]));
+        for (const inv of invites as PendingInvite[]) {
+          const drives = inv.drives.map((d) => `${names.get(d.driveId) ?? d.driveId}:${d.role}`).join(", ");
+          const state = inv.expired ? "EXPIRED" : `expires ${new Date(inv.expiresAt).toISOString()}`;
+          console.log(`${inv.id}  ${inv.email}  [${inv.orgRole}]  drives: ${drives || "(none)"}  ${state}`);
+        }
+      } catch (err: any) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
+      }
+    });
+
+  cmd
+    .command("invite-revoke")
+    .argument("<id>", "Pending invite id (from 'member invites')")
+    .description("Revoke a pending invite so its accept link stops working (org admin only)")
+    .action(async (id: string) => {
+      try {
+        const orgId = await getOrgId();
+        await client.del(`/orgs/${orgId}/invites/${id}`);
+        console.log(`Revoked invite ${id}`);
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
         process.exit(1);
@@ -294,13 +339,33 @@ export async function requireDriveInvites(client: ApiClient): Promise<void> {
   }
 }
 
+type Grant = { driveId: string; role: string };
+
+type PendingInvite = {
+  id: string;
+  email: string;
+  orgRole: string;
+  drives: Grant[];
+  expiresAt: string;
+  expired: boolean;
+};
+
+/** Servers older than drive-invites return no status and no drive list. */
+export type InviteResponse = {
+  status?: "added" | "pending";
+  drives?: Grant[];
+  token?: string;
+  acceptUrl?: string;
+  expiresAt?: string;
+};
+
 export async function inviteMember(
   client: ApiClient,
   orgId: string,
   email: string,
   role: string,
-  drives?: Array<{ driveId: string; role: string }>
-): Promise<{ drives?: Array<{ driveId: string; role: string }> }> {
+  drives?: Grant[]
+): Promise<InviteResponse> {
   return client.post(`/orgs/${orgId}/members/invite`, {
     email,
     role,
@@ -311,12 +376,19 @@ export async function inviteMember(
 export function printInviteResult(
   email: string,
   role: string,
-  result: { drives?: Array<{ driveId: string; role: string }> },
+  result: InviteResponse,
   drives: DriveRef[]
 ): void {
   const names = new Map(drives.map((d) => [d.id, d.name]));
-  console.log(`Invited ${email} as ${role}`);
-  // Servers older than the drive-invites feature return no drive list.
+  if (result.status === "pending") {
+    const link = result.acceptUrl ?? result.token;
+    console.log(`Pending: ${email} has no account yet. Send them: ${link}`);
+    console.log(`  They accept with: agent-fs invite accept ${link}`);
+    if (result.expiresAt) console.log(`  Expires: ${new Date(result.expiresAt).toISOString()}`);
+    console.log(`  Grants once accepted, org role ${role}:`);
+  } else {
+    console.log(`Invited ${email} as ${role}`);
+  }
   if (!result.drives) return;
   if (result.drives.length === 0) {
     console.log("  (no drive access granted)");

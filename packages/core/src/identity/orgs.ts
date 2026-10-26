@@ -4,6 +4,8 @@ import type { DB } from "../db/index.js";
 import { NotFoundError, ValidationError } from "../errors.js";
 import { createDrive, setDriveMember } from "./drives.js";
 import { assertDriveInOrg, getUserDriveRole, getUserOrgRole } from "./rbac.js";
+import { createPendingInvite, revokeOpenInviteForEmail } from "./invites.js";
+import type { PendingInviteResult } from "./invites.js";
 
 export function createOrg(
   db: DB,
@@ -223,12 +225,14 @@ export interface DriveGrant {
   role: MemberRole;
 }
 
-export interface InviteResult {
+export interface AddedInviteResult {
   status: "added";
   userId: string;
   email: string;
   drives: DriveGrant[];
 }
+
+export type InviteResult = AddedInviteResult | PendingInviteResult;
 
 type EmailUser = { id: string; email: string };
 
@@ -268,12 +272,16 @@ function ambiguousEmailError(email: string, count: number): ValidationError {
 }
 
 /**
- * Add an existing account to an org and grant it drive access.
+ * Invite someone to an org and grant them drive access.
  *
  * `drives` omitted keeps the original behaviour: the default drive with the
  * org role. `drives: []` adds org membership only. Every drive id must belong
- * to `orgId`; validation runs before any write and all writes share one
- * transaction, so a bad grant leaves nothing behind.
+ * to `orgId`; validation runs before any write.
+ *
+ * An existing account is added at once, in one transaction, and any pending
+ * invite for that email is revoked. An email with no account gets a pending
+ * invite (replacing any earlier one) whose accept token is returned once;
+ * that needs `invitedBy`, and without it an unknown email is a NotFoundError.
  */
 export function inviteToOrg(
   db: DB,
@@ -282,6 +290,8 @@ export function inviteToOrg(
     email: string;
     role: MemberRole;
     drives?: DriveGrant[];
+    /** User id of the admin sending the invite. Enables pending invites. */
+    invitedBy?: string;
   }
 ): InviteResult {
   const lookup = resolveUserByEmail(db, params.email);
@@ -289,33 +299,22 @@ export function inviteToOrg(
     throw ambiguousEmailError(params.email, lookup.candidates.length);
   }
   const user = lookup.kind === "found" ? lookup.user : null;
-  if (!user) {
+  if (!user && !params.invitedBy) {
     throw new NotFoundError(`User with email ${params.email.trim()} not found`, {
       suggestion: "The person must register an agent-fs account first",
     });
   }
 
-  let grants: DriveGrant[];
-  if (params.drives === undefined) {
-    const defaultDrive = db
-      .select({ id: schema.drives.id })
-      .from(schema.drives)
-      .where(
-        and(
-          eq(schema.drives.orgId, params.orgId),
-          eq(schema.drives.isDefault, true)
-        )
-      )
-      .get();
-    grants = defaultDrive ? [{ driveId: defaultDrive.id, role: params.role }] : [];
-  } else {
-    for (const grant of params.drives) {
-      assertDriveInOrg(db, { driveId: grant.driveId, orgId: params.orgId });
-    }
-    // Last grant wins when a drive is listed twice.
-    grants = [
-      ...new Map(params.drives.map((g) => [g.driveId, g] as const)).values(),
-    ];
+  const grants = resolveInviteGrants(db, params.orgId, params.role, params.drives);
+
+  if (!user) {
+    return createPendingInvite(db, {
+      orgId: params.orgId,
+      email: params.email,
+      role: params.role,
+      drives: grants,
+      invitedBy: params.invitedBy!,
+    });
   }
 
   db.transaction((tx) => {
@@ -336,9 +335,35 @@ export function inviteToOrg(
         })
         .run();
     }
+
+    // The person registered after an earlier pending invite: this direct add
+    // supersedes it, so the old link stops working.
+    revokeOpenInviteForEmail(tx, params.orgId, user.email);
   });
 
   return { status: "added", userId: user.id, email: user.email, drives: grants };
+}
+
+/** Validate and dedupe drive grants, or pick the default drive when omitted. */
+function resolveInviteGrants(
+  db: DB,
+  orgId: string,
+  role: MemberRole,
+  drives: DriveGrant[] | undefined
+): DriveGrant[] {
+  if (drives === undefined) {
+    const defaultDrive = db
+      .select({ id: schema.drives.id })
+      .from(schema.drives)
+      .where(and(eq(schema.drives.orgId, orgId), eq(schema.drives.isDefault, true)))
+      .get();
+    return defaultDrive ? [{ driveId: defaultDrive.id, role }] : [];
+  }
+  for (const grant of drives) {
+    assertDriveInOrg(db, { driveId: grant.driveId, orgId });
+  }
+  // Last grant wins when a drive is listed twice.
+  return [...new Map(drives.map((g) => [g.driveId, g] as const)).values()];
 }
 
 /**

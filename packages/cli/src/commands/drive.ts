@@ -176,7 +176,8 @@ export function driveCommands(
       "after",
       "\nAdds the user to the org that owns the current drive, with --role, and grants that role on the" +
         "\ncurrent drive only. Other drives are untouched: use 'member invite --to' to choose several drives," +
-        "\nor 'member add' to give an existing org member access to another drive."
+        "\nor 'member add' to give an existing org member access to another drive. An email without an" +
+        "\naccount gets a pending invite: send them the printed accept link."
     )
     .action(async (email: string, opts: { role: string }) => {
       const json = cmd.parent?.opts().json;
