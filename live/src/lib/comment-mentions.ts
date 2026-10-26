@@ -16,16 +16,18 @@ export interface MentionQuery {
 }
 
 const MAX_QUERY_LENGTH = 64
-/**
- * A code point that continues a word. An `@` after one is inside a word or
- * email, and a label followed by one was edited into a different name.
- */
+/** A label followed by one of these code points was edited into a different name. */
 const WORD_CHAR = /[\p{L}\p{N}\p{M}_@]/u
+/**
+ * What may sit right before a mention's `@`: whitespace, an opening bracket,
+ * a straight or curly quote, or a colon. Anything else, `+ - . %` included,
+ * can end a word or an email local part, so an `@` after it is not a mention.
+ */
+const MENTION_OPENER = /[\s([{"'\u2018\u2019\u201C\u201D:]/
 
-/** Whether the code point ending at `index` continues a word. */
-function wordCharBefore(text: string, index: number): boolean {
-  const prev = Array.from(text.slice(Math.max(0, index - 2), index)).at(-1)
-  return prev !== undefined && WORD_CHAR.test(prev)
+/** Whether an `@` at `index` opens a mention: at the start of text or after an opener. */
+function opensMention(text: string, index: number): boolean {
+  return index === 0 || MENTION_OPENER.test(text[index - 1])
 }
 
 /** Whether the code point starting at `index` continues a word. */
@@ -35,9 +37,9 @@ function wordCharAt(text: string, index: number): boolean {
 }
 
 /**
- * The mention the caret is in, if any. The `@` must open the text or follow a
- * character that cannot continue a word (whitespace, a bracket, a quote), so
- * an email address never opens the picker.
+ * The mention the caret is in, if any. The `@` must open the text or follow
+ * an opener (whitespace, a bracket, a quote, a colon), so an email address
+ * never opens the picker.
  */
 export function findMentionQuery(text: string, caret: number): MentionQuery | null {
   const before = text.slice(0, caret)
@@ -45,7 +47,7 @@ export function findMentionQuery(text: string, caret: number): MentionQuery | nu
   if (at < 0) return null
   const query = before.slice(at + 1)
   if (query.length > MAX_QUERY_LENGTH || /[\s@]/.test(query)) return null
-  if (wordCharBefore(before, at)) return null
+  if (!opensMention(before, at)) return null
   return { start: at, end: caret, query }
 }
 
@@ -113,7 +115,7 @@ export function collectMentions(body: string, picked: readonly DriveMember[]): s
   const labels = [...idsByLabel.keys()].sort((a, b) => b.length - a.length)
   const userIds = new Set<string>()
   for (let at = body.indexOf("@"); at >= 0; at = body.indexOf("@", at + 1)) {
-    if (wordCharBefore(body, at)) continue
+    if (!opensMention(body, at)) continue
     const label = labels.find((l) => body.startsWith(l, at + 1))
     if (label === undefined) continue
     const end = at + 1 + label.length

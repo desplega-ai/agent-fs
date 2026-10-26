@@ -30,9 +30,18 @@ describe("findMentionQuery", () => {
     expect(findMentionQuery("(@a", 3)).toEqual({ start: 1, end: 3, query: "a" })
   })
 
-  test("opens after a quote", () => {
+  test("opens after a quote or a colon", () => {
     expect(findMentionQuery('"@a', 3)).toEqual({ start: 1, end: 3, query: "a" })
     expect(findMentionQuery("'@a", 3)).toEqual({ start: 1, end: 3, query: "a" })
+    expect(findMentionQuery("\u201C@a", 3)).toEqual({ start: 1, end: 3, query: "a" })
+    expect(findMentionQuery("cc:@a", 5)).toEqual({ start: 3, end: 5, query: "a" })
+  })
+
+  test("stays closed after a character that can end an email local part", () => {
+    expect(findMentionQuery("ada+@", 5)).toBeNull()
+    expect(findMentionQuery("ada-@", 5)).toBeNull()
+    expect(findMentionQuery("ada%@", 5)).toBeNull()
+    expect(findMentionQuery("ada.@ex", 7)).toBeNull()
   })
 
   test("reads only the text before the caret", () => {
@@ -132,6 +141,19 @@ describe("collectMentions", () => {
     expect(collectMentions("ada_b@Ada Lovelace", [ada])).toEqual([])
     expect(collectMentions("e\u0301@Ada Lovelace", [ada])).toEqual([])
     expect(collectMentions("\u{1D400}@Ada Lovelace", [ada])).toEqual([])
+  })
+
+  test("an @ after a character that can end an email local part does not count", () => {
+    expect(collectMentions("ada+@Ada Lovelace", [ada])).toEqual([])
+    expect(collectMentions("ada-@Ada Lovelace", [ada])).toEqual([])
+    expect(collectMentions("ada%@Ada Lovelace", [ada])).toEqual([])
+    const domain: DriveMember = { userId: "u-domain", email: "d@example.test", displayName: "example.test" }
+    expect(collectMentions("ada+@example.test", [domain])).toEqual([])
+    expect(collectMentions("cc @example.test", [domain])).toEqual(["u-domain"])
+  })
+
+  test("a mention after a colon counts", () => {
+    expect(collectMentions("cc:@Ada Lovelace", [ada])).toEqual(["u-ada"])
   })
 
   test("a quoted mention counts", () => {
