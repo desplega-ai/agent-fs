@@ -10,16 +10,18 @@ import { cn } from "@/lib/utils"
 
 interface VersionHistoryProps {
   path: string
+  /** Controlled open state, so the page toolbar can toggle the panel too. */
+  expanded: boolean
+  onExpandedChange: (expanded: boolean) => void
 }
 
-export function VersionHistory({ path }: VersionHistoryProps) {
-  const [expanded, setExpanded] = useState(false)
+export function VersionHistory({ path, expanded, onExpandedChange }: VersionHistoryProps) {
   const [selectedDiff, setSelectedDiff] = useState<{ v1: number; v2: number } | null>(null)
 
   const { data, isLoading } = useVersionHistory(expanded ? path : null)
 
   // `h` toggles version history (only mounted on the file detail page).
-  useKeyboardShortcuts({ h: (e) => { e.preventDefault(); setExpanded((v) => !v) } })
+  useKeyboardShortcuts({ h: (e) => { e.preventDefault(); onExpandedChange(!expanded) } })
   const { data: diffData, isLoading: diffLoading, error: diffError } = useDiff(
     selectedDiff ? path : null,
     selectedDiff?.v1 ?? 0,
@@ -29,7 +31,8 @@ export function VersionHistory({ path }: VersionHistoryProps) {
   return (
     <div className="border-t border-border">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => onExpandedChange(!expanded)}
+        aria-expanded={expanded}
         className="flex w-full items-center gap-2 px-4 py-2 text-sm font-medium hover:bg-accent transition-colors"
       >
         {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}

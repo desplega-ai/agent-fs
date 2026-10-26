@@ -1,6 +1,6 @@
-import { useParams, useNavigate } from "react-router"
+import { useParams, useNavigate, useLocation } from "react-router"
 import { useCallback, useRef, useEffect, useState } from "react"
-import { Copy, Link as LinkIcon, Download, Check, Database } from "lucide-react"
+import { Copy, Link as LinkIcon, Download, Check, Database, History } from "lucide-react"
 import { FileViewer } from "@/components/viewers/FileViewer"
 import { VersionHistory } from "@/components/VersionHistory"
 import { UserName } from "@/components/UserName"
@@ -30,6 +30,11 @@ export function FileDetailPage() {
   const { orgId, driveId } = useAuth()
   const scrollToCommentRef = useRef<ScrollToCommentCallback | null>(null)
   const [outline, setOutline] = useState<OutlineItem[]>([])
+  // The viewer's "Version history" button (and H) land here with the panel open.
+  const location = useLocation()
+  const [historyOpen, setHistoryOpen] = useState(
+    () => (location.state as { history?: boolean } | null)?.history === true,
+  )
 
   const filePath = params["*"] ?? ""
   const { data: stat } = useFileStat(filePath || null)
@@ -106,6 +111,23 @@ export function FileDetailPage() {
                   <Button
                     variant="ghost"
                     size="icon-xs"
+                    onClick={() => setHistoryOpen(!historyOpen)}
+                    className="text-muted-foreground"
+                    aria-label="Version history"
+                    aria-pressed={historyOpen}
+                  >
+                    <History />
+                  </Button>
+                }
+              />
+              <TooltipContent>Version history <Kbd className="ml-1">H</Kbd></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
                     onClick={copyPath}
                     className="text-muted-foreground"
                     aria-label="Copy path"
@@ -165,7 +187,7 @@ export function FileDetailPage() {
             onScrollToCommentRef={scrollToCommentRef}
             onOutlineChange={setOutline}
           />
-          <VersionHistory path={filePath} />
+          <VersionHistory path={filePath} expanded={historyOpen} onExpandedChange={setHistoryOpen} />
         </div>
       </div>
     </MainWithComments>
