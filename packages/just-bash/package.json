@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs-just-bash",
-  "version": "0.18.7",
+  "version": "0.18.8",
   "type": "module",
   "description": "just-bash-compatible filesystem adapter for agent-fs",
   "license": "MIT",

@@ -137,7 +137,8 @@ Favorites are per user: the tools act on the authenticated user's own stars in t
 |------|-------------|
 | `whoami` | Get current user identity, org memberships, and drive roles. Lists only drives you're an explicit member of. |
 | `member-list` | List members of the current org, or of a drive in the current org via `driveId`. |
-| `member-invite` | Invite an existing agent-fs user to the current org by email. |
+| `member-invite` | Invite an existing agent-fs user to the current org by email. Optional `drives: [{ driveId, role }]` grants exactly those drives; omitted, the user gets the default drive with the org role. |
+| `member-add` | Add an existing org member to a drive in the current org (`email`, `driveId`, `role`), or change their role there. |
 | `member-update-role` | Update a member's org role, or drive role via `driveId`. |
 | `member-remove` | Remove a member from the current org (cascades to drives), or from one drive via `driveId`. |
 

@@ -1,7 +1,9 @@
 import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
-import { createDrive } from "./drives.js";
+import { NotFoundError, ValidationError } from "../errors.js";
+import { createDrive, setDriveMember } from "./drives.js";
+import { assertDriveInOrg, getUserDriveRole, getUserOrgRole } from "./rbac.js";
 
 export function createOrg(
   db: DB,
@@ -214,52 +216,173 @@ export function removeOrgMember(
     .run();
 }
 
+export type MemberRole = "viewer" | "editor" | "admin";
+
+export interface DriveGrant {
+  driveId: string;
+  role: MemberRole;
+}
+
+export interface InviteResult {
+  status: "added";
+  userId: string;
+  email: string;
+  drives: DriveGrant[];
+}
+
+type EmailUser = { id: string; email: string };
+
+/**
+ * Resolve an email to one account. `users.email` is unique only
+ * case-sensitively, so an exact match (after trimming) wins; otherwise a
+ * case-insensitive match counts only when it is the sole candidate. Several
+ * case-variant candidates come back as `ambiguous` so callers never pick one.
+ */
+function resolveUserByEmail(
+  db: DB,
+  email: string
+):
+  | { kind: "found"; user: EmailUser }
+  | { kind: "none" }
+  | { kind: "ambiguous"; candidates: EmailUser[] } {
+  const trimmed = email.trim();
+  const fields = { id: schema.users.id, email: schema.users.email };
+  const exact = db.select(fields).from(schema.users).where(eq(schema.users.email, trimmed)).get();
+  if (exact) return { kind: "found", user: exact };
+
+  const candidates = db
+    .select(fields)
+    .from(schema.users)
+    .where(sql`lower(${schema.users.email}) = lower(${trimmed})`)
+    .all();
+  if (candidates.length === 0) return { kind: "none" };
+  if (candidates.length === 1) return { kind: "found", user: candidates[0] };
+  return { kind: "ambiguous", candidates };
+}
+
+function ambiguousEmailError(email: string, count: number): ValidationError {
+  return new ValidationError(
+    `${count} accounts match ${email.trim()} when letter case is ignored`,
+    { field: "email", suggestion: "Use the account's exact email, including letter case" }
+  );
+}
+
+/**
+ * Add an existing account to an org and grant it drive access.
+ *
+ * `drives` omitted keeps the original behaviour: the default drive with the
+ * org role. `drives: []` adds org membership only. Every drive id must belong
+ * to `orgId`; validation runs before any write and all writes share one
+ * transaction, so a bad grant leaves nothing behind.
+ */
 export function inviteToOrg(
   db: DB,
-  params: { orgId: string; email: string; role: "viewer" | "editor" | "admin" }
-): void {
-  // Find or fail — user must exist
-  const user = db
-    .select()
-    .from(schema.users)
-    .where(eq(schema.users.email, params.email))
-    .get();
-
+  params: {
+    orgId: string;
+    email: string;
+    role: MemberRole;
+    drives?: DriveGrant[];
+  }
+): InviteResult {
+  const lookup = resolveUserByEmail(db, params.email);
+  if (lookup.kind === "ambiguous") {
+    throw ambiguousEmailError(params.email, lookup.candidates.length);
+  }
+  const user = lookup.kind === "found" ? lookup.user : null;
   if (!user) {
-    throw new Error(`User with email ${params.email} not found`);
+    throw new NotFoundError(`User with email ${params.email.trim()} not found`, {
+      suggestion: "The person must register an agent-fs account first",
+    });
   }
 
-  db.insert(schema.orgMembers)
-    .values({ orgId: params.orgId, userId: user.id, role: params.role })
-    .onConflictDoUpdate({
-      target: [schema.orgMembers.orgId, schema.orgMembers.userId],
-      set: { role: params.role },
-    })
-    .run();
-
-  // Also give access to default drive with same role
-  const defaultDrive = db
-    .select()
-    .from(schema.drives)
-    .where(
-      and(
-        eq(schema.drives.orgId, params.orgId),
-        eq(schema.drives.isDefault, true)
+  let grants: DriveGrant[];
+  if (params.drives === undefined) {
+    const defaultDrive = db
+      .select({ id: schema.drives.id })
+      .from(schema.drives)
+      .where(
+        and(
+          eq(schema.drives.orgId, params.orgId),
+          eq(schema.drives.isDefault, true)
+        )
       )
-    )
-    .get();
+      .get();
+    grants = defaultDrive ? [{ driveId: defaultDrive.id, role: params.role }] : [];
+  } else {
+    for (const grant of params.drives) {
+      assertDriveInOrg(db, { driveId: grant.driveId, orgId: params.orgId });
+    }
+    // Last grant wins when a drive is listed twice.
+    grants = [
+      ...new Map(params.drives.map((g) => [g.driveId, g] as const)).values(),
+    ];
+  }
 
-  if (defaultDrive) {
-    db.insert(schema.driveMembers)
-      .values({
-        driveId: defaultDrive.id,
-        userId: user.id,
-        role: params.role,
-      })
+  db.transaction((tx) => {
+    tx.insert(schema.orgMembers)
+      .values({ orgId: params.orgId, userId: user.id, role: params.role })
       .onConflictDoUpdate({
-        target: [schema.driveMembers.driveId, schema.driveMembers.userId],
+        target: [schema.orgMembers.orgId, schema.orgMembers.userId],
         set: { role: params.role },
       })
       .run();
+
+    for (const grant of grants) {
+      tx.insert(schema.driveMembers)
+        .values({ driveId: grant.driveId, userId: user.id, role: grant.role })
+        .onConflictDoUpdate({
+          target: [schema.driveMembers.driveId, schema.driveMembers.userId],
+          set: { role: grant.role },
+        })
+        .run();
+    }
+  });
+
+  return { status: "added", userId: user.id, email: user.email, drives: grants };
+}
+
+/**
+ * Grant an existing org member access to one drive (upsert). Unknown emails
+ * and accounts outside the org get the same 404, so drive admins cannot use
+ * this to probe which accounts exist.
+ */
+export function addDriveMember(
+  db: DB,
+  params: {
+    orgId: string;
+    driveId: string;
+    role: MemberRole;
+  } & ({ email: string; userId?: undefined } | { userId: string; email?: undefined })
+): { userId: string; email: string; driveId: string; role: MemberRole; created: boolean } {
+  assertDriveInOrg(db, { driveId: params.driveId, orgId: params.orgId });
+
+  let user: EmailUser | null;
+  if (params.userId !== undefined) {
+    user =
+      db
+        .select({ id: schema.users.id, email: schema.users.email })
+        .from(schema.users)
+        .where(eq(schema.users.id, params.userId))
+        .get() ?? null;
+  } else {
+    const lookup = resolveUserByEmail(db, params.email);
+    if (lookup.kind === "ambiguous") {
+      // Report ambiguity only among org members; any account outside the
+      // org stays behind the uniform 404 below.
+      const members = lookup.candidates.filter((u) => getUserOrgRole(db, u.id, params.orgId));
+      if (members.length > 1) throw ambiguousEmailError(params.email, members.length);
+    }
+    user = lookup.kind === "found" ? lookup.user : null;
   }
+
+  const orgRole = user ? getUserOrgRole(db, user.id, params.orgId) : null;
+  if (!user || !orgRole) {
+    throw new NotFoundError("Not a member of this org", {
+      suggestion: "Ask an org admin to invite them to the org first, and use the account's exact email",
+    });
+  }
+
+  const created = getUserDriveRole(db, user.id, params.driveId) === null;
+  setDriveMember(db, { driveId: params.driveId, userId: user.id, role: params.role });
+  return { userId: user.id, email: user.email, driveId: params.driveId, role: params.role, created };
 }

@@ -15,6 +15,7 @@ import {
   listOrgMembers,
   listDriveMembers,
   inviteToOrg,
+  addDriveMember,
   updateOrgMemberRole,
   removeOrgMember,
   updateDriveMemberRole,
@@ -24,7 +25,7 @@ import {
   assertDriveInOrg,
   VERSION,
 } from "@/core";
-import type { OpContext, DB, EmbeddingProvider, StorageAdapter } from "@/core";
+import type { OpContext, DB, DriveGrant, EmbeddingProvider, StorageAdapter } from "@/core";
 import { registerTools } from "./tools.js";
 
 export type Extra = RequestHandlerExtra<ServerRequest, ServerNotification>;
@@ -202,18 +203,67 @@ export function registerIdentityTools(
 
   server.tool(
     "member-invite",
-    "Invite a user to the current org by email (requires org admin). The user must already have an agent-fs account.",
+    "Invite a user to the current org by email (requires org admin). The user must already have an agent-fs account. Pass drives to grant exactly those drives, each with its own role; omit drives to grant only the org's default drive with the org role; pass [] for org membership without drive access.",
     {
       email: z.string().describe("Email of the user to invite"),
-      role: z.enum(["viewer", "editor", "admin"]).describe("Role to assign"),
+      role: z.enum(["viewer", "editor", "admin"]).describe("Org role to assign"),
+      drives: z
+        .array(
+          z.object({
+            driveId: z.string().describe("Drive ID in the current org"),
+            role: z.enum(["viewer", "editor", "admin"]).describe("Role on this drive"),
+          })
+        )
+        .optional()
+        .describe("Drives to grant. Omit for the default drive only."),
     },
-    async (params: { email: string; role: "viewer" | "editor" | "admin" }, extra) => {
+    async (
+      params: { email: string; role: "viewer" | "editor" | "admin"; drives?: DriveGrant[] },
+      extra
+    ) => {
       const ctx = getContext(extra);
       try {
         requireMemberAdmin(ctx);
-        inviteToOrg(db, { orgId: ctx.orgId, email: params.email, role: params.role });
+        const result = inviteToOrg(db, {
+          orgId: ctx.orgId,
+          email: params.email,
+          role: params.role,
+          drives: params.drives,
+        });
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ ok: true, invited: params.email, role: params.role }, null, 2) }],
+          content: [{ type: "text" as const, text: JSON.stringify({ ok: true, invited: result.email, role: params.role, drives: result.drives }, null, 2) }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: err.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "member-add",
+    "Add an existing member of the current org to a drive in the current org, or change their role there (requires drive admin or org admin). To bring in someone outside the org, use member-invite.",
+    {
+      email: z.string().describe("Email of an existing org member"),
+      driveId: z.string().describe("Drive ID in the current org"),
+      role: z.enum(["viewer", "editor", "admin"]).describe("Role on the drive"),
+    },
+    async (params: { email: string; driveId: string; role: "viewer" | "editor" | "admin" }, extra) => {
+      const ctx = getContext(extra);
+      try {
+        // Authorize before the email lookup so non-admins can't probe
+        // whether an account exists.
+        requireMemberAdmin(ctx, params.driveId);
+        const result = addDriveMember(db, {
+          orgId: ctx.orgId,
+          driveId: params.driveId,
+          email: params.email,
+          role: params.role,
+        });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ ok: true, ...result }, null, 2) }],
         };
       } catch (err: any) {
         return {

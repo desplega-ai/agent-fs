@@ -11,11 +11,12 @@ import {
   resetApiKey,
   resetApiKeyOrgless,
 } from "../users.js";
-import { createOrg, listUserOrgs, getOrg, inviteToOrg } from "../orgs.js";
+import { createOrg, listUserOrgs, getOrg, inviteToOrg, addDriveMember } from "../orgs.js";
 import {
   createDrive,
   listDrives,
   listDrivesForUser,
+  listManageableDrives,
   getDrive,
   setDriveMember,
 } from "../drives.js";
@@ -31,7 +32,7 @@ import {
   assertDriveInOrg,
 } from "../rbac.js";
 import { resolveContext } from "../context.js";
-import { NotFoundError, PermissionDeniedError } from "../../errors.js";
+import { NotFoundError, PermissionDeniedError, ValidationError } from "../../errors.js";
 
 const TEST_DB = join(tmpdir(), `agent-fs-identity-test-${Date.now()}.db`);
 let db: DB;
@@ -689,5 +690,209 @@ describe("Drive membership backfill migration", () => {
     expect(rows.length).toBe(1);
     expect(rows[0].userId).toBe(carolId);
     expect(rows[0].role).toBe("admin");
+  });
+});
+
+describe("drive-aware invites", () => {
+  function setup(tag: string) {
+    const ownerId = createUser(db, { email: `${tag}-owner@example.com` }).user.id;
+    const org = createOrg(db, { name: `${tag}-org`, userId: ownerId });
+    const defaultId = listDrives(db, org.id)[0].id;
+    const work = createDrive(db, { orgId: org.id, name: "work", creatorUserId: ownerId });
+    const ledger = createDrive(db, { orgId: org.id, name: "ledger", creatorUserId: ownerId });
+    const peerId = createUser(db, { email: `${tag}-peer@example.com` }).user.id;
+    return { ownerId, orgId: org.id, defaultId, workId: work.id, ledgerId: ledger.id, peerId };
+  }
+
+  test("without drives grants only the default drive with the org role", () => {
+    const t = setup("inv-default");
+    const result = inviteToOrg(db, { orgId: t.orgId, email: "inv-default-peer@example.com", role: "editor" });
+    expect(result).toEqual({
+      status: "added",
+      userId: t.peerId,
+      email: "inv-default-peer@example.com",
+      drives: [{ driveId: t.defaultId, role: "editor" }],
+    });
+    expect(listDrivesForUser(db, t.orgId, t.peerId).map((d) => d.id)).toEqual([t.defaultId]);
+  });
+
+  test("drives: [] adds org membership with no drive rows", () => {
+    const t = setup("inv-empty");
+    inviteToOrg(db, { orgId: t.orgId, email: "inv-empty-peer@example.com", role: "viewer", drives: [] });
+    expect(getUserOrgRole(db, t.peerId, t.orgId)).toBe("viewer");
+    expect(listDrivesForUser(db, t.orgId, t.peerId)).toEqual([]);
+  });
+
+  test("grants each listed drive with its own role", () => {
+    const t = setup("inv-grants");
+    inviteToOrg(db, {
+      orgId: t.orgId,
+      email: "inv-grants-peer@example.com",
+      role: "viewer",
+      drives: [
+        { driveId: t.workId, role: "editor" },
+        { driveId: t.ledgerId, role: "viewer" },
+      ],
+    });
+    expect(getUserDriveRole(db, t.peerId, t.workId)).toBe("editor");
+    expect(getUserDriveRole(db, t.peerId, t.ledgerId)).toBe("viewer");
+    expect(getUserDriveRole(db, t.peerId, t.defaultId)).toBeNull();
+  });
+
+  test("a foreign-org drive id is rejected and nothing is written", () => {
+    const t = setup("inv-foreign");
+    const other = setup("inv-foreign-other");
+    expect(() =>
+      inviteToOrg(db, {
+        orgId: t.orgId,
+        email: "inv-foreign-peer@example.com",
+        role: "viewer",
+        drives: [
+          { driveId: t.workId, role: "viewer" },
+          { driveId: other.workId, role: "viewer" },
+        ],
+      })
+    ).toThrow(NotFoundError);
+    expect(getUserOrgRole(db, t.peerId, t.orgId)).toBeNull();
+    expect(getUserDriveRole(db, t.peerId, t.workId)).toBeNull();
+  });
+
+  test("email match ignores case and surrounding whitespace", () => {
+    const t = setup("inv-case");
+    const result = inviteToOrg(db, { orgId: t.orgId, email: "  INV-Case-Peer@Example.com ", role: "viewer" });
+    expect(result.userId).toBe(t.peerId);
+  });
+
+  test("an unknown email is a NotFoundError", () => {
+    const t = setup("inv-unknown");
+    expect(() =>
+      inviteToOrg(db, { orgId: t.orgId, email: "inv-nobody@example.com", role: "viewer" })
+    ).toThrow(NotFoundError);
+  });
+
+  test("addDriveMember requires org membership and upserts the role", () => {
+    const t = setup("add-drive");
+    const msg = "Not a member of this org";
+    expect(() =>
+      addDriveMember(db, { orgId: t.orgId, driveId: t.workId, email: "add-drive-peer@example.com", role: "viewer" })
+    ).toThrow(msg);
+    expect(() =>
+      addDriveMember(db, { orgId: t.orgId, driveId: t.workId, email: "add-nobody@example.com", role: "viewer" })
+    ).toThrow(msg);
+
+    inviteToOrg(db, { orgId: t.orgId, email: "add-drive-peer@example.com", role: "viewer", drives: [] });
+    const first = addDriveMember(db, { orgId: t.orgId, driveId: t.workId, email: "Add-Drive-Peer@example.com", role: "editor" });
+    expect(first.created).toBe(true);
+    const second = addDriveMember(db, { orgId: t.orgId, driveId: t.workId, userId: t.peerId, role: "viewer" });
+    expect(second.created).toBe(false);
+    expect(getUserDriveRole(db, t.peerId, t.workId)).toBe("viewer");
+  });
+
+  describe("case-variant accounts", () => {
+    function variants(tag: string) {
+      const t = setup(tag);
+      const upperId = createUser(db, { email: `Twin-${tag}@example.com` }).user.id;
+      const lowerId = createUser(db, { email: `twin-${tag}@example.com` }).user.id;
+      return { ...t, upperId, lowerId };
+    }
+
+    function rowsFor(t: { orgId: string; workId: string; upperId: string; lowerId: string }) {
+      return [t.upperId, t.lowerId].flatMap((id) => [
+        getUserOrgRole(db, id, t.orgId),
+        getUserDriveRole(db, id, t.workId),
+      ]);
+    }
+
+    test("inviteToOrg: the exact email picks its own account", () => {
+      const t = variants("inv-twin-exact");
+      const result = inviteToOrg(db, {
+        orgId: t.orgId,
+        email: " twin-inv-twin-exact@example.com ",
+        role: "admin",
+        drives: [{ driveId: t.workId, role: "admin" }],
+      });
+      expect(result.userId).toBe(t.lowerId);
+      expect(getUserOrgRole(db, t.upperId, t.orgId)).toBeNull();
+      expect(getUserDriveRole(db, t.upperId, t.workId)).toBeNull();
+    });
+
+    test("inviteToOrg: a casing that matches both accounts is rejected with no writes", () => {
+      const t = variants("inv-twin-ambig");
+      expect(() =>
+        inviteToOrg(db, {
+          orgId: t.orgId,
+          email: "TWIN-INV-TWIN-AMBIG@example.com",
+          role: "admin",
+          drives: [{ driveId: t.workId, role: "admin" }],
+        })
+      ).toThrow(ValidationError);
+      expect(rowsFor(t)).toEqual([null, null, null, null]);
+    });
+
+    test("addDriveMember: the exact email picks its own account", () => {
+      const t = variants("add-twin-exact");
+      inviteToOrg(db, { orgId: t.orgId, email: `Twin-add-twin-exact@example.com`, role: "viewer", drives: [] });
+      inviteToOrg(db, { orgId: t.orgId, email: `twin-add-twin-exact@example.com`, role: "viewer", drives: [] });
+      const result = addDriveMember(db, {
+        orgId: t.orgId,
+        driveId: t.workId,
+        email: "Twin-add-twin-exact@example.com",
+        role: "admin",
+      });
+      expect(result.userId).toBe(t.upperId);
+      expect(getUserDriveRole(db, t.lowerId, t.workId)).toBeNull();
+    });
+
+    test("addDriveMember: a casing that matches two org members is rejected with no writes", () => {
+      const t = variants("add-twin-ambig");
+      inviteToOrg(db, { orgId: t.orgId, email: `Twin-add-twin-ambig@example.com`, role: "viewer", drives: [] });
+      inviteToOrg(db, { orgId: t.orgId, email: `twin-add-twin-ambig@example.com`, role: "viewer", drives: [] });
+      expect(() =>
+        addDriveMember(db, { orgId: t.orgId, driveId: t.workId, email: "TWIN-ADD-TWIN-AMBIG@example.com", role: "admin" })
+      ).toThrow(ValidationError);
+      expect(getUserDriveRole(db, t.upperId, t.workId)).toBeNull();
+      expect(getUserDriveRole(db, t.lowerId, t.workId)).toBeNull();
+    });
+
+    test("addDriveMember: ambiguity involving a non-member stays a uniform 404", () => {
+      const t = variants("add-twin-hidden");
+      inviteToOrg(db, { orgId: t.orgId, email: `Twin-add-twin-hidden@example.com`, role: "viewer", drives: [] });
+      expect(() =>
+        addDriveMember(db, { orgId: t.orgId, driveId: t.workId, email: "TWIN-ADD-TWIN-HIDDEN@example.com", role: "admin" })
+      ).toThrow(NotFoundError);
+      // The exact email of the outsider is the same 404, never the member.
+      expect(() =>
+        addDriveMember(db, { orgId: t.orgId, driveId: t.workId, email: "twin-add-twin-hidden@example.com", role: "admin" })
+      ).toThrow(NotFoundError);
+      expect(getUserDriveRole(db, t.upperId, t.workId)).toBeNull();
+      expect(getUserDriveRole(db, t.lowerId, t.workId)).toBeNull();
+    });
+  });
+
+  test("listManageableDrives: org admin sees all drives, drive admin sees their own", () => {
+    const t = setup("manageable");
+    inviteToOrg(db, {
+      orgId: t.orgId,
+      email: "manageable-peer@example.com",
+      role: "viewer",
+      drives: [
+        { driveId: t.workId, role: "admin" },
+        { driveId: t.ledgerId, role: "editor" },
+      ],
+    });
+    db.delete(schema.driveMembers)
+      .where(require("drizzle-orm").and(
+        require("drizzle-orm").eq(schema.driveMembers.driveId, t.ledgerId),
+        require("drizzle-orm").eq(schema.driveMembers.userId, t.ownerId)
+      ))
+      .run();
+
+    const owner = listManageableDrives(db, t.orgId, t.ownerId);
+    expect(owner.map((d) => d.id).sort()).toEqual([t.defaultId, t.workId, t.ledgerId].sort());
+    expect(owner.find((d) => d.id === t.ledgerId)!.myRole).toBeNull();
+
+    expect(listManageableDrives(db, t.orgId, t.peerId)).toEqual([
+      { id: t.workId, name: "work", isDefault: false, myRole: "admin" },
+    ]);
   });
 });
