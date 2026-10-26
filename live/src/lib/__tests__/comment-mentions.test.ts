@@ -30,6 +30,11 @@ describe("findMentionQuery", () => {
     expect(findMentionQuery("(@a", 3)).toEqual({ start: 1, end: 3, query: "a" })
   })
 
+  test("opens after a quote", () => {
+    expect(findMentionQuery('"@a', 3)).toEqual({ start: 1, end: 3, query: "a" })
+    expect(findMentionQuery("'@a", 3)).toEqual({ start: 1, end: 3, query: "a" })
+  })
+
   test("reads only the text before the caret", () => {
     expect(findMentionQuery("hi @grace there", 6)).toEqual({ start: 3, end: 6, query: "gr" })
   })
@@ -110,9 +115,29 @@ describe("collectMentions", () => {
     expect(collectMentions("thanks @Ada Lovelace", [ada])).toEqual(["u-ada"])
   })
 
+  test("drops a mention whose label is followed by a combining mark or astral letter", () => {
+    // COMBINING ACUTE ACCENT, decomposed: the token now ends in a different letter.
+    expect(collectMentions("@Ada Lovelace\u0301", [ada])).toEqual([])
+    // MATHEMATICAL BOLD CAPITAL A, a surrogate pair in UTF-16.
+    expect(collectMentions("@Ada Lovelace\u{1D400}", [ada])).toEqual([])
+  })
+
   test("needs the @ to open like a typed mention", () => {
     expect(collectMentions("x@Ada Lovelace", [ada])).toEqual([])
     expect(collectMentions("(@Ada Lovelace)", [ada])).toEqual(["u-ada"])
+  })
+
+  test("an @ inside a word or email does not count", () => {
+    expect(collectMentions("ada@Ada Lovelace", [ada])).toEqual([])
+    expect(collectMentions("ada_b@Ada Lovelace", [ada])).toEqual([])
+    expect(collectMentions("e\u0301@Ada Lovelace", [ada])).toEqual([])
+    expect(collectMentions("\u{1D400}@Ada Lovelace", [ada])).toEqual([])
+  })
+
+  test("a quoted mention counts", () => {
+    expect(collectMentions('"@Ada Lovelace"', [ada])).toEqual(["u-ada"])
+    expect(collectMentions("'@Ada Lovelace'", [ada])).toEqual(["u-ada"])
+    expect(collectMentions("cc \u201C@Ada Lovelace\u201D", [ada])).toEqual(["u-ada"])
   })
 
   test("an email label is one token", () => {

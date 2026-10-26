@@ -16,14 +16,28 @@ export interface MentionQuery {
 }
 
 const MAX_QUERY_LENGTH = 64
-/** What may precede a mention's `@`, besides the start of the text. */
-const MENTION_OPENER = /[\s([{]/
-/** A character that would extend a mention token past its label. */
-const MENTION_CONTINUES = /[\p{L}\p{N}_@]/u
+/**
+ * A code point that continues a word. An `@` after one is inside a word or
+ * email, and a label followed by one was edited into a different name.
+ */
+const WORD_CHAR = /[\p{L}\p{N}\p{M}_@]/u
+
+/** Whether the code point ending at `index` continues a word. */
+function wordCharBefore(text: string, index: number): boolean {
+  const prev = Array.from(text.slice(Math.max(0, index - 2), index)).at(-1)
+  return prev !== undefined && WORD_CHAR.test(prev)
+}
+
+/** Whether the code point starting at `index` continues a word. */
+function wordCharAt(text: string, index: number): boolean {
+  const next = text.codePointAt(index)
+  return next !== undefined && WORD_CHAR.test(String.fromCodePoint(next))
+}
 
 /**
- * The mention the caret is in, if any. The `@` must open the text or follow
- * whitespace or an opening bracket, so an email address never opens the picker.
+ * The mention the caret is in, if any. The `@` must open the text or follow a
+ * character that cannot continue a word (whitespace, a bracket, a quote), so
+ * an email address never opens the picker.
  */
 export function findMentionQuery(text: string, caret: number): MentionQuery | null {
   const before = text.slice(0, caret)
@@ -31,7 +45,7 @@ export function findMentionQuery(text: string, caret: number): MentionQuery | nu
   if (at < 0) return null
   const query = before.slice(at + 1)
   if (query.length > MAX_QUERY_LENGTH || /[\s@]/.test(query)) return null
-  if (at > 0 && !MENTION_OPENER.test(before[at - 1])) return null
+  if (wordCharBefore(before, at)) return null
   return { start: at, end: caret, query }
 }
 
@@ -86,7 +100,7 @@ export function insertMention(
 /**
  * The `mentions` param for comment-add: user IDs of picked members whose
  * `@Label` token is still intact in the body. A token opens like a typed
- * mention and must end at end of text, whitespace or punctuation, so
+ * mention and must not run on into a letter, number or combining mark, so
  * `@Ada LovelaceX` mentions nobody. At each `@` only the longest picked label
  * counts, so `@Ada Lovelace` never also mentions a picked `Ada`.
  */
@@ -99,11 +113,11 @@ export function collectMentions(body: string, picked: readonly DriveMember[]): s
   const labels = [...idsByLabel.keys()].sort((a, b) => b.length - a.length)
   const userIds = new Set<string>()
   for (let at = body.indexOf("@"); at >= 0; at = body.indexOf("@", at + 1)) {
-    if (at > 0 && !MENTION_OPENER.test(body[at - 1])) continue
+    if (wordCharBefore(body, at)) continue
     const label = labels.find((l) => body.startsWith(l, at + 1))
     if (label === undefined) continue
     const end = at + 1 + label.length
-    if (end < body.length && MENTION_CONTINUES.test(body[end])) continue
+    if (wordCharAt(body, end)) continue
     for (const id of idsByLabel.get(label)!) userIds.add(id)
     // Skip the token so an `@` inside an email label is not read as a new mention.
     at = end - 1
