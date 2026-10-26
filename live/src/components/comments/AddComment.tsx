@@ -8,7 +8,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { useAddComment } from "@/hooks/use-comments"
+import { useHealth } from "@/hooks/use-health"
+import { useDriveMembers } from "@/hooks/use-org-members"
+import { useAuth } from "@/contexts/auth"
+import { supportsCommentMentions } from "@/lib/comment-mentions"
 import type { CommentQuote } from "@/api/types"
+import { useMentionPicker } from "./MentionPicker"
 
 interface AddCommentProps {
   path: string
@@ -39,6 +44,16 @@ export function AddComment({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const hintId = useId()
   const addComment = useAddComment()
+  const { user } = useAuth()
+  const { data: health } = useHealth()
+  const { data: driveMembers } = useDriveMembers()
+  const mention = useMentionPicker({
+    value: body,
+    onValueChange: setBody,
+    members: supportsCommentMentions(health) ? driveMembers?.members ?? [] : [],
+    selfId: user?.userId,
+    textareaRef,
+  })
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -50,11 +65,22 @@ export function AddComment({
       return
     }
 
+    const mentions = mention.mentions
     addComment.mutate(
-      { path, body: body.trim(), parentId, lineStart, lineEnd, quotedContent, quote },
+      {
+        path,
+        body: body.trim(),
+        parentId,
+        lineStart,
+        lineEnd,
+        quotedContent,
+        quote,
+        ...(mentions.length > 0 && { mentions }),
+      },
       {
         onSuccess: () => {
           setBody("")
+          mention.reset()
           onDone?.()
         },
       }
@@ -79,9 +105,11 @@ export function AddComment({
       <div className="flex gap-2">
         <Textarea
           ref={textareaRef}
+          {...mention.textareaProps}
           value={body}
           onChange={(e) => {
             setBody(e.target.value)
+            mention.syncCaret(e.target)
             if (e.target.value.trim()) setShowEmptyHint(false)
           }}
           aria-describedby={showEmptyHint ? hintId : undefined}
@@ -90,6 +118,7 @@ export function AddComment({
           rows={2}
           className="flex-1 resize-y text-sm min-h-[3.5rem]"
           onKeyDown={(e) => {
+            if (mention.handleKeyDown(e)) return
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               handleSubmit(e)
             }
@@ -113,6 +142,7 @@ export function AddComment({
           <TooltipContent>Send (⌘⏎)</TooltipContent>
         </Tooltip>
       </div>
+      {mention.list}
       {showEmptyHint && (
         <p id={hintId} role="status" className="text-xs text-muted-foreground">
           Write a comment before sending.

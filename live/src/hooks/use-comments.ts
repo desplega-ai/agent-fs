@@ -296,6 +296,8 @@ interface AddCommentParams {
   lineEnd?: number
   quotedContent?: string
   quote?: CommentQuote
+  /** Drive-member user IDs to notify. Send only to servers with `comment-mentions`. */
+  mentions?: string[]
 }
 
 interface AddCommentOptionsParams {
@@ -322,8 +324,10 @@ export function createAddCommentMutationOptions({ client, orgId, driveId, user, 
       await queryClient.cancelQueries({ queryKey })
 
       const createdAt = new Date().toISOString()
+      // `mentions` is a list of user IDs here; it is not part of the cached entry.
+      const { mentions: _mentions, ...fields } = vars
       const optimisticComment: CommentListEntry = {
-        ...vars,
+        ...fields,
         id: `optimistic:${crypto.randomUUID()}`,
         author: user.userId,
         authorDisplayName: user.displayName ?? undefined,
