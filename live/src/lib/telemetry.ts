@@ -52,6 +52,7 @@ const ROUTE_TEMPLATES: [RegExp, string][] = [
   [/^\/file\/~\/[^/]+\/[^/]+(\/.*)?$/, "/file/~/:orgId/:driveId/*"],
   [/^\/detail\/~\/[^/]+\/[^/]+(\/.*)?$/, "/detail/~/:orgId/:driveId/*"],
   [/^\/sql\/~\/[^/]+\/[^/]+\/?$/, "/sql/~/:orgId/:driveId"],
+  [/^\/members\/~\/[^/]+\/[^/]+\/?$/, "/members/~/:orgId/:driveId"],
   [/^\/?$/, "/"],
 ]
 

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router"
-import { HardDrive, Check } from "lucide-react"
+import { HardDrive, Check, Users } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
 import {
@@ -7,6 +7,8 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
 } from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
@@ -22,24 +24,9 @@ export function DriveSwitcher() {
   const { setSelectedFile } = useBrowser()
   const navigate = useNavigate()
   const displayName = driveName || driveId.slice(0, 8)
+  const single = drives.length <= 1
 
-  if (drives.length <= 1) {
-    return (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-[10px] px-2 text-sm">
-              <HardDrive className="size-3.5 shrink-0" />
-              <span className="hidden sm:inline-block max-w-48 truncate font-medium text-foreground">{displayName}</span>
-              <span className="hidden sm:inline text-xs text-muted-foreground">({drives.length})</span>
-            </span>
-          }
-        />
-        <TooltipContent side="bottom">{displayName}</TooltipContent>
-      </Tooltip>
-    )
-  }
-
+  // A one-drive org still opens the menu: it carries the Members entry.
   return (
     <DropdownMenu>
       <Tooltip>
@@ -57,7 +44,8 @@ export function DriveSwitcher() {
           }
         />
         <TooltipContent side="bottom">
-          {displayName} <span className="text-muted-foreground">({drives.length} drives)</span>
+          {displayName}
+          {!single && <span className="text-muted-foreground"> ({drives.length} drives)</span>}
           <Kbd className="ml-1">⇧D</Kbd>
         </TooltipContent>
       </Tooltip>
@@ -78,6 +66,15 @@ export function DriveSwitcher() {
             {drive.id === driveId && <Check className="size-3 text-primary ml-auto" />}
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={!orgId || !driveId}
+          onClick={() => navigate(`/members/~/${orgId}/${driveId}`)}
+        >
+          <Users className="size-3 text-muted-foreground" />
+          <span className="flex-1">Members</span>
+          <DropdownMenuShortcut>⇧M</DropdownMenuShortcut>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )
