@@ -295,3 +295,27 @@ export const shareViewGrants = sqliteTable(
     expiryIdx: index("idx_share_view_grants_expiry").on(table.expiresAt),
   })
 );
+
+// org_invites: pending invites for emails without an account. See raw.ts.
+export const orgInvites = sqliteTable(
+  "org_invites",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id").notNull(),
+    /** Trimmed and lowercased. */
+    email: text("email").notNull(),
+    orgRole: text("org_role", { enum: ["viewer", "editor", "admin"] }).notNull(),
+    /** JSON array of { driveId, role }. */
+    drives: text("drives").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    acceptedAt: integer("accepted_at", { mode: "timestamp" }),
+    acceptedBy: text("accepted_by"),
+    revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  },
+  (table) => ({
+    tokenHashUq: uniqueIndex("org_invites_token_hash_uq").on(table.tokenHash),
+  })
+);

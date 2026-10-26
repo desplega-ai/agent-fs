@@ -760,7 +760,7 @@ describe("drive-aware invites", () => {
   test("email match ignores case and surrounding whitespace", () => {
     const t = setup("inv-case");
     const result = inviteToOrg(db, { orgId: t.orgId, email: "  INV-Case-Peer@Example.com ", role: "viewer" });
-    expect(result.userId).toBe(t.peerId);
+    expect(result).toMatchObject({ status: "added", userId: t.peerId });
   });
 
   test("an unknown email is a NotFoundError", () => {
@@ -811,7 +811,7 @@ describe("drive-aware invites", () => {
         role: "admin",
         drives: [{ driveId: t.workId, role: "admin" }],
       });
-      expect(result.userId).toBe(t.lowerId);
+      expect(result).toMatchObject({ status: "added", userId: t.lowerId });
       expect(getUserOrgRole(db, t.upperId, t.orgId)).toBeNull();
       expect(getUserDriveRole(db, t.upperId, t.workId)).toBeNull();
     });

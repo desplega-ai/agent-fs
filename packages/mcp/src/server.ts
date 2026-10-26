@@ -15,6 +15,11 @@ import {
   listOrgMembers,
   listDriveMembers,
   inviteToOrg,
+  inviteAcceptUrl,
+  listInvites,
+  revokeInvite,
+  acceptInvite,
+  parseInviteToken,
   addDriveMember,
   updateOrgMemberRole,
   removeOrgMember,
@@ -203,7 +208,7 @@ export function registerIdentityTools(
 
   server.tool(
     "member-invite",
-    "Invite a user to the current org by email (requires org admin). The user must already have an agent-fs account. Pass drives to grant exactly those drives, each with its own role; omit drives to grant only the org's default drive with the org role; pass [] for org membership without drive access.",
+    "Invite a user to the current org by email (requires org admin). An email with an account is added at once (status 'added'). An email without one gets a pending invite (status 'pending') with an acceptUrl (or token) valid 7 days: give it to the person, who registers that email and accepts it; this tool sends nothing. Pass drives to grant exactly those drives, each with its own role; omit drives to grant only the org's default drive with the org role; pass [] for org membership without drive access.",
     {
       email: z.string().describe("Email of the user to invite"),
       role: z.enum(["viewer", "editor", "admin"]).describe("Org role to assign"),
@@ -229,9 +234,70 @@ export function registerIdentityTools(
           email: params.email,
           role: params.role,
           drives: params.drives,
+          invitedBy: ctx.userId,
         });
+        const body =
+          result.status === "pending"
+            ? {
+                ok: true,
+                status: result.status,
+                invited: result.email,
+                role: params.role,
+                drives: result.drives,
+                inviteId: result.inviteId,
+                token: result.token,
+                acceptUrl: inviteAcceptUrl(ctx.appUrl, result.token),
+                expiresAt: result.expiresAt,
+              }
+            : { ok: true, status: result.status, invited: result.email, role: params.role, drives: result.drives };
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ ok: true, invited: result.email, role: params.role, drives: result.drives }, null, 2) }],
+          content: [{ type: "text" as const, text: JSON.stringify(body, null, 2) }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: err.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "member-invites",
+    "List pending invites of the current org, or revoke one by passing revokeId (requires org admin). Expired invites are listed with expired: true.",
+    { revokeId: z.string().optional().describe("Pending invite id to revoke. Omit to list.") },
+    async (params: { revokeId?: string }, extra) => {
+      const ctx = getContext(extra);
+      try {
+        requireMemberAdmin(ctx);
+        if (params.revokeId) revokeInvite(db, { orgId: ctx.orgId, inviteId: params.revokeId });
+        const body = params.revokeId
+          ? { ok: true, revoked: params.revokeId }
+          : { invites: listInvites(db, ctx.orgId) };
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify(body, null, 2) }],
+        };
+      } catch (err: any) {
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ error: err.message }, null, 2) }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  server.tool(
+    "invite-accept",
+    "Accept an org invite as the current account. Pass the accept link or its token. The account's email must be the invited email.",
+    { token: z.string().describe("Accept link (https://.../invite/<token>) or the bare token") },
+    async (params: { token: string }, extra) => {
+      const ctx = getContext(extra);
+      try {
+        const token = parseInviteToken(params.token);
+        if (!token) throw new Error("Not an invite link or token");
+        const result = acceptInvite(db, { token, userId: ctx.userId });
+        return {
+          content: [{ type: "text" as const, text: JSON.stringify({ ok: true, ...result }, null, 2) }],
         };
       } catch (err: any) {
         return {

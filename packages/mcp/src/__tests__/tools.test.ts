@@ -251,7 +251,7 @@ describe("member tool RBAC", () => {
   test("registers whoami and all member tools", () => {
     const h = createIdentityHarness();
     expect([...h.handlers.keys()].sort()).toEqual(
-      ["member-add", "member-invite", "member-list", "member-remove", "member-update-role", "whoami", "profile-get", "profile-set"].sort()
+      ["invite-accept", "member-add", "member-invite", "member-invites", "member-list", "member-remove", "member-update-role", "whoami", "profile-get", "profile-set"].sort()
     );
   });
 
@@ -549,5 +549,53 @@ describe("profile tools", () => {
     expect((await call("profile-get", {}, editor)).body.displayName).toBe("Editor");
     expect((await call("profile-get", {}, admin)).body.displayName).toBeNull();
     expect((await call("profile-set", { displayName: "Hijack", userId: admin.id }, editor)).result.isError).toBe(true);
+  });
+});
+
+describe("pending invite tools", () => {
+  test("member-invite to an unknown email returns a pending invite that invite-accept consumes", async () => {
+    const h = createIdentityHarness();
+    const ledger = createDrive(h.db, { orgId: h.sharedOrg.id, name: "ledger", creatorUserId: h.admin.id });
+
+    const invited = await h.call(
+      "member-invite",
+      { email: "Newcomer@example.com", role: "viewer", drives: [{ driveId: ledger.id, role: "editor" }] },
+      h.admin
+    );
+    expect(invited.result.isError).toBeUndefined();
+    expect(invited.body).toMatchObject({ status: "pending", invited: "newcomer@example.com" });
+    expect(invited.body.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    const denied = await h.call("member-invites", {}, h.viewer);
+    expect(denied.result.isError).toBe(true);
+    const listed = await h.call("member-invites", {}, h.admin);
+    expect(listed.body.invites.map((i: any) => i.id)).toEqual([invited.body.inviteId]);
+
+    const wrong = await h.call("invite-accept", { token: invited.body.token }, h.outsider);
+    expect(wrong.result.isError).toBe(true);
+
+    const { user: newcomer } = createUser(h.db, { email: "newcomer@example.com" });
+    const accepted = await h.call(
+      "invite-accept",
+      { token: `https://live.example.com/invite/${invited.body.token}` },
+      newcomer
+    );
+    expect(accepted.result.isError).toBeUndefined();
+    expect(getUserOrgRole(h.db, newcomer.id, h.sharedOrg.id)).toBe("viewer");
+    expect(getUserDriveRole(h.db, newcomer.id, ledger.id)).toBe("editor");
+    expect(getUserDriveRole(h.db, newcomer.id, h.sharedDriveId)).toBeNull();
+  });
+
+  test("member-invites revokeId revokes, so the token no longer accepts", async () => {
+    const h = createIdentityHarness();
+    const invited = await h.call("member-invite", { email: "late@example.com", role: "viewer" }, h.admin);
+    const revoked = await h.call("member-invites", { revokeId: invited.body.inviteId }, h.admin);
+    expect(revoked.body).toEqual({ ok: true, revoked: invited.body.inviteId });
+    expect((await h.call("member-invites", {}, h.admin)).body.invites).toEqual([]);
+
+    const { user: late } = createUser(h.db, { email: "late@example.com" });
+    const accepted = await h.call("invite-accept", { token: invited.body.token }, late);
+    expect(accepted.result.isError).toBe(true);
+    expect(getUserOrgRole(h.db, late.id, h.sharedOrg.id)).toBeNull();
   });
 });

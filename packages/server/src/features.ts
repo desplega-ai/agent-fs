@@ -3,6 +3,7 @@ export const SERVER_FEATURES = [
   "comment-path-prefix",
   "drive-members",
   "drive-invites",
+  "pending-invites",
   "comment-mentions",
   "change-stream",
   "html-sites",

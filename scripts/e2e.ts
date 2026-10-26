@@ -3084,6 +3084,92 @@ async function runStandardTests(daemonUrl: string) {
     run("member remove Twin@e2e.local");
   });
 
+  // -- Pending invites: emails without an account --
+
+  const registerKey = async (email: string): Promise<string> => {
+    const res = await fetch(`${daemonUrl}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    assert(res.ok, true, `Expected 200 registering ${email}, got ${res.status}`);
+    return ((await res.json()) as any).apiKey;
+  };
+  let pendingLink = "";
+
+  await test("member invite to an unknown email prints an accept link", () => {
+    const out = run("member invite Pending@e2e.local --role viewer --to e2e-work:editor --to e2e-ledger:viewer");
+    assertIncludes(out, "Pending: Pending@e2e.local has no account yet. Send them: ");
+    assertIncludes(out, `drive e2e-work (${workDriveId})  [editor]`);
+    pendingLink = out.split("Send them: ")[1].split("\n")[0].trim();
+    const invites = runJson("member invites");
+    assert(invites.map((i: any) => i.email).join(","), "pending@e2e.local");
+    assertIncludes(run("member invites"), "e2e-work:editor, e2e-ledger:viewer");
+  });
+
+  await test("invite accept with the wrong account fails and writes nothing", async () => {
+    const otherKey = await registerKey("pending-other@e2e.local");
+    expectCliError(
+      () => runWithEnv(`invite accept ${pendingLink}`, { AGENT_FS_API_KEY: otherKey }),
+      "This invite is for pending@e2e.local"
+    );
+    assert(
+      runJson("member list").some((m: any) => m.email === "pending-other@e2e.local"),
+      false,
+      "Wrong-email accept must not join the org"
+    );
+  });
+
+  await test("invitee registers, accepts, and gets exactly the invited drives", async () => {
+    const key = await registerKey("pending@e2e.local");
+    const out = runWithEnv(`invite accept ${pendingLink}`, { AGENT_FS_API_KEY: key });
+    assertIncludes(out, `(${secondOrgId}) as viewer`);
+    const drives = runJsonWithEnv(`--org ${secondOrgId} drive list`, { AGENT_FS_API_KEY: key }).drives;
+    assert(drives.map((d: any) => d.name).sort().join(","), "e2e-ledger,e2e-work");
+    const work = runJson(`--drive ${workDriveId} member list`);
+    assert(work.find((m: any) => m.email === "pending@e2e.local")?.role, "editor");
+    const ledger = runJson(`--drive ${ledgerDriveId} member list`);
+    assert(ledger.find((m: any) => m.email === "pending@e2e.local")?.role, "viewer");
+    assert(runJson("member invites").length, 0, "Accepted invite leaves the pending list");
+    expectCliError(
+      () => runWithEnv(`invite accept ${pendingLink}`, { AGENT_FS_API_KEY: key }),
+      "Invite not found or no longer valid"
+    );
+    run("member remove pending@e2e.local");
+  });
+
+  await test("revoked and expired invites cannot be accepted", async () => {
+    const revoked = runJson("member invite revoked@e2e.local --role viewer");
+    assert(revoked.status, "pending");
+    assertIncludes(run(`member invite-revoke ${revoked.inviteId}`), `Revoked invite ${revoked.inviteId}`);
+    const revokedKey = await registerKey("revoked@e2e.local");
+    expectCliError(
+      () => runWithEnv(`invite accept ${revoked.token}`, { AGENT_FS_API_KEY: revokedKey }),
+      "Invite not found or no longer valid"
+    );
+
+    const expired = runJson("member invite expired@e2e.local --role viewer");
+    const db = new Database(join(testDir, "agent-fs.db"));
+    db.exec("PRAGMA busy_timeout=5000");
+    db.prepare("UPDATE org_invites SET expires_at = ? WHERE id = ?").run(Math.floor(Date.now() / 1000) - 10, expired.inviteId);
+    db.close();
+    assertIncludes(run("member invites"), "EXPIRED");
+    const expiredKey = await registerKey("expired@e2e.local");
+    expectCliError(
+      () => runWithEnv(`invite accept ${expired.token}`, { AGENT_FS_API_KEY: expiredKey }),
+      "Invite not found or no longer valid"
+    );
+    assert(
+      runJson("member list").some((m: any) => ["revoked@e2e.local", "expired@e2e.local"].includes(m.email)),
+      false,
+      "Revoked and expired invites must not join the org"
+    );
+    // A direct invite now that the account exists supersedes the stale invite.
+    run("member invite expired@e2e.local --role viewer --to e2e-work:viewer");
+    assert(runJson("member invites").length, 0, "Direct add revokes the open invite");
+    run("member remove expired@e2e.local");
+  });
+
   await test("member remove last admin fails", () => {
     // Switch to personal org — only one admin (self)
     run(`org switch ${personalOrgId}`);

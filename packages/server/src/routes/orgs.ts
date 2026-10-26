@@ -8,6 +8,9 @@ import {
   listOrgMembers,
   updateOrgMemberRole,
   removeOrgMember,
+  listInvites,
+  revokeInvite,
+  inviteAcceptUrl,
   listDrivesForUser,
   listManageableDrives,
   createDrive,
@@ -95,7 +98,7 @@ function parseDriveGrants(value: unknown): DriveGrant[] | undefined {
   });
 }
 
-export function orgRoutes(db: DB) {
+export function orgRoutes(db: DB, appUrl?: string) {
   const router = new Hono<AppEnv>();
 
   router.get("/", (c) => {
@@ -155,8 +158,30 @@ export function orgRoutes(db: DB) {
       email: parseEmail(body.email),
       role: parseRole(body.role, "role"),
       drives: parseDriveGrants(body.drives),
+      invitedBy: user.id,
     });
+    if (result.status === "pending") {
+      const acceptUrl = inviteAcceptUrl(appUrl, result.token);
+      return c.json({ ok: true, ...result, ...(acceptUrl ? { acceptUrl } : {}) });
+    }
     return c.json({ ok: true, ...result });
+  });
+
+  // --- Pending invites (org admin only) ---
+
+  router.get("/:orgId/invites", (c) => {
+    const user = c.get("user");
+    const orgId = c.req.param("orgId");
+    requireOrgAdmin(db, user.id, orgId);
+    return c.json({ invites: listInvites(db, orgId) });
+  });
+
+  router.delete("/:orgId/invites/:inviteId", (c) => {
+    const user = c.get("user");
+    const orgId = c.req.param("orgId");
+    requireOrgAdmin(db, user.id, orgId);
+    revokeInvite(db, { orgId, inviteId: c.req.param("inviteId") });
+    return c.json({ ok: true });
   });
 
   // --- Org member management (org admin only) ---

@@ -14,6 +14,7 @@ import { requestLogMiddleware } from "./middleware/request-log.js";
 import { authRoutes } from "./routes/auth.js";
 import { opsRoutes } from "./routes/ops.js";
 import { orgRoutes } from "./routes/orgs.js";
+import { inviteRoutes, publicInviteRoutes } from "./routes/invites.js";
 import { docsRoutes } from "./routes/docs.js";
 import { fileRoutes } from "./routes/files.js";
 import { presenceRoutes } from "./routes/presence.js";
@@ -61,6 +62,11 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   app.route("/site", siteRoutes(db, s3, {
     requestsPerMinute: config.server?.siteRateLimit?.requestsPerMinute ?? 600,
   }));
+
+  // Invite accept links: the preview is public, accept needs a signed-in
+  // caller (see routes/invites.ts). Tokens carry 256 bits, so the limit only
+  // keeps one address from hammering the database.
+  app.route("/invites", publicInviteRoutes(db, { requestsPerMinute: 120 }));
 
   app.use("*", authMiddleware(db));
 
@@ -117,7 +123,8 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
 
   // Routes
   app.route("/auth", authRoutes(db));
-  app.route("/orgs", orgRoutes(db));
+  app.route("/orgs", orgRoutes(db, config.appUrl));
+  app.route("/invites", inviteRoutes(db));
   app.route("/orgs", opsRoutes(db, s3, embeddingProvider, config.appUrl, config.server?.publicUrl));
   app.route("/docs", docsRoutes());
   app.route("/orgs", fileRoutes(db, s3, embeddingProvider, config.appUrl));

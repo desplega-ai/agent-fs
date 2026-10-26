@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { createOrg } from "./orgs.js";
@@ -165,4 +165,41 @@ export function updateProfile(db: DB, userId: string, input: unknown) {
   if (!parsed.success) throw new ValidationError("displayName must be 1–100 characters or null; no other fields are allowed");
   db.update(schema.users).set(parsed.data).where(eq(schema.users.id, userId)).run();
   return getProfile(db, userId);
+}
+
+export type EmailUser = { id: string; email: string };
+
+/**
+ * Resolve an email to one account. `users.email` is unique only
+ * case-sensitively, so an exact match (after trimming) wins; otherwise a
+ * case-insensitive match counts only when it is the sole candidate. Several
+ * case-variant candidates come back as `ambiguous` so callers never pick one.
+ */
+export function resolveUserByEmail(
+  db: DB,
+  email: string
+):
+  | { kind: "found"; user: EmailUser }
+  | { kind: "none" }
+  | { kind: "ambiguous"; candidates: EmailUser[] } {
+  const trimmed = email.trim();
+  const fields = { id: schema.users.id, email: schema.users.email };
+  const exact = db.select(fields).from(schema.users).where(eq(schema.users.email, trimmed)).get();
+  if (exact) return { kind: "found", user: exact };
+
+  const candidates = db
+    .select(fields)
+    .from(schema.users)
+    .where(sql`lower(${schema.users.email}) = lower(${trimmed})`)
+    .all();
+  if (candidates.length === 0) return { kind: "none" };
+  if (candidates.length === 1) return { kind: "found", user: candidates[0] };
+  return { kind: "ambiguous", candidates };
+}
+
+export function ambiguousEmailError(email: string, count: number): ValidationError {
+  return new ValidationError(
+    `${count} accounts match ${email.trim()} when letter case is ignored`,
+    { field: "email", suggestion: "Use the account's exact email, including letter case" }
+  );
 }

@@ -52,6 +52,7 @@ describe("Health check", () => {
       "comment-path-prefix",
       "drive-members",
       "drive-invites",
+      "pending-invites",
       "comment-mentions",
       "change-stream",
       "favorites",
@@ -699,6 +700,111 @@ describe("Multi-tenant RBAC", () => {
     const missingBody = (await missingRes.text()).replaceAll(missingId, "DRIVE_ID");
     const hiddenBody = (await hiddenRes.text()).replaceAll(hiddenDriveId, "DRIVE_ID");
     expect(hiddenBody).toBe(missingBody);
+  });
+});
+
+// --- Pending invites ---
+
+describe("Pending invite routes", () => {
+  function keyReq(key: string, path: string, opts?: RequestInit) {
+    const headers = new Headers(opts?.headers);
+    headers.set("Authorization", `Bearer ${key}`);
+    if (opts?.body) headers.set("Content-Type", "application/json");
+    return app.request(path, { ...opts, headers });
+  }
+  const post = (key: string, path: string, body: unknown) =>
+    keyReq(key, path, { method: "POST", body: JSON.stringify(body) });
+
+  async function register(email: string) {
+    const res = await jsonPost("/auth/register", { email });
+    expect(res.status).toBe(200);
+    return res.json() as Promise<{ apiKey: string; userId: string; orgId: string }>;
+  }
+
+  test("invite an unknown email, preview it publicly, accept it once", async () => {
+    const admin = await register("pend-admin@example.com");
+    const viewer = await register("pend-viewer@example.com");
+    const orgId = (await (await post(admin.apiKey, "/orgs", { name: "pend-org" })).json()).id;
+    const workId = (await (await post(admin.apiKey, `/orgs/${orgId}/drives`, { name: "work" })).json()).id;
+    const ledgerId = (await (await post(admin.apiKey, `/orgs/${orgId}/drives`, { name: "ledger" })).json()).id;
+    await post(admin.apiKey, `/orgs/${orgId}/members/invite`, { email: "pend-viewer@example.com", role: "viewer" });
+    const invitePath = `/orgs/${orgId}/members/invite`;
+    const body = {
+      email: "Pend-New@example.com",
+      role: "viewer",
+      drives: [{ driveId: workId, role: "editor" }, { driveId: ledgerId, role: "viewer" }],
+    };
+
+    // Org admins only.
+    expect((await post(viewer.apiKey, invitePath, body)).status).toBe(403);
+    expect((await keyReq(viewer.apiKey, `/orgs/${orgId}/invites`)).status).toBe(403);
+
+    const res = await post(admin.apiKey, invitePath, body);
+    expect(res.status).toBe(200);
+    const invite = await res.json();
+    expect(invite).toMatchObject({ ok: true, status: "pending", email: "pend-new@example.com" });
+    expect(invite.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    const listed = (await (await keyReq(admin.apiKey, `/orgs/${orgId}/invites`)).json()).invites;
+    expect(listed.map((i: any) => i.id)).toEqual([invite.inviteId]);
+    expect(JSON.stringify(listed)).not.toContain(invite.token);
+
+    // Public preview, no Authorization header.
+    const preview = await req(`/invites/${invite.token}`);
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      orgName: "pend-org",
+      invitedBy: "pend-admin@example.com",
+      email: "pend-new@example.com",
+      drives: [{ name: "work", role: "editor" }, { name: "ledger", role: "viewer" }],
+    });
+
+    // Accept needs a signed-in caller with the invited email.
+    expect((await req(`/invites/${invite.token}/accept`, { method: "POST" })).status).toBe(401);
+    expect((await post(viewer.apiKey, `/invites/${invite.token}/accept`, {})).status).toBe(403);
+
+    const invitee = await register("pend-new@example.com");
+    const accepted = await post(invitee.apiKey, `/invites/${invite.token}/accept`, {});
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toMatchObject({ ok: true, orgId, role: "viewer", skippedDrives: [] });
+
+    const drives = (await (await keyReq(invitee.apiKey, `/orgs/${orgId}/drives`)).json()).drives;
+    expect(drives.map((d: any) => d.name).sort()).toEqual(["ledger", "work"]);
+
+    // Single use, and the preview goes with it.
+    expect((await post(invitee.apiKey, `/invites/${invite.token}/accept`, {})).status).toBe(404);
+    expect((await req(`/invites/${invite.token}`)).status).toBe(404);
+    expect((await (await keyReq(admin.apiKey, `/orgs/${orgId}/invites`)).json()).invites).toEqual([]);
+  });
+
+  test("revoked and unknown tokens get identical 404s and stay out of logs; revoke is org-admin only", async () => {
+    const admin = await register("pend-rev-admin@example.com");
+    const outsider = await register("pend-rev-outsider@example.com");
+    const orgId = (await (await post(admin.apiKey, "/orgs", { name: "pend-rev-org" })).json()).id;
+    const invite = await (
+      await post(admin.apiKey, `/orgs/${orgId}/members/invite`, { email: "pend-rev-new@example.com", role: "viewer" })
+    ).json();
+
+    const revokePath = `/orgs/${orgId}/invites/${invite.inviteId}`;
+    expect((await keyReq(outsider.apiKey, revokePath, { method: "DELETE" })).status).toBe(404);
+    expect((await keyReq(admin.apiKey, revokePath, { method: "DELETE" })).status).toBe(200);
+    expect((await keyReq(admin.apiKey, revokePath, { method: "DELETE" })).status).toBe(404);
+
+    const lines: string[] = [];
+    const orig = console.log;
+    console.log = (...args: unknown[]) => void lines.push(args.join(" "));
+    let revoked: Response;
+    try {
+      revoked = await req(`/invites/${invite.token}`);
+    } finally {
+      console.log = orig;
+    }
+    expect(lines.join("\n")).not.toContain(invite.token);
+    expect(lines.join("\n")).toContain("/invites/<token>");
+    const unknown = await req(`/invites/${"A".repeat(43)}`);
+    expect(revoked.status).toBe(404);
+    expect(unknown.status).toBe(404);
+    expect(await revoked.text()).toBe(await unknown.text());
   });
 });
 
