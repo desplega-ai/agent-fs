@@ -70,9 +70,16 @@ export function MembersPage() {
     body = null
   } else if (admin.isPending) {
     body = <div className="flex justify-center py-10"><Spinner /></div>
+  } else if (forbidden) {
+    // Checked before cached data: after you drop your own admin role the
+    // refetch 403s while the old admin list is still cached.
+    body = <ReadOnlyMembers members={directory.data?.members} loading={directory.isPending} error={directory.error} />
   } else if (admin.data) {
     body = (
       <AdminMembers
+        // A fresh instance per drive, so pending confirmations and row errors
+        // never carry over to another drive.
+        key={`${orgId}/${driveId}`}
         orgId={orgId}
         driveId={driveId}
         driveName={driveName}
@@ -80,8 +87,6 @@ export function MembersPage() {
         names={directory.data?.members}
       />
     )
-  } else if (forbidden) {
-    body = <ReadOnlyMembers members={directory.data?.members} loading={directory.isPending} error={directory.error} />
   } else {
     body = <p role="alert" className="text-sm text-destructive">{errorMessage(admin.error)}</p>
   }
@@ -267,7 +272,15 @@ function AdminMembers({
         isOrgAdmin={isOrgAdmin}
         candidates={candidates}
         busy={add.isPending}
-        onAdd={(email, role, done) =>
+        onAdd={(email, role, done) => {
+          // The add endpoint upserts. Role changes for people already on the
+          // drive go through their row, which holds the last-admin and
+          // self-demotion guards.
+          const existing = members.find((m) => m.email.toLowerCase() === email.toLowerCase())
+          if (existing) {
+            done(`${existing.email} is already on this drive as ${existing.role}. Change their role in the list below.`)
+            return
+          }
           add.mutate(
             { email, role },
             {
@@ -280,7 +293,7 @@ function AdminMembers({
               onError: (err) => done(errorMessage(err)),
             },
           )
-        }
+        }}
       />
 
       <ul aria-label="Drive members" className="divide-y divide-border rounded-lg border border-border">

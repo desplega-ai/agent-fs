@@ -17,7 +17,8 @@ const drives = [
 /**
  * Production app shell against an in-memory org: drive membership lives in
  * `members`, every member write is recorded in `calls`. `orgAdmin: false`
- * makes the org member list 403 (a drive admin who is not an org admin);
+ * makes the org member list 403 (a drive admin who is not an org admin), and
+ * the drive admin list 403s once that caller is no longer admin of the drive;
  * `driveAdmin: false` makes the drive admin list 403 too (a plain member).
  */
 async function installFixture(page: Page, opts: { orgAdmin?: boolean; driveAdmin?: boolean } = {}) {
@@ -56,9 +57,10 @@ async function installFixture(page: Page, opts: { orgAdmin?: boolean; driveAdmin
       return route.fulfill({ json: { members: Object.values(people).map(p => ({ userId: p.userId, email: p.email, role: p.userId === "qa" ? "admin" : "viewer" })) } })
     }
     if (memberMatch) {
-      if (!driveAdmin) return forbidden()
       const [, driveId, userId] = memberMatch
       const drive = members[driveId]
+      // A drive admin who is not an org admin loses this endpoint with the role.
+      if (!driveAdmin || (!orgAdmin && drive.get("qa") !== "admin")) return forbidden()
       const method = req.method()
       if (method === "GET") {
         return route.fulfill({ json: { members: [...drive].map(([id, role]) => ({ userId: id, email: people[id].email, role })) } })
@@ -197,4 +199,61 @@ test("a member who is not an admin gets a read-only list", async ({ page }) => {
   await expect(page.getByRole("form", { name: "Add member" })).toHaveCount(0)
   await expect(page.getByRole("combobox")).toHaveCount(0)
   await expect(page.getByRole("button", { name: /^Remove / })).toHaveCount(0)
+})
+
+test("Add member refuses someone already on the drive instead of changing their role", async ({ page }) => {
+  const { members, calls } = await installFixture(page)
+  await page.goto("/members/~/org/ledger")
+
+  // The sole admin's email with the default Viewer role: the upsert would demote them.
+  const form = page.getByRole("form", { name: "Add member" })
+  await form.getByLabel("Email").fill("QA@example.test")
+  await form.getByRole("button", { name: "Add" }).click()
+  await expect(form.getByRole("alert")).toHaveText("qa@example.test is already on this drive as admin. Change their role in the list below.")
+  await expect(memberRow(page, "qa@example.test").getByLabel("Role for qa@example.test")).toHaveValue("admin")
+  expect(members.ledger.get("qa")).toBe("admin")
+  expect(calls).toEqual([])
+})
+
+test("a pending self-removal does not follow you to another drive", async ({ page }) => {
+  const { members, calls } = await installFixture(page)
+  members.work.set("ana", "admin")
+  members.ledger.set("ana", "admin")
+  await page.goto("/members/~/org/ledger")
+  await expect(memberRow(page, "qa@example.test")).toBeVisible()
+
+  const pickDrive = async (from: string, to: string) => {
+    await page.getByRole("button", { name: `Drive: ${from}` }).click()
+    await page.getByRole("menuitem", { name: to }).click()
+    await expect(page).toHaveURL(new RegExp(`/members/~/org/${to}$`))
+  }
+
+  await pickDrive("ledger", "work")
+  const me = memberRow(page, "qa@example.test")
+  await expect(memberRow(page, "ben@example.test")).toBeVisible()
+  await me.getByRole("button", { name: "Remove qa@example.test" }).click()
+  await expect(me.getByRole("alert")).toContainText("Remove yourself?")
+
+  // Back to the cached drive: the confirmation opened on work must be gone.
+  await pickDrive("work", "ledger")
+  await expect(memberRow(page, "ben@example.test")).toHaveCount(0)
+  await expect(me.getByRole("alert")).toHaveCount(0)
+  await expect(me.getByRole("button", { name: "Remove me" })).toHaveCount(0)
+  expect(calls).toEqual([])
+})
+
+test("a drive admin who demotes themselves drops to the read-only list", async ({ page }) => {
+  const { members, calls } = await installFixture(page, { orgAdmin: false })
+  members.ledger.set("ana", "admin")
+  await page.goto("/members/~/org/ledger")
+
+  const me = memberRow(page, "qa@example.test")
+  await me.getByLabel("Role for qa@example.test").selectOption("viewer")
+  await me.getByRole("button", { name: "Change my role" }).click()
+
+  await expect(page.getByText("Only drive admins and org admins can change who is on this drive.")).toBeVisible()
+  await expect(page.getByRole("form", { name: "Add member" })).toHaveCount(0)
+  await expect(page.getByRole("combobox")).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /^Remove / })).toHaveCount(0)
+  expect(calls).toEqual(["role ledger qa viewer"])
 })
