@@ -3062,6 +3062,28 @@ async function runStandardTests(daemonUrl: string) {
     run("member remove user2@e2e.local");
   });
 
+  await test("case-variant accounts: exact email wins, an ambiguous casing is rejected", async () => {
+    for (const email of ["Twin@e2e.local", "twin@e2e.local"]) {
+      const res = await fetch(`${daemonUrl}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      assert(res.ok, true, `Expected 200 registering ${email}, got ${res.status}`);
+    }
+    const twins = () => runJson("member list").filter((m: any) => m.email.toLowerCase() === "twin@e2e.local");
+    expectCliError(() => run("member invite TWIN@e2e.local --role admin"), "accounts match");
+    assert(twins().length, 0, "Ambiguous invite must write nothing");
+    run("member invite twin@e2e.local --role viewer --to e2e-work:viewer");
+    assert(twins().map((m: any) => m.email).join(","), "twin@e2e.local");
+    run("member invite Twin@e2e.local --role viewer --to e2e-work:viewer");
+    expectCliError(() => run(`--drive ${ledgerDriveId} member add TWIN@e2e.local --role admin`), "accounts match");
+    const ledger = runJson(`--drive ${ledgerDriveId} member list`);
+    assert(ledger.some((m: any) => m.email.toLowerCase() === "twin@e2e.local"), false, "Ambiguous add must write nothing");
+    run("member remove twin@e2e.local");
+    run("member remove Twin@e2e.local");
+  });
+
   await test("member remove last admin fails", () => {
     // Switch to personal org — only one admin (self)
     run(`org switch ${personalOrgId}`);

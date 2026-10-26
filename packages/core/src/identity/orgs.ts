@@ -1,7 +1,7 @@
 import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
-import { NotFoundError } from "../errors.js";
+import { NotFoundError, ValidationError } from "../errors.js";
 import { createDrive, setDriveMember } from "./drives.js";
 import { assertDriveInOrg, getUserDriveRole, getUserOrgRole } from "./rbac.js";
 
@@ -230,18 +230,41 @@ export interface InviteResult {
   drives: DriveGrant[];
 }
 
-/** Exact-account lookup that ignores surrounding whitespace and letter case. */
-function findUserByEmail(
+type EmailUser = { id: string; email: string };
+
+/**
+ * Resolve an email to one account. `users.email` is unique only
+ * case-sensitively, so an exact match (after trimming) wins; otherwise a
+ * case-insensitive match counts only when it is the sole candidate. Several
+ * case-variant candidates come back as `ambiguous` so callers never pick one.
+ */
+function resolveUserByEmail(
   db: DB,
   email: string
-): { id: string; email: string } | null {
-  const normalized = email.trim().toLowerCase();
-  const user = db
-    .select({ id: schema.users.id, email: schema.users.email })
+):
+  | { kind: "found"; user: EmailUser }
+  | { kind: "none" }
+  | { kind: "ambiguous"; candidates: EmailUser[] } {
+  const trimmed = email.trim();
+  const fields = { id: schema.users.id, email: schema.users.email };
+  const exact = db.select(fields).from(schema.users).where(eq(schema.users.email, trimmed)).get();
+  if (exact) return { kind: "found", user: exact };
+
+  const candidates = db
+    .select(fields)
     .from(schema.users)
-    .where(sql`lower(${schema.users.email}) = ${normalized}`)
-    .get();
-  return user ?? null;
+    .where(sql`lower(${schema.users.email}) = lower(${trimmed})`)
+    .all();
+  if (candidates.length === 0) return { kind: "none" };
+  if (candidates.length === 1) return { kind: "found", user: candidates[0] };
+  return { kind: "ambiguous", candidates };
+}
+
+function ambiguousEmailError(email: string, count: number): ValidationError {
+  return new ValidationError(
+    `${count} accounts match ${email.trim()} when letter case is ignored`,
+    { field: "email", suggestion: "Use the account's exact email, including letter case" }
+  );
 }
 
 /**
@@ -261,7 +284,11 @@ export function inviteToOrg(
     drives?: DriveGrant[];
   }
 ): InviteResult {
-  const user = findUserByEmail(db, params.email);
+  const lookup = resolveUserByEmail(db, params.email);
+  if (lookup.kind === "ambiguous") {
+    throw ambiguousEmailError(params.email, lookup.candidates.length);
+  }
+  const user = lookup.kind === "found" ? lookup.user : null;
   if (!user) {
     throw new NotFoundError(`User with email ${params.email.trim()} not found`, {
       suggestion: "The person must register an agent-fs account first",
@@ -329,19 +356,29 @@ export function addDriveMember(
 ): { userId: string; email: string; driveId: string; role: MemberRole; created: boolean } {
   assertDriveInOrg(db, { driveId: params.driveId, orgId: params.orgId });
 
-  const user =
-    params.userId !== undefined
-      ? db
-          .select({ id: schema.users.id, email: schema.users.email })
-          .from(schema.users)
-          .where(eq(schema.users.id, params.userId))
-          .get() ?? null
-      : findUserByEmail(db, params.email);
+  let user: EmailUser | null;
+  if (params.userId !== undefined) {
+    user =
+      db
+        .select({ id: schema.users.id, email: schema.users.email })
+        .from(schema.users)
+        .where(eq(schema.users.id, params.userId))
+        .get() ?? null;
+  } else {
+    const lookup = resolveUserByEmail(db, params.email);
+    if (lookup.kind === "ambiguous") {
+      // Report ambiguity only among org members; any account outside the
+      // org stays behind the uniform 404 below.
+      const members = lookup.candidates.filter((u) => getUserOrgRole(db, u.id, params.orgId));
+      if (members.length > 1) throw ambiguousEmailError(params.email, members.length);
+    }
+    user = lookup.kind === "found" ? lookup.user : null;
+  }
 
   const orgRole = user ? getUserOrgRole(db, user.id, params.orgId) : null;
   if (!user || !orgRole) {
     throw new NotFoundError("Not a member of this org", {
-      suggestion: "Ask an org admin to invite them to the org first",
+      suggestion: "Ask an org admin to invite them to the org first, and use the account's exact email",
     });
   }
 

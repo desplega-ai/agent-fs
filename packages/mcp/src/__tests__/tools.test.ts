@@ -433,6 +433,42 @@ describe("member tool RBAC", () => {
     expect(outsider.body.error).toBe("Not a member of this org");
   });
 
+  test("member-invite and member-add: exact email wins, an ambiguous casing writes nothing", async () => {
+    const h = createIdentityHarness();
+    const ledger = createDrive(h.db, { orgId: h.sharedOrg.id, name: "ledger", creatorUserId: h.admin.id });
+    const { user: upper } = createUser(h.db, { email: "Twin@example.com" });
+    const { user: lower } = createUser(h.db, { email: "twin@example.com" });
+    const writes = () =>
+      [upper.id, lower.id].flatMap((id) => [
+        getUserOrgRole(h.db, id, h.sharedOrg.id),
+        getUserDriveRole(h.db, id, ledger.id),
+      ]);
+
+    const ambiguous = await h.call(
+      "member-invite",
+      { email: "TWIN@example.com", role: "admin", drives: [{ driveId: ledger.id, role: "admin" }] },
+      h.admin
+    );
+    expect(ambiguous.result.isError).toBe(true);
+    expect(ambiguous.body.error).toContain("accounts match");
+    expect(writes()).toEqual([null, null, null, null]);
+
+    for (const u of [upper, lower]) {
+      const invited = await h.call("member-invite", { email: u.email, role: "viewer", drives: [] }, h.admin);
+      expect(invited.body.invited).toBe(u.email);
+    }
+
+    const ambiguousAdd = await h.call("member-add", { email: "TWIN@example.com", driveId: ledger.id, role: "admin" }, h.admin);
+    expect(ambiguousAdd.result.isError).toBe(true);
+    expect(ambiguousAdd.body.error).toContain("accounts match");
+    expect(getUserDriveRole(h.db, upper.id, ledger.id)).toBeNull();
+    expect(getUserDriveRole(h.db, lower.id, ledger.id)).toBeNull();
+
+    const added = await h.call("member-add", { email: "twin@example.com", driveId: ledger.id, role: "admin" }, h.admin);
+    expect(added.body.userId).toBe(lower.id);
+    expect(getUserDriveRole(h.db, upper.id, ledger.id)).toBeNull();
+  });
+
   test("drive-scoped tools reject driveIds outside the active org", async () => {
     const h = createIdentityHarness();
 

@@ -630,6 +630,49 @@ describe("Multi-tenant RBAC", () => {
     expect(afterLeave.myRole).toBeNull();
   });
 
+  test("case-variant emails: exact input wins, an ambiguous casing writes nothing", async () => {
+    const post = (key: string, path: string, body: unknown) =>
+      keyReq(key, path, { method: "POST", body: JSON.stringify(body) });
+    const driveRes = await post(ownerKey, `/orgs/${tenantOrgId}/drives`, { name: "twin-work" });
+    expect(driveRes.status).toBe(201);
+    const workId = (await driveRes.json()).id as string;
+    const upper = await register("RBAC-Twin@example.com");
+    const lower = await register("rbac-twin@example.com");
+    const invitePath = `/orgs/${tenantOrgId}/members/invite`;
+    const addPath = `/orgs/${tenantOrgId}/drives/${workId}/members`;
+    const orgMemberIds = async () =>
+      (await (await keyReq(ownerKey, `/orgs/${tenantOrgId}/members`)).json()).members.map((m: any) => m.userId);
+    const driveMemberIds = async () =>
+      (await (await keyReq(ownerKey, addPath)).json()).members.map((m: any) => m.userId);
+
+    const ambiguousInvite = await post(ownerKey, invitePath, {
+      email: "Rbac-Twin@example.com", role: "admin", drives: [{ driveId: workId, role: "admin" }],
+    });
+    expect(ambiguousInvite.status).toBe(400);
+    expect((await ambiguousInvite.json()).field).toBe("email");
+    expect(await orgMemberIds()).not.toEqual(expect.arrayContaining([upper.userId]));
+    expect(await orgMemberIds()).not.toEqual(expect.arrayContaining([lower.userId]));
+
+    const exactInvite = await post(ownerKey, invitePath, { email: "rbac-twin@example.com", role: "viewer", drives: [] });
+    expect((await exactInvite.json()).userId).toBe(lower.userId);
+    expect(await orgMemberIds()).not.toEqual(expect.arrayContaining([upper.userId]));
+
+    // One twin in the org: the ambiguous casing is the uniform 404.
+    const hidden = await post(ownerKey, addPath, { email: "Rbac-Twin@example.com", role: "admin" });
+    expect(hidden.status).toBe(404);
+    expect((await hidden.json()).message).toBe("Not a member of this org");
+
+    expect((await post(ownerKey, invitePath, { email: "RBAC-Twin@example.com", role: "viewer", drives: [] })).status).toBe(200);
+    const before = await driveMemberIds();
+    expect((await post(ownerKey, addPath, { email: "Rbac-Twin@example.com", role: "admin" })).status).toBe(400);
+    expect(await driveMemberIds()).toEqual(before);
+
+    const exactAdd = await post(ownerKey, addPath, { email: "RBAC-Twin@example.com", role: "editor" });
+    expect(exactAdd.status).toBe(201);
+    expect((await exactAdd.json()).userId).toBe(upper.userId);
+    expect(await driveMemberIds()).not.toEqual(expect.arrayContaining([lower.userId]));
+  });
+
   test("inaccessible drive is indistinguishable from a missing drive on ops (404)", async () => {
     // Owner creates a drive the viewer has no membership row on
     const createRes = await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives`, {
