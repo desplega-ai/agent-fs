@@ -292,7 +292,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
           toast("The text this comment pointed to is no longer in the file")
           return
         }
-        const blocks = domSpace.blocksFor(resolved.start, resolved.end)
+        const blocks = domSpace.blocksFor(resolved.start, resolved.end, resolved)
         const target = blocks[0] ?? domSpace.toRange(resolved.start, resolved.end)?.startContainer.parentElement
         target?.scrollIntoView({ behavior: scrollBehavior(), block: "center" })
         flashBlocks(blocks, "flash-comment-highlight", 2000)
@@ -360,7 +360,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
       groups[r.status === "moved" ? "comment-anchor-moved" : "comment-anchor"].push(range)
       if (hovered?.id === id || active === id) groups["comment-anchor-active"].push(range)
       if (!supportsHighlights) {
-        for (const el of domSpace.blocksFor(r.start, r.end)) {
+        for (const el of domSpace.blocksFor(r.start, r.end, r)) {
           el.classList.add("comment-indicator")
           marked.push(el)
         }
@@ -377,7 +377,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
 
     const pulse = hovered?.source === "card" ? anchors.get(hovered.id) : undefined
     const pulseTimer = pulse?.start != null && pulse.end != null
-      ? flashBlocks(domSpace.blocksFor(pulse.start, pulse.end), "comment-pulse", 900)
+      ? flashBlocks(domSpace.blocksFor(pulse.start, pulse.end, pulse), "comment-pulse", 900)
       : undefined
 
     return () => {

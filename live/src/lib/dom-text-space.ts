@@ -15,7 +15,7 @@ export interface DomTextSpace extends TextSpace {
   /** Text offset of a DOM boundary point (e.g. a Selection range edge). */
   pointToOffset(node: Node, offset: number): number | null
   /** Blocks (elements carrying source lines) intersecting [start, end). */
-  blocksFor(start: number, end: number): HTMLElement[]
+  blocksFor(start: number, end: number, lines?: { lineStart?: number; lineEnd?: number }): HTMLElement[]
 }
 
 const BLOCK_TAGS = new Set([
@@ -139,7 +139,16 @@ export function buildDomTextSpace(root: HTMLElement): DomTextSpace {
       const hits = innermost(blocks.filter((bl) => bl.start <= offset && offset < bl.end))
       return hits.length ? hits[0].lineStart : null
     },
-    blocksFor(start, end) {
+    blocksFor(start, end, lines) {
+      // Diagrams and images have source lines but no document text. Their
+      // collapsed offsets can coincide, so use the resolved lines to pick one.
+      if (start === end && lines?.lineStart != null) {
+        const lineStart = lines.lineStart
+        const lineEnd = lines.lineEnd ?? lineStart
+        const targets = blocks.filter((bl) => bl.start === start && bl.end === end
+          && bl.lineStart <= lineEnd && bl.lineEnd >= lineStart)
+        if (targets.length) return innermost(targets).map((b) => b.el)
+      }
       return innermost(blocks.filter((bl) => bl.start < Math.max(end, start + 1) && bl.end > start)).map((b) => b.el)
     },
   }
