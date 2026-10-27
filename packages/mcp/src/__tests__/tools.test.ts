@@ -414,6 +414,17 @@ describe("member tool RBAC", () => {
     expect(getUserDriveRole(h.db, h.outsider.id, h.sharedDriveId)).toBeNull();
   });
 
+  test("member-invite reports the org role an existing admin keeps, not the one asked for", async () => {
+    const h = createIdentityHarness();
+    const { result, body } = await h.call(
+      "member-invite",
+      { email: h.admin.email, role: "viewer", drives: [] },
+      h.admin
+    );
+    expect(result.isError).toBeUndefined();
+    expect(body).toMatchObject({ status: "added", role: "admin" });
+  });
+
   test("member-add: drive admin adds an org member; non-admins and non-members fail", async () => {
     const h = createIdentityHarness();
     const ledger = createDrive(h.db, { orgId: h.sharedOrg.id, name: "ledger", creatorUserId: h.admin.id });

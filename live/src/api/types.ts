@@ -376,6 +376,8 @@ export interface InviteAddedResult {
   status: "added"
   userId: string
   email: string
+  /** Absent on servers that predate it. */
+  orgRole?: MemberRole
   drives: DriveGrant[]
 }
 

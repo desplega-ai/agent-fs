@@ -208,7 +208,7 @@ export function registerIdentityTools(
 
   server.tool(
     "member-invite",
-    "Invite a user to the current org by email (requires org admin). An email with an account is added at once (status 'added'). An email without one gets a pending invite (status 'pending') with an acceptUrl (or token) valid 7 days: give it to the person, who registers that email and accepts it; this tool sends nothing. Pass drives to grant exactly those drives, each with its own role; omit drives to grant only the org's default drive with the org role; pass [] for org membership without drive access.",
+    "Invite a user to the current org by email (requires org admin). An email with an account is added at once (status 'added'); grants only raise, so the returned role and drives are what they hold afterwards, never lower than before (use member-update-role to lower one). An email without one gets a pending invite (status 'pending') with an acceptUrl (or token) valid 7 days: give it to the person, who registers that email and accepts it; this tool sends nothing. Pass drives to grant exactly those drives, each with its own role; omit drives to grant only the org's default drive with the org role; pass [] for org membership without drive access.",
     {
       email: z.string().describe("Email of the user to invite"),
       role: z.enum(["viewer", "editor", "admin"]).describe("Org role to assign"),
@@ -249,7 +249,7 @@ export function registerIdentityTools(
                 acceptUrl: inviteAcceptUrl(ctx.appUrl, result.token),
                 expiresAt: result.expiresAt,
               }
-            : { ok: true, status: result.status, invited: result.email, role: params.role, drives: result.drives };
+            : { ok: true, status: result.status, invited: result.email, role: result.orgRole, drives: result.drives };
         return {
           content: [{ type: "text" as const, text: JSON.stringify(body, null, 2) }],
         };
@@ -310,7 +310,7 @@ export function registerIdentityTools(
 
   server.tool(
     "member-add",
-    "Add an existing member of the current org to a drive in the current org, or change their role there (requires drive admin or org admin). To bring in someone outside the org, use member-invite.",
+    "Add an existing member of the current org to a drive in the current org, (requires drive admin or org admin). Grants only raise: a role they already hold on the drive is never lowered, and the result carries the role they end up with. To lower a role, use member-update-role. To bring in someone outside the org, use member-invite.",
     {
       email: z.string().describe("Email of an existing org member"),
       driveId: z.string().describe("Drive ID in the current org"),

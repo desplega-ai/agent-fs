@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test:uploads": "bun test src/stores/__tests__/upload.test.ts src/lib/__tests__/upload-limit.test.ts",
+    "test:invites": "bun test src/hooks/__tests__/invites-availability.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

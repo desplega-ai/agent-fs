@@ -288,7 +288,7 @@ Stars follow files: `mv` moves every user's star on the file to the new path, `r
 | `member invite` | `agent-fs member invite <email> --role <role> [--to <drive>[:<role>]]...` | Invite someone to the org. Without `--to`: the default drive with `--role`. With `--to`: exactly the listed drives (id or name), each with its own role (defaults to `--role`). An email with an account is added at once; one without gets a pending invite and the command prints an accept link to send them. |
 | `member invites` | `agent-fs member invites` | List pending invites (id, email, drives, expiry; org admin only) |
 | `member invite-revoke` | `agent-fs member invite-revoke <id>` | Revoke a pending invite so its link stops working (org admin only) |
-| `member add` | `agent-fs --drive <id-or-name> member add <email> --role <role>` | Give an existing org member access to a drive, or change their role there |
+| `member add` | `agent-fs --drive <id-or-name> member add <email> --role <role>` | Give an existing org member access to a drive. Raise-only: a role they already hold is never lowered, and the command prints the role they end up with. To lower it, use `member update-role --drive <id>` |
 | `member update-role` | `agent-fs member update-role <email> --role <role>` | Update org role (use `--drive <id>` for drive role) |
 | `member remove` | `agent-fs member remove <email>` | Remove from org (use `--drive <id>` for drive only) |
 | `member reset-key` | `agent-fs member reset-key <email>` | Reset a member's API key (org admin only). The old key stops working immediately. |

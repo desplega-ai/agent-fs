@@ -711,6 +711,7 @@ describe("drive-aware invites", () => {
       status: "added",
       userId: t.peerId,
       email: "inv-default-peer@example.com",
+      orgRole: "editor",
       drives: [{ driveId: t.defaultId, role: "editor" }],
     });
     expect(listDrivesForUser(db, t.orgId, t.peerId).map((d) => d.id)).toEqual([t.defaultId]);

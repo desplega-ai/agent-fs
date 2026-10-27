@@ -232,6 +232,8 @@ export interface AddedInviteResult {
   status: "added";
   userId: string;
   email: string;
+  /** The org role they hold afterwards: grants only raise, so this can exceed the requested one. */
+  orgRole: MemberRole;
   drives: DriveGrant[];
 }
 
@@ -287,7 +289,7 @@ export function inviteToOrg(
   // below what they have, whatever a stale client read told the admin. The
   // result reports the roles they hold afterwards.
   const effective = db.transaction((tx) => {
-    grantOrgRole(tx, { orgId: params.orgId, userId: user.id, role: params.role });
+    const orgRole = grantOrgRole(tx, { orgId: params.orgId, userId: user.id, role: params.role });
     const held = grants.map((grant) => ({
       driveId: grant.driveId,
       role: grantDriveRole(tx, { driveId: grant.driveId, userId: user.id, role: grant.role }).role,
@@ -296,10 +298,10 @@ export function inviteToOrg(
     // The person registered after an earlier pending invite: this direct add
     // supersedes it, so the old link stops working.
     revokeOpenInviteForEmail(tx, params.orgId, user.email);
-    return held;
+    return { orgRole, held };
   });
 
-  return { status: "added", userId: user.id, email: user.email, drives: effective };
+  return { status: "added", userId: user.id, email: user.email, orgRole: effective.orgRole, drives: effective.held };
 }
 
 /** Validate and dedupe drive grants, or pick the default drive when omitted. */

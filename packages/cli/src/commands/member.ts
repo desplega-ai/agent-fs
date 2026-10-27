@@ -113,7 +113,8 @@ export function memberCommands(
           return;
         }
         const verb = result.created ? "Added" : "Updated";
-        console.log(`${verb} ${email} on drive ${drive.name} as ${opts.role}`);
+        // Grants only raise: report the role the server says they hold now.
+        console.log(`${verb} ${email} on drive ${drive.name} as ${result.role ?? opts.role}`);
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
         process.exit(1);
@@ -353,6 +354,8 @@ type PendingInvite = {
 /** Servers older than drive-invites return no status and no drive list. */
 export type InviteResponse = {
   status?: "added" | "pending";
+  /** Added only: the org role held afterwards. Absent on older servers. */
+  orgRole?: string;
   drives?: Grant[];
   token?: string;
   acceptUrl?: string;
@@ -387,7 +390,8 @@ export function printInviteResult(
     if (result.expiresAt) console.log(`  Expires: ${new Date(result.expiresAt).toISOString()}`);
     console.log(`  Grants once accepted, org role ${role}:`);
   } else {
-    console.log(`Invited ${email} as ${role}`);
+    // Grants only raise: report the org role they hold now, not the one asked for.
+    console.log(`Invited ${email} as ${result.orgRole ?? role}`);
   }
   if (!result.drives) return;
   if (result.drives.length === 0) {

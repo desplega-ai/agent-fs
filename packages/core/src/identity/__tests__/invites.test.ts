@@ -305,6 +305,7 @@ describe("grants never lower an existing role", () => {
     expect(getUserDriveRole(db, t.peerId, t.workId)).toBe("admin");
     expect(getUserDriveRole(db, t.peerId, t.ledgerId)).toBe("editor");
     if (result.status !== "added") throw new Error("expected added");
+    expect(result.orgRole).toBe("admin");
     expect(result.drives).toEqual([
       { driveId: t.workId, role: "admin" },
       { driveId: t.ledgerId, role: "editor" },
