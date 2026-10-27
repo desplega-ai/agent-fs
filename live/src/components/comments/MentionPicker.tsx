@@ -123,11 +123,14 @@ export function useMentionPicker({
       >
         {candidates.map((member, index) => {
           const label = mentionLabel(member)
+          // Agent identities can use a UUID as the email local part (or the whole value).
+          const uuidEmail = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:@|$)/i.test(member.email)
           return (
             <li
               key={member.userId}
               id={optionId(index)}
               role="option"
+              title={member.email}
               aria-selected={index === active}
               // Keep focus (and the caret) in the textarea.
               onMouseDown={(e) => e.preventDefault()}
@@ -139,10 +142,12 @@ export function useMentionPicker({
               )}
             >
               <UserAvatar userId={member.userId} displayName={member.displayName ?? undefined} />
-              <span className="truncate">{label}</span>
-              {label !== member.email && (
-                <span className="ml-auto truncate text-xs text-muted-foreground">{member.email}</span>
-              )}
+              <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+                <span className="max-w-full shrink-0 truncate">{label}</span>
+                {label !== member.email && !uuidEmail && (
+                  <span className="ml-auto min-w-0 truncate pl-2 text-xs text-muted-foreground">{member.email}</span>
+                )}
+              </div>
             </li>
           )
         })}
