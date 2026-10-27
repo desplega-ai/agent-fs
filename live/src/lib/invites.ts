@@ -23,20 +23,27 @@ export function supportsInvites(health?: HealthResponse): boolean {
 }
 
 /**
- * Whether invite controls may show. A failed refetch keeps the last good
- * response in `data`, so the query's own status decides: only a health check
- * that currently succeeds counts.
+ * Whether invite controls may show: only while the health check has succeeded
+ * and is not being refreshed. A refetch keeps the last good response in
+ * `data` (and a pending one keeps `isSuccess` true), so the cached features
+ * say nothing about whether the server is up right now. Controls come back
+ * when the refresh settles.
  */
-export function invitesAvailable(query: { isSuccess: boolean; data?: HealthResponse }): boolean {
-  return query.isSuccess && supportsInvites(query.data)
+export function invitesAvailable(query: { isSuccess: boolean; isFetching: boolean; data?: HealthResponse }): boolean {
+  return query.isSuccess && !query.isFetching && supportsInvites(query.data)
 }
+
+const LEGACY_INVITE_PATH = /\/invite\/[^/]+\/?$/
 
 /**
  * The link the admin sends. The accept page runs in a browser that may have no
  * saved account, so the API endpoint travels in `apiUrl`. The token rides in
  * the URL fragment, which browsers never send over HTTP, so it stays out of the
  * live host's logs and out of Referer headers. The server's own `acceptUrl`
- * wins when it has one (it knows the public address of this app).
+ * wins when it has one (it knows the public address of this app), except that
+ * a path-form link (`/invite/<token>`, which servers before the fragment form
+ * still return) is rewritten to the fragment form: the admin must never copy
+ * out a link that puts the token in a request path.
  */
 export function buildAcceptLink(opts: {
   token: string
@@ -45,6 +52,9 @@ export function buildAcceptLink(opts: {
   origin?: string
 }): string {
   const url = new URL(opts.acceptUrl ?? `${opts.origin ?? window.location.origin}/invite#${opts.token}`)
+  const pathForm = LEGACY_INVITE_PATH.test(url.pathname)
+  if (pathForm) url.pathname = url.pathname.replace(LEGACY_INVITE_PATH, "/invite")
+  if (pathForm || !url.hash) url.hash = opts.token
   url.searchParams.set("apiUrl", opts.endpoint.replace(/\/+$/, ""))
   return url.toString()
 }

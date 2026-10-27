@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test"
+import { readFileSync } from "node:fs"
+import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import {
   buildAcceptLink,
   describeTimeLeft,
@@ -37,6 +39,67 @@ describe("buildAcceptLink", () => {
       origin: "https://ignored.example.com",
     })
     expect(link).toBe(`https://app.example.com/invite?apiUrl=https%3A%2F%2Fapi.example.com#${TOKEN}`)
+  })
+
+  test("rewrites the path-form link an older server returns, so the token never rides in a request path", () => {
+    for (const acceptUrl of [`https://app.example.com/invite/${TOKEN}`, `https://app.example.com/invite/${TOKEN}/`]) {
+      const link = buildAcceptLink({ token: TOKEN, endpoint: "https://api.example.com", acceptUrl })
+      const url = new URL(link)
+      expect(url.pathname + url.search).toBe("/invite?apiUrl=https%3A%2F%2Fapi.example.com")
+      expect(url.hash).toBe(`#${TOKEN}`)
+      expect(link).not.toContain(`/invite/${TOKEN}`)
+    }
+  })
+
+  test("a path-form link under a sub-path keeps the sub-path", () => {
+    const link = buildAcceptLink({ token: TOKEN, endpoint: "https://api.example.com", acceptUrl: `https://app.example.com/live/invite/${TOKEN}` })
+    expect(new URL(link).pathname).toBe("/live/invite")
+    expect(new URL(link).hash).toBe(`#${TOKEN}`)
+  })
+})
+
+describe("the pre-module script in index.html", () => {
+  // Runs before the first asset request, so it is the only place a legacy
+  // path token can leave the address bar in time. Executed here against fakes.
+  const html = readFileSync(new URL("../../../index.html", import.meta.url), "utf8")
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)![1]
+
+  function run(pathname: string, search = "", hash = "", storageThrows = false) {
+    const store = new Map<string, string>()
+    const replaced: string[] = []
+    new Function("location", "sessionStorage", "history", script)(
+      { pathname, search, hash },
+      {
+        setItem: (k: string, v: string) => {
+          if (storageThrows) throw new Error("blocked")
+          store.set(k, v)
+        },
+      },
+      { state: null, replaceState: (_s: unknown, _t: string, url: string) => replaced.push(url) },
+    )
+    return { store, replaced }
+  }
+
+  test("moves a legacy path token into sessionStorage and off the address bar", () => {
+    const { store, replaced } = run(`/invite/${TOKEN}`, "?apiUrl=https%3A%2F%2Fapi.example.com")
+    expect(replaced).toEqual(["/invite?apiUrl=https%3A%2F%2Fapi.example.com"])
+    expect(recallInviteToken({ getItem: (k) => store.get(k) ?? null })).toBe(TOKEN)
+  })
+
+  test("a trailing slash is handled too", () => {
+    expect(run(`/invite/${TOKEN}/`).replaced).toEqual(["/invite"])
+  })
+
+  test("leaves the fragment form, other pages and blocked storage alone", () => {
+    expect(run("/invite", "?apiUrl=x", `#${TOKEN}`).replaced).toEqual([])
+    expect(run("/orgs/o/files/").replaced).toEqual([])
+    expect(run(`/invite/${TOKEN}`, "", "", true).replaced).toEqual([])
+  })
+
+  test("sets no-referrer before any resource is declared", () => {
+    const meta = html.indexOf('<meta name="referrer" content="no-referrer"')
+    expect(meta).toBeGreaterThan(-1)
+    for (const first of ["<link", "<script", '<script type="module"']) expect(html.indexOf(first)).toBeGreaterThanOrEqual(meta)
   })
 })
 
@@ -139,19 +202,57 @@ describe("splitDriveGrants", () => {
 
 describe("invitesAvailable", () => {
   const health = { ok: true, version: "1", features: ["drive-invites", "pending-invites"] }
+  const settled = { isSuccess: true, isFetching: false, data: health }
 
   test("a failed refetch keeps the old health data but hides the controls", () => {
-    expect(invitesAvailable({ isSuccess: true, data: health })).toBe(true)
+    expect(invitesAvailable(settled)).toBe(true)
     // react-query keeps `data` after a failed refetch and flips the status to error.
-    expect(invitesAvailable({ isSuccess: false, data: health })).toBe(false)
+    expect(invitesAvailable({ ...settled, isSuccess: false })).toBe(false)
+  })
+
+  test("a refresh in flight hides the controls: isSuccess stays true while it is pending", () => {
+    expect(invitesAvailable({ ...settled, isFetching: true })).toBe(false)
   })
 
   test("still loading: hidden", () => {
-    expect(invitesAvailable({ isSuccess: false, data: undefined })).toBe(false)
+    expect(invitesAvailable({ isSuccess: false, isFetching: true, data: undefined })).toBe(false)
   })
 
   test("success without the features: hidden", () => {
-    expect(invitesAvailable({ isSuccess: true, data: { ok: true, version: "1", features: ["drive-invites"] } })).toBe(false)
+    expect(invitesAvailable({ ...settled, data: { ok: true, version: "1", features: ["drive-invites"] } })).toBe(false)
+  })
+
+  test("follows a real query through a held refresh, a failed one and a recovery", async () => {
+    const client = new QueryClient()
+    let release!: (value: typeof health) => void
+    let next: Promise<typeof health> = Promise.resolve(health)
+    const observer = new QueryObserver(client, { queryKey: ["health"], queryFn: () => next, staleTime: 0, retry: false })
+    const unsubscribe = observer.subscribe(() => {})
+    const available = () => invitesAvailable(observer.getCurrentResult())
+
+    await observer.refetch()
+    expect(available()).toBe(true)
+
+    // Hold the refresh pending: cached data is still there, isSuccess is still true.
+    next = new Promise((resolve) => (release = resolve))
+    const held = observer.refetch()
+    const during = observer.getCurrentResult()
+    expect(during.isSuccess).toBe(true)
+    expect(during.data).toEqual(health)
+    expect(available()).toBe(false)
+    release(health)
+    await held
+    expect(available()).toBe(true)
+
+    next = Promise.reject(new Error("down"))
+    await observer.refetch()
+    expect(available()).toBe(false)
+
+    next = Promise.resolve(health)
+    await observer.refetch()
+    expect(available()).toBe(true)
+    unsubscribe()
+    client.clear()
   })
 })
 

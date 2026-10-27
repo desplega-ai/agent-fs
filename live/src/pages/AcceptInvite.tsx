@@ -12,7 +12,6 @@ import { forgetInviteToken, formatExpiry, inviteTokenFromUrl, recallInviteToken,
 import { getActiveCredential, getCredentials, saveCredential, setActiveCredential, type Credential } from "@/stores/credentials"
 import { toast } from "@/stores/toast"
 import { useDocumentTitle } from "@/hooks/use-document-title"
-import { useNoReferrer } from "@/hooks/use-no-referrer"
 import type { AcceptInviteResult, InvitePreview, MeResponse } from "@/api/types"
 
 const trimEndpoint = (endpoint: string) => endpoint.trim().replace(/\/+$/, "")
@@ -61,7 +60,6 @@ function Frame({ title, children }: { title: string; children: ReactNode }) {
  */
 export function AcceptInvitePage() {
   useDocumentTitle("Accept invite")
-  useNoReferrer()
   const pathToken = useParams().token
   const { hash } = useLocation()
   const urlToken = inviteTokenFromUrl(pathToken, hash)

@@ -452,6 +452,93 @@ test("invite controls hide when health stops answering, even though the last ans
   await expect(invitePeople).toBeVisible()
 })
 
+test("invite controls hide while a health refresh is held pending, and come back when it settles", async ({ page }) => {
+  const server = new InviteFixture()
+  seedInvite(server, "later@example.test", "J".repeat(43))
+  await page.clock.install()
+  await server.signIn(page, "admin-key")
+  await server.install(page)
+  await page.goto("/members/~/org/work")
+  const invitePeople = page.getByRole("button", { name: "Invite people" })
+  await expect(invitePeople).toBeVisible()
+  await expect(page.getByRole("list", { name: "Pending invites" })).toBeVisible()
+
+  // The refresh answers fine, but only after we say so. Until then the cached success is not evidence.
+  let release!: () => void
+  server.healthHold = new Promise<void>((resolve) => (release = resolve))
+  await page.clock.runFor(31_000)
+  await expect(invitePeople).toHaveCount(0)
+  await expect(page.getByRole("list", { name: "Pending invites" })).toHaveCount(0)
+  await expect(page.locator("[data-org-switcher]")).toHaveCount(0)
+
+  server.healthHold = null
+  release()
+  await expect(invitePeople).toBeVisible()
+  await expect(page.locator("[data-org-switcher]")).toBeVisible()
+})
+
+test("an older server's path-form accept link is shown in the fragment form", async ({ page }) => {
+  const server = new InviteFixture()
+  server.legacyAcceptUrl = true
+  await server.signIn(page, "admin-key")
+  await server.install(page)
+
+  const dialog = await openInviteDialog(page, "work")
+  await dialog.getByLabel("Who").fill("new@example.test")
+  await dialog.getByRole("button", { name: "Invite", exact: true }).click()
+  const link = await acceptLinkFrom(page)
+  const url = new URL(link)
+  expect(url.pathname).toBe("/invite")
+  expect(link).not.toContain(`/invite/${tokenOf(link)}`)
+})
+
+test("a role granted between the fresh member read and the invite write survives it", async ({ page }) => {
+  const server = new InviteFixture()
+  const joiner = server.register("joiner@example.test")
+  await server.signIn(page, "admin-key")
+  await server.install(page)
+
+  const dialog = await openInviteDialog(page, "work")
+  await dialog.getByLabel("Who").fill("joiner@example.test")
+  await expect(dialog.getByText("Checking who is already in the org...")).toHaveCount(0)
+  // Another admin makes them an org and work admin after the dialog's last read, before our write.
+  server.afterRead = (path) => {
+    if (path !== "/orgs/org/members") return
+    server.orgMembers.set(joiner.id, "admin")
+    server.driveMembers.work.set(joiner.id, "admin")
+  }
+  await dialog.getByRole("button", { name: "Invite", exact: true }).click()
+  // The reply carries the role the server kept, and the dialog reports that one.
+  await expect(dialog.getByText("Added joiner@example.test")).toBeVisible()
+  await expect(dialog.getByText("Drives: work (admin).")).toBeVisible()
+
+  expect(server.calls).toEqual(["invite joiner@example.test viewer work:viewer"])
+  expect(server.orgMembers.get(joiner.id)).toBe("admin")
+  expect(server.driveMembers.work.get(joiner.id)).toBe("admin")
+})
+
+test("a drive role granted between the fresh drive read and the add write survives it", async ({ page }) => {
+  const server = new InviteFixture()
+  const ana = server.userByEmail("ana@example.test")!
+  await server.signIn(page, "admin-key")
+  await server.install(page)
+
+  const dialog = await openInviteDialog(page, "work")
+  await dialog.getByLabel("Who").fill("ana@example.test")
+  await expect(dialog.getByRole("status")).toContainText("ana@example.test is already in the org as editor")
+  await dialog.getByRole("checkbox", { name: "ledger" }).check()
+  const add = dialog.getByRole("button", { name: "Add to drives" })
+  await expect(add).toBeEnabled()
+  server.afterRead = (path) => {
+    if (path === "/orgs/org/drives/ledger/members") server.driveMembers.ledger.set(ana.id, "admin")
+  }
+  await add.click()
+  await expect.poll(() => server.calls.length).toBeGreaterThan(0)
+
+  expect(server.calls).toEqual(["add ledger ana@example.test viewer"])
+  expect(server.driveMembers.ledger.get(ana.id)).toBe("admin")
+})
+
 test("the accept page names the server before anything is registered", async ({ page }) => {
   const server = new InviteFixture()
   seedInvite(server, "new@example.test", "S".repeat(43))
@@ -490,18 +577,64 @@ test("the accept token stays out of every request to the live host and out of th
   await expect(page.getByRole("heading", { name: "Join QA org" })).toBeVisible()
 })
 
-test("a link issued before the fragment form still works and loses its token from the address bar", async ({ page }) => {
+/**
+ * A request that tells the live host something about the invite page: the token in its
+ * address, or a Referer that is the page itself. Font files fetched from inside a stylesheet
+ * carry that stylesheet's address (/assets/...), which names no page and holds no token.
+ */
+function leaksInvite(r: { url: string; referer: string }, token: string, live: string): boolean {
+  return r.url.includes(token) || (r.referer !== "" && (r.referer.includes(token) || !r.referer.startsWith(`${live}/assets/`)))
+}
+
+/** Every request the page makes, with the Referer it sent. */
+function recordRequests(page: Page) {
+  const seen: { url: string; referer: string; isDocument: boolean }[] = []
+  page.on("request", (request) =>
+    seen.push({ url: request.url(), referer: request.headers()["referer"] ?? "", isDocument: request.resourceType() === "document" }),
+  )
+  return seen
+}
+
+test("a link issued before the fragment form still works, and no asset request carries its token", async ({ page }) => {
   const server = new InviteFixture()
   const token = "O".repeat(43)
   seedInvite(server, "new@example.test", token)
+  const seen = recordRequests(page)
   await server.install(page)
   await page.goto(`/invite/${token}?apiUrl=${encodeURIComponent(ENDPOINT)}`)
 
   await expect(page.getByRole("heading", { name: "Join QA org" })).toBeVisible()
   await expect(page).toHaveURL(new RegExp(`/invite\\?apiUrl=`))
   expect(page.url()).not.toContain(token)
+
+  // The document request itself had the token in its path (the link was issued that way and the
+  // server cannot undo that). Everything after it, assets included, must not: the inline script
+  // in index.html moves the token out of the address bar, and the static no-referrer policy
+  // keeps the old address out of every Referer.
+  const live = new URL(page.url()).origin
+  const toLive = seen.filter((r) => r.url.startsWith(live))
+  const assets = toLive.filter((r) => !r.isDocument)
+  expect(toLive.filter((r) => r.isDocument).length).toBe(1)
+  expect(assets.length).toBeGreaterThan(0) // control: assets did load
+  expect(assets.filter((r) => leaksInvite(r, token, live))).toEqual([])
+
   await page.getByRole("button", { name: "Create account and accept" }).click()
   await expect(page).toHaveURL(/\/file\/~\/org\/ledger\/$/)
+})
+
+test("the fragment form: no request to the live host, assets included, has the token or a page Referer", async ({ page }) => {
+  const server = new InviteFixture()
+  const token = "F".repeat(43)
+  seedInvite(server, "new@example.test", token)
+  const seen = recordRequests(page)
+  await server.install(page)
+  await page.goto(fragmentLink(token))
+  await expect(page.getByRole("heading", { name: "Join QA org" })).toBeVisible()
+
+  const live = new URL(page.url()).origin
+  const toLive = seen.filter((r) => r.url.startsWith(live))
+  expect(toLive.filter((r) => !r.isDocument).length).toBeGreaterThan(0)
+  expect(toLive.filter((r) => leaksInvite(r, token, live))).toEqual([])
 })
 
 test("opening the accept page with no token says so instead of guessing", async ({ page }) => {

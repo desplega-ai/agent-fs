@@ -17,6 +17,13 @@ type Invite = {
   accepted: boolean
 }
 
+const RANK: Record<Role, number> = { viewer: 0, editor: 1, admin: 2 }
+
+/** What the real server does on invite and drive-add: raise a role, never lower one. */
+function raised(current: Role | undefined, incoming: Role): Role {
+  return current && RANK[current] >= RANK[incoming] ? current : incoming
+}
+
 export const DRIVES = [
   { id: "work", name: "work", isDefault: true },
   { id: "context", name: "context", isDefault: false },
@@ -44,6 +51,12 @@ export class InviteFixture {
   readonly calls: string[] = []
   /** Fault injection: what the server does to the reads the dialog depends on. */
   healthDown = false
+  /** While set, /health does not answer until it resolves: a refresh held pending. */
+  healthHold: Promise<void> | null = null
+  /** Older servers return the accept link in the path form, /invite/<token>. */
+  legacyAcceptUrl = false
+  /** Runs right after a read is answered: lets a test change the data before the write that follows. */
+  afterRead: ((path: string) => void) | null = null
   membersDelayMs = 0
   membersFail = false
   manageableFail = false
@@ -111,6 +124,7 @@ export class InviteFixture {
     const gone = () => json({ error: "NOT_FOUND", message: "Invite not found or no longer valid" }, 404)
 
     if (path === "/health") {
+      if (this.healthHold) await this.healthHold
       if (this.healthDown) return json({ error: "UNAVAILABLE", message: "down" }, 503)
       return json({ ok: true, version: "test", features: ["drive-members", "drive-invites", "pending-invites"] })
     }
@@ -188,9 +202,11 @@ export class InviteFixture {
       if (!isOrgAdmin) return forbidden()
       if (this.membersDelayMs) await new Promise((resolve) => setTimeout(resolve, this.membersDelayMs))
       if (this.membersFail) return json({ error: "INTERNAL", message: "Member list unavailable" }, 500)
-      return json({
+      const answered = json({
         members: [...this.orgMembers].map(([id, role]) => ({ userId: id, email: this.users.get(id)!.email, role })),
       })
+      this.afterRead?.(path)
+      return answered
     }
 
     if (path === "/orgs/org/members/invite" && method === "POST") {
@@ -200,9 +216,13 @@ export class InviteFixture {
       this.calls.push(`invite ${email} ${body.role} ${body.drives.map((g) => `${g.driveId}:${g.role}`).join(",")}`)
       const existing = this.userByEmail(email)
       if (existing) {
-        this.orgMembers.set(existing.id, body.role)
-        for (const g of body.drives) this.driveMembers[g.driveId].set(existing.id, g.role)
-        return json({ ok: true, status: "added", userId: existing.id, email, drives: body.drives })
+        this.orgMembers.set(existing.id, raised(this.orgMembers.get(existing.id), body.role))
+        const held = body.drives.map((g) => ({
+          driveId: g.driveId,
+          role: raised(this.driveMembers[g.driveId].get(existing.id), g.role),
+        }))
+        for (const g of held) this.driveMembers[g.driveId].set(existing.id, g.role)
+        return json({ ok: true, status: "added", userId: existing.id, email, drives: held })
       }
       for (const prior of this.invites) if (prior.email === email && !prior.accepted) prior.revoked = true
       const invite: Invite = {
@@ -225,6 +245,7 @@ export class InviteFixture {
         token: invite.token,
         expiresAt: invite.expiresAt.toISOString(),
         drives: invite.drives,
+        ...(this.legacyAcceptUrl ? { acceptUrl: `${req.headers()["origin"]}/invite/${invite.token}` } : {}),
       })
     }
 
@@ -261,7 +282,9 @@ export class InviteFixture {
       const drive = this.driveMembers[driveId]
       if (!isOrgAdmin && drive.get(user.id) !== "admin") return forbidden()
       if (method === "GET") {
-        return json({ members: [...drive].map(([id, role]) => ({ userId: id, email: this.users.get(id)!.email, role })) })
+        const answered = json({ members: [...drive].map(([id, role]) => ({ userId: id, email: this.users.get(id)!.email, role })) })
+        this.afterRead?.(path)
+        return answered
       }
       if (method === "POST") {
         const { email, role } = req.postDataJSON()
@@ -269,8 +292,9 @@ export class InviteFixture {
         if (!target || !this.orgMembers.has(target.id)) return json({ error: "NOT_FOUND", message: "Not a member of this org" }, 404)
         this.calls.push(`add ${driveId} ${target.email} ${role}`)
         const created = !drive.has(target.id)
-        drive.set(target.id, role)
-        return json({ userId: target.id, email: target.email, driveId, role, created }, created ? 201 : 200)
+        const held = raised(drive.get(target.id), role)
+        drive.set(target.id, held)
+        return json({ userId: target.id, email: target.email, driveId, role: held, created }, created ? 201 : 200)
       }
     }
 

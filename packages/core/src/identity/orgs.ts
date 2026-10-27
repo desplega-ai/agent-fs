@@ -2,7 +2,8 @@ import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { NotFoundError, ValidationError } from "../errors.js";
-import { createDrive, setDriveMember } from "./drives.js";
+import { createDrive } from "./drives.js";
+import { grantDriveRole, grantOrgRole } from "./grants.js";
 import { assertDriveInOrg, getUserDriveRole, getUserOrgRole } from "./rbac.js";
 import { createPendingInvite, revokeOpenInviteForEmail } from "./invites.js";
 import { ambiguousEmailError, resolveUserByEmail } from "./users.js";
@@ -282,31 +283,23 @@ export function inviteToOrg(
     });
   }
 
-  db.transaction((tx) => {
-    tx.insert(schema.orgMembers)
-      .values({ orgId: params.orgId, userId: user.id, role: params.role })
-      .onConflictDoUpdate({
-        target: [schema.orgMembers.orgId, schema.orgMembers.userId],
-        set: { role: params.role },
-      })
-      .run();
-
-    for (const grant of grants) {
-      tx.insert(schema.driveMembers)
-        .values({ driveId: grant.driveId, userId: user.id, role: grant.role })
-        .onConflictDoUpdate({
-          target: [schema.driveMembers.driveId, schema.driveMembers.userId],
-          set: { role: grant.role },
-        })
-        .run();
-    }
+  // Grants only raise: an existing member's org and drive roles never drop
+  // below what they have, whatever a stale client read told the admin. The
+  // result reports the roles they hold afterwards.
+  const effective = db.transaction((tx) => {
+    grantOrgRole(tx, { orgId: params.orgId, userId: user.id, role: params.role });
+    const held = grants.map((grant) => ({
+      driveId: grant.driveId,
+      role: grantDriveRole(tx, { driveId: grant.driveId, userId: user.id, role: grant.role }).role,
+    }));
 
     // The person registered after an earlier pending invite: this direct add
     // supersedes it, so the old link stops working.
     revokeOpenInviteForEmail(tx, params.orgId, user.email);
+    return held;
   });
 
-  return { status: "added", userId: user.id, email: user.email, drives: grants };
+  return { status: "added", userId: user.id, email: user.email, drives: effective };
 }
 
 /** Validate and dedupe drive grants, or pick the default drive when omitted. */
@@ -332,7 +325,9 @@ function resolveInviteGrants(
 }
 
 /**
- * Grant an existing org member access to one drive (upsert). Unknown emails
+ * Grant an existing org member access to one drive. A role they already hold
+ * on the drive is never lowered (the result carries the role they end up with);
+ * lowering one is `updateDriveMemberRole`, which guards the last admin. Unknown emails
  * and accounts outside the org get the same 404, so drive admins cannot use
  * this to probe which accounts exist.
  */
@@ -372,7 +367,9 @@ export function addDriveMember(
     });
   }
 
-  const created = getUserDriveRole(db, user.id, params.driveId) === null;
-  setDriveMember(db, { driveId: params.driveId, userId: user.id, role: params.role });
-  return { userId: user.id, email: user.email, driveId: params.driveId, role: params.role, created };
+  const userId = user.id;
+  const { role, created } = db.transaction((tx) =>
+    grantDriveRole(tx, { driveId: params.driveId, userId, role: params.role })
+  );
+  return { userId, email: user.email, driveId: params.driveId, role, created };
 }
