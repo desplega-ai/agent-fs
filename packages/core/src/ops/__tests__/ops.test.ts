@@ -196,6 +196,23 @@ describe.skipIf(SKIP)("ls", () => {
     expect(names).toContain("b.txt");
     expect(names).toContain("sub");
   });
+
+  test("ls drops a folder emptied by rm or mv on a versioned bucket", async () => {
+    await write(ctx, { path: "/lsgone/rm/sub/a.txt", content: "a" });
+    await write(ctx, { path: "/lsgone/mv/sub/b.txt", content: "b" });
+    await write(ctx, { path: "/lsgone/keep.txt", content: "k" });
+    await rm(ctx, { path: "/lsgone/rm/sub/a.txt" });
+    await mv(ctx, { from: "/lsgone/mv/sub/b.txt", to: "/lsgone/moved/b.txt" });
+
+    // MinIO still reports `rm/` and `mv/` as CommonPrefixes: their old
+    // versions sit behind delete markers.
+    const level = await s3.listObjects(`${ORG_ID}/drives/${DRIVE_ID}/lsgone/`, { delimiter: "/" });
+    expect(level.prefixes.map((p) => p.split("/").at(-2)).sort()).toEqual(["moved", "mv", "rm"]);
+
+    const names = (await ls(ctx, { path: "/lsgone" })).entries.map((e) => e.name).sort();
+    expect(names).toEqual(["keep.txt", "moved"]);
+    expect((await ls(ctx, { path: "/lsgone/rm" })).entries).toEqual([]);
+  });
 });
 
 describe.skipIf(SKIP)("stat", () => {

@@ -155,7 +155,7 @@ export class MockS3Client implements StorageAdapter {
 
   async listObjects(
     prefix: string,
-    options?: { delimiter?: string }
+    options?: { delimiter?: string; maxKeys?: number }
   ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
     const objects: S3Object[] = [];
     const prefixSet = new Set<string>();
@@ -180,7 +180,10 @@ export class MockS3Client implements StorageAdapter {
       });
     }
 
-    return { objects, prefixes: Array.from(prefixSet) };
+    const max = options?.maxKeys;
+    if (max === undefined) return { objects, prefixes: Array.from(prefixSet) };
+    const capped = objects.slice(0, max);
+    return { objects: capped, prefixes: Array.from(prefixSet).slice(0, max - capped.length) };
   }
 
   async headObject(key: string): Promise<HeadObjectResult> {

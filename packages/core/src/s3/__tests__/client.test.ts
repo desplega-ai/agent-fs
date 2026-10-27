@@ -188,6 +188,23 @@ describe("S3 Client", () => {
     });
   });
 
+  test("maxKeys asks for that many keys and stops after one page", async () => {
+    const { client, requests } = mockListResponses([
+      {
+        Contents: [{ Key: "docs/first.txt", Size: 1 }],
+        IsTruncated: true,
+        NextContinuationToken: "next-page",
+      },
+    ]);
+
+    const result = await client.listObjects("docs/", { maxKeys: 1 });
+
+    expect(result.objects.map((object) => object.key)).toEqual(["docs/first.txt"]);
+    expect(requests.map((request) => request.input)).toEqual([
+      { Bucket: "test-bucket", Prefix: "docs/", MaxKeys: 1 },
+    ]);
+  });
+
   test("rejects a later-page failure instead of returning a partial listing", async () => {
     const { client } = mockListResponses([
       {
@@ -248,6 +265,9 @@ describe("S3 Client", () => {
     ctx.s3 = mockListResponses([
       { CommonPrefixes: [{ Prefix: `${prefix}first/` }], IsTruncated: true, NextContinuationToken: "next" },
       { CommonPrefixes: [{ Prefix: `${prefix}later/` }], IsTruncated: false },
+      // Neither folder has a files row, so each one is checked for a current object.
+      { Contents: [{ Key: `${prefix}first/a.txt`, Size: 1 }], IsTruncated: true, NextContinuationToken: "more" },
+      { Contents: [{ Key: `${prefix}later/b.txt`, Size: 1 }], IsTruncated: false },
     ]).client;
 
     await expect(ls(ctx, {})).resolves.toEqual({

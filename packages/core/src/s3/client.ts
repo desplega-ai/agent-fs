@@ -144,7 +144,7 @@ export class AgentS3Client implements StorageAdapter {
 
   async listObjects(
     prefix: string,
-    options?: { delimiter?: string }
+    options?: { delimiter?: string; maxKeys?: number }
   ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
     const objects: S3Object[] = [];
     const prefixes: string[] = [];
@@ -158,6 +158,7 @@ export class AgentS3Client implements StorageAdapter {
           Bucket: this.bucket,
           Prefix: prefix,
           ...(options?.delimiter !== undefined && { Delimiter: options.delimiter }),
+          ...(options?.maxKeys !== undefined && { MaxKeys: options.maxKeys }),
           ...(continuationToken !== undefined && { ContinuationToken: continuationToken }),
         })
       );
@@ -177,7 +178,8 @@ export class AgentS3Client implements StorageAdapter {
         }
       }
 
-      if (!result.IsTruncated) return { objects, prefixes };
+      // A capped listing is one page: S3 never returns more than MaxKeys.
+      if (!result.IsTruncated || options?.maxKeys !== undefined) return { objects, prefixes };
 
       const nextToken = result.NextContinuationToken;
       if (!nextToken) {

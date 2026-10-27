@@ -98,9 +98,10 @@ export interface StorageAdapter {
 
   copyObject(fromKey: string, toKey: string): Promise<PutObjectResult>;
 
+  /** `maxKeys` caps the result at that many objects plus prefixes. */
   listObjects(
     prefix: string,
-    options?: { delimiter?: string },
+    options?: { delimiter?: string; maxKeys?: number },
   ): Promise<{ objects: S3Object[]; prefixes: string[] }>;
 
   headObject(key: string): Promise<HeadObjectResult>;
