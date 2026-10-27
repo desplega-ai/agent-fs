@@ -1,8 +1,10 @@
 import { useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Check, Copy, ExternalLink, Share2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { copyShareLink, DEFAULT_SHARE_EXPIRY_SECONDS, SHARE_EXPIRY_CHOICES } from "@/lib/share-link"
 import { isHtmlPath } from "@/lib/html-view"
+import { healthQueryOptions } from "@/lib/upload-limit"
 import { toast } from "@/stores/toast"
 import {
   Dialog,
@@ -47,6 +49,7 @@ function describeShare(path: string, isDir: boolean): string {
  */
 export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProps) {
   const { client, orgId, driveId } = useAuth()
+  const { data: health } = useQuery(healthQueryOptions(client))
   const [expiresIn, setExpiresIn] = useState<number>(DEFAULT_SHARE_EXPIRY_SECONDS)
   const [link, setLink] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -56,7 +59,7 @@ export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProp
   const handleCreate = async () => {
     if (!orgId || !driveId) return
     setBusy(true)
-    const next = await copyShareLink(client, orgId, driveId, path, { expiresIn })
+    const next = await copyShareLink(client, orgId, driveId, path, { expiresIn, publicUrl: health?.publicUrl })
     setBusy(false)
     if (next) setLink(next)
   }

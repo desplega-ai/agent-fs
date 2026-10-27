@@ -8,6 +8,8 @@ export interface HealthResponse {
   maxUploadBytes?: number
   /** Optional capabilities, e.g. "share-links". Absent on older servers. */
   features?: string[]
+  /** `AGENT_FS_PUBLIC_URL`, when the server sets one: the address share links live on. */
+  publicUrl?: string
 }
 
 export function uploadLimitBytes(health?: HealthResponse): number {

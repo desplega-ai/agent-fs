@@ -43,6 +43,12 @@ describe("resolveShareUrl", () => {
     expect(resolveShareUrl("https://proxy.example/agent-fs", result)).toBe("https://proxy.example/agent-fs/share/tok")
   })
 
+  test("uses the server's configured public address when it has one", () => {
+    expect(resolveShareUrl("https://docs.internal/fs", result, "https://files.example.com")).toBe("https://files.example.com/share/tok")
+    expect(resolveShareUrl("https://docs.internal/fs", result, "https://files.example.com/")).toBe("https://files.example.com/share/tok")
+    expect(resolveShareUrl("https://docs.internal/fs", { ...result, sharePath: "/site/tok/" }, "https://files.example.com")).toBe("https://files.example.com/site/tok/")
+  })
+
   test("falls back to the server's url when there is no sharePath", () => {
     expect(resolveShareUrl("https://x", { url: "https://y/share/z", sharePath: "" })).toBe("https://y/share/z")
   })

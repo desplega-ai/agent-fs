@@ -25,12 +25,18 @@ export function supportsShareLinks(health?: HealthResponse): boolean {
 }
 
 /**
- * The link the user copies. Built from the endpoint this app already talks to,
- * not from the server's own idea of its address, so it stays right behind a
- * proxy that rewrites `Host`. Falls back to the server's `url`.
+ * The link the user copies. Built from the server's configured public address
+ * (`AGENT_FS_PUBLIC_URL`, from `/health`) when it has one, since the endpoint
+ * this app talks to may be private. Otherwise from that endpoint, not from the
+ * server's own idea of its address, so it stays right behind a proxy that
+ * rewrites `Host`. Falls back to the server's `url`.
  */
-export function resolveShareUrl(endpoint: string, result: Pick<ShareCreateResult, "url" | "sharePath">): string {
-  return result.sharePath ? `${endpoint.replace(/\/+$/, "")}${result.sharePath}` : result.url
+export function resolveShareUrl(
+  endpoint: string,
+  result: Pick<ShareCreateResult, "url" | "sharePath">,
+  publicUrl?: string,
+): string {
+  return result.sharePath ? `${(publicUrl || endpoint).replace(/\/+$/, "")}${result.sharePath}` : result.url
 }
 
 export function describeExpiry(seconds: number): string {
@@ -58,10 +64,11 @@ async function mintAndCopy(
   driveId: string,
   path: string,
   expiresIn?: number,
+  publicUrl?: string,
 ): Promise<ShareCreateResult & { link: string }> {
   const request = client
     .createShare(orgId, driveId, path, expiresIn === undefined ? undefined : { expiresIn })
-    .then((result) => ({ ...result, link: resolveShareUrl(client.endpoint, result) }))
+    .then((result) => ({ ...result, link: resolveShareUrl(client.endpoint, result, publicUrl) }))
 
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
     const item = new ClipboardItem({
@@ -87,10 +94,10 @@ export async function copyShareLink(
   orgId: string,
   driveId: string,
   path: string,
-  options: { expiresIn?: number } = {},
+  options: { expiresIn?: number; publicUrl?: string } = {},
 ): Promise<string | null> {
   try {
-    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn)
+    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn, options.publicUrl)
     toast.success(result.kind === "site" ? "Site link copied" : "Share link copied", {
       description: `Anyone with the link can view it for ${describeExpiry(result.expiresIn)}`,
     })
