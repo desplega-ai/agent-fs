@@ -136,6 +136,22 @@ describe("LocalStorageAdapter", () => {
     expect(allKeys).not.toContain("_afs-blobs");
   });
 
+  test("listObjects caps objects plus prefixes at maxKeys, and drops an emptied folder", async () => {
+    await adapter.putObject(key("a.txt"), "a");
+    await adapter.putObject(key("b.txt"), "b");
+    await adapter.putObject(key("sub/c.txt"), "c");
+    await adapter.putObject(key("gone/d.txt"), "d");
+    await adapter.deleteObject(key("gone/d.txt"));
+
+    const capped = await adapter.listObjects(DRIVE_PREFIX, { delimiter: "/", maxKeys: 2 });
+    expect(capped.objects.length + capped.prefixes.length).toBe(2);
+
+    // The fs keeps `gone/` on disk, but the listing does not report it.
+    const full = await adapter.listObjects(DRIVE_PREFIX, { delimiter: "/" });
+    expect(full.prefixes).toEqual([key("sub/")]);
+    expect(await adapter.listObjects(key("gone/"), { maxKeys: 1 })).toEqual({ objects: [], prefixes: [] });
+  });
+
   test("getPresignedUrl throws UnsupportedOperation (defensive — op gate should fall back first)", async () => {
     await expect(adapter.getPresignedUrl()).rejects.toBeInstanceOf(UnsupportedOperation);
   });

@@ -3,6 +3,7 @@ import { schema } from "../db/index.js";
 import type { OpContext, LsParams, LsResult, LsEntry } from "./types.js";
 import { getS3Key } from "./versioning.js";
 import { normalizePrefix } from "./paths.js";
+import { liveFolderPrefixes } from "./path-kind.js";
 
 export async function ls(
   ctx: OpContext,
@@ -33,8 +34,8 @@ export async function ls(
 
   const entries: LsEntry[] = [];
 
-  // Add directories from S3 CommonPrefixes
-  for (const dirPrefix of prefixes) {
+  // Add directories from S3 CommonPrefixes that still hold a live file
+  for (const dirPrefix of await liveFolderPrefixes(ctx, prefixes)) {
     const dirName = dirPrefix.slice(s3Prefix.length).replace(/\/$/, "");
     if (dirName) {
       entries.push({ name: dirName, type: "directory", size: 0 });

@@ -1691,6 +1691,22 @@ async function runStandardTests(daemonUrl: string) {
     assert(names.includes("hello-moved.txt"), false, "hello-moved.txt should be gone after rm");
   });
 
+  // On the versioned MinIO bucket the emptied prefixes keep their old versions
+  // behind delete markers, and S3 still lists them as CommonPrefixes (#128).
+  await test("rm and mv drop the folders they empty from ls", () => {
+    runJson("write /e2e-emptied/rm/sub/a.txt --content x");
+    runJson("write /e2e-emptied/mv/sub/b.txt --content y");
+    runJson("rm /e2e-emptied/rm/sub/a.txt");
+    runJson("mv /e2e-emptied/mv/sub/b.txt /e2e-moved/b.txt");
+    const root = runJson("ls /").entries.map((e: any) => e.name);
+    assert(root.includes("e2e-emptied"), false, "an emptied folder should be gone from ls /");
+    assert(root.includes("e2e-moved"), true, "the mv destination folder should be listed");
+    assert(runJson("ls /e2e-emptied").entries.length, 0, "an emptied folder lists nothing");
+    runJson("rm /e2e-moved/b.txt");
+    const after = runJson("ls /").entries.map((e: any) => e.name);
+    assert(after.includes("e2e-moved"), false, "the last file's rm should drop its folder too");
+  });
+
   // -- signed-url --
 
   await test("signed-url", () => {

@@ -230,9 +230,20 @@ export class LocalStorageAdapter implements StorageAdapter {
 
   async listObjects(
     prefix: string,
-    options?: { delimiter?: string },
+    options?: { delimiter?: string; maxKeys?: number },
   ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
     assertKeyInsideDrive(prefix);
+    const listing = await this.listAll(prefix, options?.delimiter);
+    const max = options?.maxKeys;
+    if (max === undefined) return listing;
+    const objects = listing.objects.slice(0, max);
+    return { objects, prefixes: listing.prefixes.slice(0, max - objects.length) };
+  }
+
+  private async listAll(
+    prefix: string,
+    delimiter: string | undefined,
+  ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
     const objects: S3Object[] = [];
     const prefixes = new Set<string>();
     let cursor: string | undefined;
@@ -243,7 +254,7 @@ export class LocalStorageAdapter implements StorageAdapter {
     do {
       const page = await this.files.list({
         prefix,
-        ...(options?.delimiter ? { delimiter: options.delimiter } : {}),
+        ...(delimiter ? { delimiter } : {}),
         ...(cursor ? { cursor } : {}),
       });
       for (const it of page.items) {
@@ -262,7 +273,6 @@ export class LocalStorageAdapter implements StorageAdapter {
     // Add the `.fls-tmp` files files-sdk 3 skips, grouped like S3 would.
     const legacy = await legacyList(this.root, prefix);
     if (legacy.length === 0) return { objects, prefixes: Array.from(prefixes) };
-    const delimiter = options?.delimiter;
     for (const it of legacy) {
       const rest = it.key.slice(prefix.length);
       const cut = delimiter ? rest.indexOf(delimiter) : -1;
