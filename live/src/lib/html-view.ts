@@ -21,6 +21,18 @@ export function supportsHtmlSites(health?: HealthResponse): boolean {
   return health?.features?.includes(HTML_SITES_FEATURE) === true
 }
 
+export const HTML_COMMENTS_FEATURE = "html-comments"
+
+/** Servers that add the comment overlay to site pages. Older ones keep the preview read-only. */
+export function supportsHtmlComments(health?: HealthResponse): boolean {
+  return health?.features?.includes(HTML_COMMENTS_FEATURE) === true
+}
+
+/** The site URL with the flag that asks the server for the comment overlay. */
+export function withCommentsFlag(url: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}__afs_comments=1`
+}
+
 export function isHtmlPath(path: string): boolean {
   const name = path.split("/").pop() ?? ""
   const dot = name.lastIndexOf(".")

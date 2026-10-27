@@ -24,13 +24,15 @@ import type { CommentListEntry, DiffResult } from "@/api/types"
  *
  * `source`: the file's source text when `space` shows a transformed view of it
  * (JSON shown formatted), so stored line ranges resolve there and are carried
- * into the view. Omit when the space's lines are the source lines.
+ * into the view. Omit when the space's lines are the source lines. A
+ * `TextSpace` instead of text when the source is not plain lines of text (the
+ * text of an HTML page, mapped to its source lines).
  */
 export function useCommentAnchors(
   path: string,
   comments: CommentListEntry[] | undefined,
   space: TextSpace | null,
-  source?: string,
+  source?: string | TextSpace,
 ): Map<string, AnchorResolution> {
   const { client, orgId, driveId } = useAuth()
   const { data: stat } = useFileStat(path)
@@ -48,7 +50,7 @@ export function useCommentAnchors(
   const resolve = useMemo(() => {
     if (!space) return null
     if (source == null) return (input: AnchorInput) => resolveAnchor(space, input)
-    const sourceSpace = sourceTextSpace(source)
+    const sourceSpace = typeof source === "string" ? sourceTextSpace(source) : source
     return (input: AnchorInput) => resolveAnchorInView(space, sourceSpace, input)
   }, [space, source])
 
