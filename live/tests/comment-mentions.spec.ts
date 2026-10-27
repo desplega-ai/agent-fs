@@ -7,7 +7,7 @@ const members = [
   { userId: "u-bot", email: "review-bot@agents.test", displayName: null },
 ]
 
-async function installFixture(page: Page, features: string[]) {
+async function installFixture(page: Page, features: string[], fixtureMembers = members) {
   const added: Array<Record<string, unknown>> = []
   await page.addInitScript(() => {
     localStorage.setItem("agent-fs-credentials", JSON.stringify([
@@ -38,7 +38,7 @@ async function installFixture(page: Page, features: string[]) {
           json = { url: `http://fixture.test/content?path=${body.path}` }
           break
         case "drive-members":
-          json = { members }
+          json = { members: fixtureMembers }
           break
         case "comment-add": {
           const { op: _op, ...params } = body
@@ -159,4 +159,44 @@ test("servers without comment-mentions get no picker", async ({ page }) => {
   await box.press("Control+Enter")
   await expect.poll(() => added.length).toBe(1)
   expect(added[0]).not.toHaveProperty("mentions")
+})
+
+
+test("mention names take priority over long emails and UUID identities", async ({ page }) => {
+  const longEmail = "marcel+local-agent-with-a-long-address@example.test"
+  const uuid = "26228419-b707-4a8c-af4c-69a123456789"
+  const longName = "Very long member name that exceeds the entire available picker row"
+  await installFixture(page, ["comment-mentions"], [
+    { userId: "human", email: longEmail, displayName: "Marcel (local)" },
+    { userId: "agent", email: `${uuid}@swarm.local`, displayName: "Mobile Agent" },
+    { userId: "bare", email: uuid, displayName: "Notes Agent" },
+    { userId: "long", email: "long@example.test", displayName: longName },
+  ])
+  const box = await openCommentBox(page)
+  await box.pressSequentially("@")
+  const list = page.getByRole("listbox", { name: "Mention a drive member" })
+  const human = list.getByRole("option", { name: /Marcel/ })
+  await list.evaluate(el => { el.style.width = "280px" })
+  expect(await human.getByText("Marcel (local)", { exact: true }).evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await expect(human).toHaveAttribute("title", longEmail)
+  for (const name of ["Mobile Agent", "Notes Agent"]) {
+    const agent = list.getByRole("option", { name, exact: true })
+    await expect(agent).toBeVisible()
+    await expect(agent).toHaveAttribute("title", name === "Mobile Agent" ? `${uuid}@swarm.local` : uuid)
+    await expect(agent).not.toContainText(uuid)
+  }
+  for (const width of [280, 160]) {
+    await list.evaluate((el, width) => { el.style.width = `${width}px` }, width)
+    const name = human.getByText("Marcel (local)", { exact: true })
+    expect(await name.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    const email = human.getByText(longEmail, { exact: true })
+    expect(await email.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+    const long = list.getByText(longName, { exact: true })
+    expect(await long.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true)
+    expect(await list.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  }
+  await box.press("ArrowDown")
+  await expect(list.getByRole("option", { selected: true })).toHaveAccessibleName("Mobile Agent")
+  await box.press("Enter")
+  await expect(box).toHaveValue("@Mobile Agent ")
 })
