@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { useNavigate } from "react-router"
 import { Menu, PanelLeftOpen } from "lucide-react"
 import {
   Tooltip,
@@ -17,6 +18,7 @@ import { SearchInputProvider, useSearchInput } from "@/contexts/search-input"
 import { uiChromeStore, useHelpOpen, useSetHelpOpen } from "@/stores/ui-chrome"
 import { sidePanelStore } from "@/stores/side-panel"
 import { useThemeContext } from "@/contexts/theme"
+import { useAuth } from "@/contexts/auth"
 import { cn } from "@/lib/utils"
 
 interface ShellProps {
@@ -67,6 +69,8 @@ function ShellInner({ sidebar, children }: ShellProps) {
   const setHelpOpen = useSetHelpOpen()
   const { focus: focusSearch } = useSearchInput()
   const { cycleTheme } = useThemeContext()
+  const { orgId, driveId } = useAuth()
+  const navigate = useNavigate()
 
   // Register the left-sidebar toggle into the UI chrome store so the shortcut
   // hook (mounted here) and any other component can flip it. Also register
@@ -131,6 +135,11 @@ function ShellInner({ sidebar, children }: ShellProps) {
     "shift+g": (e) => {
       e.preventDefault()
       clickVisible("[data-org-switcher]")
+    },
+    "shift+m": (e) => {
+      if (!orgId || !driveId) return
+      e.preventDefault()
+      navigate(`/members/~/${orgId}/${driveId}`)
     },
     "?": (e) => {
       e.preventDefault()

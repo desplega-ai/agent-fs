@@ -1,4 +1,8 @@
 import type {
+  AddDriveMemberResult,
+  DriveMemberWithRole,
+  ManageableDrive,
+  MemberRole,
   MeResponse,
   Drive,
   MvResult,
@@ -168,6 +172,38 @@ export class AgentFsClient {
 
   async getOrgMembers(orgId: string): Promise<OrgMembersResult> {
     return this.get<OrgMembersResult>(`/orgs/${orgId}/members`)
+  }
+
+  /** Every drive whose members the caller can manage (all drives for an org admin). */
+  async getManageableDrives(orgId: string): Promise<{ drives: ManageableDrive[] }> {
+    return this.get<{ drives: ManageableDrive[] }>(`/orgs/${orgId}/drives?scope=manageable`)
+  }
+
+  /** Drive members with their roles. 403 unless the caller is a drive admin or an org admin. */
+  async getDriveMembersAdmin(orgId: string, driveId: string): Promise<{ members: DriveMemberWithRole[] }> {
+    return this.get<{ members: DriveMemberWithRole[] }>(`/orgs/${orgId}/drives/${driveId}/members`)
+  }
+
+  /** Add an existing org member to a drive, or change their role when already on it. */
+  async addDriveMember(
+    orgId: string,
+    driveId: string,
+    params: { email: string; role: MemberRole } | { userId: string; role: MemberRole },
+  ): Promise<AddDriveMemberResult> {
+    return this.post<AddDriveMemberResult>(`/orgs/${orgId}/drives/${driveId}/members`, params)
+  }
+
+  async updateDriveMemberRole(orgId: string, driveId: string, userId: string, role: MemberRole): Promise<void> {
+    await this.request(`/orgs/${orgId}/drives/${driveId}/members/${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    })
+  }
+
+  async removeDriveMember(orgId: string, driveId: string, userId: string): Promise<void> {
+    await this.request(`/orgs/${orgId}/drives/${driveId}/members/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+    })
   }
 
   /**

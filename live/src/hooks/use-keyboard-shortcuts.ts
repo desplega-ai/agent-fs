@@ -40,6 +40,7 @@ export const shortcutsRegistry: ShortcutDescriptor[] = [
   { key: "t", label: "Toggle theme", group: "Navigation", display: "T" },
   { key: "shift+d", label: "Switch drive", group: "Navigation", display: "⇧D" },
   { key: "shift+g", label: "Switch organization", group: "Navigation", display: "⇧G" },
+  { key: "shift+m", label: "Drive members", group: "Navigation", display: "⇧M" },
   { key: "[", label: "Toggle file tree sidebar", group: "Sidebars", display: "[" },
   { key: "]", label: "Toggle comments sidebar", group: "Sidebars", display: "]" },
   { key: "c", label: "Comments tab", group: "Sidebars", display: "C" },

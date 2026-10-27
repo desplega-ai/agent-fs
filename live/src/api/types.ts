@@ -339,6 +339,32 @@ export interface DriveMembersResult {
   members: DriveMember[]
 }
 
+export type MemberRole = "viewer" | "editor" | "admin"
+
+/** A drive member as the admin endpoint lists them: with their drive role. */
+export interface DriveMemberWithRole {
+  userId: string
+  email: string
+  role: MemberRole
+}
+
+export interface AddDriveMemberResult {
+  userId: string
+  email: string
+  driveId: string
+  role: MemberRole
+  /** False when the person was already on the drive and only their role changed. */
+  created: boolean
+}
+
+/** A drive the caller can manage members on. `myRole` is null for an org admin who is not on it. */
+export interface ManageableDrive {
+  id: string
+  name: string
+  isDefault: boolean
+  myRole: MemberRole | null
+}
+
 export interface MeResponse {
   displayName?: string | null
   userId: string

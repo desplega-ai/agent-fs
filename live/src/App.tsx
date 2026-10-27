@@ -11,6 +11,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { CredentialsPage } from "@/pages/Credentials"
 import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
+import { MembersPage } from "@/pages/Members"
 import { Spinner } from "@/components/ui/spinner"
 import { PresenceConnection } from "@/components/presence/PresenceConnection"
 
@@ -76,7 +77,7 @@ function QueryParamHandler() {
  * Syncs URL params (orgId, driveId, splat path) into the hoisted Auth + Browser
  * providers via post-mount setters. Mount inside any route that has these params.
  */
-function RouteParamsSync({ syncFile = true }: { syncFile?: boolean } = {}) {
+function RouteParamsSync({ syncFile = true, syncDrive = true }: { syncFile?: boolean; syncDrive?: boolean } = {}) {
   const params = useParams()
   const { setOrgId, setDriveId, orgId, driveId } = useAuth()
   const { setSelectedFile } = useBrowser()
@@ -104,10 +105,11 @@ function RouteParamsSync({ syncFile = true }: { syncFile?: boolean } = {}) {
   }, [paramOrgId, setOrgId])
 
   useEffect(() => {
+    if (!syncDrive) return
     if (paramDriveId && paramDriveId !== ctxRef.current.driveId) {
       setDriveId(paramDriveId)
     }
-  }, [paramDriveId, setDriveId])
+  }, [paramDriveId, syncDrive, setDriveId])
 
   useEffect(() => {
     if (!syncFile) return
@@ -147,6 +149,22 @@ function SqlRoute() {
         <Suspense fallback={<div className="flex h-full items-center justify-center"><Spinner /></div>}>
           <SqlPage />
         </Suspense>
+      </Shell>
+    </>
+  )
+}
+
+/**
+ * The Members page reads its drive from the URL and leaves the active drive
+ * alone: an org admin can manage a drive they are not on, which must not
+ * become the drive the file views browse.
+ */
+function MembersRoute() {
+  return (
+    <>
+      <RouteParamsSync syncFile={false} syncDrive={false} />
+      <Shell>
+        <MembersPage />
       </Shell>
     </>
   )
@@ -201,6 +219,7 @@ export default function App() {
                   <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
                   <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
                   <Route path="/sql/~/:orgId/:driveId" element={<SqlRoute />} />
+                  <Route path="/members/~/:orgId/:driveId" element={<MembersRoute />} />
                   <Route path="/files" element={<FilesRoute />} />
                   <Route path="*" element={<Navigate to="/files" replace />} />
                 </Route>
