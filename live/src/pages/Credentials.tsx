@@ -41,6 +41,9 @@ export function CredentialsPage() {
   const [detailsCred, setDetailsCred] = useState<Credential | null>(null)
 
   const successTarget = useMemo(() => {
+    // Only the invite accept page may send people here and take them back.
+    const next = initialParams.get("next")
+    if (next && /^\/invite\/[A-Za-z0-9_-]+(\?|$)/.test(next)) return next
     const orgId = initialParams.get("orgId")
     const driveId = initialParams.get("driveId")
     if (orgId && driveId) return `/file/~/${orgId}/${driveId}/`

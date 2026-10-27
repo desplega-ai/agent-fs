@@ -1,16 +1,20 @@
 import { useMemo, useState, type FormEvent } from "react"
 import { useNavigate, useParams } from "react-router"
-import { Check, ChevronDown, HardDrive, Trash2, Users } from "lucide-react"
+import { Check, ChevronDown, HardDrive, Trash2, UserPlus, Users } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import {
   useDriveMemberMutations,
   useDriveMembersAdmin,
   useDriveMembersOf,
+  useIsOrgAdmin,
   useManageableDrives,
   useOrgMembers,
 } from "@/hooks/use-org-members"
+import { useHealth } from "@/hooks/use-health"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { UserAvatar } from "@/components/UserAvatar"
+import { InviteDialog } from "@/components/InviteDialog"
+import { PendingInvites } from "@/components/PendingInvites"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
@@ -22,17 +26,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/stores/toast"
 import { cn } from "@/lib/utils"
+import { ROLES, selectClass } from "@/lib/member-roles"
+import { supportsInvites } from "@/lib/invites"
 import type { ApiError } from "@/api/client"
 import type { DriveMemberWithRole, MemberRole } from "@/api/types"
-
-const ROLES: { value: MemberRole; label: string }[] = [
-  { value: "viewer", label: "Viewer" },
-  { value: "editor", label: "Editor" },
-  { value: "admin", label: "Admin" },
-]
-
-const selectClass =
-  "h-8 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
 
 function errorMessage(err: unknown): string {
   const e = err as Partial<ApiError> | null
@@ -55,6 +52,9 @@ export function MembersPage() {
   const { data: manageable } = useManageableDrives(orgId)
   const admin = useDriveMembersAdmin(orgId, driveId)
   const directory = useDriveMembersOf(orgId, driveId)
+  const { data: health } = useHealth()
+  const canInvite = useIsOrgAdmin() && supportsInvites(health)
+  const [inviting, setInviting] = useState(false)
 
   const driveName =
     manageable?.drives.find((d) => d.id === driveId)?.name ??
@@ -99,11 +99,21 @@ export function MembersPage() {
             <Users className="size-4 text-muted-foreground" />
             <h1 className="text-lg font-semibold">Members</h1>
             <DrivePickerMenu orgId={orgId} driveId={driveId} driveName={driveName} drives={manageable?.drives} />
+            {canInvite && (
+              <Button size="sm" className="ml-auto" onClick={() => setInviting(true)}>
+                <UserPlus />
+                Invite people
+              </Button>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">People who can open files on this drive, and their role.</p>
         </header>
         {body}
+        {canInvite && orgId && <PendingInvites orgId={orgId} drives={manageable?.drives} />}
       </div>
+      {inviting && orgId && (
+        <InviteDialog open onOpenChange={setInviting} orgId={orgId} initialDriveId={driveId} />
+      )}
     </div>
   )
 }

@@ -365,6 +365,65 @@ export interface ManageableDrive {
   myRole: MemberRole | null
 }
 
+/** One drive an invite grants, with the role the person gets on it. */
+export interface DriveGrant {
+  driveId: string
+  role: MemberRole
+}
+
+/** `POST /orgs/:orgId/members/invite` for someone who already has an account. */
+export interface InviteAddedResult {
+  status: "added"
+  userId: string
+  email: string
+  drives: DriveGrant[]
+}
+
+/** `POST /orgs/:orgId/members/invite` for an email with no account yet. */
+export interface InvitePendingResult {
+  status: "pending"
+  inviteId: string
+  email: string
+  /** Shown once; only its hash is stored. */
+  token: string
+  expiresAt: string
+  drives: DriveGrant[]
+  /** Built from the server's configured app URL. Absent when none is set. */
+  acceptUrl?: string
+}
+
+export type InviteResult = InviteAddedResult | InvitePendingResult
+
+/** An open invite as the org admin lists it. The token is not part of it. */
+export interface PendingInvite {
+  id: string
+  email: string
+  orgRole: MemberRole
+  drives: DriveGrant[]
+  createdBy: string
+  createdAt: string
+  expiresAt: string
+  expired: boolean
+}
+
+/** What the holder of an accept link sees before signing in. */
+export interface InvitePreview {
+  orgId: string
+  orgName: string
+  invitedBy: string
+  email: string
+  drives: { driveId: string; name: string; role: MemberRole }[]
+  expiresAt: string
+}
+
+export interface AcceptInviteResult {
+  orgId: string
+  role: MemberRole
+  drives: DriveGrant[]
+  /** Drives named in the invite that were deleted before it was accepted. */
+  skippedDrives: string[]
+}
+
 export interface MeResponse {
   displayName?: string | null
   userId: string
@@ -388,6 +447,8 @@ export interface Drive {
 export interface Org {
   id: string
   name: string
+  /** The caller's role in the org. Absent on servers that predate it. */
+  role?: MemberRole
 }
 
 // File mutation ops (mv / rm)

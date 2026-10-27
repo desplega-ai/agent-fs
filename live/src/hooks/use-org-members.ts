@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth"
-import type { DriveMembersResult, MemberRole } from "@/api/types"
+import type { DriveGrant, DriveMembersResult, MemberRole } from "@/api/types"
 import { buildUserDirectory, type UserDirectoryEntry } from "@/lib/user-display"
 
 export function useOrgMembers() {
@@ -92,6 +92,62 @@ export function useDriveMemberMutations(orgId: string, driveId: string) {
     onSuccess,
   })
   return { add, updateRole, remove }
+}
+
+/**
+ * Whether the caller is an admin of the active org, read from the org list the
+ * app already loads, so asking costs no request (the org member list answers
+ * 403 to everyone else).
+ */
+export function useIsOrgAdmin(): boolean {
+  const { orgs, orgId } = useAuth()
+  return orgs.find((o) => o.id === orgId)?.role === "admin"
+}
+
+/** Open invites of `orgId`. Pass `enabled: false` for callers who are not org admins. */
+export function usePendingInvites(orgId: string | null, enabled: boolean) {
+  const { client } = useAuth()
+
+  return useQuery({
+    queryKey: ["invites", orgId],
+    queryFn: () => client.getInvites(orgId!),
+    enabled: enabled && !!orgId,
+    retry: false,
+  })
+}
+
+/**
+ * Invite someone, add an existing org member to drives, and revoke pending
+ * invites. Each refreshes the lists an invite can change: the open invites,
+ * the org and drive member lists, and the caller's own drives.
+ */
+export function useInviteMutations(orgId: string) {
+  const { client } = useAuth()
+  const queryClient = useQueryClient()
+  const onSuccess = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["invites", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["org-members", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["drive-members", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["drives", orgId] }),
+      queryClient.invalidateQueries({ queryKey: ["manageable-drives", orgId] }),
+    ])
+
+  const invite = useMutation({
+    mutationFn: (params: { email: string; role: MemberRole; drives: DriveGrant[] }) =>
+      client.inviteToOrg(orgId, params),
+    onSuccess,
+  })
+  const addToDrive = useMutation({
+    mutationFn: ({ driveId, ...params }: { driveId: string; email: string; role: MemberRole }) =>
+      client.addDriveMember(orgId, driveId, params),
+    onSuccess,
+  })
+  const revoke = useMutation({
+    mutationFn: (inviteId: string) => client.revokeInvite(orgId, inviteId),
+    onSuccess,
+  })
+  return { invite, addToDrive, revoke }
 }
 
 export function useUserResolver(): (userId: string) => UserDirectoryEntry | null {

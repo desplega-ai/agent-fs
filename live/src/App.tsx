@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "@/contexts/auth"
 import { BrowserProvider, useBrowser } from "@/contexts/browser"
 import { Shell } from "@/components/layout/Shell"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
+import { AcceptInvitePage } from "@/pages/AcceptInvite"
 import { CredentialsPage } from "@/pages/Credentials"
 import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
@@ -214,6 +215,7 @@ export default function App() {
             <BrowserRouter>
               <Routes>
                 <Route path="/credentials" element={<CredentialsPage />} />
+                <Route path="/invite/:token" element={<AcceptInvitePage />} />
                 <Route element={<AuthenticatedLayout />}>
                   <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
                   <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
