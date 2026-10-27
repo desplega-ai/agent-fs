@@ -19,6 +19,7 @@ import {
 import { CredentialDetailsDialog } from "@/components/credentials/CredentialDetailsDialog"
 import { toast } from "@/stores/toast"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { isInviteReturnPath } from "@/lib/invites"
 
 type Mode = "connect" | "register"
 
@@ -41,6 +42,9 @@ export function CredentialsPage() {
   const [detailsCred, setDetailsCred] = useState<Credential | null>(null)
 
   const successTarget = useMemo(() => {
+    // Only the invite accept page may send people here and take them back.
+    const next = initialParams.get("next")
+    if (next && isInviteReturnPath(next)) return next
     const orgId = initialParams.get("orgId")
     const driveId = initialParams.get("driveId")
     if (orgId && driveId) return `/file/~/${orgId}/${driveId}/`

@@ -1,12 +1,18 @@
 import type {
+  AcceptInviteResult,
   AddDriveMemberResult,
+  DriveGrant,
   DriveMemberWithRole,
+  InvitePreview,
+  InviteResult,
   ManageableDrive,
   MemberRole,
   MeResponse,
   Drive,
   MvResult,
+  Org,
   OrgMembersResult,
+  PendingInvite,
   RegisterResponse,
   RmResult,
   FavoriteListResult,
@@ -105,6 +111,26 @@ export class AgentFsClient {
     return res.json() as Promise<RegisterResponse>
   }
 
+  /**
+   * Public preview of an accept link: who invited you, to which org and drives.
+   * The token is the credential, so no Authorization header. Unknown, expired,
+   * revoked and used links all answer the same 404.
+   */
+  static async getInvitePreview(opts: { endpoint: string; token: string }): Promise<InvitePreview> {
+    const endpoint = opts.endpoint.replace(/\/+$/, "")
+    const res = await fetch(`${endpoint}/invites/${encodeURIComponent(opts.token)}`)
+    if (!res.ok) {
+      let body: ApiError
+      try {
+        body = await res.json()
+      } catch {
+        body = { error: "UNKNOWN", message: res.statusText }
+      }
+      throw Object.assign(new Error(body.message), body, { status: res.status })
+    }
+    return res.json() as Promise<InvitePreview>
+  }
+
   private async request<T>(path: string, opts?: RequestInit): Promise<T> {
     const url = `${this.endpoint}${path}`
     const res = await fetch(url, {
@@ -162,8 +188,8 @@ export class AgentFsClient {
     return this.get<MeResponse>("/auth/me")
   }
 
-  async getOrgs(): Promise<{ orgs: { id: string; name: string }[] }> {
-    return this.get<{ orgs: { id: string; name: string }[] }>("/orgs")
+  async getOrgs(): Promise<{ orgs: Org[] }> {
+    return this.get<{ orgs: Org[] }>("/orgs")
   }
 
   async getDrives(orgId: string): Promise<{ drives: Drive[] }> {
@@ -204,6 +230,33 @@ export class AgentFsClient {
     await this.request(`/orgs/${orgId}/drives/${driveId}/members/${encodeURIComponent(userId)}`, {
       method: "DELETE",
     })
+  }
+
+  /**
+   * Invite `email` to the org with a role per drive. Someone with an account is
+   * added at once; an unknown email gets a pending invite whose one-time token
+   * comes back in the response. Invite an existing org member again and their
+   * org role is overwritten, so add them to drives with `addDriveMember` instead.
+   */
+  async inviteToOrg(
+    orgId: string,
+    params: { email: string; role: MemberRole; drives: DriveGrant[] },
+  ): Promise<InviteResult> {
+    return this.post<InviteResult>(`/orgs/${orgId}/members/invite`, params)
+  }
+
+  /** Open invites of the org. 403 unless the caller is an org admin. */
+  async getInvites(orgId: string): Promise<{ invites: PendingInvite[] }> {
+    return this.get<{ invites: PendingInvite[] }>(`/orgs/${orgId}/invites`)
+  }
+
+  async revokeInvite(orgId: string, inviteId: string): Promise<void> {
+    await this.request(`/orgs/${orgId}/invites/${encodeURIComponent(inviteId)}`, { method: "DELETE" })
+  }
+
+  /** Accept an invite as the signed-in user. The invite email must match their account. */
+  async acceptInvite(token: string): Promise<AcceptInviteResult> {
+    return this.post<AcceptInviteResult>(`/invites/${encodeURIComponent(token)}/accept`, {})
   }
 
   /**

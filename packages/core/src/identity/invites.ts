@@ -4,6 +4,7 @@ import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { NotFoundError, PermissionDeniedError } from "../errors.js";
 import type { DriveGrant, MemberRole } from "./orgs.js";
+import { grantDriveRole, grantOrgRole } from "./grants.js";
 import { ambiguousEmailError, resolveUserByEmail } from "./users.js";
 
 /** How long an accept link stays valid. */
@@ -61,19 +62,27 @@ export function hashInviteToken(token: string): string {
 }
 
 /**
- * Accept a bare token or an accept link (`https://app/invite/<token>`), so
- * people can paste whatever the admin sent them.
+ * Accept a bare token or an accept link, so people can paste whatever the admin
+ * sent them. Two link shapes exist: `https://app/invite#<token>` (current; the
+ * token sits in the fragment, which browsers never send over HTTP) and
+ * `https://app/invite/<token>` (issued before the fragment form).
  */
 export function parseInviteToken(input: string): string | null {
   const trimmed = input.trim();
   if (TOKEN_RE.test(trimmed)) return trimmed;
-  const match = trimmed.match(/\/invite\/([A-Za-z0-9_-]{43})(?:[/?#]|$)/);
-  return match ? match[1] : null;
+  const fragment = trimmed.match(/\/invite\/?(?:\?[^#\s]*)?#([A-Za-z0-9_-]{43})$/);
+  if (fragment) return fragment[1];
+  const path = trimmed.match(/\/invite\/([A-Za-z0-9_-]{43})(?:[/?#]|$)/);
+  return path ? path[1] : null;
 }
 
-/** Link the invitee opens to accept, on the live app. Absent without an app URL. */
+/**
+ * Link the invitee opens to accept, on the live app. Absent without an app URL.
+ * The token goes in the fragment so it never reaches the live host's access
+ * logs or a Referer header, even when the live app and the API are separate hosts.
+ */
 export function inviteAcceptUrl(appUrl: string | undefined, token: string): string | undefined {
-  return appUrl ? `${appUrl.replace(/\/+$/, "")}/invite/${token}` : undefined;
+  return appUrl ? `${appUrl.replace(/\/+$/, "")}/invite#${token}` : undefined;
 }
 
 const INVALID_INVITE_MESSAGE = "Invite not found or no longer valid";
@@ -255,6 +264,8 @@ export function acceptInvite(
   const granted = invite.drives.filter((g) => existing.has(g.driveId));
   const skippedDrives = invite.drives.filter((g) => !existing.has(g.driveId)).map((g) => g.driveId);
 
+  let role: MemberRole = invite.orgRole;
+  const held: DriveGrant[] = [];
   db.transaction((tx) => {
     const consumed = tx
       .update(schema.orgInvites)
@@ -265,26 +276,18 @@ export function acceptInvite(
     // Lost a race with another accept or a revoke.
     if (consumed.length === 0) throw invalidInvite();
 
-    tx.insert(schema.orgMembers)
-      .values({ orgId: invite.orgId, userId: params.userId, role: invite.orgRole })
-      .onConflictDoUpdate({
-        target: [schema.orgMembers.orgId, schema.orgMembers.userId],
-        set: { role: invite.orgRole },
-      })
-      .run();
-
+    // Raise-only, like inviteToOrg: an account that was added or promoted
+    // between the invite and its acceptance keeps the higher role.
+    role = grantOrgRole(tx, { orgId: invite.orgId, userId: params.userId, role: invite.orgRole });
     for (const grant of granted) {
-      tx.insert(schema.driveMembers)
-        .values({ driveId: grant.driveId, userId: params.userId, role: grant.role })
-        .onConflictDoUpdate({
-          target: [schema.driveMembers.driveId, schema.driveMembers.userId],
-          set: { role: grant.role },
-        })
-        .run();
+      held.push({
+        driveId: grant.driveId,
+        role: grantDriveRole(tx, { driveId: grant.driveId, userId: params.userId, role: grant.role }).role,
+      });
     }
   });
 
-  return { orgId: invite.orgId, role: invite.orgRole, drives: granted, skippedDrives };
+  return { orgId: invite.orgId, role, drives: held, skippedDrives };
 }
 
 /** Open invites of an org, newest first. Expired ones are included and flagged. */

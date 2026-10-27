@@ -1,5 +1,6 @@
+import { useState } from "react"
 import { useNavigate } from "react-router"
-import { Building2, Check } from "lucide-react"
+import { Building2, Check, UserPlus } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
 import {
@@ -7,6 +8,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import {
   Tooltip,
@@ -15,15 +17,23 @@ import {
 } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
+import { InviteDialog } from "@/components/InviteDialog"
+import { useIsOrgAdmin } from "@/hooks/use-org-members"
+import { useInvitesSupported } from "@/hooks/use-health"
 import { toast } from "@/stores/toast"
 
 export function OrgSwitcher() {
-  const { orgs, orgId, orgName, setOrgId } = useAuth()
+  const { orgs, orgId, orgName, setOrgId, driveId } = useAuth()
   const { setSelectedFile } = useBrowser()
   const navigate = useNavigate()
   const displayName = orgName || orgId?.slice(0, 8) || "..."
+  const isOrgAdmin = useIsOrgAdmin()
+  const invitesSupported = useInvitesSupported()
+  const canInvite = isOrgAdmin && invitesSupported
+  const [inviting, setInviting] = useState(false)
 
-  if (orgs.length <= 1) {
+  // A one-org admin still opens the menu: it carries "Invite people".
+  if (orgs.length <= 1 && !canInvite) {
     return (
       <Tooltip>
         <TooltipTrigger
@@ -41,6 +51,7 @@ export function OrgSwitcher() {
   }
 
   return (
+    <>
     <DropdownMenu>
       <Tooltip>
         <TooltipTrigger
@@ -57,8 +68,14 @@ export function OrgSwitcher() {
           }
         />
         <TooltipContent side="bottom">
-          {displayName} <span className="text-muted-foreground">({orgs.length} orgs)</span>
-          <Kbd className="ml-1">⇧G</Kbd>
+          {displayName}
+          {orgs.length > 1 && (
+            <>
+              {" "}
+              <span className="text-muted-foreground">({orgs.length} orgs)</span>
+              <Kbd className="ml-1">⇧G</Kbd>
+            </>
+          )}
         </TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="start">
@@ -80,7 +97,18 @@ export function OrgSwitcher() {
             {org.id === orgId && <Check className="size-3 text-primary ml-auto" />}
           </DropdownMenuItem>
         ))}
+        {canInvite && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setInviting(true)}>
+              <UserPlus className="size-3 text-muted-foreground" />
+              <span className="flex-1">Invite people</span>
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
+    {inviting && orgId && <InviteDialog open onOpenChange={setInviting} orgId={orgId} initialDriveId={driveId} />}
+    </>
   )
 }

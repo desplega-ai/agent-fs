@@ -2,6 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- First in <head>, before anything fetches: the invite accept page holds a bearer token, and no
+         request this app makes (assets included) may carry its address in Referer. -->
+    <meta name="referrer" content="no-referrer" />
+    <script>
+      // Links issued before the fragment form carry the token in the path (/invite/<token>).
+      // Move it into the tab's sessionStorage and out of the address bar before the app's first
+      // asset request. Keep the storage key in step with TOKEN_STORAGE_KEY in src/lib/invites.ts.
+      (function () {
+        var match = /^\/invite\/([A-Za-z0-9_-]+)\/?$/.exec(location.pathname)
+        if (!match) return
+        try {
+          sessionStorage.setItem("agent-fs-invite-token", match[1])
+        } catch (e) {
+          return // Storage blocked: leave the URL for the app, which reads it from there.
+        }
+        history.replaceState(history.state, "", "/invite" + location.search + location.hash)
+      })()
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <title>agent-fs</title>

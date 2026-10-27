@@ -6,13 +6,14 @@ import { eq } from "drizzle-orm";
 import { createDatabase, schema } from "../../db/index.js";
 import type { DB } from "../../db/index.js";
 import { createUser } from "../users.js";
-import { createOrg, inviteToOrg } from "../orgs.js";
-import { createDrive } from "../drives.js";
+import { addDriveMember, createOrg, inviteToOrg } from "../orgs.js";
+import { createDrive, setDriveMember } from "../drives.js";
 import { getUserDriveRole, getUserOrgRole } from "../rbac.js";
 import {
   acceptInvite,
   getInvitePreview,
   hashInviteToken,
+  inviteAcceptUrl,
   listInvites,
   parseInviteToken,
   revokeInvite,
@@ -268,6 +269,95 @@ describe("pending invites", () => {
   });
 });
 
+describe("grants never lower an existing role", () => {
+  // A client reads the member list, then writes. Whoever is promoted in between
+  // must survive the write, so the tests promote first and write second.
+  function promoted(tag: string) {
+    const t = setup(tag);
+    const email = `${tag}-peer@example.com`;
+    const peerId = createUser(db, { email }).user.id;
+    inviteToOrg(db, { orgId: t.orgId, email, role: "viewer", drives: [] });
+    return { ...t, email, peerId };
+  }
+
+  function promote(t: ReturnType<typeof promoted>) {
+    db.update(schema.orgMembers)
+      .set({ role: "admin" })
+      .where(eq(schema.orgMembers.userId, t.peerId))
+      .run();
+    setDriveMember(db, { driveId: t.workId, userId: t.peerId, role: "admin" });
+  }
+
+  test("inviteToOrg keeps an org and drive admin added after the member list was read", () => {
+    const t = promoted("grant-invite");
+    promote(t);
+    const result = inviteToOrg(db, {
+      orgId: t.orgId,
+      email: t.email,
+      role: "viewer",
+      drives: [
+        { driveId: t.workId, role: "viewer" },
+        { driveId: t.ledgerId, role: "editor" },
+      ],
+      invitedBy: t.adminId,
+    });
+    expect(getUserOrgRole(db, t.peerId, t.orgId)).toBe("admin");
+    expect(getUserDriveRole(db, t.peerId, t.workId)).toBe("admin");
+    expect(getUserDriveRole(db, t.peerId, t.ledgerId)).toBe("editor");
+    if (result.status !== "added") throw new Error("expected added");
+    expect(result.orgRole).toBe("admin");
+    expect(result.drives).toEqual([
+      { driveId: t.workId, role: "admin" },
+      { driveId: t.ledgerId, role: "editor" },
+    ]);
+  });
+
+  test("inviteToOrg cannot demote the last org admin", () => {
+    const t = setup("grant-last-admin");
+    const email = "grant-last-admin-admin@example.com";
+    inviteToOrg(db, { orgId: t.orgId, email, role: "viewer", drives: [{ driveId: t.workId, role: "viewer" }] });
+    expect(getUserOrgRole(db, t.adminId, t.orgId)).toBe("admin");
+    expect(getUserDriveRole(db, t.adminId, t.workId)).toBe("admin");
+  });
+
+  test("addDriveMember keeps a drive admin added after the member list was read", () => {
+    const t = promoted("grant-add");
+    promote(t);
+    const result = addDriveMember(db, { orgId: t.orgId, driveId: t.workId, email: t.email, role: "viewer" });
+    expect(result).toMatchObject({ role: "admin", created: false });
+    expect(getUserDriveRole(db, t.peerId, t.workId)).toBe("admin");
+  });
+
+  test("a grant above the held role still raises it, and a new member gets exactly the asked role", () => {
+    const t = promoted("grant-raise");
+    expect(addDriveMember(db, { orgId: t.orgId, driveId: t.workId, userId: t.peerId, role: "viewer" })).toMatchObject({
+      role: "viewer",
+      created: true,
+    });
+    expect(addDriveMember(db, { orgId: t.orgId, driveId: t.workId, userId: t.peerId, role: "editor" })).toMatchObject({
+      role: "editor",
+      created: false,
+    });
+    expect(addDriveMember(db, { orgId: t.orgId, driveId: t.workId, userId: t.peerId, role: "admin" }).role).toBe("admin");
+  });
+
+  test("acceptInvite keeps a role granted between the invite and its acceptance", () => {
+    const t = setup("grant-accept");
+    const email = "grant-accept-new@example.com";
+    const pending = invitePending(t, email, [{ driveId: t.workId, role: "viewer" }]);
+    const peerId = createUser(db, { email }).user.id;
+    // An admin adds the now-registered person directly and promotes them.
+    db.insert(schema.orgMembers).values({ orgId: t.orgId, userId: peerId, role: "admin" }).run();
+    setDriveMember(db, { driveId: t.workId, userId: peerId, role: "admin" });
+
+    const accepted = acceptInvite(db, { token: pending.token, userId: peerId });
+    expect(accepted.role).toBe("admin");
+    expect(accepted.drives).toEqual([{ driveId: t.workId, role: "admin" }]);
+    expect(getUserOrgRole(db, peerId, t.orgId)).toBe("admin");
+    expect(getUserDriveRole(db, peerId, t.workId)).toBe("admin");
+  });
+});
+
 describe("parseInviteToken", () => {
   const token = "abcDEF012_-".padEnd(43, "x");
 
@@ -277,8 +367,34 @@ describe("parseInviteToken", () => {
     expect(parseInviteToken(`https://live.example.com/invite/${token}?ref=mail`)).toBe(token);
   });
 
+  test("accepts the fragment form, with or without the apiUrl query", () => {
+    expect(parseInviteToken(`https://live.example.com/invite#${token}`)).toBe(token);
+    expect(parseInviteToken(` https://live.example.com/invite/#${token} `)).toBe(token);
+    expect(
+      parseInviteToken(`https://live.example.com/invite?apiUrl=https%3A%2F%2Fapi.example.com#${token}`)
+    ).toBe(token);
+  });
+
   test("rejects anything else", () => {
     expect(parseInviteToken("short")).toBeNull();
     expect(parseInviteToken(`https://live.example.com/share/${token}`)).toBeNull();
+    expect(parseInviteToken(`https://live.example.com/share#${token}`)).toBeNull();
+    expect(parseInviteToken("https://live.example.com/invite#short")).toBeNull();
+  });
+});
+
+describe("inviteAcceptUrl", () => {
+  const token = "abcDEF012_-".padEnd(43, "x");
+
+  test("puts the token in the fragment so it never travels in an HTTP request", () => {
+    const url = inviteAcceptUrl("https://live.example.com/", token)!;
+    expect(url).toBe(`https://live.example.com/invite#${token}`);
+    const parsed = new URL(url);
+    expect(parsed.pathname + parsed.search).toBe("/invite");
+    expect(parseInviteToken(url)).toBe(token);
+  });
+
+  test("is absent without an app URL", () => {
+    expect(inviteAcceptUrl(undefined, token)).toBeUndefined();
   });
 });

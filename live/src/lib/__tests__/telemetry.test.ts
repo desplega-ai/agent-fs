@@ -79,6 +79,8 @@ describe("live telemetry", () => {
     expect(routeTemplate("/detail/~/o1/d1/x")).toBe("/detail/~/:orgId/:driveId/*")
     expect(routeTemplate("/sql/~/o1/d1")).toBe("/sql/~/:orgId/:driveId")
     expect(routeTemplate("/members/~/o1/d1")).toBe("/members/~/:orgId/:driveId")
+    expect(routeTemplate("/invite/abc123")).toBe("/invite/:token")
+    expect(routeTemplate("/invite")).toBe("/invite")
     expect(routeTemplate("/someone@example.com/private")).toBe("other")
   })
 })
