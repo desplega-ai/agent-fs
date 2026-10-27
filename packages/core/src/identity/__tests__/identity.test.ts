@@ -711,6 +711,7 @@ describe("drive-aware invites", () => {
       status: "added",
       userId: t.peerId,
       email: "inv-default-peer@example.com",
+      orgRole: "editor",
       drives: [{ driveId: t.defaultId, role: "editor" }],
     });
     expect(listDrivesForUser(db, t.orgId, t.peerId).map((d) => d.id)).toEqual([t.defaultId]);
@@ -770,7 +771,7 @@ describe("drive-aware invites", () => {
     ).toThrow(NotFoundError);
   });
 
-  test("addDriveMember requires org membership and upserts the role", () => {
+  test("addDriveMember requires org membership and raises, never lowers, the role", () => {
     const t = setup("add-drive");
     const msg = "Not a member of this org";
     expect(() =>
@@ -785,7 +786,8 @@ describe("drive-aware invites", () => {
     expect(first.created).toBe(true);
     const second = addDriveMember(db, { orgId: t.orgId, driveId: t.workId, userId: t.peerId, role: "viewer" });
     expect(second.created).toBe(false);
-    expect(getUserDriveRole(db, t.peerId, t.workId)).toBe("viewer");
+    expect(second.role).toBe("editor");
+    expect(getUserDriveRole(db, t.peerId, t.workId)).toBe("editor");
   });
 
   describe("case-variant accounts", () => {

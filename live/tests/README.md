@@ -20,3 +20,8 @@ code scrolling, table-row comment controls, and wrapping of long raw preview lin
 presence avatars, the See cursors / See selections toggles, comment-card presence,
 and the absence of presence requests on servers without the `presence` feature.
 Screenshots are written to `test-results/`.
+`invite.spec.ts` runs against an in-memory org (`tests/support/invite-fixture.ts`) served to several
+browser contexts at once. It covers the Invite dialog,
+pending invites, and the `/invite/:token` accept page: an admin invites a new email to two of three
+drives, a fresh context registers through the link and sees exactly those two drives, and expired
+and revoked links show the same message.

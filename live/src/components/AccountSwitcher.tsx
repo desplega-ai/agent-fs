@@ -14,7 +14,11 @@ import {
 import { Button } from "@/components/ui/button"
 import { toast } from "@/stores/toast"
 
-export function AccountSwitcher() {
+/**
+ * `onSwitched` replaces the default jump to "/" after switching, for pages
+ * (the invite accept page) that must stay where they are.
+ */
+export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}) {
   const { credential, switchAccount, user } = useAuth()
   const [editingProfile, setEditingProfile] = useState(false)
   const navigate = useNavigate()
@@ -46,7 +50,8 @@ export function AccountSwitcher() {
               if (cred.id === credential.id) return
               switchAccount(cred.id)
               toast(`Switched to ${cred.name}`)
-              navigate("/")
+              if (onSwitched) onSwitched()
+              else navigate("/")
             }}
           >
             <div className="flex-1 min-w-0">
