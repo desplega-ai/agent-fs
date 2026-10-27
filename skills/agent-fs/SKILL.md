@@ -254,8 +254,11 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 | `comment update` | `agent-fs comment update <id> --body <text> [--mention <user-id-or-email>]... [--clear-mentions]` | Update a comment and optionally replace or clear its mentions (author only) |
 | `comment delete` | `agent-fs comment delete <id>` | Soft-delete a comment (author only) |
 | `comment resolve` | `agent-fs comment resolve <id>` | Resolve a comment |
+| `comment reopen` | `agent-fs comment reopen <id>` | Reopen a resolved comment |
 | `comment notifications` | `agent-fs comment notifications [--kind <comment\|mention>]... [--unread] [--limit <n>]` | List notifications for the current user. The default kind is `comment`. |
 | `comment read` | `agent-fs comment read [ids...] [--all [--kind <comment\|mention>]...]` | Mark selected notification event IDs, or all active-drive notification kinds, as read. `--all` defaults to `comment`. |
+
+Comments work on any file, HTML included. People can select text on a rendered `.html` page in the web app and comment on it, as on a markdown preview. Those comments carry a `quote` and the source lines the text sits on, or no lines when a script added the text after the page loaded. Use `--quote` on HTML for the same reason: it anchors to the text people see on the page.
 
 ### Favorites
 
