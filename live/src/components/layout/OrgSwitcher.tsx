@@ -19,8 +19,7 @@ import { Button } from "@/components/ui/button"
 import { Kbd } from "@/components/ui/kbd"
 import { InviteDialog } from "@/components/InviteDialog"
 import { useIsOrgAdmin } from "@/hooks/use-org-members"
-import { useHealth } from "@/hooks/use-health"
-import { supportsInvites } from "@/lib/invites"
+import { useInvitesSupported } from "@/hooks/use-health"
 import { toast } from "@/stores/toast"
 
 export function OrgSwitcher() {
@@ -28,8 +27,9 @@ export function OrgSwitcher() {
   const { setSelectedFile } = useBrowser()
   const navigate = useNavigate()
   const displayName = orgName || orgId?.slice(0, 8) || "..."
-  const { data: health } = useHealth()
-  const canInvite = useIsOrgAdmin() && supportsInvites(health)
+  const isOrgAdmin = useIsOrgAdmin()
+  const invitesSupported = useInvitesSupported()
+  const canInvite = isOrgAdmin && invitesSupported
   const [inviting, setInviting] = useState(false)
 
   // A one-org admin still opens the menu: it carries "Invite people".

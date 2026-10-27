@@ -1,11 +1,12 @@
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Link2, Trash2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
-import { useInviteMutations, usePendingInvites } from "@/hooks/use-org-members"
+import { fetchFreshOrgMembers, useInviteMutations, usePendingInvites } from "@/hooks/use-org-members"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { CopyLinkField } from "@/components/CopyLinkField"
-import { buildAcceptLink, describeTimeLeft, formatExpiry } from "@/lib/invites"
+import { buildAcceptLink, describeTimeLeft, findOrgMember, formatExpiry } from "@/lib/invites"
 import { toast } from "@/stores/toast"
 import type { ApiError } from "@/api/client"
 import type { ManageableDrive, PendingInvite } from "@/api/types"
@@ -14,19 +15,22 @@ function errorMessage(err: unknown): string {
   return (err as Partial<ApiError> | null)?.message || "Something went wrong"
 }
 
-type FreshLink = { link: string; expiresAt: string }
+type FreshLink = { link: string; expiresAt: string; skipped: number }
 
 /**
  * Invites that were sent and not yet accepted, for org admins. A link is shown
- * only once, when it is made, so "Copy link" issues a new one and the old one
- * stops working.
+ * only once, when it is made, so "New link" issues a new one and the old one
+ * stops working. That is confirmed first, in the row, where touch and keyboard
+ * users see it as well.
  */
 export function PendingInvites({ orgId, drives }: { orgId: string; drives: ManageableDrive[] | undefined }) {
-  const { credential } = useAuth()
+  const { credential, client } = useAuth()
+  const queryClient = useQueryClient()
   const invites = usePendingInvites(orgId, true)
   const { invite, revoke } = useInviteMutations(orgId)
   const [fresh, setFresh] = useState<Record<string, FreshLink>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [confirming, setConfirming] = useState<string | null>(null)
 
   const setError = (id: string, message: string | null) =>
     setErrors((prev) => {
@@ -38,23 +42,38 @@ export function PendingInvites({ orgId, drives }: { orgId: string; drives: Manag
 
   const reissue = async (row: PendingInvite) => {
     setError(row.id, null)
-    // A drive deleted since the invite was sent would make the server refuse the whole invite.
-    const known = new Set((drives ?? []).map((d) => d.id))
     try {
-      const result = await invite.mutateAsync({
-        email: row.email,
-        role: row.orgRole,
-        drives: row.drives.filter((g) => known.has(g.driveId)),
-      })
+      // A drive deleted since the invite was sent would make the server refuse the whole invite, so
+      // those are left out. That needs the drive list as it is now: a missing or stale one would
+      // drop real grants from the new link, and the old link is already gone by then.
+      const [current, orgMembers] = await Promise.all([
+        queryClient.fetchQuery({
+          queryKey: ["manageable-drives", orgId],
+          queryFn: () => client.getManageableDrives(orgId),
+          staleTime: 0,
+        }),
+        fetchFreshOrgMembers(queryClient, client, orgId),
+      ])
+      // Inviting someone already in the org resets their org role to the one on this invite.
+      const member = findOrgMember(orgMembers.members, row.email)
+      if (member) {
+        setError(row.id, `${row.email} is already in the org as ${member.role}. A new link would reset that role. Revoke this invite instead.`)
+        return
+      }
+      const known = new Set(current.drives.map((d) => d.id))
+      const grants = row.drives.filter((g) => known.has(g.driveId))
+      const result = await invite.mutateAsync({ email: row.email, role: row.orgRole, drives: grants })
       if (result.status === "added") {
         toast.success(`${result.email} has an account now and was added`)
         return
       }
       const link = buildAcceptLink({ token: result.token, endpoint: credential.endpoint, acceptUrl: result.acceptUrl })
-      setFresh((prev) => ({ ...prev, [row.email]: { link, expiresAt: result.expiresAt } }))
+      setFresh((prev) => ({ ...prev, [row.email]: { link, expiresAt: result.expiresAt, skipped: row.drives.length - grants.length } }))
       void navigator.clipboard?.writeText(link).catch(() => {})
     } catch (err) {
       setError(row.id, errorMessage(err))
+    } finally {
+      setConfirming(null)
     }
   }
 
@@ -67,7 +86,8 @@ export function PendingInvites({ orgId, drives }: { orgId: string; drives: Manag
   }
 
   const driveLabel = (row: PendingInvite) => {
-    const names = row.drives.map((g) => `${drives?.find((d) => d.id === g.driveId)?.name ?? "deleted drive"} (${g.role})`)
+    // While the drive list loads or fails, a name is unknown, not deleted.
+    const names = row.drives.map((g) => `${drives ? (drives.find((d) => d.id === g.driveId)?.name ?? "deleted drive") : "…"} (${g.role})`)
     return names.length ? names.join(", ") : "no drives"
   }
 
@@ -93,13 +113,12 @@ export function PendingInvites({ orgId, drives }: { orgId: string; drives: Manag
               <Button
                 variant="outline"
                 size="xs"
-                disabled={invite.isPending}
-                title="Makes a new link. The old one stops working."
-                aria-label={`Copy link for ${row.email}`}
-                onClick={() => void reissue(row)}
+                disabled={invite.isPending || confirming === row.id}
+                aria-label={`New link for ${row.email}`}
+                onClick={() => setConfirming(row.id)}
               >
                 <Link2 />
-                Copy link
+                New link
               </Button>
               <Button
                 variant="ghost"
@@ -111,10 +130,24 @@ export function PendingInvites({ orgId, drives }: { orgId: string; drives: Manag
                 <Trash2 />
               </Button>
             </div>
+            {confirming === row.id && (
+              <div role="group" aria-label={`Confirm new link for ${row.email}`} className="space-y-2 rounded-lg border border-border bg-muted/40 p-3">
+                <p className="text-sm">
+                  This makes a new link for {row.email}. The link they have now stops working.
+                </p>
+                <div className="flex gap-2">
+                  <Button size="xs" disabled={invite.isPending} onClick={() => void reissue(row)}>
+                    {invite.isPending ? <Spinner size="sm" /> : null}
+                    Make new link
+                  </Button>
+                  <Button size="xs" variant="ghost" onClick={() => setConfirming(null)}>Cancel</Button>
+                </div>
+              </div>
+            )}
             {fresh[row.email] && (
               <div className="space-y-1 pl-0.5">
                 <CopyLinkField link={fresh[row.email].link} label={`Accept link for ${row.email}`} />
-                <p className="text-xs text-muted-foreground">New link, expires {formatExpiry(fresh[row.email].expiresAt)}. The previous one no longer works.</p>
+                <p className="text-xs text-muted-foreground">New link, expires {formatExpiry(fresh[row.email].expiresAt)}. The previous one no longer works.{fresh[row.email].skipped > 0 && ` ${fresh[row.email].skipped} deleted drive(s) were left out.`}</p>
               </div>
             )}
             {errors[row.id] && <p role="alert" className="text-xs text-destructive">{errors[row.id]}</p>}

@@ -577,7 +577,7 @@ describe("pending invite tools", () => {
     const { user: newcomer } = createUser(h.db, { email: "newcomer@example.com" });
     const accepted = await h.call(
       "invite-accept",
-      { token: `https://live.example.com/invite/${invited.body.token}` },
+      { token: `https://live.example.com/invite#${invited.body.token}` },
       newcomer
     );
     expect(accepted.result.isError).toBeUndefined();

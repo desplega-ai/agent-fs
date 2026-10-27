@@ -42,6 +42,11 @@ export class InviteFixture {
   readonly invites: Invite[] = []
   /** One line per write the UI made: invite, add, revoke, accept. */
   readonly calls: string[] = []
+  /** Fault injection: what the server does to the reads the dialog depends on. */
+  healthDown = false
+  membersDelayMs = 0
+  membersFail = false
+  manageableFail = false
 
   constructor() {
     const admin = this.addUser("qa@example.test", "admin-key", "qa")
@@ -56,6 +61,11 @@ export class InviteFixture {
     const user = { id, email, apiKey }
     this.users.set(id, user)
     return user
+  }
+
+  /** An account that exists but belongs to no org, as after registering. */
+  register(email: string, apiKey = `key-${randomBytes(4).toString("hex")}`) {
+    return this.addUser(email.trim().toLowerCase(), apiKey)
   }
 
   userByEmail(email: string) {
@@ -100,7 +110,10 @@ export class InviteFixture {
     const forbidden = () => json({ error: "PERMISSION_DENIED", message: "This operation requires 'admin' role in the org" }, 403)
     const gone = () => json({ error: "NOT_FOUND", message: "Invite not found or no longer valid" }, 404)
 
-    if (path === "/health") return json({ ok: true, version: "test", features: ["drive-members", "drive-invites", "pending-invites"] })
+    if (path === "/health") {
+      if (this.healthDown) return json({ error: "UNAVAILABLE", message: "down" }, 503)
+      return json({ ok: true, version: "test", features: ["drive-members", "drive-invites", "pending-invites"] })
+    }
 
     if (path === "/auth/register" && method === "POST") {
       const { email } = req.postDataJSON()
@@ -164,6 +177,7 @@ export class InviteFixture {
     if (path === "/orgs/org/drives") {
       const mine = DRIVES.filter((d) => this.driveMembers[d.id].has(user.id))
       if (query.get("scope") === "manageable") {
+        if (this.manageableFail) return json({ error: "INTERNAL", message: "Drive list unavailable" }, 500)
         const manageable = DRIVES.filter((d) => isOrgAdmin || this.driveMembers[d.id].get(user.id) === "admin")
         return json({ drives: manageable.map((d) => ({ ...d, myRole: this.driveMembers[d.id].get(user.id) ?? null })) })
       }
@@ -172,6 +186,8 @@ export class InviteFixture {
 
     if (path === "/orgs/org/members" && method === "GET") {
       if (!isOrgAdmin) return forbidden()
+      if (this.membersDelayMs) await new Promise((resolve) => setTimeout(resolve, this.membersDelayMs))
+      if (this.membersFail) return json({ error: "INTERNAL", message: "Member list unavailable" }, 500)
       return json({
         members: [...this.orgMembers].map(([id, role]) => ({ userId: id, email: this.users.get(id)!.email, role })),
       })

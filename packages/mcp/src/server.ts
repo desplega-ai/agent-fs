@@ -289,7 +289,7 @@ export function registerIdentityTools(
   server.tool(
     "invite-accept",
     "Accept an org invite as the current account. Pass the accept link or its token. The account's email must be the invited email.",
-    { token: z.string().describe("Accept link (https://.../invite/<token>) or the bare token") },
+    { token: z.string().describe("Accept link (https://.../invite#<token>) or the bare token") },
     async (params: { token: string }, extra) => {
       const ctx = getContext(extra);
       try {

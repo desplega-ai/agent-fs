@@ -10,7 +10,7 @@ import {
   useManageableDrives,
   useOrgMembers,
 } from "@/hooks/use-org-members"
-import { useHealth } from "@/hooks/use-health"
+import { useInvitesSupported } from "@/hooks/use-health"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { UserAvatar } from "@/components/UserAvatar"
 import { InviteDialog } from "@/components/InviteDialog"
@@ -27,7 +27,6 @@ import {
 import { toast } from "@/stores/toast"
 import { cn } from "@/lib/utils"
 import { ROLES, selectClass } from "@/lib/member-roles"
-import { supportsInvites } from "@/lib/invites"
 import type { ApiError } from "@/api/client"
 import type { DriveMemberWithRole, MemberRole } from "@/api/types"
 
@@ -52,8 +51,9 @@ export function MembersPage() {
   const { data: manageable } = useManageableDrives(orgId)
   const admin = useDriveMembersAdmin(orgId, driveId)
   const directory = useDriveMembersOf(orgId, driveId)
-  const { data: health } = useHealth()
-  const canInvite = useIsOrgAdmin() && supportsInvites(health)
+  const isOrgAdmin = useIsOrgAdmin()
+  const invitesSupported = useInvitesSupported()
+  const canInvite = isOrgAdmin && invitesSupported
   const [inviting, setInviting] = useState(false)
 
   const driveName =

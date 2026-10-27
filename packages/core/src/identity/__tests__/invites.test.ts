@@ -13,6 +13,7 @@ import {
   acceptInvite,
   getInvitePreview,
   hashInviteToken,
+  inviteAcceptUrl,
   listInvites,
   parseInviteToken,
   revokeInvite,
@@ -277,8 +278,34 @@ describe("parseInviteToken", () => {
     expect(parseInviteToken(`https://live.example.com/invite/${token}?ref=mail`)).toBe(token);
   });
 
+  test("accepts the fragment form, with or without the apiUrl query", () => {
+    expect(parseInviteToken(`https://live.example.com/invite#${token}`)).toBe(token);
+    expect(parseInviteToken(` https://live.example.com/invite/#${token} `)).toBe(token);
+    expect(
+      parseInviteToken(`https://live.example.com/invite?apiUrl=https%3A%2F%2Fapi.example.com#${token}`)
+    ).toBe(token);
+  });
+
   test("rejects anything else", () => {
     expect(parseInviteToken("short")).toBeNull();
     expect(parseInviteToken(`https://live.example.com/share/${token}`)).toBeNull();
+    expect(parseInviteToken(`https://live.example.com/share#${token}`)).toBeNull();
+    expect(parseInviteToken("https://live.example.com/invite#short")).toBeNull();
+  });
+});
+
+describe("inviteAcceptUrl", () => {
+  const token = "abcDEF012_-".padEnd(43, "x");
+
+  test("puts the token in the fragment so it never travels in an HTTP request", () => {
+    const url = inviteAcceptUrl("https://live.example.com/", token)!;
+    expect(url).toBe(`https://live.example.com/invite#${token}`);
+    const parsed = new URL(url);
+    expect(parsed.pathname + parsed.search).toBe("/invite");
+    expect(parseInviteToken(url)).toBe(token);
+  });
+
+  test("is absent without an app URL", () => {
+    expect(inviteAcceptUrl(undefined, token)).toBeUndefined();
   });
 });

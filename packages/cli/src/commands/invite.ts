@@ -13,7 +13,7 @@ export function inviteCommands(client: ApiClient) {
     .addHelpText(
       "after",
       "\nThe signed-in account's email must be the invited email. Register it first if needed:" +
-        "\n  agent-fs auth register <email>\n\nExample:\n  agent-fs invite accept https://live.agent-fs.dev/invite/<token>"
+        "\n  agent-fs auth register <email>\n\nExample:\n  agent-fs invite accept https://live.agent-fs.dev/invite#<token>"
     )
     .action(async (input: string) => {
       const json = cmd.parent?.opts().json;

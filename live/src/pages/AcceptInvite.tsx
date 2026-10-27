@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react"
-import { useNavigate, useParams, useSearchParams } from "react-router"
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { LogIn, UserPlus } from "lucide-react"
 import { AgentFsClient, type ApiError } from "@/api/client"
@@ -8,10 +8,11 @@ import { AccountSwitcher } from "@/components/AccountSwitcher"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
-import { formatExpiry } from "@/lib/invites"
-import { getActiveCredential, saveCredential, setActiveCredential, type Credential } from "@/stores/credentials"
+import { forgetInviteToken, formatExpiry, inviteTokenFromUrl, recallInviteToken, rememberInviteToken } from "@/lib/invites"
+import { getActiveCredential, getCredentials, saveCredential, setActiveCredential, type Credential } from "@/stores/credentials"
 import { toast } from "@/stores/toast"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { useNoReferrer } from "@/hooks/use-no-referrer"
 import type { AcceptInviteResult, InvitePreview, MeResponse } from "@/api/types"
 
 const trimEndpoint = (endpoint: string) => endpoint.trim().replace(/\/+$/, "")
@@ -25,6 +26,15 @@ function activeCredentialFor(endpoint: string | null): Credential | null {
   const active = getActiveCredential()
   if (!active || !endpoint) return null
   return trimEndpoint(active.endpoint) === endpoint ? active : null
+}
+
+/** `host[:port]` of an endpoint, for sentences; the full address is shown separately. */
+function endpointHost(endpoint: string): string {
+  try {
+    return new URL(endpoint).host
+  } catch {
+    return endpoint
+  }
 }
 
 function Frame({ title, children }: { title: string; children: ReactNode }) {
@@ -43,10 +53,27 @@ function Frame({ title, children }: { title: string; children: ReactNode }) {
  * API server (`?apiUrl=`), the page previews the invite from the public
  * endpoint, then registers the invited email (locked) or connects an existing
  * account, accepts, and opens the first drive the invite granted.
+ *
+ * The token is a bearer secret, so it lives in the URL fragment
+ * (`/invite#<token>`), which is never sent over HTTP. Links issued before that
+ * carry it in the path (`/invite/<token>`). Either way the page reads it once,
+ * keeps it for this tab, and rewrites the address bar without it.
  */
 export function AcceptInvitePage() {
   useDocumentTitle("Accept invite")
-  const token = useParams().token ?? ""
+  useNoReferrer()
+  const pathToken = useParams().token
+  const { hash } = useLocation()
+  const urlToken = inviteTokenFromUrl(pathToken, hash)
+  const [token, setToken] = useState(() => urlToken ?? recallInviteToken())
+  useEffect(() => {
+    if (!urlToken) return
+    setToken(urlToken)
+    rememberInviteToken(urlToken)
+    // Straight to the History API: the router keeps its own location, and a
+    // navigation here would remount the page for nothing.
+    window.history.replaceState(window.history.state, "", `/invite${window.location.search}`)
+  }, [urlToken])
   const [search] = useSearchParams()
   const apiUrlParam = search.get("apiUrl")
   const [typedEndpoint, setTypedEndpoint] = useState<string | null>(null)
@@ -56,11 +83,12 @@ export function AcceptInvitePage() {
 
   const preview = useQuery({
     queryKey: ["invite-preview", endpoint, token],
-    queryFn: () => AgentFsClient.getInvitePreview({ endpoint: endpoint!, token }),
-    enabled: !!endpoint,
+    queryFn: () => AgentFsClient.getInvitePreview({ endpoint: endpoint!, token: token! }),
+    enabled: !!endpoint && !!token,
     retry: false,
   })
 
+  if (!token) return <MissingToken />
   if (!endpoint) return <EndpointPrompt onSubmit={setTypedEndpoint} />
   if (preview.isPending) {
     return (
@@ -71,6 +99,18 @@ export function AcceptInvitePage() {
   }
   if (preview.error || !preview.data) return <InvalidInvite error={preview.error} />
   return <InviteBody key={token} token={token} endpoint={endpoint} invite={preview.data} />
+}
+
+/** Opened with no token in the address and none kept for this tab. */
+function MissingToken() {
+  return (
+    <Frame title="Open your invite link">
+      <p role="alert" className="text-sm text-muted-foreground">
+        This page needs the full link you were sent. Open it again from the message, or ask the person who invited you
+        for a new one.
+      </p>
+    </Frame>
+  )
 }
 
 /** Links from the CLI carry no server address; ask for it once. */
@@ -122,6 +162,8 @@ function InviteBody({ token, endpoint, invite }: { token: string; endpoint: stri
   // The active account lives in localStorage; bumping this re-renders so it is read again.
   const [, setSession] = useState(0)
   const credential = activeCredentialFor(endpoint)
+  // Saved accounts are the servers this browser has used before; anything else is new to the person opening the link.
+  const knownServer = getCredentials().some((c) => trimEndpoint(c.endpoint) === endpoint)
   const [accepted, setAccepted] = useState<AcceptInviteResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -134,15 +176,17 @@ function InviteBody({ token, endpoint, invite }: { token: string; endpoint: stri
   })
 
   const connectHref = useMemo(() => {
-    const next = `/invite/${token}?apiUrl=${encodeURIComponent(endpoint)}`
+    // No token here: it would land in the connect page's address. This page reads it back from the tab.
+    const next = `/invite?apiUrl=${encodeURIComponent(endpoint)}`
     return `/credentials?variant=connect&apiUrl=${encodeURIComponent(endpoint)}&next=${encodeURIComponent(next)}`
-  }, [token, endpoint])
+  }, [endpoint])
 
   const accept = async (client: AgentFsClient, credentialId: string) => {
     setBusy(true)
     setError(null)
     try {
       const result = await client.acceptInvite(token)
+      forgetInviteToken()
       setActiveCredential(credentialId)
       // The account just gained an org and drives; nothing cached about it is current.
       await queryClient.invalidateQueries()
@@ -197,6 +241,15 @@ function InviteBody({ token, endpoint, invite }: { token: string; endpoint: stri
         <span className="font-medium">{invite.invitedBy}</span> invited <span className="font-medium">{invite.email}</span> to{" "}
         <span className="font-medium">{invite.orgName}</span>.
       </p>
+      <div className="space-y-1 rounded-lg border border-border px-3 py-2">
+        <div className="text-xs text-muted-foreground">Server</div>
+        <div data-testid="invite-server" className="break-all font-mono text-xs">{endpoint}</div>
+        {!knownServer && (
+          <p className="text-xs text-muted-foreground">
+            You haven't used this server in this browser. Continue only if you trust whoever sent the link.
+          </p>
+        )}
+      </div>
       {invite.drives.length > 0 && (
         <ul aria-label="Drives in this invite" className="divide-y divide-border rounded-lg border border-border">
           {invite.drives.map((d) => (
@@ -255,6 +308,10 @@ function InviteBody({ token, endpoint, invite }: { token: string; endpoint: stri
           <Input id="invite-email" type="email" value={invite.email} readOnly disabled />
           <p className="text-xs text-muted-foreground">The invite is for this address, so it can't be changed.</p>
         </div>
+        <p className="text-sm">
+          This creates an account for <span className="font-medium">{invite.email}</span> on{" "}
+          <span className="font-medium">{endpointHost(endpoint)}</span>.
+        </p>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <Button type="submit" className="w-full" size="lg" disabled={busy}>
           <UserPlus />

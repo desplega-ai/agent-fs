@@ -3102,6 +3102,8 @@ async function runStandardTests(daemonUrl: string) {
     assertIncludes(out, "Pending: Pending@e2e.local has no account yet. Send them: ");
     assertIncludes(out, `drive e2e-work (${workDriveId})  [editor]`);
     pendingLink = out.split("Send them: ")[1].split("\n")[0].trim();
+    // The token rides in the fragment: it never reaches the live host in an HTTP request.
+    assertIncludes(pendingLink, "/invite#");
     const invites = runJson("member invites");
     assert(invites.map((i: any) => i.email).join(","), "pending@e2e.local");
     assertIncludes(run("member invites"), "e2e-work:editor, e2e-ledger:viewer");

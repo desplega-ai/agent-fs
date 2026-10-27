@@ -215,6 +215,8 @@ export default function App() {
             <BrowserRouter>
               <Routes>
                 <Route path="/credentials" element={<CredentialsPage />} />
+                {/* /invite#<token> is the current link; /invite/:token is kept for links issued before it. */}
+                <Route path="/invite" element={<AcceptInvitePage />} />
                 <Route path="/invite/:token" element={<AcceptInvitePage />} />
                 <Route element={<AuthenticatedLayout />}>
                   <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
