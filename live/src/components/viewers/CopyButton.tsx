@@ -17,13 +17,7 @@ export function CopyButton({ path, actions }: { path: string; actions: ReturnTyp
   const blocked = contents.ok ? null : copyBlockMessage(contents.reason)
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next, details) => {
-        // A click copies; it neither opens nor pins the popover.
-        if (details.reason !== "trigger-press") setOpen(next)
-      }}
-    >
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         openOnHover
         delay={150}
@@ -32,7 +26,14 @@ export function CopyButton({ path, actions }: { path: string; actions: ReturnTyp
           <Button
             variant="ghost"
             size="icon-xs"
-            onClick={copyContents}
+            onClick={(e) => {
+              // A click copies; it neither opens nor pins the popover. Skip
+              // Base UI's click handler entirely: it records the click as the
+              // open event even when the open is refused, and hover then never
+              // reopens the popover.
+              e.preventBaseUIHandler()
+              void copyContents()
+            }}
             onFocus={(e) => {
               if (e.currentTarget.matches(":focus-visible")) setOpen(true)
             }}

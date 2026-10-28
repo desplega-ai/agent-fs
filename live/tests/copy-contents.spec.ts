@@ -89,6 +89,42 @@ test("hovering opens Copy path, which copies the path", async ({ page }, testInf
   expect(await clipboard(page)).toMatch(/^\/?notes\.md$/)
 })
 
+test("hover still opens Copy path after Copy clicks", async ({ page }, testInfo) => {
+  await page.goto("/file/~/org/drive/notes.md")
+  await expect(page.getByText("Copied straight from the viewer.")).toBeVisible()
+  const copyPath = page.getByRole("button", { name: /Copy path/ })
+  for (let i = 0; i < 3; i++) {
+    // Click before the hover delay opens the popover, then leave.
+    await copyButton(page).click()
+    await page.mouse.move(10, 400)
+    await expect(copyPath).toBeHidden()
+    await copyButton(page).hover()
+    await expect(copyPath).toBeVisible()
+    await page.mouse.move(10, 400)
+    await expect(copyPath).toBeHidden()
+  }
+  expect(await clipboard(page)).toBe(NOTES)
+  await copyButton(page).hover()
+  await expect(copyPath).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath("hover-after-click.png") })
+})
+
+test("a click while the popover is open copies and keeps hover working", async ({ page }) => {
+  await page.goto("/file/~/org/drive/notes.md")
+  await expect(page.getByText("Copied straight from the viewer.")).toBeVisible()
+  const copyPath = page.getByRole("button", { name: /Copy path/ })
+  await setClipboard(page, "untouched")
+  await copyButton(page).hover()
+  await expect(copyPath).toBeVisible()
+  await copyButton(page).click()
+  await expect.poll(() => clipboard(page)).toBe(NOTES)
+  await expect(copyPath).toBeVisible()
+  await page.mouse.move(10, 400)
+  await expect(copyPath).toBeHidden()
+  await copyButton(page).hover()
+  await expect(copyPath).toBeVisible()
+})
+
 test("keyboard focus opens the popover", async ({ page }) => {
   await page.goto("/file/~/org/drive/notes.md")
   await expect(copyButton(page)).toBeVisible()
