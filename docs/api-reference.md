@@ -45,6 +45,8 @@ curl -X POST http://localhost:7433/auth/register \
   -d '{"email": "agent@example.com"}'
 ```
 
+Set `AGENT_FS_REGISTER_ALLOWED_DOMAINS` (comma-separated, e.g. `acme.com,acme.io`) to restrict sign-ups by email domain. The domain after the last `@` must exactly match an entry, case-insensitive. Other domains get `403 {"error":"REGISTRATION_DOMAIN_NOT_ALLOWED"}`; an email with no domain gets `400 {"error":"VALIDATION_ERROR"}`. Unset means open registration.
+
 `agent-fs auth reset-key` rotates your own key while you still hold the current one — it calls `/auth/reset-key`, which sits behind the same auth middleware as every other endpoint, so it cannot help if the key is genuinely lost. Recovering a lost key requires an org admin to run `agent-fs member reset-key <email>` on the locked-out user's behalf. Either path invalidates the old key immediately.
 
 ### `GET /auth/me`

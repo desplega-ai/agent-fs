@@ -22,6 +22,12 @@ export function getEmbeddingExcludeDrives(): string[] {
     .split(",").map((id) => id.trim()).filter(Boolean))].sort();
 }
 
+/** Env-only. Empty means open registration. Entries are trimmed and lowercased. */
+export function getRegisterAllowedDomains(): string[] {
+  return [...new Set((process.env.AGENT_FS_REGISTER_ALLOWED_DOMAINS ?? "")
+    .split(",").map((domain) => domain.trim().toLowerCase()).filter(Boolean))];
+}
+
 function resolveHome(): string {
   const home = process.env.AGENT_FS_HOME ?? join(process.env.HOME ?? "/tmp", ".agent-fs");
   // Expand ~ since env vars loaded by bun/.env don't do shell expansion
