@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.18.11",
+    "version": "0.18.12",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -308,6 +308,26 @@
                     "driveId",
                     "apiKey"
                   ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_ERROR: email missing, or has no domain while AGENT_FS_REGISTER_ALLOWED_DOMAINS is set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "REGISTRATION_DOMAIN_NOT_ALLOWED: email domain is not in AGENT_FS_REGISTER_ALLOWED_DOMAINS",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }

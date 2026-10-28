@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import {
   createUser,
   getProfile,
+  getRegisterAllowedDomains,
   updateProfile,
   listUserOrgs,
   resolveContext,
@@ -22,6 +23,27 @@ export function authRoutes(db: DB) {
         { error: "VALIDATION_ERROR", message: "email is required" },
         400
       );
+    }
+
+    const allowedDomains = getRegisterAllowedDomains();
+    if (allowedDomains.length > 0) {
+      const at = email.lastIndexOf("@");
+      const domain = at === -1 ? "" : email.slice(at + 1).trim().toLowerCase();
+      if (!domain) {
+        return c.json(
+          { error: "VALIDATION_ERROR", message: "email must include a domain" },
+          400
+        );
+      }
+      if (!allowedDomains.includes(domain)) {
+        return c.json(
+          {
+            error: "REGISTRATION_DOMAIN_NOT_ALLOWED",
+            message: "Registration is not open for this email domain",
+          },
+          403
+        );
+      }
     }
 
     try {

@@ -209,7 +209,7 @@ export function CommentThread({ comment, path, currentUserId, onCommentClick }: 
         <div className="ml-6.5" onClick={(e) => e.stopPropagation()}>
           {editing ? (
             <div className="space-y-2">
-              <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} className="resize-none text-sm" rows={3} />
+              <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} className="resize-none" rows={3} />
               <div className="flex gap-2">
                 <Button size="xs" onClick={handleSaveEdit} disabled={!editBody.trim() || updateComment.isPending}>Save</Button>
                 <Button variant="ghost" size="xs" onClick={() => setEditing(false)}>Cancel</Button>
@@ -337,7 +337,7 @@ function ReplyItem({ reply, path, currentUserId }: { reply: CommentEntry; path: 
       <div className="ml-6.5">
         {editing ? (
           <div className="space-y-2">
-            <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} className="resize-none text-sm" rows={2} />
+            <Textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} className="resize-none" rows={2} />
             <div className="flex gap-2">
               <Button size="xs" onClick={() => updateComment.mutate({ id: reply.id, body: editBody, path }, { onSuccess: () => setEditing(false) })} disabled={!editBody.trim()}>Save</Button>
               <Button variant="ghost" size="xs" onClick={() => setEditing(false)}>Cancel</Button>
