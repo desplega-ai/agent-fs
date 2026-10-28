@@ -17,12 +17,37 @@ const BLOCK = new Set([
 ])
 // Elements whose content is not page text (the overlay skips them too).
 const SKIP = new Set(["script", "style", "template", "title", "noscript", "svg", "iframe", "object", "textarea", "select"])
-const NAMED: Record<string, string> = {
-  amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: " ", mdash: "—", ndash: "–",
-  hellip: "…", lsquo: "‘", rsquo: "’", ldquo: "“", rdquo: "”", middot: "·",
-  bull: "•", copy: "©", reg: "®", trade: "™", times: "×", rarr: "→", larr: "←", euro: "€",
+// A character reference as the HTML tokenizer reads one: named (the semicolon
+// is optional for legacy names), decimal or hex.
+const ENTITY = /&(?:#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[a-zA-Z][a-zA-Z0-9]*;?)/y
+// Without a DOM (unit tests): numeric references, the XML names and nbsp only.
+const XML_NAMED: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: "\"", apos: "'", nbsp: "\u00a0" }
+const decoded = new Map<string, string>()
+let decoder: HTMLTextAreaElement | null = null
+
+/**
+ * Decode one character reference exactly as the browser does: a textarea's
+ * content is parsed as text with references decoded and no markup, so every
+ * named reference, legacy forms and the numeric fix-ups match the page. The
+ * result can carry trailing text the reference did not consume ("&notit;").
+ */
+function decodeReference(raw: string): string {
+  let out = decoded.get(raw)
+  if (out != null) return out
+  if (typeof document !== "undefined") {
+    decoder ??= document.createElement("textarea")
+    decoder.innerHTML = raw
+    out = decoder.value
+  } else {
+    const body = raw.slice(1).replace(/;$/, "")
+    const code = body[0] !== "#" ? NaN : body[1] === "x" || body[1] === "X" ? parseInt(body.slice(2), 16) : Number(body.slice(1))
+    out = body[0] === "#"
+      ? (code > 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff) ? String.fromCodePoint(code) : "\ufffd")
+      : raw.endsWith(";") && XML_NAMED[body] ? XML_NAMED[body] : raw
+  }
+  decoded.set(raw, out)
+  return out
 }
-const ENTITY = /&(#\d{1,7}|#[xX][0-9a-fA-F]{1,6}|[a-zA-Z][a-zA-Z0-9]{1,31});/y
 const TAG = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)/y
 
 /** The text a frame's overlay reports. Its offsets have no source lines. */
@@ -61,10 +86,8 @@ export function htmlSourceTextSpace(html: string): TextSpace {
     if (ch === "&") {
       ENTITY.lastIndex = i
       const m = ENTITY.exec(html)
-      const ref = m?.[1]
-      const code = ref?.[0] === "#" ? (ref[1] === "x" || ref[1] === "X" ? parseInt(ref.slice(2), 16) : Number(ref.slice(1))) : NaN
-      const decoded = !ref ? undefined : ref[0] === "#" ? (code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : undefined) : NAMED[ref]
-      if (m && decoded != null) { add(decoded, i); i += m[0].length; continue }
+      const value = m ? decodeReference(m[0]) : ch
+      if (m && value !== m[0]) { add(value, i); i += m[0].length; continue }
       add(ch, i++)
       continue
     }

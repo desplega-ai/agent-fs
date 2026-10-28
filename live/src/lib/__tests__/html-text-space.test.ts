@@ -67,4 +67,15 @@ describe("htmlSourceTextSpace", () => {
     const tags = resolveAnchor(source, { quote: { exact: "Last line\u00a0here" }, lineStart: 10, lineEnd: 10 })
     expect(tags).toMatchObject({ status: "anchored", method: "lines", lineStart: 10, lineEnd: 10 })
   })
+
+  test("a line-only comment finds text written with numeric and hex references", () => {
+    // Named references (&eacute;) decode through the browser's own parser; the
+    // HTML comments browser test covers them. Without a DOM only numbers and
+    // the XML names decode.
+    const source = htmlSourceTextSpace("<h1>Q3</h1>\n<p>Caf&#233; &amp; caf&#xE9; earnings</p>\n<p>Next</p>")
+    const frame = { text: "Q3\nCafé & café earnings\nNext" }
+    const r = resolveAnchorInView(frame, source, { lineStart: 2, lineEnd: 2 })
+    expect(r.status).toBe("anchored")
+    expect(frame.text.slice(r.start, r.end)).toBe("Café & café earnings")
+  })
 })

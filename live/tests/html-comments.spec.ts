@@ -364,3 +364,14 @@ test("commenting comes back when the page is restored from the back/forward cach
   await frame.locator("#target").click()
   await expect(button).toBeVisible()
 })
+
+test("a line-only comment finds text written with named, numeric and hex references", async ({ page }) => {
+  const html = "<!doctype html><body>\n<h1>Menu</h1>\n<p>Caf&eacute; earnings, &#233;t&#xE9; &amp; more</p>\n<p>Next</p>\n</body>"
+  const f = fixture({ html, comments: [comment({ ...otherUser, lineStart: 3, lineEnd: 3, fileVersion: 1 })] })
+  await installFixture(page, f)
+  await page.goto("/file/~/org/drive/reports/page.html")
+  const frame = () => page.frames().find((fr) => fr.url().includes("/site/tok/"))!
+  await expect.poll(() => frame()?.evaluate(() => [...(CSS.highlights.get("afs-comment") ?? [])].map((r) => (r as Range).toString())))
+    .toEqual(["Café earnings, été & more"])
+  await expect(page.getByText("anchor lost", { exact: true })).toHaveCount(0)
+})
