@@ -15,6 +15,14 @@ export const COMMENT_BTN_WIDTH = 108
 export const COMMENT_BTN_HEIGHT = 32
 /** Below a touch selection: room for the selection handles. */
 const TOUCH_BTN_GAP = 28
+/**
+ * A touch selection closer than this to the top of the visible area leaves no
+ * room for the native selection menu above it, so the menu goes below, where
+ * the button is: the button goes above the selection instead, if it fits.
+ */
+const NATIVE_MENU_ROOM = 70
+/** Widest sheet, so a tablet's form is not a full-width strip. */
+const SHEET_MAX_WIDTH = 448
 
 /** The visible area, in the coordinates of fixed-position elements. */
 export interface Viewport {
@@ -62,10 +70,12 @@ export function clampFormTop(rect: AnchorRect, formHeight: number, vp: Viewport)
   return Math.max(lo, hi - formHeight)
 }
 
-/** The Comment button: under the selection, centred, inside the viewport. */
+/** The Comment button: under the selection (above a touch one at the top), centred, inside the viewport. */
 export function commentButtonPosition(rect: AnchorRect, vp: Viewport, touch: boolean): { top: number; left: number } {
+  const above = rect.top - 8 - COMMENT_BTN_HEIGHT
+  const useAbove = touch && rect.top - vp.offsetTop < NATIVE_MENU_ROOM && above >= vp.offsetTop + VIEWPORT_MARGIN
   return {
-    top: Math.min(rect.bottom + (touch ? TOUCH_BTN_GAP : 6), vp.offsetTop + vp.height - COMMENT_BTN_HEIGHT - VIEWPORT_MARGIN),
+    top: useAbove ? above : Math.min(rect.bottom + (touch ? TOUCH_BTN_GAP : 6), vp.offsetTop + vp.height - COMMENT_BTN_HEIGHT - VIEWPORT_MARGIN),
     left: clampLeft(rect.left + rect.width / 2 - COMMENT_BTN_WIDTH / 2, COMMENT_BTN_WIDTH, vp),
   }
 }
@@ -76,10 +86,11 @@ export function commentButtonPosition(rect: AnchorRect, vp: Viewport, touch: boo
  */
 export function commentFormStyle(rect: AnchorRect, formHeight: number, vp: Viewport, sheet: boolean): CSSProperties {
   if (sheet) {
+    const width = Math.min(vp.width, SHEET_MAX_WIDTH)
     return {
       top: vp.offsetTop + vp.height,
-      left: vp.offsetLeft,
-      width: vp.width,
+      left: vp.offsetLeft + (vp.width - width) / 2,
+      width,
       maxHeight: vp.height * 0.8,
       transform: "translateY(-100%)",
     }
@@ -99,25 +110,41 @@ export function useCommentSheet(): boolean {
 }
 
 /**
- * The viewport to place the comment UI in: the visual viewport, kept current
- * while `track` (the keyboard opening resizes and scrolls it), on sheet
- * screens; the window on desktop.
+ * The viewport to place the comment UI in, kept current while `track`: the
+ * visual viewport on sheet screens (the keyboard opening resizes and scrolls
+ * it), the window on desktop.
  */
 export function usePopoverViewport(sheet: boolean, track: boolean): Viewport {
-  const [vp, setVp] = useState<Viewport>(() => (sheet ? visualViewport() : layoutViewport()))
+  const read = () => (sheet ? visualViewport() : layoutViewport())
+  const [vp, setVp] = useState<Viewport>(read)
   useEffect(() => {
-    setVp(sheet ? visualViewport() : layoutViewport())
-    const v = window.visualViewport
-    if (!sheet || !track || !v) return
-    const update = () => setVp(visualViewport())
-    v.addEventListener("resize", update)
-    v.addEventListener("scroll", update)
+    const update = () => setVp(read())
+    update()
+    const target = sheet ? window.visualViewport : window
+    if (!track || !target) return
+    target.addEventListener("resize", update)
+    target.addEventListener("scroll", update)
     return () => {
-      v.removeEventListener("resize", update)
-      v.removeEventListener("scroll", update)
+      target.removeEventListener("resize", update)
+      target.removeEventListener("scroll", update)
     }
   }, [sheet, track])
   return vp
+}
+
+/**
+ * iOS scrolls the window to show a focused field, although the app scrolls
+ * in its own container, and leaves it scrolled: the top bar ends up under the
+ * browser toolbar. Put the window back when `active` (the sheet) ends.
+ */
+export function useRestoreWindowScroll(active: boolean) {
+  useEffect(() => {
+    if (!active) return
+    const y = window.scrollY
+    return () => {
+      if (window.scrollY !== y) window.scrollTo(0, y)
+    }
+  }, [active])
 }
 
 /**

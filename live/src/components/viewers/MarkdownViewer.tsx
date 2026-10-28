@@ -27,7 +27,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { slugify, scrollToHeading, scrollBehavior, type OutlineItem } from "@/lib/outline"
 import { computeActiveHeadings } from "@/hooks/use-active-headings"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
-import { commentButtonPosition, commentFormStyle, useCommentSheet, usePopoverViewport, useTouchSelection, VIEWPORT_MARGIN } from "@/lib/comment-popover"
+import { commentButtonPosition, commentFormStyle, useCommentSheet, usePopoverViewport, useRestoreWindowScroll, useTouchSelection, VIEWPORT_MARGIN } from "@/lib/comment-popover"
 import { captureQuote, type AnchorResolution } from "@/lib/comment-anchor"
 import { buildDomTextSpace, rehypeSourceLines, type DomTextSpace } from "@/lib/dom-text-space"
 import { commentAnchors, revealComment, useActiveComment, useHoveredComment } from "@/stores/comment-anchors"
@@ -513,6 +513,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
   // Phones and tablets get the form as a bottom sheet on the visual viewport.
   const sheet = useCommentSheet()
   const viewport = usePopoverViewport(sheet, showCommentForm || !!selection)
+  useRestoreWindowScroll(sheet && showCommentForm)
 
   // Keep the comment UI glued to the selection while the document scrolls or
   // resizes (feedback: "make comment box sticky to the selection"). Not the
@@ -701,7 +702,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
           data-comment-ui
           className={cn(
             "fixed z-50 w-80 max-h-[80vh] overflow-y-auto rounded-lg border border-border bg-popover p-3 shadow-lg",
-            sheet && "rounded-b-none border-x-0 border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+            sheet && "rounded-b-none border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
           )}
           style={commentFormStyle(anchorRect, formHeight || 220, viewport, sheet)}
         >

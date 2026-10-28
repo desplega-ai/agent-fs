@@ -95,3 +95,75 @@ test("the comment form is a bottom sheet on the visual viewport, with 16 px text
   await expect.poll(() => adds.length).toBe(1)
   expect(adds[0]).toMatchObject({ body: "From a phone", quote: { exact: "some words" } })
 })
+
+test("the sheet follows the visible area as the keyboard resizes and scrolls it, and the window is put back", async ({ page }) => {
+  // A visual viewport the test controls, standing in for the iOS keyboard.
+  await page.addInitScript(() => {
+    const vv = Object.assign(new EventTarget(), { width: 390, height: 844, offsetTop: 0, offsetLeft: 0, scale: 1 })
+    Object.defineProperty(window, "visualViewport", { configurable: true, get: () => vv })
+    ;(window as unknown as { __vv: typeof vv }).__vv = vv
+  })
+  await installFixture(page, [])
+  await page.goto("/file/~/org/drive/notes.md")
+  await touchSelect(page, "some words")
+  await page.getByRole("button", { name: "Comment", exact: true }).tap()
+  const textarea = page.getByPlaceholder("Add a comment...")
+  const sheetBottom = async () => {
+    const b = (await page.locator("[data-comment-ui]").filter({ has: textarea }).boundingBox())!
+    return Math.round(b.y + b.height)
+  }
+  expect(await sheetBottom()).toBe(844)
+
+  // The keyboard opens: the window scrolls to the field and the visible area shrinks.
+  const scrolled = await page.evaluate(() => {
+    document.documentElement.style.height = "3000px"
+    scrollTo(0, 120)
+    const vv = (window as unknown as { __vv: EventTarget & Record<string, number> }).__vv
+    Object.assign(vv, { offsetTop: 120, height: 400 })
+    vv.dispatchEvent(new Event("resize"))
+    vv.dispatchEvent(new Event("scroll"))
+    return scrollY
+  })
+  expect(scrolled).toBe(120)
+  await expect.poll(sheetBottom).toBe(520)
+  await textarea.fill("Typing with the keyboard up")
+  expect(await sheetBottom()).toBe(520)
+
+  await page.getByRole("button", { name: "Cancel" }).tap()
+  await expect(textarea).toHaveCount(0)
+  expect(await page.evaluate(() => scrollY)).toBe(0)
+})
+
+test.describe("landscape phone", () => {
+  test.use({ viewport: { width: 844, height: 390 } })
+
+  test("the sheet still applies, centred and capped, with 16 px text", async ({ page }) => {
+    await installFixture(page, [])
+    await page.goto("/file/~/org/drive/notes.md")
+    await touchSelect(page, "some words")
+    await page.getByRole("button", { name: "Comment", exact: true }).tap()
+    const textarea = page.getByPlaceholder("Add a comment...")
+    expect(await textarea.evaluate((el) => getComputedStyle(el).fontSize)).toBe("16px")
+    const b = (await page.locator("[data-comment-ui]").filter({ has: textarea }).boundingBox())!
+    expect({ left: Math.round(b.x), width: Math.round(b.width), bottom: Math.round(b.y + b.height) }).toEqual({ left: 198, width: 448, bottom: 390 })
+  })
+})
+
+test.describe("desktop", () => {
+  test.use({ viewport: { width: 1280, height: 844 }, hasTouch: false, isMobile: false })
+
+  test("the open form stays inside the window when the window shrinks", async ({ page }) => {
+    await installFixture(page, [])
+    await page.goto("/file/~/org/drive/notes.md")
+    await page.locator("[data-markdown-scroll] p", { hasText: "some words" }).click({ clickCount: 3 })
+    await page.getByRole("button", { name: "Comment", exact: true }).click()
+    const form = page.locator("[data-comment-ui]").filter({ has: page.getByPlaceholder("Add a comment...") })
+    await expect(form).toBeVisible()
+    expect(await page.getByPlaceholder("Add a comment...").evaluate((el) => getComputedStyle(el).fontSize)).toBe("14px")
+    await page.setViewportSize({ width: 1000, height: 400 })
+    await expect.poll(async () => {
+      const b = (await form.boundingBox())!
+      return b.y + b.height <= 400 - 8 + 1 && b.x + b.width <= 1000 - 8 + 1
+    }).toBe(true)
+  })
+})

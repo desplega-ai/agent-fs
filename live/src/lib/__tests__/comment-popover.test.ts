@@ -37,6 +37,23 @@ describe("comment popover placement", () => {
     }
   })
 
+  test("a touch selection near the top gets the button above it, where the native menu is not", () => {
+    // 50 px from the top: the menu goes below, the button fits above.
+    expect(commentButtonPosition(rect(50), desktop, true).top).toBe(50 - 8 - COMMENT_BTN_HEIGHT)
+    // Too close to the top for either: it stays below.
+    expect(commentButtonPosition(rect(20), desktop, true).top).toBe(20 + 20 + 28)
+    // A mouse selection, or one lower down, is unchanged.
+    expect(commentButtonPosition(rect(50), desktop, false).top).toBe(50 + 20 + 6)
+    expect(commentButtonPosition(rect(100), desktop, true).top).toBe(148)
+    // Measured from the top of the visible area.
+    expect(commentButtonPosition(rect(363 + 50), keyboard, true).top).toBe(363 + 50 - 8 - COMMENT_BTN_HEIGHT)
+  })
+
+  test("on a wide touch screen the sheet is capped and centred", () => {
+    const ipad: Viewport = { width: 1024, height: 700, offsetTop: 0, offsetLeft: 0 }
+    expect(commentFormStyle(rect(100), 220, ipad, true)).toMatchObject({ width: 448, left: (1024 - 448) / 2, top: 700 })
+  })
+
   test("on desktop the form follows the anchor as before", () => {
     expect(commentFormStyle(rect(100), 220, desktop, false)).toEqual({ top: 130, left: 60 })
   })
