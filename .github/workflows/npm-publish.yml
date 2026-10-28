@@ -336,22 +336,22 @@ jobs:
       - name: Create GitHub Release
         run: |
           VERSION="$RELEASE_TAG"
-          gh release create "$VERSION" --generate-notes --notes "$(cat <<'NOTES'
+          gh release create "$VERSION" --generate-notes --notes "$(sed "s/__RELEASE_VERSION__/${VERSION#v}/g" <<'NOTES'
 
           ## Install
 
           ```bash
           # bun
-          bun add -g @desplega.ai/agent-fs@${VERSION#v}
+          bun add -g @desplega.ai/agent-fs@__RELEASE_VERSION__
 
           # npm
-          npm install -g @desplega.ai/agent-fs@${VERSION#v}
+          npm install -g @desplega.ai/agent-fs@__RELEASE_VERSION__
 
           # pnpm
-          pnpm add -g @desplega.ai/agent-fs@${VERSION#v}
+          pnpm add -g @desplega.ai/agent-fs@__RELEASE_VERSION__
 
           # just-bash adapter
-          bun add @desplega.ai/agent-fs-just-bash@${VERSION#v}
+          bun add @desplega.ai/agent-fs-just-bash@__RELEASE_VERSION__
           ```
 
           ## Update
@@ -359,6 +359,12 @@ jobs:
           ```bash
           bun update -g @desplega.ai/agent-fs
           ```
+
+          ## Downstream: agent-swarm
+
+          agent-swarm pins this version in Helm (`charts/agent-swarm/values.yaml`, `agentFs.image.tag`) and npm (`@desplega.ai/agent-fs` and `@desplega.ai/agent-fs-just-bash`). Its chart-version check fails on main pushes matching the Docker Build + Publish + Deploy or Helm Chart path filters until the pin bump merges, blocking image deploys when the Docker workflow runs.
+
+          The bump PR opens automatically as `chore(deps): bump agent-fs pins to __RELEASE_VERSION__`: [find the bump PR](https://github.com/desplega-ai/agent-swarm/pulls?q=is%3Apr+%22bump+agent-fs+pins+to+__RELEASE_VERSION__%22).
           NOTES
           )"
         env:
