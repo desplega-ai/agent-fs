@@ -180,6 +180,7 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
   const clear = useCallback(() => {
     setDraft(null)
     setSelection(null)
+    bridgeRef.current?.post({ type: "clear" })
   }, [])
 
   useEffect(() => {

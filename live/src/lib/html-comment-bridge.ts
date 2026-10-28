@@ -29,6 +29,7 @@ export interface HighlightRange { id: string; start: number; end: number; state:
 
 export type HostMessage =
   | { type: "host" }
+  | { type: "clear" }
   | { type: "highlights"; ranges: HighlightRange[] }
   | { type: "reveal"; id: string }
 

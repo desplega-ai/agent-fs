@@ -291,7 +291,21 @@ test("clicking a paragraph, heading or table row comments on the whole block; a 
   for (const [selector, exact, line] of blocks) {
     await frame.locator(selector).scrollIntoViewIfNeeded()
     await frame.locator(selector).click()
-    await page.getByRole("button", { name: "Comment", exact: true }).click()
+    // The block is selected, so it is marked, and the button sits under its
+    // text like a selection's, not under the whole element box.
+    const button = page.getByRole("button", { name: "Comment", exact: true })
+    await expect(button).toBeVisible()
+    const marked = await frame.locator(selector).evaluate(() => {
+      const range = getSelection()!.getRangeAt(0)
+      const r = range.getBoundingClientRect()
+      return { text: range.toString(), center: r.left + r.width / 2 }
+    })
+    expect(marked.text.replace(/\s+/g, "")).toBe(exact.replace(/\s+/g, ""))
+    const frameBox = (await page.locator(FRAME).boundingBox())!
+    const box = (await button.boundingBox())!
+    // Placed as for a selection: centred on a 108 px slot under the text.
+    expect(Math.abs(box.x - (frameBox.x + marked.center - 54))).toBeLessThan(3)
+    await button.click()
     await page.getByPlaceholder("Add a comment...").fill(`On ${selector}`)
     await page.getByRole("button", { name: "Send comment" }).click()
     await expect.poll(() => f.adds.length).toBe(blocks.indexOf(blocks.find(([s]) => s === selector)!) + 1)
@@ -322,4 +336,31 @@ test("a comment whose text was rewritten is found through the version diff", asy
   const frame = page.frames().find((fr) => fr.url().includes("/site/tok/"))!
   await expect.poll(() => frame.evaluate(() => [...(CSS.highlights.get("afs-comment-moved") ?? [])].map((r) => (r as Range).toString())))
     .toEqual(["Revenue rose strongly while churn dropped."])
+})
+
+test("a block's Comment button follows the page when it scrolls", async ({ page }) => {
+  await installFixture(page, fixture())
+  await page.goto("/file/~/org/drive/reports/page.html")
+  const frame = page.frameLocator(FRAME)
+  await frame.locator("p >> nth=0").click()
+  const button = page.getByRole("button", { name: "Comment", exact: true })
+  const before = (await button.boundingBox())!
+  await frame.locator("body").evaluate(() => scrollBy(0, 40))
+  await expect.poll(async () => Math.round(before.y - (await button.boundingBox())!.y)).toBe(40)
+})
+
+test("commenting comes back when the page is restored from the back/forward cache", async ({ page }) => {
+  await installFixture(page, fixture())
+  await page.goto("/file/~/org/drive/reports/page.html")
+  const frame = page.frameLocator(FRAME)
+  const button = page.getByRole("button", { name: "Comment", exact: true })
+  await expect.poll(() => highlightSizes(page)).not.toBeNull()
+  // The whole app is cached and restored: the frame gets pagehide, then pageshow.
+  await frame.locator("body").evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })))
+  await frame.locator("h1").click()
+  await page.waitForTimeout(300)
+  await expect(button).toHaveCount(0)
+  await frame.locator("body").evaluate(() => dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })))
+  await frame.locator("#target").click()
+  await expect(button).toBeVisible()
 })
