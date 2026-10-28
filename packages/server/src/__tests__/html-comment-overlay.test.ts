@@ -16,35 +16,23 @@ describe("html comment overlay", () => {
     expect(HTML_COMMENT_OVERLAY).not.toContain("<!--");
   });
 
-  test("goes before the last </body>, matched case-insensitively", () => {
-    const out = dec(injectHtmlCommentOverlay(enc("<body><p>a</p><!-- </body> --></BODY ></html>")));
-    expect(out).toBe(`<body><p>a</p><!-- </body> -->${SCRIPT}</BODY ></html>`);
+  test("is appended after the page, whatever </body> it contains", () => {
+    const pages = [
+      "<body><p>a</p></body></html>\n", // a normal page: the parser moves it into the body
+      "<p>fragment</p>",
+      '<p>a</p><script>const tag = "</body>"; go(tag)</script><p>after</p>', // in a script string
+      "<p>a</p><!-- old footer </body></html> -->", // in a trailing comment
+      '<p>a</p><script>const example = "</body><!--";</script><!-- footer -->',
+      "",
+    ];
+    for (const page of pages) expect(dec(injectHtmlCommentOverlay(enc(page)))).toBe(`${page}${SCRIPT}`);
   });
 
-  test("is appended when the page has no </body>", () => {
-    expect(dec(injectHtmlCommentOverlay(enc("<p>fragment</p>")))).toBe(`<p>fragment</p>${SCRIPT}`);
-    expect(dec(injectHtmlCommentOverlay(new Uint8Array()))).toBe(SCRIPT);
-  });
-
-  test("a </body> that is not the end of the document is not the real one", () => {
-    // Optional closing tags omitted, "</body>" in a script string.
-    const inScript = '<p>a</p><script>const tag = "</body>"; go(tag)</script><p>after</p>';
-    expect(dec(injectHtmlCommentOverlay(enc(inScript)))).toBe(`${inScript}${SCRIPT}`);
-    // In a trailing comment.
-    const inComment = "<p>a</p><!-- old footer </body></html> -->";
-    expect(dec(injectHtmlCommentOverlay(enc(inComment)))).toBe(`${inComment}${SCRIPT}`);
-    // The real one, with whitespace and a comment after it.
-    expect(dec(injectHtmlCommentOverlay(enc("<p>a</p></body>\n</html>\n<!-- built -->\n"))))
-      .toBe(`<p>a</p>${SCRIPT}</body>\n</html>\n<!-- built -->\n`);
-  });
-
-  test("leaves non-ASCII bytes around it intact", () => {
+  test("leaves the page's bytes intact", () => {
     const page = enc("<p>Ünïcødé — 日本語 🎉</p></body>");
     const out = injectHtmlCommentOverlay(page);
-    const cut = page.length - "</body>".length;
-    expect(out.subarray(0, cut)).toEqual(page.subarray(0, cut));
-    expect(out.subarray(out.length - 7)).toEqual(enc("</body>"));
-    expect(dec(out)).toBe(`<p>Ünïcødé — 日本語 🎉</p>${SCRIPT}</body>`);
+    expect(out.subarray(0, page.length)).toEqual(page);
+    expect(dec(out.subarray(page.length))).toBe(SCRIPT);
   });
 
   test("is requested only by __afs_comments=1", () => {

@@ -139,19 +139,17 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
     return best;
   }
 
-  // What the shown proposal came from: "sel" (a text selection) or "block" (a
-  // click). Only a selection's proposal follows selection changes and scrolls.
   var selShown = false;
   function clearProposal() {
     if (selShown) { selShown = false; post("selection", { cleared: true }); }
   }
 
   // Propose [start, end) of the page text for a comment; text before offsets.
-  function propose(start, end, box, kind) {
+  function propose(start, end, box) {
     if (start === null || end === null || end <= start || !text.slice(start, end).trim()) return false;
     if (text !== sent) { sent = text; post("text", { text: text }); }
     var b = box.getBoundingClientRect();
-    selShown = kind;
+    selShown = true;
     post("selection", { start: start, end: end, rect: { left: b.left, top: b.top, width: b.width, height: b.height } });
     return true;
   }
@@ -161,7 +159,7 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
     if (!sel || sel.isCollapsed || !sel.rangeCount) return clearProposal();
     build();
     var range = sel.getRangeAt(0);
-    propose(toOffset(range.startContainer, range.startOffset), toOffset(range.endContainer, range.endOffset), range, "sel");
+    propose(toOffset(range.startContainer, range.startOffset), toOffset(range.endContainer, range.endOffset), range);
   }
 
   function onMessage(e) {
@@ -169,7 +167,8 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
     var d = e.data, type = d.type.slice(P.length);
     if (d.type.indexOf(P) !== 0) return;
     if (type === "host") {
-      if (hosted) return;
+      // Again after a back/forward cache restore: the parent dropped the text.
+      if (hosted) { sent = null; return sendText(); }
       hosted = true;
       start();
     } else if (!hosted) {
@@ -183,6 +182,11 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
         }
       }
       paint();
+    } else if (type === "clear") {
+      // The parent closed its comment UI: drop the selection it was for, as the markdown preview does.
+      selShown = false;
+      var sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
     } else if (type === "reveal" && typeof d.id === "string") {
       for (var j = 0; j < live.length; j++) {
         if (live[j].id !== d.id) continue;
@@ -213,9 +217,9 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
     document.addEventListener("keyup", later, true);
     document.addEventListener("selectionchange", function () {
       var sel = window.getSelection();
-      if (selShown === "sel" && (!sel || sel.isCollapsed)) later();
+      if (selShown && (!sel || sel.isCollapsed)) later();
     });
-    window.addEventListener("scroll", function () { if (selShown === "sel") later(); }, true);
+    window.addEventListener("scroll", function () { if (selShown) later(); }, true);
     document.addEventListener("mousemove", function (e) {
       if (moveFrame) return;
       var x = e.clientX, y = e.clientY;
@@ -230,13 +234,19 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
       if (sel && !sel.isCollapsed) return;
       var id = hit(e.clientX, e.clientY);
       if (id) return post("activate", { id: id });
-      // A click on a block of text proposes the whole block; textless ones nothing.
-      clearTimeout(selTimer);
+      // A click on a block of text selects the whole block, which marks it and
+      // proposes it like any selection; textless blocks and controls get nothing.
       var el = e.target && e.target.closest ? e.target.closest(PICK) : null;
-      if (el) build();
-      if (!el || !propose(toOffset(el, 0), toOffset(el, el.childNodes.length), el, "block")) clearProposal();
+      if (!sel || !el || !el.textContent.trim() || e.target.closest("a,button,input,select,textarea,label")) return;
+      var range = document.createRange();
+      range.selectNodeContents(el);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      clearTimeout(selTimer);
+      reportSelection();
     }, true);
     window.addEventListener("pagehide", function () { post("bye"); });
+    window.addEventListener("pageshow", function (e) { if (e.persisted) post("hello", { path: location.pathname }); });
   }
 
   window.addEventListener("message", onMessage);
@@ -249,22 +259,15 @@ export function isHtmlCommentsRequested(url: URL): boolean {
 }
 
 /**
- * The page with the overlay spliced in before its last `</body>`, or appended
- * when there is none. Byte-level, so the rest of the page is untouched in any
- * ASCII-compatible charset.
+ * The page with the overlay appended. The HTML parser moves content after
+ * `</body>` or `</html>` back into the body, so appending needs no search for
+ * the real closing tag (one in a script string or comment would fool it). The
+ * page's own bytes are untouched.
  */
 export function injectHtmlCommentOverlay(body: Uint8Array): Uint8Array {
   const script = new TextEncoder().encode(`<script>${HTML_COMMENT_OVERLAY}</script>`)
-  // latin1 maps each byte to one char, so string indexes are byte offsets. Only
-  // a </body> that ends the document counts: one in a script string or a
-  // comment, with page content after it, is not the real one.
-  const page = Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString("latin1")
-  const at = page.toLowerCase().lastIndexOf("</body")
-  const real = at !== -1 && /^<\/body\s*>(\s|<!--[\s\S]*?-->)*(<\/html\s*>(\s|<!--[\s\S]*?-->)*)?$/i.test(page.slice(at))
-  const cut = real ? at : body.length
   const out = new Uint8Array(body.length + script.length)
-  out.set(body.subarray(0, cut), 0)
-  out.set(script, cut)
-  out.set(body.subarray(cut), cut + script.length)
+  out.set(body, 0)
+  out.set(script, body.length)
   return out
 }
