@@ -131,3 +131,48 @@ test("an image is not copied and offers Download instead", async ({ page }, test
   await page.waitForTimeout(300)
   expect(await clipboard(page)).toBe("untouched")
 })
+
+/** Replaces notes.md on the "server" after the page has loaded it, as another writer would. */
+async function growNotesExternally(page: Page) {
+  const grown = "x".repeat(2 * 1024 * 1024)
+  await page.route("http://fixture.test/**", async route => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/content" && url.searchParams.get("path")?.replace(/^\//, "") === "notes.md") {
+      return route.fulfill({ body: grown, contentType: "text/markdown" })
+    }
+    const body = url.pathname.endsWith("/ops") ? route.request().postDataJSON() : undefined
+    if (body?.op === "stat" && body.path.replace(/^\//, "") === "notes.md") {
+      return route.fulfill({ json: { path: body.path, size: grown.length, contentType: "text/markdown", author: "qa", currentVersion: 2, createdAt: "2026-10-01", modifiedAt: "2026-10-03", isDeleted: false } })
+    }
+    return route.fallback()
+  })
+}
+
+for (const clipboardItem of [true, false]) {
+  test(`a file that grew past 1 MB after it loaded is not copied${clipboardItem ? "" : " (writeText fallback)"}`, async ({ page }, testInfo) => {
+    if (!clipboardItem) {
+      await page.addInitScript(() => {
+        // @ts-expect-error simulate a browser without ClipboardItem
+        delete window.ClipboardItem
+      })
+    }
+    await page.goto("/file/~/org/drive/notes.md")
+    await expect(page.getByText("Copied straight from the viewer.")).toBeVisible()
+    // The stat the page holds still says a few bytes of markdown.
+    await expect(copyButton(page)).not.toHaveAttribute("aria-disabled", "true")
+    await setClipboard(page, "untouched")
+    await growNotesExternally(page)
+    await copyButton(page).click()
+    await expect(page.getByText("Too large to copy", { exact: true }).last()).toBeVisible()
+    await expect(page.getByRole("status").getByRole("button", { name: "Download instead" })).toBeVisible()
+    // The re-stat flips the button and popover to the too-large state.
+    await expect(copyButton(page)).toHaveAttribute("aria-disabled", "true")
+    expect(await clipboard(page)).toBe("untouched")
+    // Reopen the popover from the keyboard: Tab away, then focus the button again.
+    await page.keyboard.press("Tab")
+    await copyButton(page).focus()
+    await expect(page.getByRole("button", { name: /Copy path/ })).toBeVisible()
+    await expect(page.locator("span").getByText("Too large to copy", { exact: true })).toBeVisible()
+    if (clipboardItem) await page.screenshot({ path: testInfo.outputPath("grew-too-large.png") })
+  })
+}

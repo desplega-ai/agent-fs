@@ -41,6 +41,17 @@ export function Toaster() {
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">{t.description}</p>
               )}
             </div>
+            {t.action && (
+              <button
+                onClick={() => {
+                  t.action?.onClick()
+                  toast.dismiss(t.id)
+                }}
+                className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-muted"
+              >
+                {t.action.label}
+              </button>
+            )}
             <button
               onClick={() => toast.dismiss(t.id)}
               className="-mr-1 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"

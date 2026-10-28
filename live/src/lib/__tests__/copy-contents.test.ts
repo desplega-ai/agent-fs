@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import {
   MAX_COPY_BYTES,
+  TooLargeToCopyError,
   copyBlockMessage,
+  copyFileText,
   copyability,
   isTextLike,
   writeClipboardText,
 } from "../copy-contents"
+import { loadFileContent } from "../file-content-cache"
 
 describe("isTextLike", () => {
   test("text-like content types", () => {
@@ -138,5 +141,49 @@ describe("writeClipboardText", () => {
     const { clipboard, written } = fakeClipboard()
     await expect(writeClipboardText(Promise.reject(new Error("fetch failed")), clipboard, Item)).rejects.toThrow("fetch failed")
     expect(written()).toBeNull()
+  })
+})
+
+describe("copyFileText", () => {
+  // The stat the button was enabled on: a small text file, no ETag, so the click downloads.
+  const smallStat = { size: 40, contentType: "text/markdown", etag: undefined }
+  const grown = "x".repeat(2 * 1024 * 1024)
+
+  // The hook's path: stat says small, the download returns what the file is now.
+  const clickCopy = (body: string, clipboard: Parameters<typeof copyFileText>[1], item?: typeof Item) => {
+    expect(copyability("/notes.md", smallStat)).toEqual({ ok: true })
+    const text = loadFileContent(undefined, smallStat, async () => ({ text: body, etag: null })).then((e) => e.content)
+    return copyFileText(text, clipboard, item)
+  }
+
+  test("a file that grew past 1 MB after its stat writes nothing (ClipboardItem path)", async () => {
+    const { clipboard, calls, written } = fakeClipboard()
+    const copy = clickCopy(grown, clipboard, Item)
+    // Still handed to the clipboard inside the click.
+    expect(calls).toEqual(["write"])
+    await expect(copy).rejects.toBeInstanceOf(TooLargeToCopyError)
+    expect(written()).toBeNull()
+  })
+
+  test("a file that grew past 1 MB after its stat writes nothing (writeText fallback)", async () => {
+    const { clipboard, calls, written } = fakeClipboard()
+    await expect(clickCopy(grown, clipboard, undefined)).rejects.toBeInstanceOf(TooLargeToCopyError)
+    expect(calls).toEqual([])
+    expect(written()).toBeNull()
+  })
+
+  test("the limit counts UTF-8 bytes, not characters", async () => {
+    const { clipboard, written } = fakeClipboard()
+    const wide = "é".repeat(MAX_COPY_BYTES / 2 + 1)
+    expect(wide.length).toBeLessThan(MAX_COPY_BYTES)
+    await expect(clickCopy(wide, clipboard, Item)).rejects.toBeInstanceOf(TooLargeToCopyError)
+    expect(written()).toBeNull()
+  })
+
+  test("text at exactly 1 MB is copied", async () => {
+    const { clipboard, written } = fakeClipboard()
+    const atLimit = "y".repeat(MAX_COPY_BYTES)
+    await clickCopy(atLimit, clipboard, Item)
+    expect(written()).toBe(atLimit)
   })
 })

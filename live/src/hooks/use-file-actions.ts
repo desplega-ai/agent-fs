@@ -2,9 +2,10 @@ import { useCallback, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth"
 import { useFileStat } from "@/hooks/use-file-stat"
-import { copyability, writeClipboardText } from "@/lib/copy-contents"
+import { copyability, copyFileText, TooLargeToCopyError } from "@/lib/copy-contents"
 import { downloadFile } from "@/lib/download"
 import { downloadFileText, fileContentKey, loadFileContent, type CachedFileContent } from "@/lib/file-content-cache"
+import { fileStatQueryKey } from "@/lib/file-stat-query"
 import { supportsShareLinks } from "@/lib/share-link"
 import { healthQueryOptions } from "@/lib/upload-limit"
 import { toast } from "@/stores/toast"
@@ -27,6 +28,11 @@ export function useFileActions(path: string) {
 
   const contents = copyability(path, stat)
 
+  const download = useCallback(() => {
+    if (!orgId || !driveId) return
+    void downloadFile(client, orgId, driveId, path, filename, { newWindow: true })
+  }, [client, orgId, driveId, path, filename])
+
   // Must stay synchronous up to the clipboard write: Safari drops the click's
   // permission across an await. The body the viewer already loaded is reused
   // when it is still the file's current content.
@@ -35,15 +41,24 @@ export function useFileActions(path: string) {
     const cached = queryClient.getQueryData<CachedFileContent>(fileContentKey(orgId, driveId, path))
     const text = loadFileContent(cached, stat, () => downloadFileText(client, orgId, driveId, path))
       .then((entry) => entry.content)
-    writeClipboardText(text).then(
+    copyFileText(text).then(
       () => {
         setCopiedContents(true)
         setTimeout(() => setCopiedContents(false), 1500)
         toast.success("Contents copied", { description: filename })
       },
-      () => toast.error("Couldn't copy contents"),
+      (error) => {
+        if (!(error instanceof TooLargeToCopyError)) {
+          toast.error("Couldn't copy contents")
+          return
+        }
+        // The file grew past the limit after its stat loaded: re-stat so the
+        // button and popover switch to "Too large to copy".
+        toast.error("Too large to copy", { description: filename, action: { label: "Download instead", onClick: download } })
+        void queryClient.invalidateQueries({ queryKey: fileStatQueryKey(orgId, driveId, path) })
+      },
     )
-  }, [contents.ok, stat, orgId, driveId, queryClient, client, path, filename])
+  }, [contents.ok, stat, orgId, driveId, queryClient, client, path, filename, download])
 
   const copyPath = useCallback(async () => {
     try {
@@ -69,11 +84,6 @@ export function useFileActions(path: string) {
       toast.error("Couldn't copy link")
     }
   }, [path, orgId, driveId])
-
-  const download = useCallback(() => {
-    if (!orgId || !driveId) return
-    void downloadFile(client, orgId, driveId, path, filename, { newWindow: true })
-  }, [client, orgId, driveId, path, filename])
 
   // Hidden on servers that cannot mint share links (older `/health`, or unreachable).
   const canShareLink = canShare && supportsShareLinks(health)

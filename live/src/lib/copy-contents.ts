@@ -75,3 +75,32 @@ export async function writeClipboardText(
   }
   await clipboard.writeText(await text)
 }
+
+/** The text downloaded for a copy is over `MAX_COPY_BYTES`, whatever the stat said. */
+export class TooLargeToCopyError extends Error {
+  constructor(readonly bytes: number) {
+    super("Too large to copy")
+    this.name = "TooLargeToCopyError"
+  }
+}
+
+/**
+ * Copies a file's text once it loads, refusing text over `MAX_COPY_BYTES`.
+ * The stat that enabled the button can be stale: the file may have grown
+ * since. The limit is checked on the bytes actually loaded, before the
+ * clipboard sees them; over it, nothing is written and the promise rejects
+ * with `TooLargeToCopyError`. Synchronous up to the clipboard write, like
+ * `writeClipboardText`.
+ */
+export function copyFileText(
+  text: Promise<string>,
+  clipboard?: ClipboardLike,
+  Item?: ClipboardItemCtor,
+): Promise<void> {
+  const checked = text.then((value) => {
+    const bytes = new Blob([value]).size
+    if (bytes > MAX_COPY_BYTES) throw new TooLargeToCopyError(bytes)
+    return value
+  })
+  return writeClipboardText(checked, clipboard, Item)
+}
