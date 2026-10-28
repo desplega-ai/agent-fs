@@ -15,12 +15,6 @@ export const COMMENT_BTN_WIDTH = 108
 export const COMMENT_BTN_HEIGHT = 32
 /** Below a touch selection: room for the selection handles. */
 const TOUCH_BTN_GAP = 28
-/**
- * A touch selection closer than this to the top of the visible area leaves no
- * room for the native selection menu above it, so the menu goes below, where
- * the button is: the button goes above the selection instead, if it fits.
- */
-const NATIVE_MENU_ROOM = 70
 /** Widest sheet, so a tablet's form is not a full-width strip. */
 const SHEET_MAX_WIDTH = 448
 
@@ -70,12 +64,10 @@ export function clampFormTop(rect: AnchorRect, formHeight: number, vp: Viewport)
   return Math.max(lo, hi - formHeight)
 }
 
-/** The Comment button: under the selection (above a touch one at the top), centred, inside the viewport. */
+/** The Comment button: under the selection, centred, inside the viewport. */
 export function commentButtonPosition(rect: AnchorRect, vp: Viewport, touch: boolean): { top: number; left: number } {
-  const above = rect.top - 8 - COMMENT_BTN_HEIGHT
-  const useAbove = touch && rect.top - vp.offsetTop < NATIVE_MENU_ROOM && above >= vp.offsetTop + VIEWPORT_MARGIN
   return {
-    top: useAbove ? above : Math.min(rect.bottom + (touch ? TOUCH_BTN_GAP : 6), vp.offsetTop + vp.height - COMMENT_BTN_HEIGHT - VIEWPORT_MARGIN),
+    top: Math.min(rect.bottom + (touch ? TOUCH_BTN_GAP : 6), vp.offsetTop + vp.height - COMMENT_BTN_HEIGHT - VIEWPORT_MARGIN),
     left: clampLeft(rect.left + rect.width / 2 - COMMENT_BTN_WIDTH / 2, COMMENT_BTN_WIDTH, vp),
   }
 }
