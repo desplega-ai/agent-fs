@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef, type MutableRefObject } from "react"
-import { SquareArrowOutUpRight, History, MessageSquare, Code, Eye, Copy, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid, Type } from "lucide-react"
+import { SquareArrowOutUpRight, History, MessageSquare, Code, Eye, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid, Type } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { isQueryablePath } from "@/lib/sql-engine/types"
@@ -25,6 +25,7 @@ import { useFileStat } from "@/hooks/use-file-stat"
 import { useComments } from "@/hooks/use-comments"
 import { useSniffedAudioType } from "@/hooks/use-sniffed-audio-type"
 import { AUDIO_EXTS } from "@/lib/audio"
+import { TEXT_EXTS } from "@/lib/copy-contents"
 // Lazy boundary: keeps Monaco out of the entry bundle (see LazyTextViewer).
 import { LazyTextViewer as TextViewer } from "./LazyTextViewer"
 import { MarkdownViewer } from "./MarkdownViewer"
@@ -34,6 +35,7 @@ import { AudioViewer } from "./AudioViewer"
 import { PdfViewer } from "./PdfViewer"
 import { HtmlViewer } from "./HtmlViewer"
 import { FallbackViewer } from "./FallbackViewer"
+import { CopyButton } from "./CopyButton"
 import { TablePreviewViewer } from "./TablePreviewViewer"
 import { DatabasePreviewViewer } from "./DatabasePreviewViewer"
 import { Button } from "@/components/ui/button"
@@ -122,13 +124,6 @@ function isMarkdown(path: string): boolean {
 function isPdf(path: string): boolean {
   return getExt(path) === "pdf"
 }
-
-const TEXT_EXTS = new Set([
-  "txt", "ts", "tsx", "js", "jsx", "json", "jsonl", "ndjson", "md", "mdx", "css", "scss",
-  "html", "htm", "xml", "yaml", "yml", "toml", "sh", "bash", "py", "rb", "rs",
-  "go", "java", "c", "cpp", "h", "hpp", "sql", "graphql", "env", "cfg",
-  "ini", "conf", "log", "csv", "tsv", "dockerfile", "makefile", "lock",
-])
 
 function isTextFile(path: string, contentType?: string): boolean {
   const ext = getExt(path)
@@ -746,7 +741,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
   onToggleOrientation?: () => void
 }) {
   const { data: stat } = useFileStat(path)
-  const { copyPath, copyLink, download, copiedPath, copiedLink, canShare, canShareLink } = actions
+  const { copyLink, download, copiedLink, canShare, canShareLink } = actions
   const filename = path.split("/").pop() ?? path
 
   return (
@@ -854,22 +849,7 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
           </>
         )}
         <FileFavoriteButton path={path} />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={copyPath}
-                className="text-muted-foreground"
-                aria-label="Copy path"
-              >
-                {copiedPath ? <Check /> : <Copy />}
-              </Button>
-            }
-          />
-          <TooltipContent>Copy path <Kbd className="ml-1">Y</Kbd></TooltipContent>
-        </Tooltip>
+        <CopyButton path={path} actions={actions} />
         {canShare && (
           <Tooltip>
             <TooltipTrigger
