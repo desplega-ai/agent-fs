@@ -58,17 +58,39 @@ export function isUnknownOpError(err: unknown): boolean {
  * inside the click's user activation, so when the browser supports it the
  * clipboard item is handed over as a promise before the request finishes.
  */
+/** The fresh public address could not be read, and the cached one may be stale. */
+class PublicUrlUnconfirmed extends Error {}
+
+/** How the link's public address is read: fresh, with the cached value it may replace. */
+export interface PublicUrlSource {
+  fresh: () => Promise<string | undefined>
+  cached?: string
+}
+
+/**
+ * The server's public address for a new link. If it cannot be read fresh, a
+ * server that has advertised one may have changed it, so the link is refused
+ * rather than built on a stale address; one that never advertised one keeps
+ * links on the endpoint.
+ */
+function readPublicUrl(source?: PublicUrlSource): Promise<string | undefined> | undefined {
+  return source?.fresh().catch(() => {
+    if (source.cached) throw new PublicUrlUnconfirmed()
+    return undefined
+  })
+}
+
 async function mintAndCopy(
   client: AgentFsClient,
   orgId: string,
   driveId: string,
   path: string,
   expiresIn?: number,
-  getPublicUrl?: () => Promise<string | undefined>,
+  publicUrl?: PublicUrlSource,
 ): Promise<ShareCreateResult & { link: string }> {
   const request = Promise.all([
     client.createShare(orgId, driveId, path, expiresIn === undefined ? undefined : { expiresIn }),
-    getPublicUrl?.(),
+    readPublicUrl(publicUrl),
   ]).then(([result, publicUrl]) => ({ ...result, link: resolveShareUrl(client.endpoint, result, publicUrl) }))
 
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
@@ -88,8 +110,8 @@ async function mintAndCopy(
  * Copy a fresh share link for `path` and report the outcome as a toast. The
  * link lives `expiresIn` seconds, or the server's default of 24 hours. For a
  * folder the server returns a site share, and `sharePath` is `/site/<token>/`.
- * `getPublicUrl` reads the server's public address alongside the request, so
- * a cached value from before the server changed it is never used.
+ * `publicUrl` reads the server's public address alongside the request, so a
+ * cached value from before the server changed it is never used.
  * Returns the copied link, or null when it failed.
  */
 export async function copyShareLink(
@@ -97,16 +119,18 @@ export async function copyShareLink(
   orgId: string,
   driveId: string,
   path: string,
-  options: { expiresIn?: number; getPublicUrl?: () => Promise<string | undefined> } = {},
+  options: { expiresIn?: number; publicUrl?: PublicUrlSource } = {},
 ): Promise<string | null> {
   try {
-    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn, options.getPublicUrl)
+    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn, options.publicUrl)
     toast.success(result.kind === "site" ? "Site link copied" : "Share link copied", {
       description: `Anyone with the link can view it for ${describeExpiry(result.expiresIn)}`,
     })
     return result.link
   } catch (err) {
-    if (isUnknownOpError(err)) {
+    if (err instanceof PublicUrlUnconfirmed) {
+      toast.error("Couldn't confirm the server's public address. Try again.")
+    } else if (isUnknownOpError(err)) {
       toast.error("This server doesn't support share links yet")
     } else {
       toast.error("Couldn't create a share link", {

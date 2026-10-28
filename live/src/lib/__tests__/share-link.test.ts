@@ -95,11 +95,25 @@ describe("copyShareLink", () => {
   test("builds the link on the public address read with the request", async () => {
     const written = stubClipboard()
     const client = { endpoint: "https://docs.internal", createShare: async () => result } as any
-    const link = await copyShareLink(client, "org", "drive", "/a.md", { getPublicUrl: async () => "https://files.example.com" })
+    const link = await copyShareLink(client, "org", "drive", "/a.md", { publicUrl: { fresh: async () => "https://files.example.com", cached: "https://old.example" } })
     expect(link).toBe("https://files.example.com/share/tok")
     expect(written).toEqual(["https://files.example.com/share/tok"])
     // A server without one: the endpoint, as before.
-    expect(await copyShareLink(client, "org", "drive", "/a.md", { getPublicUrl: async () => undefined })).toBe("https://docs.internal/share/tok")
+    expect(await copyShareLink(client, "org", "drive", "/a.md", { publicUrl: { fresh: async () => undefined } })).toBe("https://docs.internal/share/tok")
+  })
+
+  test("a public address that cannot be read fresh is not replaced by the cached one", async () => {
+    const written = stubClipboard()
+    const created: string[] = []
+    const client = { endpoint: "https://docs.internal", createShare: async (_o: string, _d: string, p: string) => (created.push(p), result) } as any
+    const offline = async () => { throw new Error("timeout") }
+    expect(await copyShareLink(client, "org", "drive", "/a.md", { publicUrl: { fresh: offline, cached: "https://old.example" } })).toBeNull()
+    expect(created).toEqual(["/a.md"]) // share-create succeeded
+    expect(written).toEqual([]) // but nothing was copied
+    expect(toasts.at(-1)).toMatchObject({ kind: "error", message: "Couldn't confirm the server's public address. Try again." })
+    // A server that never advertised one: links stay on the endpoint, as before.
+    expect(await copyShareLink(client, "org", "drive", "/a.md", { publicUrl: { fresh: offline } })).toBe("https://docs.internal/share/tok")
+    expect(written).toEqual(["https://docs.internal/share/tok"])
   })
 
   test("a folder copies the site link from sharePath", async () => {

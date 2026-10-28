@@ -61,12 +61,12 @@ export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProp
     if (!orgId || !driveId) return
     setBusy(true)
     // The server's public address, read fresh: one cached from before the
-    // server changed it would hand out the old or a private address. The
-    // cached value only stands in when the server cannot be asked.
-    const getPublicUrl = () => queryClient
-      .fetchQuery({ ...healthQueryOptions(client), staleTime: 0 })
-      .then((fresh) => fresh.publicUrl, () => health?.publicUrl)
-    const next = await copyShareLink(client, orgId, driveId, path, { expiresIn, getPublicUrl })
+    // server changed it would hand out the old or a private address.
+    const publicUrl = {
+      fresh: () => queryClient.fetchQuery({ ...healthQueryOptions(client), staleTime: 0 }).then((h) => h.publicUrl),
+      cached: health?.publicUrl,
+    }
+    const next = await copyShareLink(client, orgId, driveId, path, { expiresIn, publicUrl })
     setBusy(false)
     if (next) setLink(next)
   }
