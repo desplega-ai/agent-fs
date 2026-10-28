@@ -16,6 +16,8 @@ export interface OpContext {
    * (in-process/IPC callers); `share-create` then returns a host-relative link.
    */
   apiUrl?: string;
+  /** Where `apiUrl` came from: `AGENT_FS_PUBLIC_URL`, or the request's Host. */
+  apiUrlSource?: "configured" | "request";
 }
 
 // --- Param types ---

@@ -405,6 +405,12 @@ export interface ShareCreateResult {
    * as `sharePath` and the client must resolve it against the API endpoint.
    */
   url: string;
+  /**
+   * `configured`: `url` is built on `AGENT_FS_PUBLIC_URL` and is the link to
+   * hand out. `request`: it comes from the request's Host (or is relative),
+   * so a client should build the link on the address it reached the API at.
+   */
+  urlSource: "configured" | "request";
   /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
   sharePath: string;
   path: string;
@@ -467,6 +473,7 @@ export async function shareCreate(
     id,
     kind,
     url: ctx.apiUrl ? `${ctx.apiUrl.replace(/\/+$/, "")}${sharePath}` : sharePath,
+    urlSource: ctx.apiUrl && ctx.apiUrlSource === "configured" ? "configured" : "request",
     sharePath,
     path: normalizedPath,
     expiresIn,

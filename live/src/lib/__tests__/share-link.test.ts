@@ -8,7 +8,7 @@ mock.module("../../stores/toast", () => ({
   },
 }))
 
-const { copyShareLink, describeExpiry, isUnknownOpError, resolveShareUrl, supportsShareLinks } = await import("../share-link")
+const { copyShareLink, describeExpiry, InvalidShareResponseError, isUnknownOpError, resolveShareUrl, supportsShareLinks } = await import("../share-link")
 
 const result = {
   id: "s1",
@@ -43,10 +43,20 @@ describe("resolveShareUrl", () => {
     expect(resolveShareUrl("https://proxy.example/agent-fs", result)).toBe("https://proxy.example/agent-fs/share/tok")
   })
 
-  test("uses the server's configured public address when it has one", () => {
-    expect(resolveShareUrl("https://docs.internal/fs", result, "https://files.example.com")).toBe("https://files.example.com/share/tok")
-    expect(resolveShareUrl("https://docs.internal/fs", result, "https://files.example.com/")).toBe("https://files.example.com/share/tok")
-    expect(resolveShareUrl("https://docs.internal/fs", { ...result, sharePath: "/site/tok/" }, "https://files.example.com")).toBe("https://files.example.com/site/tok/")
+  test("follows urlSource: the configured url as returned, the endpoint for request, legacy when absent", () => {
+    const configured = { ...result, url: "https://files.example.com/fs/site/tok/", sharePath: "/site/tok/", urlSource: "configured" }
+    expect(resolveShareUrl("https://docs.internal", configured)).toBe("https://files.example.com/fs/site/tok/")
+    expect(resolveShareUrl("https://docs.internal/", { ...result, sharePath: "/site/tok/", urlSource: "request" })).toBe("https://docs.internal/site/tok/")
+    expect(resolveShareUrl("https://docs.internal", { ...result, urlSource: undefined })).toBe("https://docs.internal/share/tok")
+  })
+
+  test("refuses anything malformed instead of falling back", () => {
+    const bad = [
+      ...[false, null, "", 42, "nope", {}].map((urlSource) => ({ ...result, urlSource })),
+      ...["not a url", "ftp://x/share/tok", "/share/tok", "https://user:pw@x/share/tok", 42].map((url) => ({ ...result, url, urlSource: "configured" })),
+      { ...result, sharePath: "share/tok", urlSource: "request" },
+    ]
+    for (const r of bad) expect(() => resolveShareUrl("https://docs.internal", r as any), JSON.stringify(r)).toThrow(InvalidShareResponseError)
   })
 
   test("falls back to the server's url when there is no sharePath", () => {
@@ -92,25 +102,12 @@ describe("copyShareLink", () => {
     expect(shown.description).toContain("24 hours")
   })
 
-  test("builds the link on the public address read with the request", async () => {
+  test("a malformed response copies nothing and reports it", async () => {
     const written = stubClipboard()
-    const client = { endpoint: "https://docs.internal", createShare: async () => result } as any
-    const link = await copyShareLink(client, "org", "drive", "/a.md", { getPublicUrl: async () => "https://files.example.com" })
-    expect(link).toBe("https://files.example.com/share/tok")
-    expect(written).toEqual(["https://files.example.com/share/tok"])
-    // A server without one: the endpoint, as before.
-    expect(await copyShareLink(client, "org", "drive", "/a.md", { getPublicUrl: async () => undefined })).toBe("https://docs.internal/share/tok")
-  })
-
-  test("a public address that cannot be read fresh refuses the link", async () => {
-    const written = stubClipboard()
-    const created: string[] = []
-    const client = { endpoint: "https://docs.internal", createShare: async (_o: string, _d: string, p: string) => (created.push(p), result) } as any
-    const offline = async () => { throw new Error("timeout") }
-    expect(await copyShareLink(client, "org", "drive", "/a.md", { getPublicUrl: offline })).toBeNull()
-    expect(created).toEqual(["/a.md"]) // share-create succeeded
-    expect(written).toEqual([]) // but nothing was copied
-    expect(toasts.at(-1)).toMatchObject({ kind: "error", message: "Couldn't confirm the server's public address. Try again." })
+    const client = { endpoint: "https://docs.internal", createShare: async () => ({ ...result, urlSource: false }) } as any
+    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBeNull()
+    expect(written).toEqual([])
+    expect(toasts.at(-1)).toMatchObject({ kind: "error", message: "Couldn't create a share link", description: "The server returned an invalid link." })
   })
 
   test("a folder copies the site link from sharePath", async () => {

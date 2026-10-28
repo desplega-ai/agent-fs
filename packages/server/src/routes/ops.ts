@@ -36,6 +36,7 @@ export function opsRoutes(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
       embeddingProvider,
       appUrl,
       apiUrl: resolveApiUrl(c, publicUrl),
+      apiUrlSource: publicUrl ? ("configured" as const) : ("request" as const),
     };
 
     const result = await dispatchOp(ctx, op, params);
