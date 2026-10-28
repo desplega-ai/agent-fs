@@ -69,6 +69,8 @@ describe("resolveShareUrl", () => {
         "https://files.example.com/other/tok",
         "https://files.example.com/share/other", // not the response's sharePath
       ].map((url) => ({ ...result, url, urlSource: "configured" })),
+      // A configured url whose sharePath is not a share route, so a suffix match could pick another token.
+      ...["tok", "/tok", "share/othertok", 7].map((sharePath) => ({ ...result, url: "https://files.example.com/share/othertok", sharePath, urlSource: "configured" })),
     ]
     for (const r of bad) expect(() => resolveShareUrl("https://docs.internal", r as any), JSON.stringify(r)).toThrow(InvalidShareResponseError)
   })

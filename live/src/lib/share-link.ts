@@ -50,7 +50,7 @@ function parseConfiguredLink(url: unknown, sharePath: unknown): string {
   const ok = (parsed.protocol === "http:" || parsed.protocol === "https:") && !!parsed.hostname &&
     !parsed.username && !parsed.password && parsed.href === url && !parsed.pathname.includes("//") &&
     SHARE_PATH_SUFFIX.test(parsed.pathname) &&
-    (sharePath === undefined || (typeof sharePath === "string" && parsed.pathname.endsWith(sharePath)))
+    (sharePath === undefined || (typeof sharePath === "string" && SHARE_PATH.test(sharePath) && parsed.pathname.endsWith(sharePath)))
   if (!ok) throw new InvalidShareResponseError()
   return parsed.href
 }
