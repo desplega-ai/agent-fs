@@ -4,6 +4,7 @@ import type { DB, StorageAdapter, ShareRecord } from "@/core";
 import { detectMimeType, withUtf8Charset } from "@/core/ops/mime.js";
 import { ipRateLimitMiddleware } from "../middleware/ip-rate-limit.js";
 import { escapeHtml, HTML_SANDBOX } from "../share/render.js";
+import { injectHtmlCommentOverlay, isHtmlCommentsRequested } from "../share/html-comment-overlay.js";
 
 /** `getObject` buffers the whole body, so anything bigger is refused. */
 export const SITE_MAX_OBJECT_BYTES = 25 * 1024 * 1024;
@@ -210,10 +211,15 @@ export function siteRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinute
     // meanwhile. Check again against the clock as it is now.
     if (!isLive(findShareByToken(db, token))) return plain(410, "This link has expired");
 
+    // The live UI asks for its comment overlay on HTML pages; every other
+    // response is the stored bytes as they are.
+    const mime = detectMimeType(key);
+    if (mime === "text/html" && isHtmlCommentsRequested(url)) body = injectHtmlCommentOverlay(body);
+
     return new Response(body.slice(), {
       status: 200,
       headers: siteSecurityHeaders({
-        "Content-Type": withUtf8Charset(detectMimeType(key)),
+        "Content-Type": withUtf8Charset(mime),
         "Content-Length": String(body.length),
       }),
     });

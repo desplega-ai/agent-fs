@@ -175,10 +175,10 @@ function FrontmatterBlock({ data }: { data: FrontmatterRecord }) {
 
 // Floating UI sizing constants used to keep the comment button/form inside the
 // viewport (feedback: "never overflow from the visible document").
-const VIEWPORT_MARGIN = 8
-const COMMENT_FORM_WIDTH = 320
-const COMMENT_BTN_WIDTH = 108
-const COMMENT_BTN_HEIGHT = 32
+export const VIEWPORT_MARGIN = 8
+export const COMMENT_FORM_WIDTH = 320
+export const COMMENT_BTN_WIDTH = 108
+export const COMMENT_BTN_HEIGHT = 32
 
 // CSS Custom Highlight API: paints exact text ranges without touching the DOM
 // (wrapping text in elements would break native selection). Older browsers
@@ -195,13 +195,13 @@ interface CommentTarget {
 }
 
 /** Clamp an x-coordinate so a box of the given width stays on screen. */
-function clampLeft(left: number, width: number): number {
+export function clampLeft(left: number, width: number): number {
   const max = window.innerWidth - width - VIEWPORT_MARGIN
   return Math.max(VIEWPORT_MARGIN, Math.min(left, Math.max(VIEWPORT_MARGIN, max)))
 }
 
 /** Pick a y-coordinate for the form: below the anchor, else flipped above. */
-function clampFormTop(rect: DOMRect, formHeight: number): number {
+export function clampFormTop(rect: DOMRect, formHeight: number): number {
   const below = rect.bottom + 10
   if (below + formHeight + VIEWPORT_MARGIN <= window.innerHeight) return below
   const above = rect.top - formHeight - 10
