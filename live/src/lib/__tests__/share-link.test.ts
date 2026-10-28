@@ -92,6 +92,16 @@ describe("copyShareLink", () => {
     expect(shown.description).toContain("24 hours")
   })
 
+  test("builds the link on the public address read with the request", async () => {
+    const written = stubClipboard()
+    const client = { endpoint: "https://docs.internal", createShare: async () => result } as any
+    const link = await copyShareLink(client, "org", "drive", "/a.md", { getPublicUrl: async () => "https://files.example.com" })
+    expect(link).toBe("https://files.example.com/share/tok")
+    expect(written).toEqual(["https://files.example.com/share/tok"])
+    // A server without one: the endpoint, as before.
+    expect(await copyShareLink(client, "org", "drive", "/a.md", { getPublicUrl: async () => undefined })).toBe("https://docs.internal/share/tok")
+  })
+
   test("a folder copies the site link from sharePath", async () => {
     const written = stubClipboard()
     const site = { ...result, kind: "site" as const, url: "http://internal-host:7433/site/tok/", sharePath: "/site/tok/", path: "/reports" }

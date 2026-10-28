@@ -64,11 +64,12 @@ async function mintAndCopy(
   driveId: string,
   path: string,
   expiresIn?: number,
-  publicUrl?: string,
+  getPublicUrl?: () => Promise<string | undefined>,
 ): Promise<ShareCreateResult & { link: string }> {
-  const request = client
-    .createShare(orgId, driveId, path, expiresIn === undefined ? undefined : { expiresIn })
-    .then((result) => ({ ...result, link: resolveShareUrl(client.endpoint, result, publicUrl) }))
+  const request = Promise.all([
+    client.createShare(orgId, driveId, path, expiresIn === undefined ? undefined : { expiresIn }),
+    getPublicUrl?.(),
+  ]).then(([result, publicUrl]) => ({ ...result, link: resolveShareUrl(client.endpoint, result, publicUrl) }))
 
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
     const item = new ClipboardItem({
@@ -87,6 +88,8 @@ async function mintAndCopy(
  * Copy a fresh share link for `path` and report the outcome as a toast. The
  * link lives `expiresIn` seconds, or the server's default of 24 hours. For a
  * folder the server returns a site share, and `sharePath` is `/site/<token>/`.
+ * `getPublicUrl` reads the server's public address alongside the request, so
+ * a cached value from before the server changed it is never used.
  * Returns the copied link, or null when it failed.
  */
 export async function copyShareLink(
@@ -94,10 +97,10 @@ export async function copyShareLink(
   orgId: string,
   driveId: string,
   path: string,
-  options: { expiresIn?: number; publicUrl?: string } = {},
+  options: { expiresIn?: number; getPublicUrl?: () => Promise<string | undefined> } = {},
 ): Promise<string | null> {
   try {
-    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn, options.publicUrl)
+    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn, options.getPublicUrl)
     toast.success(result.kind === "site" ? "Site link copied" : "Share link copied", {
       description: `Anyone with the link can view it for ${describeExpiry(result.expiresIn)}`,
     })
