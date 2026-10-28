@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { createHtmlCommentBridge, MAX_FRAME_TEXT, parseFrameMessage, type FrameMessage } from "../html-comment-bridge"
+import { createHtmlCommentBridge, MAX_FRAME_TEXT, parseFrameMessage, type BridgeEvent } from "../html-comment-bridge"
 
 const P = "agent-fs-comments:"
 
 describe("parseFrameMessage", () => {
   test("accepts each well-formed message", () => {
     expect(parseFrameMessage({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })).toEqual({ type: "hello", path: "/site/t/a.html" })
+    expect(parseFrameMessage({ type: `${P}bye`, v: 1 })).toEqual({ type: "bye" })
     expect(parseFrameMessage({ type: `${P}text`, v: 1, text: "hi" })).toEqual({ type: "text", text: "hi" })
     expect(parseFrameMessage({ type: `${P}selection`, v: 1, cleared: true })).toEqual({ type: "selection", cleared: true })
     expect(parseFrameMessage({ type: `${P}selection`, v: 1, start: 1, end: 3, rect: { left: 1, top: 2, width: 3, height: 4 }, extra: "x" }))
@@ -43,11 +44,18 @@ function harness(path = "/site/t/a.html") {
   } as unknown as Window
   const posted: unknown[] = []
   const frameWindow = { postMessage: (m: unknown) => posted.push(m) } as unknown as Window
-  const received: FrameMessage[] = []
-  const bridge = createHtmlCommentBridge({ contentWindow: frameWindow }, path, (m) => received.push(m), win)
+  const loads = new Set<() => void>()
+  const frame = {
+    contentWindow: frameWindow,
+    addEventListener: (_: string, l: () => void) => loads.add(l),
+    removeEventListener: (_: string, l: () => void) => loads.delete(l),
+  } as unknown as HTMLIFrameElement
+  const received: BridgeEvent[] = []
+  const bridge = createHtmlCommentBridge(frame, path, (m) => received.push(m), win)
   const send = (data: unknown, source: unknown = frameWindow) =>
     listeners.forEach((l) => l({ data, source } as unknown as Event))
-  return { bridge, posted, received, send, listeners }
+  const load = () => loads.forEach((l) => l())
+  return { bridge, posted, received, send, listeners, loads, load }
 }
 
 const frameTick = () => new Promise((r) => setTimeout(r, 40))
@@ -83,16 +91,39 @@ describe("createHtmlCommentBridge", () => {
     const h = harness()
     h.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
     h.send({ type: `${P}hello`, v: 1, path: "/site/t/other.html" })
-    expect(h.received).toEqual([{ type: "selection", cleared: true }])
+    expect(h.received).toEqual([{ type: "reset" }])
     h.send({ type: `${P}activate`, v: 1, id: "c1" })
     h.bridge.post({ type: "reveal", id: "c1" })
     expect(h.received).toHaveLength(1)
     expect(h.posted).toHaveLength(1)
   })
 
+  test("the page saying bye ends the session until a fresh hello", () => {
+    const h = harness()
+    h.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
+    h.send({ type: `${P}bye`, v: 1 })
+    expect(h.received).toEqual([{ type: "reset" }])
+    h.send({ type: `${P}activate`, v: 1, id: "c1" })
+    expect(h.received).toHaveLength(1)
+    h.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
+    h.send({ type: `${P}activate`, v: 1, id: "c1" })
+    expect(h.received).toEqual([{ type: "reset" }, { type: "activate", id: "c1" }])
+  })
+
+  test("a load with no hello since the last one (a page without the overlay) ends the session", () => {
+    const h = harness()
+    h.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
+    h.load() // the page that said hello finished loading: still on
+    h.send({ type: `${P}activate`, v: 1, id: "c1" })
+    h.load() // another document loaded and never said hello
+    h.send({ type: `${P}activate`, v: 1, id: "c2" })
+    expect(h.received).toEqual([{ type: "activate", id: "c1" }, { type: "reset" }])
+  })
+
   test("dispose stops listening", () => {
     const h = harness()
     h.bridge.dispose()
     expect(h.listeners.size).toBe(0)
+    expect(h.loads.size).toBe(0)
   })
 })

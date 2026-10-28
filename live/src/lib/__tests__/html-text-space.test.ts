@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { htmlSourceTextSpace } from "../html-text-space"
-import { captureQuote, resolveAnchor, resolveAnchorInView } from "../comment-anchor"
+import { captureQuote, resolveAnchor, resolveAnchorInView, sourceTextSpace } from "../comment-anchor"
 
 const page = [
   "<!doctype html>",                                   // 1
@@ -56,5 +56,15 @@ describe("htmlSourceTextSpace", () => {
     const r = resolveAnchorInView(frame, edited, { quote, lineStart: 2, lineEnd: 2 })
     expect(r.start).toBe(frame.text.indexOf("Revenue"))
     expect(frame.text.slice(r.start, r.end)).toBe("Revenue grew a lot")
+  })
+
+  test("the Source view places a preview quote with entities or tags by its lines", () => {
+    // Monaco shows the raw HTML: "&amp;" and "<b>" are in its text, so the
+    // rendered quote does not match there and the stored lines place it.
+    const source = sourceTextSpace(page)
+    const entity = resolveAnchor(source, { quote: { exact: "Report & notes" }, lineStart: 5, lineEnd: 5 })
+    expect(entity).toMatchObject({ status: "anchored", method: "lines", lineStart: 5, lineEnd: 5 })
+    const tags = resolveAnchor(source, { quote: { exact: "Last line\u00a0here" }, lineStart: 10, lineEnd: 10 })
+    expect(tags).toMatchObject({ status: "anchored", method: "lines", lineStart: 10, lineEnd: 10 })
   })
 })

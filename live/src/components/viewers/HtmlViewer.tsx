@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { AddComment } from "@/components/comments/AddComment"
 import { clampFormTop, clampLeft, COMMENT_BTN_HEIGHT, COMMENT_BTN_WIDTH, COMMENT_FORM_WIDTH, VIEWPORT_MARGIN } from "./MarkdownViewer"
-import type { CommentListEntry } from "@/api/types"
+import type { CommentListEntry, CommentQuote } from "@/api/types"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 
 // Never add `allow-same-origin`: the page must get an opaque origin, so it
@@ -163,9 +163,11 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
 }) {
   const [frameText, setFrameText] = useState<string | null>(null)
   const [selection, setSelection] = useState<{ start: number; end: number; rect: DOMRect } | null>(null)
-  const [showForm, setShowForm] = useState(false)
-  const showFormRef = useRef(showForm)
-  showFormRef.current = showForm
+  // What the open composer saves: a snapshot, so the page changing its text
+  // while the user types cannot move the comment to another passage.
+  const [draft, setDraft] = useState<{ quote: CommentQuote; lineStart?: number; lineEnd?: number; rect: DOMRect } | null>(null)
+  const draftRef = useRef(draft)
+  draftRef.current = draft
   const bridgeRef = useRef<HtmlCommentBridge | null>(null)
   const frameSpace = useMemo(() => (frameText == null ? null : frameTextSpace(frameText)), [frameText])
   const sourceSpace = useMemo(() => htmlSourceTextSpace(content), [content])
@@ -176,7 +178,7 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
   const active = useActiveComment()
 
   const clear = useCallback(() => {
-    setShowForm(false)
+    setDraft(null)
     setSelection(null)
   }, [])
 
@@ -184,12 +186,17 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
     const frame = frameRef.current
     if (!frame) return
     setFrameText(null)
-    setSelection(null)
+    clear()
     const bridge = createHtmlCommentBridge(frame, new URL(src, location.href).pathname, (msg) => {
       if (msg.type === "text") setFrameText(msg.text)
+      else if (msg.type === "reset") {
+        // The frame left the page: its text and any composer belong to that page.
+        setFrameText(null)
+        clear()
+      }
       else if (msg.type === "activate") revealComment(msg.id)
       else if (msg.type === "hover") commentAnchors.setHovered(msg.id, "doc")
-      else if (msg.type === "selection" && !showFormRef.current) {
+      else if (msg.type === "selection" && !draftRef.current) {
         if ("cleared" in msg) return setSelection(null)
         const f = frame.getBoundingClientRect()
         setSelection({ start: msg.start, end: msg.end, rect: new DOMRect(f.left + msg.rect.left, f.top + msg.rect.top, msg.rect.width, msg.rect.height) })
@@ -201,7 +208,7 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
       bridgeRef.current = null
       commentAnchors.setHovered(null, "doc")
     }
-  }, [frameRef, src, reloadKey])
+  }, [frameRef, src, reloadKey, clear])
 
   // Ranges and states only: comment bodies and authors never enter the frame.
   useEffect(() => {
@@ -246,14 +253,14 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
     return { quote, lineStart: placed ? inSource.lineStart : undefined, lineEnd: placed ? inSource.lineEnd : undefined }
   }, [selection, frameText, sourceSpace])
 
-  if (!selection || !target) return null
-  const rect = selection.rect
-  if (!showForm) {
+  if (!draft) {
+    if (!selection || !target) return null
+    const rect = selection.rect
     return (
       <button
         data-comment-ui
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setShowForm(true)}
+        onClick={() => setDraft({ ...target, rect })}
         className="fixed z-50 flex items-center gap-1.5 rounded-lg bg-foreground px-2.5 py-1.5 text-xs font-medium text-background shadow-lg transition-transform hover:scale-105 active:scale-95"
         style={{
           top: Math.min(rect.bottom + 6, window.innerHeight - COMMENT_BTN_HEIGHT - VIEWPORT_MARGIN),
@@ -269,14 +276,14 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
     <div
       data-comment-ui
       className="fixed z-50 w-80 max-h-[80vh] overflow-y-auto rounded-lg border border-border bg-popover p-3 shadow-lg"
-      style={{ top: clampFormTop(rect, 220), left: clampLeft(rect.left - 40, COMMENT_FORM_WIDTH) }}
+      style={{ top: clampFormTop(draft.rect, 220), left: clampLeft(draft.rect.left - 40, COMMENT_FORM_WIDTH) }}
     >
       <AddComment
         path={path}
-        lineStart={target.lineStart}
-        lineEnd={target.lineEnd}
-        quotedContent={target.quote.exact.slice(0, 200)}
-        quote={target.quote}
+        lineStart={draft.lineStart}
+        lineEnd={draft.lineEnd}
+        quotedContent={draft.quote.exact.slice(0, 200)}
+        quote={draft.quote}
         autoFocus
         onDone={clear}
       />

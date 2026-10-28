@@ -18,6 +18,7 @@ export interface FrameRect { left: number; top: number; width: number; height: n
 
 export type FrameMessage =
   | { type: "hello"; path: string }
+  | { type: "bye" }
   | { type: "text"; text: string }
   | { type: "selection"; start: number; end: number; rect: FrameRect }
   | { type: "selection"; cleared: true }
@@ -43,6 +44,8 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
   switch (d.type.slice(PREFIX.length)) {
     case "hello":
       return typeof d.path === "string" && d.path.length <= 4096 ? { type: "hello", path: d.path } : null
+    case "bye":
+      return { type: "bye" }
     case "text":
       return typeof d.text === "string" && d.text.length <= MAX_FRAME_TEXT ? { type: "text", text: d.text } : null
     case "selection": {
@@ -68,21 +71,39 @@ export interface HtmlCommentBridge {
 
 type MessageTarget = Pick<Window, "addEventListener" | "removeEventListener">
 
+/** What the bridge delivers: overlay messages, and `reset` when the frame leaves the page. */
+export type BridgeEvent = Exclude<FrameMessage, { type: "hello" } | { type: "bye" }> | { type: "reset" }
+
 /**
  * Listen to the overlay in `frame`. `path` is the pathname of the page the
- * frame was given: a `hello` from any other page (the frame navigated) turns
- * the bridge off until the right page says hello again. Until then nothing but
- * `hello` is delivered. Page text is delivered at most once a frame.
+ * frame was given. Nothing but `hello` is delivered until that page says
+ * hello. The session ends, with a `reset`, when the overlay says bye (its page
+ * is unloading), when a hello comes from any other page, or when the frame
+ * finishes loading a document that never said hello (a linked page without
+ * the overlay). Page text is delivered at most once a frame.
  */
 export function createHtmlCommentBridge(
-  frame: { readonly contentWindow: Window | null },
+  frame: Pick<HTMLIFrameElement, "contentWindow" | "addEventListener" | "removeEventListener">,
   path: string,
-  onMessage: (msg: FrameMessage) => void,
+  onMessage: (msg: BridgeEvent) => void,
   win: MessageTarget = window,
 ): HtmlCommentBridge {
   let hosted = false
+  // A matching hello since the frame's last load event: the hello of the page
+  // that is loading or just loaded.
+  let helloSinceLoad = false
   let pendingText: string | null = null
   let disposed = false
+  const unhost = () => {
+    pendingText = null
+    if (!hosted) return
+    hosted = false
+    onMessage({ type: "reset" })
+  }
+  const onLoad = () => {
+    if (!helloSinceLoad) unhost()
+    helloSinceLoad = false
+  }
   const schedule = globalThis.requestAnimationFrame?.bind(globalThis) ?? ((cb: () => void) => setTimeout(cb, 16))
 
   const post = (msg: HostMessage) => {
@@ -95,12 +116,13 @@ export function createHtmlCommentBridge(
     if (!frame.contentWindow || e.source !== frame.contentWindow) return
     const msg = parseFrameMessage(e.data)
     if (!msg) return
-    if (msg.type === "hello") {
-      hosted = msg.path === path
-      if (hosted) post({ type: "host" })
-      // Another page in the frame: drop any selection it proposed.
-      else onMessage({ type: "selection", cleared: true })
-      return
+    if (msg.type === "hello" && msg.path === path) {
+      hosted = helloSinceLoad = true
+      return post({ type: "host" })
+    }
+    if (msg.type === "hello" || msg.type === "bye") {
+      helloSinceLoad = false
+      return unhost()
     }
     if (!hosted) return
     if (msg.type !== "text") return onMessage(msg)
@@ -115,11 +137,13 @@ export function createHtmlCommentBridge(
   }
 
   win.addEventListener("message", listener)
+  frame.addEventListener("load", onLoad)
   return {
     post,
     dispose() {
       disposed = true
       win.removeEventListener("message", listener)
+      frame.removeEventListener("load", onLoad)
     },
   }
 }
