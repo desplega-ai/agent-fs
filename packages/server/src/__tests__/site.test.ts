@@ -246,6 +246,40 @@ for (const { label, make } of backends) {
       });
     });
 
+    describe("comment overlay", () => {
+      const flagged = (p: string) => `/site/${site.token}/${p}?__afs_comments=1`;
+
+      test("is added to an HTML page only with the flag; headers are the same either way", async () => {
+        const stored = '<!doctype html><img src="pic.png"><script>fetch("data.json")</script>';
+        const plainRes = await get(h, `/site/${site.token}/index.html`);
+        expect(await plainRes.text()).toBe(stored);
+        expect(plainRes.headers.get("content-length")).toBe(String(stored.length));
+
+        const res = await get(h, flagged("index.html"));
+        expect(res.status).toBe(200);
+        const body = await res.text();
+        expect(body.startsWith(stored)).toBe(true);
+        expect(body).toContain("agent-fs-comments:");
+        expect(res.headers.get("content-length")).toBe(String(new TextEncoder().encode(body).length));
+        expectSiteHeaders(res);
+        expect(res.headers.get("content-type")).toBe(plainRes.headers.get("content-type"));
+        expect(res.headers.get("content-security-policy")).toBe(plainRes.headers.get("content-security-policy"));
+      });
+
+      test("never touches other files", async () => {
+        for (const [p, stored] of [["data.json", '{"ok":true}'], ["app.js", "console.log(1)"], ["noindex/readme.txt", "no index here"]]) {
+          const res = await get(h, flagged(p));
+          expect(await res.text(), p).toBe(stored);
+        }
+      });
+
+      test("an unflagged page is the stored bytes exactly", async () => {
+        await write(h, "/site/uni.html", "<p>Ünïcødé 日本語</p></body>");
+        const res = await get(h, `/site/${site.token}/uni.html?other=1`);
+        expect(new Uint8Array(await res.arrayBuffer())).toEqual(new TextEncoder().encode("<p>Ünïcødé 日本語</p></body>"));
+      });
+    });
+
     describe("escapes", () => {
       test("positive control: the outside file exists and a drive-root site serves it", async () => {
         const root = await share(h, "/");
@@ -451,10 +485,12 @@ for (const { label, make } of backends) {
 }
 
 describe("site route plumbing", () => {
-  test("/health advertises html-sites", async () => {
+  test("/health advertises html-sites and html-comments", async () => {
     const h = await setup();
     const res = await h.app.request("/health");
-    expect((await res.json()).features).toContain("html-sites");
+    const { features } = await res.json();
+    expect(features).toContain("html-sites");
+    expect(features).toContain("html-comments");
   });
 
   test("has its own per-IP limit, and the 429 carries the site headers", async () => {

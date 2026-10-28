@@ -2325,6 +2325,35 @@ async function runStandardTests(daemonUrl: string) {
     assertIncludes(await res.text(), "site-e2e-index");
   });
 
+  await test("/site with __afs_comments=1 adds the comment overlay to HTML only; without it the bytes are unchanged", async () => {
+    const r = runJson("share-create site-e2e");
+    const stored = '<!doctype html><title>Site E2E</title><script src="app.js"></script><p>site-e2e-index</p>';
+    const plain = await fetch(`${r.url}index.html`);
+    assert(await plain.text(), stored);
+    const flagged = await fetch(`${r.url}index.html?__afs_comments=1`);
+    assert(flagged.status, 200);
+    const body = await flagged.text();
+    assert(body.startsWith(stored), true, "Expected the page bytes before the overlay");
+    assertIncludes(body, "agent-fs-comments:");
+    assert(flagged.headers.get("content-security-policy"), plain.headers.get("content-security-policy"));
+    const js = await (await fetch(`${r.url}app.js?__afs_comments=1`)).text();
+    assert(js.includes("agent-fs-comments:"), false, "Expected no overlay in a script file");
+    const health = await (await fetch(`${daemonUrl}/health`)).json() as any;
+    assert(health.features?.includes("html-comments"), true, `Expected html-comments in ${JSON.stringify(health)}`);
+  });
+
+  await test("comment add --quote on an HTML file, then list, reply and resolve", () => {
+    const add = runJson('comment add /site-e2e/index.html --body "Tighten this" --quote "site-e2e-index"');
+    assert(add.quote?.exact, "site-e2e-index");
+    const list = runJson("comment list /site-e2e/index.html");
+    const found = list.comments.find((c: any) => c.id === add.id);
+    assert(found?.quote?.exact, "site-e2e-index", "Expected the quote in comment list");
+    const reply = runJson(`comment reply ${add.id} --body "Done"`);
+    assert(reply.parentId, add.id);
+    const resolved = runJson(`comment resolve ${add.id}`);
+    assert(resolved.resolved, true, "Expected the HTML comment to be resolved");
+  });
+
   await test("site assets resolve inside the folder", async () => {
     const r = runJson("share-create site-e2e");
     const js = await fetch(`${r.url}app.js`);

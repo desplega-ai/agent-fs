@@ -556,6 +556,9 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           className="flex-1 min-h-0"
           reloadKey={saveCount}
           onShowSource={() => setShowRaw(true)}
+          comments={commentsData?.comments}
+          content={content.content}
+          onScrollToCommentRef={onScrollToCommentRef}
         />
       ) : (
         <MarkdownViewer
