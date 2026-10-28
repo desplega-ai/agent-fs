@@ -116,7 +116,7 @@ export function AddComment({
           placeholder={placeholder}
           autoFocus={autoFocus}
           rows={2}
-          className="flex-1 resize-y text-sm min-h-[3.5rem]"
+          className="flex-1 resize-y min-h-[3.5rem]"
           onKeyDown={(e) => {
             if (mention.handleKeyDown(e)) return
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {

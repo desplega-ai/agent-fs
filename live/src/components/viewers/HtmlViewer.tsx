@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { AddComment } from "@/components/comments/AddComment"
-import { clampFormTop, clampLeft, COMMENT_BTN_HEIGHT, COMMENT_BTN_WIDTH, COMMENT_FORM_WIDTH, VIEWPORT_MARGIN } from "./MarkdownViewer"
+import { clampFormTop, clampLeft, COMMENT_BTN_HEIGHT, COMMENT_BTN_WIDTH, COMMENT_FORM_WIDTH, layoutViewport, VIEWPORT_MARGIN } from "@/lib/comment-popover-layout"
 import type { CommentListEntry, CommentQuote } from "@/api/types"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 
@@ -265,7 +265,7 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
         className="fixed z-50 flex items-center gap-1.5 rounded-lg bg-foreground px-2.5 py-1.5 text-xs font-medium text-background shadow-lg transition-transform hover:scale-105 active:scale-95"
         style={{
           top: Math.min(rect.bottom + 6, window.innerHeight - COMMENT_BTN_HEIGHT - VIEWPORT_MARGIN),
-          left: clampLeft(rect.left + rect.width / 2 - COMMENT_BTN_WIDTH / 2, COMMENT_BTN_WIDTH),
+          left: clampLeft(rect.left + rect.width / 2 - COMMENT_BTN_WIDTH / 2, COMMENT_BTN_WIDTH, layoutViewport()),
         }}
       >
         <MessageSquare className="size-3" />
@@ -277,7 +277,7 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
     <div
       data-comment-ui
       className="fixed z-50 w-80 max-h-[80vh] overflow-y-auto rounded-lg border border-border bg-popover p-3 shadow-lg"
-      style={{ top: clampFormTop(draft.rect, 220), left: clampLeft(draft.rect.left - 40, COMMENT_FORM_WIDTH) }}
+      style={{ top: clampFormTop(draft.rect, 220, layoutViewport()), left: clampLeft(draft.rect.left - 40, COMMENT_FORM_WIDTH, layoutViewport()) }}
     >
       <AddComment
         path={path}

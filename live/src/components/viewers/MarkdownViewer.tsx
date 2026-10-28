@@ -27,6 +27,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { slugify, scrollToHeading, scrollBehavior, type OutlineItem } from "@/lib/outline"
 import { computeActiveHeadings } from "@/hooks/use-active-headings"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
+import { commentButtonPosition, commentFormStyle, useCommentSheet, usePopoverViewport, useRestoreWindowScroll, useTouchSelection, VIEWPORT_MARGIN } from "@/lib/comment-popover"
 import { captureQuote, type AnchorResolution } from "@/lib/comment-anchor"
 import { buildDomTextSpace, rehypeSourceLines, type DomTextSpace } from "@/lib/dom-text-space"
 import { commentAnchors, revealComment, useActiveComment, useHoveredComment } from "@/stores/comment-anchors"
@@ -173,13 +174,6 @@ function FrontmatterBlock({ data }: { data: FrontmatterRecord }) {
   )
 }
 
-// Floating UI sizing constants used to keep the comment button/form inside the
-// viewport (feedback: "never overflow from the visible document").
-export const VIEWPORT_MARGIN = 8
-export const COMMENT_FORM_WIDTH = 320
-export const COMMENT_BTN_WIDTH = 108
-export const COMMENT_BTN_HEIGHT = 32
-
 // CSS Custom Highlight API: paints exact text ranges without touching the DOM
 // (wrapping text in elements would break native selection). Older browsers
 // fall back to marking the containing blocks.
@@ -192,21 +186,6 @@ interface CommentTarget {
   quote?: CommentQuote
   lineStart?: number
   lineEnd?: number
-}
-
-/** Clamp an x-coordinate so a box of the given width stays on screen. */
-export function clampLeft(left: number, width: number): number {
-  const max = window.innerWidth - width - VIEWPORT_MARGIN
-  return Math.max(VIEWPORT_MARGIN, Math.min(left, Math.max(VIEWPORT_MARGIN, max)))
-}
-
-/** Pick a y-coordinate for the form: below the anchor, else flipped above. */
-export function clampFormTop(rect: DOMRect, formHeight: number): number {
-  const below = rect.bottom + 10
-  if (below + formHeight + VIEWPORT_MARGIN <= window.innerHeight) return below
-  const above = rect.top - formHeight - 10
-  if (above >= VIEWPORT_MARGIN) return above
-  return Math.max(VIEWPORT_MARGIN, window.innerHeight - formHeight - VIEWPORT_MARGIN)
 }
 
 interface MarkdownViewerProps {
@@ -525,10 +504,23 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
     )
   }, [beginComment])
 
+  // Touch selections (long-press, handle drags) fire no mouseup.
+  const showFormRef = useRef(showCommentForm)
+  showFormRef.current = showCommentForm
+  const formOpen = useCallback(() => showFormRef.current, [])
+  useTouchSelection(handleMouseUp, formOpen)
+
+  // Phones and tablets get the form as a bottom sheet on the visual viewport.
+  const sheet = useCommentSheet()
+  const viewport = usePopoverViewport(sheet, showCommentForm || !!selection)
+  useRestoreWindowScroll(sheet && showCommentForm)
+
   // Keep the comment UI glued to the selection while the document scrolls or
-  // resizes (feedback: "make comment box sticky to the selection").
+  // resizes (feedback: "make comment box sticky to the selection"). Not the
+  // sheet: focusing its textarea scrolls the window (iOS), and re-gluing to
+  // the moved selection pushed the form off screen.
   useEffect(() => {
-    if (!selection) return
+    if (!selection || (sheet && showCommentForm)) return
     let raf = 0
     const update = () => {
       raf = 0
@@ -546,7 +538,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
       window.removeEventListener("resize", onScroll)
       if (raf) cancelAnimationFrame(raf)
     }
-  }, [selection])
+  }, [selection, sheet, showCommentForm])
 
   // Esc closes the comment UI. Capture phase + stopImmediatePropagation so Esc
   // is consumed here and does not reach other document-level handlers.
@@ -696,10 +688,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setShowCommentForm(true)}
           className="fixed z-50 flex items-center gap-1.5 rounded-lg bg-foreground px-2.5 py-1.5 text-xs font-medium text-background shadow-lg transition-transform hover:scale-105 active:scale-95"
-          style={{
-            top: Math.min(anchorRect.bottom + 6, window.innerHeight - COMMENT_BTN_HEIGHT - VIEWPORT_MARGIN),
-            left: clampLeft(anchorRect.left + anchorRect.width / 2 - COMMENT_BTN_WIDTH / 2, COMMENT_BTN_WIDTH),
-          }}
+          style={commentButtonPosition(anchorRect, viewport, sheet)}
         >
           <MessageSquare className="size-3" />
           Comment
@@ -711,11 +700,11 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
         <div
           ref={formRef}
           data-comment-ui
-          className="fixed z-50 w-80 max-h-[80vh] overflow-y-auto rounded-lg border border-border bg-popover p-3 shadow-lg"
-          style={{
-            top: clampFormTop(anchorRect, formHeight || 220),
-            left: clampLeft(anchorRect.left - 40, COMMENT_FORM_WIDTH),
-          }}
+          className={cn(
+            "fixed z-50 w-80 max-h-[80vh] overflow-y-auto rounded-lg border border-border bg-popover p-3 shadow-lg",
+            sheet && "rounded-b-none border-b-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
+          )}
+          style={commentFormStyle(anchorRect, formHeight || 220, viewport, sheet)}
         >
           <AddComment
             path={path}
