@@ -278,7 +278,7 @@ Stars follow files: `mv` moves every user's star on the file to the new path, `r
 |---------|-------|-------------|
 | `onboard` | `agent-fs onboard [--local] [--filesystem] [--storage <minio\|local>] [--storage-root <dir>] [-y] [--embeddings <provider>]` | Set up agent-fs (storage backend + database + user). `--filesystem` (or `--storage local`) uses an on-disk backend — no Docker/S3; `--storage-root <dir>` sets its directory. |
 | `init` | `agent-fs init [--local] [-y]` | Alias for `onboard` |
-| `auth register` | `agent-fs auth register <email>` | Register a new user |
+| `auth register` | `agent-fs auth register <email>` | Register a new user. A server with `AGENT_FS_REGISTER_ALLOWED_DOMAINS` set returns 403 `REGISTRATION_DOMAIN_NOT_ALLOWED` for other email domains |
 | `auth whoami` | `agent-fs auth whoami` | Show current user info |
 | `auth reset-key` | `agent-fs auth reset-key` | Reset your own API key. The old key stops working immediately. |
 

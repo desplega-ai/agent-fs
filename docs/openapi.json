@@ -311,6 +311,26 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "VALIDATION_ERROR: email missing, or has no domain while AGENT_FS_REGISTER_ALLOWED_DOMAINS is set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "REGISTRATION_DOMAIN_NOT_ALLOWED: email domain is not in AGENT_FS_REGISTER_ALLOWED_DOMAINS",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }

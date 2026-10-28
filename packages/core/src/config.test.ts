@@ -8,6 +8,7 @@ import {
   getHome,
   getEmbeddingMaxBytes,
   getEmbeddingExcludeDrives,
+  getRegisterAllowedDomains,
 } from "./config.js";
 import type { S3StorageConfig } from "./config.js";
 import { createTestConfigDir } from "./test-utils.js";
@@ -34,6 +35,7 @@ const OVERRIDE_ENV_VARS = [
   "AGENT_FS_MAX_UPLOAD_BYTES",
   "AGENT_FS_EMBEDDING_MAX_BYTES",
   "AGENT_FS_EMBEDDING_EXCLUDE_DRIVES",
+  "AGENT_FS_REGISTER_ALLOWED_DOMAINS",
   "AGENT_FS_RATE_LIMIT",
   "SERVER_PORT",
   "SERVER_HOST",
@@ -96,6 +98,15 @@ describe("Config system", () => {
     expect(getEmbeddingExcludeDrives()).toEqual([]);
     process.env.AGENT_FS_EMBEDDING_EXCLUDE_DRIVES = " drive-b, drive-a ,, drive-b, ";
     expect(getEmbeddingExcludeDrives()).toEqual(["drive-a", "drive-b"]);
+  });
+
+  test("register allowed domains trim, lowercase and ignore empty entries", () => {
+    delete process.env.AGENT_FS_REGISTER_ALLOWED_DOMAINS;
+    expect(getRegisterAllowedDomains()).toEqual([]);
+    process.env.AGENT_FS_REGISTER_ALLOWED_DOMAINS = " , , ";
+    expect(getRegisterAllowedDomains()).toEqual([]);
+    process.env.AGENT_FS_REGISTER_ALLOWED_DOMAINS = " Acme.com ,, acme.io, ACME.COM ";
+    expect(getRegisterAllowedDomains()).toEqual(["acme.com", "acme.io"]);
   });
 
   test("embedding byte cap accepts positive integer bytes", () => {
