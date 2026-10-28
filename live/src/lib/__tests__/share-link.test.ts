@@ -133,7 +133,8 @@ describe("copyShareLink", () => {
       constructor(public data: Record<string, Promise<Blob>>) {}
     }
     const before = toasts.length
-    const client = { endpoint: "https://docs.internal", createShare: async () => ({ ...result, urlSource: "configured", url: "https:docs.internal/share/tok" }) } as any
+    // An older server (no urlSource) whose sharePath is not a share route: copied as-is before.
+    const client = { endpoint: "https://docs.internal", createShare: async () => ({ ...result, sharePath: "/../wrong" }) } as any
     expect(await copyShareLink(client, "org", "drive", "/a.md")).toBeNull()
     expect(items).toHaveLength(1) // started inside the click, as Safari needs
     await expect(items[0].data["text/plain"]).rejects.toThrow()
