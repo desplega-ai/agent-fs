@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { clampFormTop, clampLeft, commentButtonPosition, commentFormStyle, COMMENT_BTN_HEIGHT, VIEWPORT_MARGIN, type Viewport } from "../comment-popover"
+import { clampFormTop, clampLeft, commentButtonPosition, commentFormStyle, COMMENT_BTN_HEIGHT, VIEWPORT_MARGIN, type Viewport } from "../comment-popover-layout"
 
 const desktop: Viewport = { width: 1280, height: 800, offsetTop: 0, offsetLeft: 0 }
 // iOS with the keyboard up: the window scrolled 363 px, 336 px visible.
