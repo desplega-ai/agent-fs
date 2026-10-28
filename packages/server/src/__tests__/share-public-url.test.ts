@@ -2,12 +2,16 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createTestConfigDir, createTestContext } from "../../../core/src/test-utils.js";
 import { createApp } from "../app.js";
 import { normalizePublicUrl } from "../public-url.js";
+import { getConfig } from "../../../core/src/config.js";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 let cleanup: () => void;
+let home: string;
 let saved: string | undefined;
 beforeEach(() => {
   saved = process.env.AGENT_FS_PUBLIC_URL;
-  ({ cleanup } = createTestConfigDir());
+  ({ cleanup, dir: home } = createTestConfigDir());
 });
 afterEach(() => {
   if (saved === undefined) delete process.env.AGENT_FS_PUBLIC_URL;
@@ -35,6 +39,32 @@ describe("AGENT_FS_PUBLIC_URL", () => {
     process.env.AGENT_FS_PUBLIC_URL = "https://x.example?tenant=a";
     const { db, s3 } = createTestContext();
     expect(() => createApp(db, s3)).toThrow(/Invalid AGENT_FS_PUBLIC_URL/);
+  });
+});
+
+describe("AGENT_FS_PUBLIC_URL loading", () => {
+  const writeConfig = (dir: string, publicUrl: string) =>
+    writeFileSync(join(dir, "config.json"), JSON.stringify({ server: { publicUrl } }));
+
+  test("a config-file value is used, and an invalid one reaches validation", () => {
+    delete process.env.AGENT_FS_PUBLIC_URL;
+    writeConfig(home, "https://file.example/");
+    expect(getConfig().server.publicUrl).toBe("https://file.example/");
+    writeConfig(home, "https://file.example?x=1");
+    const { db, s3 } = createTestContext();
+    expect(() => createApp(db, s3)).toThrow(/Invalid AGENT_FS_PUBLIC_URL/);
+  });
+
+  test("the environment wins over the config file, unless it is empty or whitespace", () => {
+    writeConfig(home, "https://file.example");
+    process.env.AGENT_FS_PUBLIC_URL = "https://env.example";
+    expect(getConfig().server.publicUrl).toBe("https://env.example");
+    process.env.AGENT_FS_PUBLIC_URL = "nope";
+    expect(getConfig().server.publicUrl).toBe("nope"); // passed through, then refused at startup
+    for (const empty of ["", "   "]) {
+      process.env.AGENT_FS_PUBLIC_URL = empty;
+      expect(getConfig().server.publicUrl).toBe("https://file.example");
+    }
   });
 });
 

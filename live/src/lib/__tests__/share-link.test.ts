@@ -46,6 +46,7 @@ describe("resolveShareUrl", () => {
   test("follows urlSource: the configured url as returned, the endpoint for request, legacy when absent", () => {
     const configured = { ...result, url: "https://files.example.com/fs/site/tok/", sharePath: "/site/tok/", urlSource: "configured" }
     expect(resolveShareUrl("https://docs.internal", configured)).toBe("https://files.example.com/fs/site/tok/")
+    expect(resolveShareUrl("https://docs.internal", { ...result, url: "https://files.example.com/share/tok", urlSource: "configured" })).toBe("https://files.example.com/share/tok")
     expect(resolveShareUrl("https://docs.internal/", { ...result, sharePath: "/site/tok/", urlSource: "request" })).toBe("https://docs.internal/site/tok/")
     expect(resolveShareUrl("https://docs.internal", { ...result, urlSource: undefined })).toBe("https://docs.internal/share/tok")
   })
@@ -54,7 +55,20 @@ describe("resolveShareUrl", () => {
     const bad = [
       ...[false, null, "", 42, "nope", {}].map((urlSource) => ({ ...result, urlSource })),
       ...["not a url", "ftp://x/share/tok", "/share/tok", "https://user:pw@x/share/tok", 42].map((url) => ({ ...result, url, urlSource: "configured" })),
-      { ...result, sharePath: "share/tok", urlSource: "request" },
+      ...["share/tok", "/../wrong", "/share/tok#f", "/share/tok?x", "/site/tok", "//share/tok", "/share/a/b", "/share/../site/x/", 7]
+        .map((sharePath) => ({ ...result, sharePath, urlSource: "request" })),
+      ...[
+        "https:files.example.com/share/tok", // parses, but not as written
+        " https://files.example.com/share/tok",
+        "https://files.example.com/share/tok ",
+        "https://files.example.com/share/tok?x=1",
+        "https://files.example.com/share/tok#f",
+        "https://files.example.com/x/../share/tok",
+        "https://files.example.com//share/tok",
+        "https://files.example.com/site/tok", // a site without its slash
+        "https://files.example.com/other/tok",
+        "https://files.example.com/share/other", // not the response's sharePath
+      ].map((url) => ({ ...result, url, urlSource: "configured" })),
     ]
     for (const r of bad) expect(() => resolveShareUrl("https://docs.internal", r as any), JSON.stringify(r)).toThrow(InvalidShareResponseError)
   })

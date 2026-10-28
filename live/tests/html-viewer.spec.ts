@@ -179,6 +179,8 @@ for (const [label, response, expected] of [
   ["a configured url is copied as the server returned it", site("t1", "configured", "https://files.example.com/fs/site/t1/"), "https://files.example.com/fs/site/t1/"],
   ["a request-derived url is rebuilt on the app's endpoint", site("t1", "request"), "http://fixture.test/site/t1/"],
   ["a malformed urlSource is refused", site("t1", false), null],
+  ["a request sharePath that climbs out is refused", { sharePath: "/../wrong", url: "http://internal:7433/../wrong", urlSource: "request" }, null],
+  ["a configured url that is not canonical is refused", site("t1", "configured", "https:files.example.com/site/t1/"), null],
 ] as const) {
   test(`share link: ${label}`, async ({ page, context }) => {
     const dialog = await openShareDialogWith(page, context, [response])
