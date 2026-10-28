@@ -26,6 +26,18 @@ describe("html comment overlay", () => {
     expect(dec(injectHtmlCommentOverlay(new Uint8Array()))).toBe(SCRIPT);
   });
 
+  test("a </body> that is not the end of the document is not the real one", () => {
+    // Optional closing tags omitted, "</body>" in a script string.
+    const inScript = '<p>a</p><script>const tag = "</body>"; go(tag)</script><p>after</p>';
+    expect(dec(injectHtmlCommentOverlay(enc(inScript)))).toBe(`${inScript}${SCRIPT}`);
+    // In a trailing comment.
+    const inComment = "<p>a</p><!-- old footer </body></html> -->";
+    expect(dec(injectHtmlCommentOverlay(enc(inComment)))).toBe(`${inComment}${SCRIPT}`);
+    // The real one, with whitespace and a comment after it.
+    expect(dec(injectHtmlCommentOverlay(enc("<p>a</p></body>\n</html>\n<!-- built -->\n"))))
+      .toBe(`<p>a</p>${SCRIPT}</body>\n</html>\n<!-- built -->\n`);
+  });
+
   test("leaves non-ASCII bytes around it intact", () => {
     const page = enc("<p>Ünïcødé — 日本語 🎉</p></body>");
     const out = injectHtmlCommentOverlay(page);

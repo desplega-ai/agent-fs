@@ -22,6 +22,7 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
   var MAX_TEXT = 2 * 1024 * 1024;
   var BLOCK = /^(P|H[1-6]|LI|BLOCKQUOTE|PRE|TR|TD|TH|DIV|DT|DD|UL|OL|TABLE|HR|BR|SECTION|ARTICLE|HEADER|FOOTER|MAIN|NAV|ASIDE|FIGURE|FIGCAPTION|DETAILS|SUMMARY)$/;
   var SKIP = /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|SVG|svg|IFRAME|OBJECT|TEXTAREA|SELECT)$/;
+  var PICK = "p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,tr";
   var NAMES = { anchored: "afs-comment", moved: "afs-comment-moved", active: "afs-comment-active" };
   var hosted = false, text = "", segs = [], ranges = [], live = [], sent = null, hoverId = null;
   var canPaint = typeof CSS !== "undefined" && CSS.highlights && typeof Highlight !== "undefined";
@@ -51,12 +52,14 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
     if (document.body) walk(document.body);
     text = t.length > MAX_TEXT ? t.slice(0, MAX_TEXT) : t;
     segs = s;
+    // The DOM may have changed even when its text did not: repaint on new nodes.
+    paint();
   }
 
   function sendText() {
     var before = text;
     build();
-    if (text !== before || sent === null) { sent = text; post("text", { text: text }); paint(); }
+    if (text !== before || sent === null) { sent = text; post("text", { text: text }); }
   }
 
   function segAt(offset) {
@@ -136,22 +139,29 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
     return best;
   }
 
+  // What the shown proposal came from: "sel" (a text selection) or "block" (a
+  // click). Only a selection's proposal follows selection changes and scrolls.
   var selShown = false;
+  function clearProposal() {
+    if (selShown) { selShown = false; post("selection", { cleared: true }); }
+  }
+
+  // Propose [start, end) of the page text for a comment; text before offsets.
+  function propose(start, end, box, kind) {
+    if (start === null || end === null || end <= start || !text.slice(start, end).trim()) return false;
+    if (text !== sent) { sent = text; post("text", { text: text }); }
+    var b = box.getBoundingClientRect();
+    selShown = kind;
+    post("selection", { start: start, end: end, rect: { left: b.left, top: b.top, width: b.width, height: b.height } });
+    return true;
+  }
+
   function reportSelection() {
     var sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount) {
-      if (selShown) { selShown = false; post("selection", { cleared: true }); }
-      return;
-    }
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return clearProposal();
     build();
     var range = sel.getRangeAt(0);
-    var start = toOffset(range.startContainer, range.startOffset);
-    var end = toOffset(range.endContainer, range.endOffset);
-    if (start === null || end === null || end <= start || !text.slice(start, end).trim()) return;
-    if (text !== sent) { sent = text; post("text", { text: text }); }
-    var b = range.getBoundingClientRect();
-    selShown = true;
-    post("selection", { start: start, end: end, rect: { left: b.left, top: b.top, width: b.width, height: b.height } });
+    propose(toOffset(range.startContainer, range.startOffset), toOffset(range.endContainer, range.endOffset), range, "sel");
   }
 
   function onMessage(e) {
@@ -203,9 +213,9 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
     document.addEventListener("keyup", later, true);
     document.addEventListener("selectionchange", function () {
       var sel = window.getSelection();
-      if (selShown && (!sel || sel.isCollapsed)) later();
+      if (selShown === "sel" && (!sel || sel.isCollapsed)) later();
     });
-    window.addEventListener("scroll", function () { if (selShown) later(); }, true);
+    window.addEventListener("scroll", function () { if (selShown === "sel") later(); }, true);
     document.addEventListener("mousemove", function (e) {
       if (moveFrame) return;
       var x = e.clientX, y = e.clientY;
@@ -219,8 +229,14 @@ export const HTML_COMMENT_OVERLAY = String.raw`(function () {
       var sel = window.getSelection();
       if (sel && !sel.isCollapsed) return;
       var id = hit(e.clientX, e.clientY);
-      if (id) post("activate", { id: id });
+      if (id) return post("activate", { id: id });
+      // A click on a block of text proposes the whole block; textless ones nothing.
+      clearTimeout(selTimer);
+      var el = e.target && e.target.closest ? e.target.closest(PICK) : null;
+      if (el) build();
+      if (!el || !propose(toOffset(el, 0), toOffset(el, el.childNodes.length), el, "block")) clearProposal();
     }, true);
+    window.addEventListener("pagehide", function () { post("bye"); });
   }
 
   window.addEventListener("message", onMessage);
@@ -239,9 +255,13 @@ export function isHtmlCommentsRequested(url: URL): boolean {
  */
 export function injectHtmlCommentOverlay(body: Uint8Array): Uint8Array {
   const script = new TextEncoder().encode(`<script>${HTML_COMMENT_OVERLAY}</script>`)
-  // latin1 maps each byte to one char, so string indexes are byte offsets.
-  const at = Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString("latin1").toLowerCase().lastIndexOf("</body")
-  const cut = at === -1 ? body.length : at
+  // latin1 maps each byte to one char, so string indexes are byte offsets. Only
+  // a </body> that ends the document counts: one in a script string or a
+  // comment, with page content after it, is not the real one.
+  const page = Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString("latin1")
+  const at = page.toLowerCase().lastIndexOf("</body")
+  const real = at !== -1 && /^<\/body\s*>(\s|<!--[\s\S]*?-->)*(<\/html\s*>(\s|<!--[\s\S]*?-->)*)?$/i.test(page.slice(at))
+  const cut = real ? at : body.length
   const out = new Uint8Array(body.length + script.length)
   out.set(body.subarray(0, cut), 0)
   out.set(script, cut)
