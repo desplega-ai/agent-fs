@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { Check, Copy, ExternalLink, Share2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { copyShareLink, DEFAULT_SHARE_EXPIRY_SECONDS, SHARE_EXPIRY_CHOICES } from "@/lib/share-link"
@@ -50,7 +50,6 @@ function describeShare(path: string, isDir: boolean): string {
 export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProps) {
   const { client, orgId, driveId } = useAuth()
   const queryClient = useQueryClient()
-  const { data: health } = useQuery(healthQueryOptions(client))
   const [expiresIn, setExpiresIn] = useState<number>(DEFAULT_SHARE_EXPIRY_SECONDS)
   const [link, setLink] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -62,11 +61,8 @@ export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProp
     setBusy(true)
     // The server's public address, read fresh: one cached from before the
     // server changed it would hand out the old or a private address.
-    const publicUrl = {
-      fresh: () => queryClient.fetchQuery({ ...healthQueryOptions(client), staleTime: 0 }).then((h) => h.publicUrl),
-      cached: health?.publicUrl,
-    }
-    const next = await copyShareLink(client, orgId, driveId, path, { expiresIn, publicUrl })
+    const getPublicUrl = () => queryClient.fetchQuery({ ...healthQueryOptions(client), staleTime: 0 }).then((h) => h.publicUrl)
+    const next = await copyShareLink(client, orgId, driveId, path, { expiresIn, getPublicUrl })
     setBusy(false)
     if (next) setLink(next)
   }

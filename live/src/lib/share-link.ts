@@ -58,25 +58,17 @@ export function isUnknownOpError(err: unknown): boolean {
  * inside the click's user activation, so when the browser supports it the
  * clipboard item is handed over as a promise before the request finishes.
  */
-/** The fresh public address could not be read, and the cached one may be stale. */
+/** The server's current public address could not be read. */
 class PublicUrlUnconfirmed extends Error {}
 
-/** How the link's public address is read: fresh, with the cached value it may replace. */
-export interface PublicUrlSource {
-  fresh: () => Promise<string | undefined>
-  cached?: string
-}
-
 /**
- * The server's public address for a new link. If it cannot be read fresh, a
- * server that has advertised one may have changed it, so the link is refused
- * rather than built on a stale address; one that never advertised one keeps
- * links on the endpoint.
+ * The server's public address for a new link, read fresh. If the read fails,
+ * the server may have set or changed one since this tab last asked, so the
+ * link is refused rather than built on a stale or private address.
  */
-function readPublicUrl(source?: PublicUrlSource): Promise<string | undefined> | undefined {
-  return source?.fresh().catch(() => {
-    if (source.cached) throw new PublicUrlUnconfirmed()
-    return undefined
+function readPublicUrl(getPublicUrl?: () => Promise<string | undefined>): Promise<string | undefined> | undefined {
+  return getPublicUrl?.().catch(() => {
+    throw new PublicUrlUnconfirmed()
   })
 }
 
@@ -86,11 +78,11 @@ async function mintAndCopy(
   driveId: string,
   path: string,
   expiresIn?: number,
-  publicUrl?: PublicUrlSource,
+  getPublicUrl?: () => Promise<string | undefined>,
 ): Promise<ShareCreateResult & { link: string }> {
   const request = Promise.all([
     client.createShare(orgId, driveId, path, expiresIn === undefined ? undefined : { expiresIn }),
-    readPublicUrl(publicUrl),
+    readPublicUrl(getPublicUrl),
   ]).then(([result, publicUrl]) => ({ ...result, link: resolveShareUrl(client.endpoint, result, publicUrl) }))
 
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
@@ -119,10 +111,10 @@ export async function copyShareLink(
   orgId: string,
   driveId: string,
   path: string,
-  options: { expiresIn?: number; publicUrl?: PublicUrlSource } = {},
+  options: { expiresIn?: number; getPublicUrl?: () => Promise<string | undefined> } = {},
 ): Promise<string | null> {
   try {
-    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn, options.publicUrl)
+    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn, options.getPublicUrl)
     toast.success(result.kind === "site" ? "Site link copied" : "Share link copied", {
       description: `Anyone with the link can view it for ${describeExpiry(result.expiresIn)}`,
     })

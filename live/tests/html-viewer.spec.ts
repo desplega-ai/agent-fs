@@ -174,26 +174,28 @@ test("a share link uses the server's current public address, not one cached befo
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("https://new.example/site/tok1/")
 })
 
-test("a share link is not copied on a cached public address the server cannot confirm", async ({ page, context }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" })
-  const minted: string[] = []
-  await installFixture(page, minted, ["share-links", "html-sites"], [{ name: "reports", type: "directory", size: 0 }])
-  let healthUp = true
-  await page.route("http://fixture.test/health", (route) => healthUp
-    ? route.fulfill({ json: { ok: true, version: "test", features: ["share-links", "html-sites"], publicUrl: "https://old.example" } })
-    : route.abort())
-  await page.goto("/")
-  await page.evaluate(() => navigator.clipboard.writeText("before"))
-  await page.locator('[data-tree-path="reports"]').click({ button: "right" })
-  await expect(page.getByRole("menuitem", { name: "Share as site…" })).toBeVisible()
-  healthUp = false
-  await page.getByRole("menuitem", { name: "Share as site…" }).click()
-  await page.getByRole("dialog").getByRole("button", { name: "Copy link" }).click()
-  await expect(page.getByText("Couldn't confirm the server's public address. Try again.")).toBeVisible()
-  expect(minted).toEqual(["reports"]) // share-create succeeded
-  await expect(page.getByRole("dialog").getByRole("textbox", { name: "Share link" })).toHaveCount(0)
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("before")
-})
+for (const cached of ["https://old.example", undefined]) {
+  test(`a share link is not copied when the server's public address can't be confirmed (cached: ${cached ?? "none"})`, async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" })
+    const minted: string[] = []
+    await installFixture(page, minted, ["share-links", "html-sites"], [{ name: "reports", type: "directory", size: 0 }])
+    let healthUp = true
+    await page.route("http://fixture.test/health", (route) => healthUp
+      ? route.fulfill({ json: { ok: true, version: "test", features: ["share-links", "html-sites"], ...(cached ? { publicUrl: cached } : {}) } })
+      : route.abort())
+    await page.goto("/")
+    await page.evaluate(() => navigator.clipboard.writeText("before"))
+    await page.locator('[data-tree-path="reports"]').click({ button: "right" })
+    await expect(page.getByRole("menuitem", { name: "Share as site…" })).toBeVisible()
+    healthUp = false
+    await page.getByRole("menuitem", { name: "Share as site…" }).click()
+    await page.getByRole("dialog").getByRole("button", { name: "Copy link" }).click()
+    await expect(page.getByText("Couldn't confirm the server's public address. Try again.")).toBeVisible()
+    expect(minted).toEqual(["reports"]) // share-create succeeded
+    await expect(page.getByRole("dialog").getByRole("textbox", { name: "Share link" })).toHaveCount(0)
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("before")
+  })
+}
 
 test("a row's ... button opens the same menu as right-click", async ({ page }, testInfo) => {
   await installFixture(page, [], ["share-links", "html-sites"], [{ name: "notes.md", type: "file", size: 5 }])
