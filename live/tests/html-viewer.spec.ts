@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type BrowserContext, type Page } from "@playwright/test"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
@@ -155,6 +155,59 @@ test("right-clicking a folder shares it as a site with the chosen expiry", async
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("http://fixture.test/site/tok1/")
   await expect(dialog.getByRole("textbox", { name: "Share link" })).toHaveValue("http://fixture.test/site/tok1/")
   await page.screenshot({ path: testInfo.outputPath("share-dialog.png") })
+})
+
+/** Answer share-create with these responses in turn, then open the share dialog for a folder. */
+async function openShareDialogWith(page: Page, context: BrowserContext, responses: Array<Record<string, unknown>>) {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" })
+  await installFixture(page, [], ["share-links", "html-sites"], [{ name: "reports", type: "directory", size: 0 }])
+  await page.route("http://fixture.test/**", (route) => {
+    if (!route.request().url().endsWith("/ops") || route.request().postDataJSON()?.op !== "share-create") return route.fallback()
+    const base = { id: "tok", kind: "site", path: "reports", expiresIn: 86400, expiresAt: new Date(Date.now() + 86_400_000).toISOString(), maxViews: null }
+    return route.fulfill({ json: { ...base, ...responses.shift() } })
+  })
+  await page.goto("/")
+  await page.evaluate(() => navigator.clipboard.writeText("before"))
+  await page.locator('[data-tree-path="reports"]').click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Share as site…" }).click()
+  return page.getByRole("dialog")
+}
+
+const site = (token: string, urlSource: unknown, url = `http://internal:7433/site/${token}/`) => ({ sharePath: `/site/${token}/`, url, urlSource })
+
+for (const [label, response, expected] of [
+  ["a configured url is copied as the server returned it", site("t1", "configured", "https://files.example.com/fs/site/t1/"), "https://files.example.com/fs/site/t1/"],
+  ["a request-derived url is rebuilt on the app's endpoint", site("t1", "request"), "http://fixture.test/site/t1/"],
+  ["a malformed urlSource is refused", site("t1", false), null],
+  ["a request sharePath that climbs out is refused", { sharePath: "/../wrong", url: "http://internal:7433/../wrong", urlSource: "request" }, null],
+  ["a configured url that is not canonical is refused", site("t1", "configured", "https:files.example.com/site/t1/"), null],
+] as const) {
+  test(`share link: ${label}`, async ({ page, context }) => {
+    const dialog = await openShareDialogWith(page, context, [response])
+    await dialog.getByRole("button", { name: "Copy link" }).click()
+    const box = dialog.getByRole("textbox", { name: "Share link" })
+    if (expected) {
+      await expect(box).toHaveValue(expected)
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expected)
+    } else {
+      await expect(page.getByText("The server returned an invalid link.")).toBeVisible()
+      await expect(box).toHaveCount(0)
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("before")
+    }
+  })
+}
+
+test("share link: two creates copy their own results", async ({ page, context }) => {
+  const dialog = await openShareDialogWith(page, context, [
+    site("a", "configured", "https://a.example/site/a/"),
+    site("b", "configured", "https://b.example/site/b/"),
+  ])
+  await dialog.getByRole("button", { name: "Copy link" }).click()
+  await expect(dialog.getByRole("textbox", { name: "Share link" })).toHaveValue("https://a.example/site/a/")
+  await dialog.getByRole("button", { name: "7 days" }).click() // a new expiry asks for a new link
+  await dialog.getByRole("button", { name: "Copy link" }).click()
+  await expect(dialog.getByRole("textbox", { name: "Share link" })).toHaveValue("https://b.example/site/b/")
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("https://b.example/site/b/")
 })
 
 test("a row's ... button opens the same menu as right-click", async ({ page }, testInfo) => {

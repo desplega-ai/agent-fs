@@ -1,5 +1,34 @@
 import type { Context } from "hono";
 
+/**
+ * `AGENT_FS_PUBLIC_URL` as the base share links are built on: an absolute
+ * http(s) URL with a host, optionally with a path prefix, and no credentials,
+ * query, fragment or empty path segment (a route appended to those would not
+ * be a clean path, and the web app refuses such links). Returns it normalized
+ * (origin + path, no trailing slash), `undefined` when unset or empty, and
+ * throws on anything else, so the server never starts with a value it would
+ * silently ignore. The error never repeats the value: it may hold a secret.
+ */
+export function normalizePublicUrl(raw: string | undefined): string | undefined {
+  const value = raw?.trim();
+  if (!value) return undefined;
+  const invalid = (why: string) =>
+    new Error(`Invalid AGENT_FS_PUBLIC_URL (server.publicUrl): ${why}. Example: https://files.example.com or https://example.com/agent-fs`);
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw invalid("not an absolute URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw invalid("use http or https");
+  if (!url.hostname) throw invalid("no host");
+  if (url.username || url.password) throw invalid("no credentials allowed");
+  if (/[?#]/.test(value)) throw invalid("no query or fragment allowed");
+  const path = url.pathname.replace(/\/+$/, "");
+  if (path.includes("//")) throw invalid("no empty path segments (//) allowed");
+  return `${url.origin}${path}`;
+}
+
 const HOST_RE = /^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+)(:\d{1,5})?$/;
 
 /**

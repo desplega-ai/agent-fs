@@ -35,6 +35,11 @@ export interface ShareCreateResult {
   kind?: "file" | "site"
   /** Absolute when the server knows its public address, otherwise the same as `sharePath`. */
   url: string
+  /**
+   * `configured` (url built on AGENT_FS_PUBLIC_URL) or `request` (from the
+   * request's Host). Absent on older servers. Unchecked: validate before use.
+   */
+  urlSource?: unknown
   /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
   sharePath: string
   path: string

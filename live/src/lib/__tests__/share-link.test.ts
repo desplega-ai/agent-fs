@@ -8,7 +8,7 @@ mock.module("../../stores/toast", () => ({
   },
 }))
 
-const { copyShareLink, describeExpiry, isUnknownOpError, resolveShareUrl, supportsShareLinks } = await import("../share-link")
+const { copyShareLink, describeExpiry, InvalidShareResponseError, isUnknownOpError, resolveShareUrl, supportsShareLinks } = await import("../share-link")
 
 const result = {
   id: "s1",
@@ -41,6 +41,43 @@ describe("resolveShareUrl", () => {
     expect(resolveShareUrl("https://agent-fs-acme.fly.dev", result)).toBe("https://agent-fs-acme.fly.dev/share/tok")
     expect(resolveShareUrl("https://agent-fs-acme.fly.dev/", result)).toBe("https://agent-fs-acme.fly.dev/share/tok")
     expect(resolveShareUrl("https://proxy.example/agent-fs", result)).toBe("https://proxy.example/agent-fs/share/tok")
+  })
+
+  test("follows urlSource: the configured url as returned, the endpoint for request, legacy when absent", () => {
+    const configured = { ...result, url: "https://files.example.com/fs/site/tok/", sharePath: "/site/tok/", urlSource: "configured" }
+    expect(resolveShareUrl("https://docs.internal", configured)).toBe("https://files.example.com/fs/site/tok/")
+    expect(resolveShareUrl("https://docs.internal", { ...result, url: "https://files.example.com/share/tok", urlSource: "configured" })).toBe("https://files.example.com/share/tok")
+    expect(resolveShareUrl("https://docs.internal/", { ...result, sharePath: "/site/tok/", urlSource: "request" })).toBe("https://docs.internal/site/tok/")
+    expect(resolveShareUrl("https://docs.internal", { ...result, urlSource: undefined })).toBe("https://docs.internal/share/tok")
+  })
+
+  test("refuses anything malformed instead of falling back", () => {
+    const bad = [
+      ...[false, null, "", 42, "nope", {}].map((urlSource) => ({ ...result, urlSource })),
+      ...["not a url", "ftp://x/share/tok", "/share/tok", "https://user:pw@x/share/tok", 42].map((url) => ({ ...result, url, urlSource: "configured" })),
+      ...["share/tok", "/../wrong", "/share/tok#f", "/share/tok?x", "/site/tok", "//share/tok", "/share/a/b", "/share/../site/x/", 7]
+        .map((sharePath) => ({ ...result, sharePath, urlSource: "request" })),
+      ...[
+        "https:files.example.com/share/tok", // parses, but not as written
+        " https://files.example.com/share/tok",
+        "https://files.example.com/share/tok ",
+        "https://files.example.com/share/tok?x=1",
+        "https://files.example.com/share/tok#f",
+        "https://files.example.com/x/../share/tok",
+        "https://files.example.com//share/tok",
+        "https://files.example.com/site/tok", // a site without its slash
+        "https://files.example.com/other/tok",
+        "https://files.example.com/share/other", // not the response's sharePath
+      ].map((url) => ({ ...result, url, urlSource: "configured" })),
+      // A configured url without a sharePath, so it could not be matched.
+      { ...result, url: "https://files.example.com/share/tok", sharePath: undefined, urlSource: "configured" },
+      // Older servers (no urlSource) are validated too: a bad route, or a bad url when there is no route.
+      ...["/../wrong", "/share/tok?x", "/site/tok", 7].map((sharePath) => ({ ...result, sharePath })),
+      ...["not a url", "https://y/x", "https://y/share/z?x", 42].map((url) => ({ ...result, url, sharePath: undefined })),
+      // A configured url whose sharePath is not a share route, so a suffix match could pick another token.
+      ...["tok", "/tok", "share/othertok", 7].map((sharePath) => ({ ...result, url: "https://files.example.com/share/othertok", sharePath, urlSource: "configured" })),
+    ]
+    for (const r of bad) expect(() => resolveShareUrl("https://docs.internal", r as any), JSON.stringify(r)).toThrow(InvalidShareResponseError)
   })
 
   test("falls back to the server's url when there is no sharePath", () => {
@@ -84,6 +121,32 @@ describe("copyShareLink", () => {
     const shown = toasts.at(-1)!
     expect(shown.message).toBe("Share link copied")
     expect(shown.description).toContain("24 hours")
+  })
+
+  test("with ClipboardItem, a malformed response rejects the clipboard data and reports no success", async () => {
+    const items: any[] = []
+    Object.defineProperty(globalThis, "navigator", {
+      value: { clipboard: { write: async (list: any[]) => void items.push(...list) } },
+      configurable: true,
+    })
+    ;(globalThis as any).ClipboardItem = class {
+      constructor(public data: Record<string, Promise<Blob>>) {}
+    }
+    const before = toasts.length
+    // An older server (no urlSource) whose sharePath is not a share route: copied as-is before.
+    const client = { endpoint: "https://docs.internal", createShare: async () => ({ ...result, sharePath: "/../wrong" }) } as any
+    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBeNull()
+    expect(items).toHaveLength(1) // started inside the click, as Safari needs
+    await expect(items[0].data["text/plain"]).rejects.toThrow()
+    expect(toasts.slice(before).map((t) => t.kind)).toEqual(["error"])
+  })
+
+  test("a malformed response copies nothing and reports it", async () => {
+    const written = stubClipboard()
+    const client = { endpoint: "https://docs.internal", createShare: async () => ({ ...result, urlSource: false }) } as any
+    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBeNull()
+    expect(written).toEqual([])
+    expect(toasts.at(-1)).toMatchObject({ kind: "error", message: "Couldn't create a share link", description: "The server returned an invalid link." })
   })
 
   test("a folder copies the site link from sharePath", async () => {

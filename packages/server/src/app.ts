@@ -9,7 +9,7 @@ import type { AppEnv } from "./types.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { handleError } from "./middleware/error.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
-import { resolveApiUrl } from "./public-url.js";
+import { normalizePublicUrl, resolveApiUrl } from "./public-url.js";
 import { requestLogMiddleware } from "./middleware/request-log.js";
 import { authRoutes } from "./routes/auth.js";
 import { opsRoutes } from "./routes/ops.js";
@@ -26,6 +26,8 @@ import { SERVER_FEATURES } from "./features.js";
 export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null) {
   const app = new Hono<AppEnv>();
   const config = getConfig();
+  // Validated once, so share links and their `urlSource` come from one snapshot.
+  const publicUrl = normalizePublicUrl(config.server?.publicUrl);
   const presence = new PresenceRegistry({ getDisplayName: (userId) => getProfile(db, userId).displayName });
 
   const maxUploadBytes = config.server.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
@@ -107,7 +109,8 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
       s3,
       embeddingProvider,
       appUrl: config.appUrl,
-      apiUrl: resolveApiUrl(c, config.server?.publicUrl),
+      apiUrl: resolveApiUrl(c, publicUrl),
+      apiUrlSource: publicUrl ? "configured" : "request",
     });
     await mcpServer.connect(transport);
 
@@ -125,7 +128,7 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   app.route("/auth", authRoutes(db));
   app.route("/orgs", orgRoutes(db, config.appUrl));
   app.route("/invites", inviteRoutes(db));
-  app.route("/orgs", opsRoutes(db, s3, embeddingProvider, config.appUrl, config.server?.publicUrl));
+  app.route("/orgs", opsRoutes(db, s3, embeddingProvider, config.appUrl, publicUrl));
   app.route("/docs", docsRoutes());
   app.route("/orgs", fileRoutes(db, s3, embeddingProvider, config.appUrl));
   app.route("/orgs", eventRoutes(db, undefined, presence));

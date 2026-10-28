@@ -327,7 +327,9 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
     const rpm = parseInt(env.AGENT_FS_SITE_RATE_LIMIT, 10);
     if (Number.isFinite(rpm) && rpm >= 0) config.server.siteRateLimit = { requestsPerMinute: rpm };
   }
-  if (env.AGENT_FS_PUBLIC_URL) config.server.publicUrl = env.AGENT_FS_PUBLIC_URL;
+  // Passed through as is, invalid or not: the server validates it at startup.
+  // An empty or whitespace-only variable leaves the config file's value.
+  if (env.AGENT_FS_PUBLIC_URL?.trim()) config.server.publicUrl = env.AGENT_FS_PUBLIC_URL;
 
   // App URL override
   if (env.AGENT_FS_APP_URL) config.appUrl = env.AGENT_FS_APP_URL;

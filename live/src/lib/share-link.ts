@@ -1,6 +1,9 @@
 import type { AgentFsClient, ShareCreateResult } from "@/api/client"
 import { toast } from "@/stores/toast"
 import type { HealthResponse } from "./upload-limit"
+import { InvalidShareResponseError, resolveShareUrl } from "./share-url"
+
+export { InvalidShareResponseError, resolveShareUrl }
 
 export const SHARE_LINKS_FEATURE = "share-links"
 
@@ -22,15 +25,6 @@ export const DEFAULT_SHARE_EXPIRY_SECONDS = 86_400
  */
 export function supportsShareLinks(health?: HealthResponse): boolean {
   return health?.features?.includes(SHARE_LINKS_FEATURE) === true
-}
-
-/**
- * The link the user copies. Built from the endpoint this app already talks to,
- * not from the server's own idea of its address, so it stays right behind a
- * proxy that rewrites `Host`. Falls back to the server's `url`.
- */
-export function resolveShareUrl(endpoint: string, result: Pick<ShareCreateResult, "url" | "sharePath">): string {
-  return result.sharePath ? `${endpoint.replace(/\/+$/, "")}${result.sharePath}` : result.url
 }
 
 export function describeExpiry(seconds: number): string {
@@ -59,9 +53,11 @@ async function mintAndCopy(
   path: string,
   expiresIn?: number,
 ): Promise<ShareCreateResult & { link: string }> {
+  // The endpoint this request goes to, fixed before it is sent.
+  const endpoint = client.endpoint
   const request = client
     .createShare(orgId, driveId, path, expiresIn === undefined ? undefined : { expiresIn })
-    .then((result) => ({ ...result, link: resolveShareUrl(client.endpoint, result) }))
+    .then((result) => ({ ...result, link: resolveShareUrl(endpoint, result) }))
 
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
     const item = new ClipboardItem({
@@ -96,7 +92,9 @@ export async function copyShareLink(
     })
     return result.link
   } catch (err) {
-    if (isUnknownOpError(err)) {
+    if (err instanceof InvalidShareResponseError) {
+      toast.error("Couldn't create a share link", { description: "The server returned an invalid link." })
+    } else if (isUnknownOpError(err)) {
       toast.error("This server doesn't support share links yet")
     } else {
       toast.error("Couldn't create a share link", {
