@@ -69,6 +69,11 @@ describe("resolveShareUrl", () => {
         "https://files.example.com/other/tok",
         "https://files.example.com/share/other", // not the response's sharePath
       ].map((url) => ({ ...result, url, urlSource: "configured" })),
+      // A configured url without a sharePath, so it could not be matched.
+      { ...result, url: "https://files.example.com/share/tok", sharePath: undefined, urlSource: "configured" },
+      // Older servers (no urlSource) are validated too: a bad route, or a bad url when there is no route.
+      ...["/../wrong", "/share/tok?x", "/site/tok", 7].map((sharePath) => ({ ...result, sharePath })),
+      ...["not a url", "https://y/x", "https://y/share/z?x", 42].map((url) => ({ ...result, url, sharePath: undefined })),
       // A configured url whose sharePath is not a share route, so a suffix match could pick another token.
       ...["tok", "/tok", "share/othertok", 7].map((sharePath) => ({ ...result, url: "https://files.example.com/share/othertok", sharePath, urlSource: "configured" })),
     ]
@@ -116,6 +121,23 @@ describe("copyShareLink", () => {
     const shown = toasts.at(-1)!
     expect(shown.message).toBe("Share link copied")
     expect(shown.description).toContain("24 hours")
+  })
+
+  test("with ClipboardItem, a malformed response rejects the clipboard data and reports no success", async () => {
+    const items: any[] = []
+    Object.defineProperty(globalThis, "navigator", {
+      value: { clipboard: { write: async (list: any[]) => void items.push(...list) } },
+      configurable: true,
+    })
+    ;(globalThis as any).ClipboardItem = class {
+      constructor(public data: Record<string, Promise<Blob>>) {}
+    }
+    const before = toasts.length
+    const client = { endpoint: "https://docs.internal", createShare: async () => ({ ...result, urlSource: "configured", url: "https:docs.internal/share/tok" }) } as any
+    expect(await copyShareLink(client, "org", "drive", "/a.md")).toBeNull()
+    expect(items).toHaveLength(1) // started inside the click, as Safari needs
+    await expect(items[0].data["text/plain"]).rejects.toThrow()
+    expect(toasts.slice(before).map((t) => t.kind)).toEqual(["error"])
   })
 
   test("a malformed response copies nothing and reports it", async () => {

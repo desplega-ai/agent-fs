@@ -1,6 +1,9 @@
 import type { AgentFsClient, ShareCreateResult } from "@/api/client"
 import { toast } from "@/stores/toast"
 import type { HealthResponse } from "./upload-limit"
+import { InvalidShareResponseError, resolveShareUrl } from "./share-url"
+
+export { InvalidShareResponseError, resolveShareUrl }
 
 export const SHARE_LINKS_FEATURE = "share-links"
 
@@ -22,57 +25,6 @@ export const DEFAULT_SHARE_EXPIRY_SECONDS = 86_400
  */
 export function supportsShareLinks(health?: HealthResponse): boolean {
   return health?.features?.includes(SHARE_LINKS_FEATURE) === true
-}
-
-/** share-create returned something no link can be built from: nothing is copied. */
-export class InvalidShareResponseError extends Error {}
-
-// The routes the server mints: `/share/<token>` for a file, `/site/<token>/`
-// for a folder (the slash is part of it: the site's relative paths need it).
-// Tokens are base64url.
-const SHARE_PATH = /^\/(?:share\/[A-Za-z0-9_-]+|site\/[A-Za-z0-9_-]+\/)$/
-const SHARE_PATH_SUFFIX = /\/(?:share\/[A-Za-z0-9_-]+|site\/[A-Za-z0-9_-]+\/)$/
-
-/**
- * A configured link, parsed once: it must already be the canonical absolute
- * http(s) form of itself (no surrounding whitespace, credentials, query,
- * fragment, `..` or `//`), end in a share route, and end in `sharePath` when
- * the response has one. Returns the parsed URL's `href`.
- */
-function parseConfiguredLink(url: unknown, sharePath: unknown): string {
-  if (typeof url !== "string" || /[?#]/.test(url)) throw new InvalidShareResponseError()
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    throw new InvalidShareResponseError()
-  }
-  const ok = (parsed.protocol === "http:" || parsed.protocol === "https:") && !!parsed.hostname &&
-    !parsed.username && !parsed.password && parsed.href === url && !parsed.pathname.includes("//") &&
-    SHARE_PATH_SUFFIX.test(parsed.pathname) &&
-    (sharePath === undefined || (typeof sharePath === "string" && SHARE_PATH.test(sharePath) && parsed.pathname.endsWith(sharePath)))
-  if (!ok) throw new InvalidShareResponseError()
-  return parsed.href
-}
-
-/**
- * The link the user copies. When the server built `url` on its configured
- * public address (`urlSource: "configured"`), that `url`, checked: the API
- * may be reachable here only on a private address. Otherwise from the endpoint
- * this app talks to and the share route, not the server's own idea of its
- * address, so it stays right behind a proxy that rewrites `Host`. Older
- * servers send no `urlSource` and get that endpoint behaviour, so a private
- * endpoint still gives a private link there. Anything malformed is refused,
- * never replaced.
- */
-export function resolveShareUrl(endpoint: string, result: Pick<ShareCreateResult, "url" | "sharePath" | "urlSource">): string {
-  if (result.urlSource === "configured") return parseConfiguredLink(result.url, result.sharePath)
-  if (result.urlSource === "request") {
-    if (typeof result.sharePath !== "string" || !SHARE_PATH.test(result.sharePath)) throw new InvalidShareResponseError()
-    return `${endpoint.replace(/\/+$/, "")}${result.sharePath}`
-  }
-  if (result.urlSource !== undefined) throw new InvalidShareResponseError()
-  return result.sharePath ? `${endpoint.replace(/\/+$/, "")}${result.sharePath}` : result.url
 }
 
 export function describeExpiry(seconds: number): string {

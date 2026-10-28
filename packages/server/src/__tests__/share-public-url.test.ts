@@ -32,8 +32,24 @@ describe("AGENT_FS_PUBLIC_URL", () => {
     expect(normalizePublicUrl("  ")).toBeUndefined();
   });
 
+  test("the error never repeats the value, which may hold a secret", () => {
+    for (const bad of ["https://user:s3cret@x.example", "https://x.example/?token=s3cret", "ftp://s3cret.example"]) {
+      expect(() => normalizePublicUrl(bad)).toThrow(/Invalid AGENT_FS_PUBLIC_URL/);
+      try {
+        normalizePublicUrl(bad);
+      } catch (err) {
+        expect(String((err as Error).message)).not.toContain("s3cret");
+      }
+    }
+  });
+
+  test("a path prefix is kept in the canonical form the web app accepts", () => {
+    expect(normalizePublicUrl("https://example.com/a/./b/")).toBe("https://example.com/a/b");
+    expect(normalizePublicUrl("https://Example.COM/a b")).toBe("https://example.com/a%20b");
+  });
+
   test("anything else is refused, and the server does not start", () => {
-    for (const bad of ["ftp://files.example.com", "files.example.com", "https://x.example?tenant=a", "https://x.example/#home", "https://user:pw@x.example", "https://"]) {
+    for (const bad of ["ftp://files.example.com", "files.example.com", "https://x.example?tenant=a", "https://x.example/#home", "https://user:pw@x.example", "https://", "https://example.com/a//b", "https://example.com//a"]) {
       expect(() => normalizePublicUrl(bad), bad).toThrow(/Invalid AGENT_FS_PUBLIC_URL/);
     }
     process.env.AGENT_FS_PUBLIC_URL = "https://x.example?tenant=a";
