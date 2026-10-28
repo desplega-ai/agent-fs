@@ -362,7 +362,7 @@ jobs:
 
           ## Downstream: agent-swarm
 
-          agent-swarm pins this version in Helm (`charts/agent-swarm/values.yaml`, `agentFs.image.tag`) and npm (`@desplega.ai/agent-fs` and `@desplega.ai/agent-fs-just-bash`). Its CI chart-version check fails on every main push until the pin bump merges.
+          agent-swarm pins this version in Helm (`charts/agent-swarm/values.yaml`, `agentFs.image.tag`) and npm (`@desplega.ai/agent-fs` and `@desplega.ai/agent-fs-just-bash`). Its chart-version check fails on main pushes matching the Docker Build + Publish + Deploy or Helm Chart path filters until the pin bump merges, blocking image deploys when the Docker workflow runs.
 
           The bump PR opens automatically as `chore(deps): bump agent-fs pins to __RELEASE_VERSION__`: [find the bump PR](https://github.com/desplega-ai/agent-swarm/pulls?q=is%3Apr+%22bump+agent-fs+pins+to+__RELEASE_VERSION__%22).
           NOTES
