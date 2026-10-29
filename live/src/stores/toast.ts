@@ -10,16 +10,24 @@ import { useSyncExternalStore } from "react"
  */
 export type ToastVariant = "default" | "success" | "error"
 
+/** A button inside the toast; clicking it runs `onClick` and dismisses the toast. */
+export interface ToastAction {
+  label: string
+  onClick: () => void
+}
+
 export interface ToastItem {
   id: number
   message: string
   description?: string
   variant: ToastVariant
+  action?: ToastAction
 }
 
 export interface ToastOptions {
   description?: string
   variant?: ToastVariant
+  action?: ToastAction
   /** ms before auto-dismiss; 0 to keep until dismissed. */
   duration?: number
 }
@@ -47,6 +55,7 @@ class ToastStore {
       message,
       description: opts?.description,
       variant: opts?.variant ?? "default",
+      action: opts?.action,
     }]
     // Cap the stack so a burst of actions can't fill the screen.
     if (this.items.length > 4) this.items = this.items.slice(-4)

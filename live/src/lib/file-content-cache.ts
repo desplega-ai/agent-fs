@@ -131,6 +131,28 @@ export function evictToBudget(
   }
 }
 
+/** Downloads a file's current text through a newly minted signed URL. */
+export async function downloadFileText(
+  client: AgentFsClient,
+  orgId: string,
+  driveId: string,
+  path: string,
+  signal?: AbortSignal,
+): Promise<DownloadedText> {
+  const result = await client.getSignedUrl(orgId, driveId, path)
+  // `no-store`: read the object as it is now, not a browser-cached copy of an earlier one.
+  // An `app` link (backend without presigned URLs) is the viewer page, not the bytes.
+  const res =
+    result.kind === "app"
+      ? await client.fetchRawResponse(orgId, driveId, path, { signal, cache: "no-store" })
+      : await fetch(result.url, { signal, cache: "no-store" })
+  if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`)
+  // The identity of these bytes is the ETag of this very response. Storage
+  // must expose it to the page (CORS `Access-Control-Expose-Headers: ETag`);
+  // without it the body is shown but re-downloaded on the next open.
+  return { text: await res.text(), etag: res.headers.get("etag") }
+}
+
 /**
  * Query options for a file's text. Each run first fetches a fresh `stat` (one
  * small request, shared with the viewer's own stat query), then either hands
@@ -156,20 +178,9 @@ export function fileContentQueryOptions(
         queryFn: () => fetchFileStat(client, orgId, driveId, path),
         staleTime: 0,
       })
-      const entry = await loadFileContent(queryClient.getQueryData<CachedFileContent>(queryKey), stat, async () => {
-        const result = await client.getSignedUrl(orgId, driveId, path)
-        // `no-store`: read the object as it is now, not a browser-cached copy of an earlier one.
-        // An `app` link (backend without presigned URLs) is the viewer page, not the bytes.
-        const res =
-          result.kind === "app"
-            ? await client.fetchRawResponse(orgId, driveId, path, { signal, cache: "no-store" })
-            : await fetch(result.url, { signal, cache: "no-store" })
-        if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`)
-        // The identity of these bytes is the ETag of this very response. Storage
-        // must expose it to the page (CORS `Access-Control-Expose-Headers: ETag`);
-        // without it the body is shown but re-downloaded on the next open.
-        return { text: await res.text(), etag: res.headers.get("etag") }
-      })
+      const entry = await loadFileContent(queryClient.getQueryData<CachedFileContent>(queryKey), stat, () =>
+        downloadFileText(client, orgId, driveId, path, signal),
+      )
       evictToBudget(queryClient, queryKey, entry.content.length)
       return entry
     },

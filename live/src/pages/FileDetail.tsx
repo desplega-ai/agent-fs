@@ -1,7 +1,8 @@
 import { useParams, useNavigate, useLocation } from "react-router"
 import { useCallback, useRef, useEffect, useState } from "react"
-import { Copy, Link as LinkIcon, Download, Check, Database, History } from "lucide-react"
+import { Link as LinkIcon, Download, Check, Database, History } from "lucide-react"
 import { FileViewer } from "@/components/viewers/FileViewer"
+import { CopyButton } from "@/components/viewers/CopyButton"
 import { VersionHistory } from "@/components/VersionHistory"
 import { UserName } from "@/components/UserName"
 import { MainWithComments } from "@/components/layout/MainWithComments"
@@ -38,7 +39,8 @@ export function FileDetailPage() {
 
   const filePath = params["*"] ?? ""
   const { data: stat } = useFileStat(filePath || null)
-  const { copyPath, copyLink, download, copiedPath, copiedLink, canShare, canShareLink } = useFileActions(filePath)
+  const fileActions = useFileActions(filePath)
+  const { copyLink, download, copiedLink, canShare, canShareLink } = fileActions
 
   // Tab title reflects the open file (single-sourced via the shared hook).
   useDocumentTitle(filePath ? (filePath.split("/").pop() ?? filePath) : null)
@@ -122,22 +124,7 @@ export function FileDetailPage() {
               />
               <TooltipContent>Version history <Kbd className="ml-1">H</Kbd></TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={copyPath}
-                    className="text-muted-foreground"
-                    aria-label="Copy path"
-                  >
-                    {copiedPath ? <Check /> : <Copy />}
-                  </Button>
-                }
-              />
-              <TooltipContent>Copy path <Kbd className="ml-1">Y</Kbd></TooltipContent>
-            </Tooltip>
+            <CopyButton path={filePath} actions={fileActions} />
             {canShare && (
               <Tooltip>
                 <TooltipTrigger
