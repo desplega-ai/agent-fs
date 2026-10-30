@@ -1354,6 +1354,24 @@ async function runStandardTests(daemonUrl: string) {
     assert(names.includes("hello-moved.txt"), true, "hello-moved.txt should exist after mv");
   });
 
+  await test("write --expected-version 0 recreates a moved or removed path", () => {
+    runJson("write /recreate/a.txt --content one --expected-version 0");
+    runJson("mv /recreate/a.txt /recreate/b.txt");
+    const recreated = runJson("write /recreate/a.txt --content two --expected-version 0");
+    assert(recreated.version, 3);
+    runJson("rm /recreate/a.txt");
+    const again = runJson("write /recreate/a.txt --content three --expected-version 0");
+    assert(again.version, 5);
+    assert(runJson("cat /recreate/a.txt").content, "three");
+    let conflicted = false;
+    try {
+      run("write /recreate/a.txt --content four --expected-version 0");
+    } catch {
+      conflicted = true;
+    }
+    assert(conflicted, true, "--expected-version 0 should still conflict with a live file");
+  });
+
   // -- log --
 
   await test("log (version history)", () => {
