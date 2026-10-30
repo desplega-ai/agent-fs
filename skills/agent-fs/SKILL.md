@@ -119,6 +119,8 @@ symlinks are unsupported and throw `EPERM`.
    ```bash
    agent-fs write config.json --content '{}' --expected-version 3
    # Fails if file is not at version 3
+   agent-fs write config.json --content '{}' --expected-version 0
+   # Create only: fails if a file is at the path (a moved or deleted one doesn't count)
    ```
 
 ## Command Quick Reference

@@ -326,6 +326,66 @@ describe("expectedVersion across mutating ops", () => {
     });
     expect((okAgain as any).revertedTo).toBe(1);
   });
+
+  test("expectedVersion: 0 recreates a path whose file was moved away", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/ev-re-a.txt", content: "one", expectedVersion: 0 });
+    await dispatchOp(ctx, "mv", { from: "/ev-re-a.txt", to: "/ev-re-b.txt" });
+
+    // Head of /ev-re-a.txt is the v2 delete tombstone: the file does not exist.
+    const created = await dispatchOp(ctx, "write", {
+      path: "/ev-re-a.txt",
+      content: "two",
+      expectedVersion: 0,
+    });
+    expect((created as any).version).toBe(3);
+    expect(((await dispatchOp(ctx, "cat", { path: "/ev-re-a.txt" })) as any).content).toBe("two");
+
+    // History is kept; the new file continues the numbering.
+    const log = await dispatchOp(ctx, "log", { path: "/ev-re-a.txt" });
+    expect(((log as any).versions as any[]).map((v) => v.version).sort()).toEqual([1, 2, 3]);
+
+    // A live file at the path still conflicts.
+    await expect(
+      dispatchOp(ctx, "write", { path: "/ev-re-a.txt", content: "three", expectedVersion: 0 })
+    ).rejects.toThrow("Expected version 0 but file is at version 3");
+  });
+
+  test("expectedVersion: 0 recreates a path whose file was removed", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/ev-re-rm.txt", content: "one" });
+    await dispatchOp(ctx, "rm", { path: "/ev-re-rm.txt", expectedVersion: 1 });
+
+    const created = await dispatchOp(ctx, "write", {
+      path: "/ev-re-rm.txt",
+      content: "two",
+      expectedVersion: 0,
+    });
+    expect((created as any).version).toBe(3);
+
+    // cp checks its destination the same way.
+    await dispatchOp(ctx, "rm", { path: "/ev-re-rm.txt" });
+    await dispatchOp(ctx, "write", { path: "/ev-re-src.txt", content: "copy" });
+    const copied = await dispatchOp(ctx, "cp", {
+      from: "/ev-re-src.txt",
+      to: "/ev-re-rm.txt",
+      expectedVersion: 0,
+    });
+    expect((copied as any).version).toBe(5);
+  });
+
+  test("the tombstone's own version still matches a deleted path", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/ev-re-tomb.txt", content: "one" });
+    await dispatchOp(ctx, "rm", { path: "/ev-re-tomb.txt" });
+
+    const created = await dispatchOp(ctx, "write", {
+      path: "/ev-re-tomb.txt",
+      content: "two",
+      expectedVersion: 2,
+    });
+    expect((created as any).version).toBe(3);
+  });
 });
 
 describe("ls operation", () => {

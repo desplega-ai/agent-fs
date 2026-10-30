@@ -88,17 +88,36 @@ export function getHeadVersionRow(
  * Returns the current head version (next - 1). If `expectedVersion` is
  * passed and doesn't match the current head, throws `EditConflictError`.
  *
- * `expectedVersion: 0` means "the file must not exist yet" (head version
- * is treated as 0 for non-existent files since `MAX(version)` is NULL).
+ * `expectedVersion: 0` means "the file must not exist": no versions yet,
+ * or the head is a delete tombstone (after `rm` or `mv`). A deleted path
+ * also still matches its tombstone's version, so history-aware callers
+ * keep working.
  */
 export async function assertExpectedVersion(
   ctx: OpContext,
   path: string,
   expectedVersion: number | undefined
 ): Promise<number> {
-  const nextVersion = await getNextVersion(ctx, path);
-  const currentVersion = nextVersion - 1;
-  if (expectedVersion !== undefined && currentVersion !== expectedVersion) {
+  const head = ctx.db
+    .select({
+      version: schema.fileVersions.version,
+      operation: schema.fileVersions.operation,
+    })
+    .from(schema.fileVersions)
+    .where(
+      and(
+        eq(schema.fileVersions.path, path),
+        eq(schema.fileVersions.driveId, ctx.driveId)
+      )
+    )
+    .orderBy(desc(schema.fileVersions.version))
+    .limit(1)
+    .get();
+  const currentVersion = head?.version ?? 0;
+  const matches =
+    expectedVersion === currentVersion ||
+    (expectedVersion === 0 && head?.operation === "delete");
+  if (expectedVersion !== undefined && !matches) {
     throw new EditConflictError(
       `Expected version ${expectedVersion} but file is at version ${currentVersion}`,
       {
