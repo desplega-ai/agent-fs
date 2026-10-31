@@ -256,6 +256,9 @@ describe("drive stream cleanup without sockets", () => {
       });
       const stream = frames(response);
       expect(await stream.next()).toStartWith("event: ready\n");
+      // Revoking the drive's only admin is refused, so a second admin goes first.
+      const { user: other } = core.createUser(fixture.db, { email: "other-admin@example.com" });
+      core.setDriveMember(fixture.db, { driveId: fixture.driveId, userId: other.id, role: "admin" });
       core.removeDriveMember(fixture.db, { driveId: fixture.driveId, userId: fixture.userId });
       expect((await stream.reader.read()).done).toBe(true);
       await waitForCleanup(subscriptions.listeners);

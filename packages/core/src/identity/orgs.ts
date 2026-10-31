@@ -2,7 +2,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { NotFoundError, ValidationError } from "../errors.js";
-import { createDrive } from "./drives.js";
+import { assertNotLastDriveAdmin, createDrive } from "./drives.js";
 import { grantDriveRole, grantOrgRole } from "./grants.js";
 import { assertDriveInOrg, getUserDriveRole, getUserOrgRole } from "./rbac.js";
 import { createPendingInvite, revokeOpenInviteForEmail } from "./invites.js";
@@ -198,6 +198,12 @@ export function removeOrgMember(
     .from(schema.drives)
     .where(eq(schema.drives.orgId, params.orgId))
     .all();
+
+  // Guard: the cascade must not strip a drive of its only admin. Check every
+  // drive before the first delete so a refusal leaves no partial removal.
+  for (const drive of orgDrives) {
+    assertNotLastDriveAdmin(db, { driveId: drive.id, userId: params.userId, action: "remove" });
+  }
 
   for (const drive of orgDrives) {
     db.delete(schema.driveMembers)

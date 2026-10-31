@@ -1,6 +1,7 @@
 import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
+import { ValidationError } from "../errors.js";
 import { getUserOrgRole } from "./rbac.js";
 import type { Role } from "./rbac.js";
 
@@ -160,6 +161,34 @@ export function listDriveMembersPublic(
     .all();
 }
 
+/**
+ * Throw when `userId` is the only admin of the drive. A drive keeps at least
+ * one explicit admin: demoting or removing the last one is refused so the drive
+ * is never left without someone who can manage it.
+ */
+export function assertNotLastDriveAdmin(
+  db: DB,
+  params: { driveId: string; userId: string; action: "demote" | "remove" }
+): void {
+  const admins = db
+    .select({ userId: schema.driveMembers.userId })
+    .from(schema.driveMembers)
+    .where(
+      and(
+        eq(schema.driveMembers.driveId, params.driveId),
+        eq(schema.driveMembers.role, "admin")
+      )
+    )
+    .all();
+
+  if (admins.length === 1 && admins[0].userId === params.userId) {
+    throw new ValidationError(
+      `Cannot ${params.action} the only admin of the drive`,
+      { suggestion: "Make another member an admin of the drive first" }
+    );
+  }
+}
+
 export function updateDriveMemberRole(
   db: DB,
   params: { driveId: string; userId: string; role: "viewer" | "editor" | "admin" }
@@ -177,6 +206,10 @@ export function updateDriveMemberRole(
 
   if (!existing) {
     throw new Error("Member not found in drive");
+  }
+
+  if (existing.role === "admin" && params.role !== "admin") {
+    assertNotLastDriveAdmin(db, { ...params, action: "demote" });
   }
 
   db.update(schema.driveMembers)
@@ -207,6 +240,10 @@ export function removeDriveMember(
 
   if (!existing) {
     throw new Error("Member not found in drive");
+  }
+
+  if (existing.role === "admin") {
+    assertNotLastDriveAdmin(db, { ...params, action: "remove" });
   }
 
   db.delete(schema.driveMembers)

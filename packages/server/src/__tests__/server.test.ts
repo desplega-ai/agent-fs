@@ -626,7 +626,11 @@ describe("Multi-tenant RBAC", () => {
     const ownerDrives = await manageable(ownerKey);
     expect(ownerDrives.map((d: any) => d.id)).toEqual(expect.arrayContaining([workId, ledgerId, tenantDriveId]));
 
-    await keyReq(ownerKey, `/orgs/${tenantOrgId}/drives/${workId}/members/${ownerUserId}`, { method: "DELETE" });
+    // The owner is the only admin of "work": leaving is refused until another admin exists.
+    const leavePath = `/orgs/${tenantOrgId}/drives/${workId}/members/${ownerUserId}`;
+    expect((await keyReq(ownerKey, leavePath, { method: "DELETE" })).status).toBe(400);
+    expect((await post(ownerKey, addPath, { userId: invitee.userId, role: "admin" })).status).toBe(200);
+    expect((await keyReq(ownerKey, leavePath, { method: "DELETE" })).status).toBe(200);
     const afterLeave = (await manageable(ownerKey)).find((d: any) => d.id === workId);
     expect(afterLeave.myRole).toBeNull();
   });
@@ -805,6 +809,106 @@ describe("Pending invite routes", () => {
     expect(revoked.status).toBe(404);
     expect(unknown.status).toBe(404);
     expect(await revoked.text()).toBe(await unknown.text());
+  });
+});
+
+// --- Last drive admin guard ---
+
+describe("Last drive admin guard", () => {
+  function keyReq(key: string, path: string, opts?: RequestInit) {
+    const headers = new Headers(opts?.headers);
+    headers.set("Authorization", `Bearer ${key}`);
+    if (opts?.body) headers.set("Content-Type", "application/json");
+    return app.request(path, { ...opts, headers });
+  }
+  const post = (key: string, path: string, body: unknown) =>
+    keyReq(key, path, { method: "POST", body: JSON.stringify(body) });
+  const patch = (key: string, path: string, body: unknown) =>
+    keyReq(key, path, { method: "PATCH", body: JSON.stringify(body) });
+
+  async function register(email: string) {
+    const res = await jsonPost("/auth/register", { email });
+    expect(res.status).toBe(200);
+    return res.json() as Promise<{ apiKey: string; userId: string; orgId: string }>;
+  }
+
+  async function setup(tag: string) {
+    const admin = await register(`lda-${tag}-admin@example.com`);
+    const other = await register(`lda-${tag}-other@example.com`);
+    const orgId = (await (await post(admin.apiKey, "/orgs", { name: `lda-${tag}` })).json()).id;
+    const driveId = (await (await post(admin.apiKey, `/orgs/${orgId}/drives`, { name: "docs" })).json()).id;
+    await post(admin.apiKey, `/orgs/${orgId}/members/invite`, {
+      email: `lda-${tag}-other@example.com`,
+      role: "editor",
+      drives: [{ driveId, role: "editor" }],
+    });
+    const members = async () =>
+      (await (await keyReq(admin.apiKey, `/orgs/${orgId}/drives/${driveId}/members`)).json()).members as Array<{
+        userId: string;
+        role: string;
+      }>;
+    return { admin, other, orgId, driveId, path: `/orgs/${orgId}/drives/${driveId}/members`, members };
+  }
+
+  test("the only admin of a drive cannot be demoted", async () => {
+    const t = await setup("demote");
+    const res = await patch(t.admin.apiKey, `${t.path}/${t.admin.userId}`, { role: "viewer" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toContain("only admin");
+    expect((await t.members()).find((m) => m.userId === t.admin.userId)?.role).toBe("admin");
+
+    // Demoting someone else who is not an admin is unaffected.
+    expect((await patch(t.admin.apiKey, `${t.path}/${t.other.userId}`, { role: "viewer" })).status).toBe(200);
+    // Keeping the admin role is a no-op, not a demotion.
+    expect((await patch(t.admin.apiKey, `${t.path}/${t.admin.userId}`, { role: "admin" })).status).toBe(200);
+  });
+
+  test("the only admin of a drive cannot be removed", async () => {
+    const t = await setup("remove");
+    const res = await keyReq(t.admin.apiKey, `${t.path}/${t.admin.userId}`, { method: "DELETE" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toContain("only admin");
+    expect((await t.members()).some((m) => m.userId === t.admin.userId)).toBe(true);
+  });
+
+  test("an admin can be demoted or removed once another admin exists", async () => {
+    const t = await setup("two");
+    expect((await patch(t.admin.apiKey, `${t.path}/${t.other.userId}`, { role: "admin" })).status).toBe(200);
+    expect((await patch(t.admin.apiKey, `${t.path}/${t.admin.userId}`, { role: "viewer" })).status).toBe(200);
+    // `other` is now the only admin again.
+    expect((await keyReq(t.other.apiKey, `${t.path}/${t.other.userId}`, { method: "DELETE" })).status).toBe(400);
+    expect((await patch(t.other.apiKey, `${t.path}/${t.other.userId}`, { role: "editor" })).status).toBe(400);
+  });
+
+  test("removing an org member cannot strip a drive of its only admin", async () => {
+    const t = await setup("org");
+    // `other` creates a drive and is its only admin while holding the editor org role.
+    const created = await post(t.other.apiKey, `/orgs/${t.orgId}/drives`, { name: "other-docs" });
+    expect(created.status).toBe(403);
+    // Make `other` an org admin to create the drive, then demote them to editor.
+    expect((await patch(t.admin.apiKey, `/orgs/${t.orgId}/members/${t.other.userId}`, { role: "admin" })).status).toBe(200);
+    const driveId = (await (await post(t.other.apiKey, `/orgs/${t.orgId}/drives`, { name: "other-docs" })).json()).id;
+    expect((await patch(t.admin.apiKey, `/orgs/${t.orgId}/members/${t.other.userId}`, { role: "editor" })).status).toBe(200);
+
+    const res = await keyReq(t.admin.apiKey, `/orgs/${t.orgId}/members/${t.other.userId}`, { method: "DELETE" });
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toContain("only admin");
+    const orgMembers = (await (await keyReq(t.admin.apiKey, `/orgs/${t.orgId}/members`)).json()).members;
+    expect(orgMembers.some((m: any) => m.userId === t.other.userId)).toBe(true);
+    const driveMembers = (
+      await (await keyReq(t.admin.apiKey, `/orgs/${t.orgId}/drives/${driveId}/members`)).json()
+    ).members;
+    expect(driveMembers.find((m: any) => m.userId === t.other.userId)?.role).toBe("admin");
+
+    // With a second admin on that drive, the removal goes through.
+    expect(
+      (await post(t.admin.apiKey, `/orgs/${t.orgId}/drives/${driveId}/members`, {
+        userId: t.admin.userId, role: "admin",
+      })).status
+    ).toBeLessThan(300);
+    expect(
+      (await keyReq(t.admin.apiKey, `/orgs/${t.orgId}/members/${t.other.userId}`, { method: "DELETE" })).status
+    ).toBe(200);
   });
 });
 

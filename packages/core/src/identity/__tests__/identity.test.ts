@@ -11,7 +11,7 @@ import {
   resetApiKey,
   resetApiKeyOrgless,
 } from "../users.js";
-import { createOrg, listUserOrgs, getOrg, inviteToOrg, addDriveMember } from "../orgs.js";
+import { createOrg, listUserOrgs, getOrg, inviteToOrg, addDriveMember, removeOrgMember } from "../orgs.js";
 import {
   createDrive,
   listDrives,
@@ -19,6 +19,8 @@ import {
   listManageableDrives,
   getDrive,
   setDriveMember,
+  updateDriveMemberRole,
+  removeDriveMember,
 } from "../drives.js";
 import {
   checkPermission,
@@ -896,5 +898,58 @@ describe("drive-aware invites", () => {
     expect(listManageableDrives(db, t.orgId, t.peerId)).toEqual([
       { id: t.workId, name: "work", isDefault: false, myRole: "admin" },
     ]);
+  });
+});
+
+describe("last drive admin guard", () => {
+  function setup(tag: string) {
+    const ownerId = createUser(db, { email: `${tag}-owner@example.com` }).user.id;
+    const org = createOrg(db, { name: `${tag}-org`, userId: ownerId });
+    const drive = createDrive(db, { orgId: org.id, name: "work", creatorUserId: ownerId });
+    const peerId = createUser(db, { email: `${tag}-peer@example.com` }).user.id;
+    return { ownerId, peerId, orgId: org.id, driveId: drive.id };
+  }
+
+  test("demoting the only admin is refused and keeps the role", () => {
+    const t = setup("lda-demote");
+    expect(() => updateDriveMemberRole(db, { driveId: t.driveId, userId: t.ownerId, role: "editor" })).toThrow(
+      ValidationError
+    );
+    expect(getUserDriveRole(db, t.ownerId, t.driveId)).toBe("admin");
+    // Re-saving the admin role is not a demotion.
+    updateDriveMemberRole(db, { driveId: t.driveId, userId: t.ownerId, role: "admin" });
+  });
+
+  test("removing the only admin is refused and keeps the membership", () => {
+    const t = setup("lda-remove");
+    expect(() => removeDriveMember(db, { driveId: t.driveId, userId: t.ownerId })).toThrow(ValidationError);
+    expect(getUserDriveRole(db, t.ownerId, t.driveId)).toBe("admin");
+  });
+
+  test("a second admin lifts the guard", () => {
+    const t = setup("lda-two");
+    setDriveMember(db, { driveId: t.driveId, userId: t.peerId, role: "admin" });
+    updateDriveMemberRole(db, { driveId: t.driveId, userId: t.ownerId, role: "viewer" });
+    expect(getUserDriveRole(db, t.ownerId, t.driveId)).toBe("viewer");
+    expect(() => removeDriveMember(db, { driveId: t.driveId, userId: t.peerId })).toThrow(ValidationError);
+    removeDriveMember(db, { driveId: t.driveId, userId: t.ownerId });
+    expect(getUserDriveRole(db, t.ownerId, t.driveId)).toBeNull();
+  });
+
+  test("removing an org member is refused while they are the only admin of a drive, and writes nothing", () => {
+    const t = setup("lda-cascade");
+    // Peer is an org editor who solely administers a second drive, and a viewer on the first.
+    inviteToOrg(db, { orgId: t.orgId, email: "lda-cascade-peer@example.com", role: "editor", drives: [] });
+    const own = createDrive(db, { orgId: t.orgId, name: "peer-own", creatorUserId: t.peerId });
+    setDriveMember(db, { driveId: t.driveId, userId: t.peerId, role: "viewer" });
+
+    expect(() => removeOrgMember(db, { orgId: t.orgId, userId: t.peerId })).toThrow(ValidationError);
+    expect(getUserOrgRole(db, t.peerId, t.orgId)).toBe("editor");
+    expect(getUserDriveRole(db, t.peerId, t.driveId)).toBe("viewer");
+    expect(getUserDriveRole(db, t.peerId, own.id)).toBe("admin");
+
+    setDriveMember(db, { driveId: own.id, userId: t.ownerId, role: "admin" });
+    removeOrgMember(db, { orgId: t.orgId, userId: t.peerId });
+    expect(getUserOrgRole(db, t.peerId, t.orgId)).toBeNull();
   });
 });
