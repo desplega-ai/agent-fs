@@ -943,7 +943,16 @@ describe("last drive admin guard", () => {
     const own = createDrive(db, { orgId: t.orgId, name: "peer-own", creatorUserId: t.peerId });
     setDriveMember(db, { driveId: t.driveId, userId: t.peerId, role: "viewer" });
 
-    expect(() => removeOrgMember(db, { orgId: t.orgId, userId: t.peerId })).toThrow(ValidationError);
+    let message = "";
+    try {
+      removeOrgMember(db, { orgId: t.orgId, userId: t.peerId });
+    } catch (err) {
+      expect(err).toBeInstanceOf(ValidationError);
+      message = (err as Error).message;
+    }
+    // The refusal names the blocking drive (name and id), not the drive they only view.
+    expect(message).toContain(`"peer-own" (${own.id})`);
+    expect(message).not.toContain(t.driveId);
     expect(getUserOrgRole(db, t.peerId, t.orgId)).toBe("editor");
     expect(getUserDriveRole(db, t.peerId, t.driveId)).toBe("viewer");
     expect(getUserDriveRole(db, t.peerId, own.id)).toBe("admin");
@@ -951,5 +960,129 @@ describe("last drive admin guard", () => {
     setDriveMember(db, { driveId: own.id, userId: t.ownerId, role: "admin" });
     removeOrgMember(db, { orgId: t.orgId, userId: t.peerId });
     expect(getUserOrgRole(db, t.peerId, t.orgId)).toBeNull();
+  });
+
+  test("the org-member refusal names every drive that blocks it", () => {
+    const t = setup("lda-multi");
+    inviteToOrg(db, { orgId: t.orgId, email: "lda-multi-peer@example.com", role: "editor", drives: [] });
+    const a = createDrive(db, { orgId: t.orgId, name: "alpha", creatorUserId: t.peerId });
+    const b = createDrive(db, { orgId: t.orgId, name: "beta", creatorUserId: t.peerId });
+    const shared = createDrive(db, { orgId: t.orgId, name: "shared", creatorUserId: t.peerId });
+    setDriveMember(db, { driveId: shared.id, userId: t.ownerId, role: "admin" });
+
+    let message = "";
+    try {
+      removeOrgMember(db, { orgId: t.orgId, userId: t.peerId });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain(`"alpha" (${a.id})`);
+    expect(message).toContain(`"beta" (${b.id})`);
+    expect(message).not.toContain(shared.id);
+    expect(getUserDriveRole(db, t.peerId, a.id)).toBe("admin");
+    expect(getUserDriveRole(db, t.peerId, b.id)).toBe("admin");
+    expect(getUserDriveRole(db, t.peerId, shared.id)).toBe("admin");
+  });
+
+  test("the single-drive refusal names the drive", () => {
+    const t = setup("lda-name");
+    expect(() => removeDriveMember(db, { driveId: t.driveId, userId: t.ownerId })).toThrow(
+      `"work" (${t.driveId})`
+    );
+  });
+
+  // Two connections to one file stand in for two processes. A deferred
+  // transaction would let both read "two admins" and then both demote; the
+  // write lock taken before the count makes the second one wait and re-read.
+  describe("across connections to the same database file", () => {
+    const FILE = join(tmpdir(), `agent-fs-lda-race-${Date.now()}.db`);
+    let a: DB;
+    let b: DB;
+
+    beforeAll(() => {
+      a = createDatabase(FILE);
+      b = createDatabase(FILE);
+    });
+    afterAll(() => {
+      for (const ext of ["", "-wal", "-shm"]) {
+        try {
+          unlinkSync(FILE + ext);
+        } catch {}
+      }
+    });
+
+    function twoAdmins(tag: string) {
+      const x = createUser(a, { email: `${tag}-x@example.com` }).user.id;
+      const y = createUser(a, { email: `${tag}-y@example.com` }).user.id;
+      const org = createOrg(a, { name: `${tag}-org`, userId: x });
+      const drive = createDrive(a, { orgId: org.id, name: "work", creatorUserId: x });
+      setDriveMember(a, { driveId: drive.id, userId: y, role: "admin" });
+      return { x, y, driveId: drive.id };
+    }
+
+    test("a second process waits for the write lock, re-reads the count, and is refused", async () => {
+      const t = twoAdmins("race-lock");
+      const drivesModule = join(import.meta.dir, "..", "drives.ts");
+      const dbModule = join(import.meta.dir, "..", "..", "db", "index.ts");
+      const child = Bun.spawn(
+        [
+          "bun",
+          "-e",
+          `import { createDatabase } from ${JSON.stringify(dbModule)};
+           import { updateDriveMemberRole } from ${JSON.stringify(drivesModule)};
+           const db = createDatabase(${JSON.stringify(FILE)});
+           console.log("READY");
+           for await (const _ of console) break; // wait for the parent's go-ahead
+           try {
+             updateDriveMemberRole(db, { driveId: ${JSON.stringify(t.driveId)}, userId: ${JSON.stringify(t.x)}, role: "viewer" });
+             console.log("RESULT ok");
+           } catch (e) { console.log("RESULT " + e.constructor.name + ": " + e.message); }`,
+        ],
+        { stdin: "pipe", stdout: "pipe", stderr: "pipe" }
+      );
+      const reader = child.stdout.getReader();
+      const decoder = new TextDecoder();
+      let out = "";
+      while (!out.includes("READY")) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        out += decoder.decode(value);
+      }
+      // Process A is mid-demotion: it holds the write lock, between its count and its write.
+      a.$client.exec("BEGIN IMMEDIATE");
+      try {
+        // Release the child; its demotion must block on the lock rather than read a stale count.
+        child.stdin.write("go\n");
+        child.stdin.flush();
+        await new Promise((r) => setTimeout(r, 500));
+        a.$client.exec(
+          `UPDATE drive_members SET role = 'viewer' WHERE drive_id = '${t.driveId}' AND user_id = '${t.y}'`
+        );
+        a.$client.exec("COMMIT");
+      } catch (err) {
+        a.$client.exec("ROLLBACK");
+        throw err;
+      }
+      child.stdin.end();
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        out += decoder.decode(value);
+      }
+      await child.exited;
+      // The child re-read one admin (itself) under the lock and refused; it did not fail on a stale snapshot.
+      expect(out).toContain("RESULT ValidationError");
+      expect(getUserDriveRole(a, t.x, t.driveId)).toBe("admin");
+    });
+
+    test("sequential cross-demotions from two connections leave one admin", () => {
+      const t = twoAdmins("race-cross");
+      updateDriveMemberRole(a, { driveId: t.driveId, userId: t.y, role: "viewer" });
+      // B saw two admins before A committed; its transaction re-reads under the lock.
+      expect(() => updateDriveMemberRole(b, { driveId: t.driveId, userId: t.x, role: "viewer" })).toThrow(
+        ValidationError
+      );
+      expect(getUserDriveRole(a, t.x, t.driveId)).toBe("admin");
+    });
   });
 });

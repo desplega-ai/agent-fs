@@ -161,29 +161,69 @@ export function listDriveMembersPublic(
     .all();
 }
 
+/** A drizzle transaction handle: the same query builder as {@link DB}. */
+export type DbTx = Parameters<Parameters<DB["transaction"]>[0]>[0];
+
+/**
+ * Run `fn` in a write transaction that takes SQLite's write lock up front
+ * (`BEGIN IMMEDIATE`). The last-admin checks read before they write, so a plain
+ * deferred transaction would let a second connection (another process on the
+ * same database file) read the same admin count and then both demote.
+ */
+export function withWriteLock<T>(db: DB | DbTx, fn: (tx: DbTx) => T): T {
+  return (db as DB).transaction((tx) => fn(tx), { behavior: "immediate" });
+}
+
+/**
+ * Of `driveIds`, the drives where `userId` is the only admin. A drive keeps at
+ * least one explicit admin, so these are the drives the member cannot leave.
+ */
+export function findSoleAdminDrives(
+  db: DB | DbTx,
+  params: { userId: string; driveIds: string[] }
+): Array<{ id: string; name: string }> {
+  const blocking: Array<{ id: string; name: string }> = [];
+  for (const driveId of params.driveIds) {
+    const admins = db
+      .select({ userId: schema.driveMembers.userId })
+      .from(schema.driveMembers)
+      .where(
+        and(
+          eq(schema.driveMembers.driveId, driveId),
+          eq(schema.driveMembers.role, "admin")
+        )
+      )
+      .all();
+    if (admins.length === 1 && admins[0].userId === params.userId) {
+      const drive = db
+        .select({ name: schema.drives.name })
+        .from(schema.drives)
+        .where(eq(schema.drives.id, driveId))
+        .get();
+      blocking.push({ id: driveId, name: drive?.name ?? driveId });
+    }
+  }
+  return blocking;
+}
+
+/** "work" (drv_1), "docs" (drv_2): names are not unique across orgs, so the id rides along. */
+export function describeDrives(drives: Array<{ id: string; name: string }>): string {
+  return drives.map((d) => `"${d.name}" (${d.id})`).join(", ");
+}
+
 /**
  * Throw when `userId` is the only admin of the drive. A drive keeps at least
  * one explicit admin: demoting or removing the last one is refused so the drive
  * is never left without someone who can manage it.
  */
 export function assertNotLastDriveAdmin(
-  db: DB,
+  db: DB | DbTx,
   params: { driveId: string; userId: string; action: "demote" | "remove" }
 ): void {
-  const admins = db
-    .select({ userId: schema.driveMembers.userId })
-    .from(schema.driveMembers)
-    .where(
-      and(
-        eq(schema.driveMembers.driveId, params.driveId),
-        eq(schema.driveMembers.role, "admin")
-      )
-    )
-    .all();
-
-  if (admins.length === 1 && admins[0].userId === params.userId) {
+  const blocking = findSoleAdminDrives(db, { userId: params.userId, driveIds: [params.driveId] });
+  if (blocking.length > 0) {
     throw new ValidationError(
-      `Cannot ${params.action} the only admin of the drive`,
+      `Cannot ${params.action} the only admin of drive ${describeDrives(blocking)}`,
       { suggestion: "Make another member an admin of the drive first" }
     );
   }
@@ -193,67 +233,71 @@ export function updateDriveMemberRole(
   db: DB,
   params: { driveId: string; userId: string; role: "viewer" | "editor" | "admin" }
 ): void {
-  const existing = db
-    .select({ role: schema.driveMembers.role })
-    .from(schema.driveMembers)
-    .where(
-      and(
-        eq(schema.driveMembers.driveId, params.driveId),
-        eq(schema.driveMembers.userId, params.userId)
+  withWriteLock(db, (tx) => {
+    const existing = tx
+      .select({ role: schema.driveMembers.role })
+      .from(schema.driveMembers)
+      .where(
+        and(
+          eq(schema.driveMembers.driveId, params.driveId),
+          eq(schema.driveMembers.userId, params.userId)
+        )
       )
-    )
-    .get();
+      .get();
 
-  if (!existing) {
-    throw new Error("Member not found in drive");
-  }
+    if (!existing) {
+      throw new Error("Member not found in drive");
+    }
 
-  if (existing.role === "admin" && params.role !== "admin") {
-    assertNotLastDriveAdmin(db, { ...params, action: "demote" });
-  }
+    if (existing.role === "admin" && params.role !== "admin") {
+      assertNotLastDriveAdmin(tx, { ...params, action: "demote" });
+    }
 
-  db.update(schema.driveMembers)
-    .set({ role: params.role })
-    .where(
-      and(
-        eq(schema.driveMembers.driveId, params.driveId),
-        eq(schema.driveMembers.userId, params.userId)
+    tx.update(schema.driveMembers)
+      .set({ role: params.role })
+      .where(
+        and(
+          eq(schema.driveMembers.driveId, params.driveId),
+          eq(schema.driveMembers.userId, params.userId)
+        )
       )
-    )
-    .run();
+      .run();
+  });
 }
 
 export function removeDriveMember(
   db: DB,
   params: { driveId: string; userId: string }
 ): void {
-  const existing = db
-    .select({ role: schema.driveMembers.role })
-    .from(schema.driveMembers)
-    .where(
-      and(
-        eq(schema.driveMembers.driveId, params.driveId),
-        eq(schema.driveMembers.userId, params.userId)
+  withWriteLock(db, (tx) => {
+    const existing = tx
+      .select({ role: schema.driveMembers.role })
+      .from(schema.driveMembers)
+      .where(
+        and(
+          eq(schema.driveMembers.driveId, params.driveId),
+          eq(schema.driveMembers.userId, params.userId)
+        )
       )
-    )
-    .get();
+      .get();
 
-  if (!existing) {
-    throw new Error("Member not found in drive");
-  }
+    if (!existing) {
+      throw new Error("Member not found in drive");
+    }
 
-  if (existing.role === "admin") {
-    assertNotLastDriveAdmin(db, { ...params, action: "remove" });
-  }
+    if (existing.role === "admin") {
+      assertNotLastDriveAdmin(tx, { ...params, action: "remove" });
+    }
 
-  db.delete(schema.driveMembers)
-    .where(
-      and(
-        eq(schema.driveMembers.driveId, params.driveId),
-        eq(schema.driveMembers.userId, params.userId)
+    tx.delete(schema.driveMembers)
+      .where(
+        and(
+          eq(schema.driveMembers.driveId, params.driveId),
+          eq(schema.driveMembers.userId, params.userId)
+        )
       )
-    )
-    .run();
+      .run();
+  });
 }
 
 export function setDriveMember(

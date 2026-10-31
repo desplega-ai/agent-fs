@@ -2,7 +2,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { NotFoundError, ValidationError } from "../errors.js";
-import { assertNotLastDriveAdmin, createDrive } from "./drives.js";
+import { createDrive, describeDrives, findSoleAdminDrives, withWriteLock } from "./drives.js";
 import { grantDriveRole, grantOrgRole } from "./grants.js";
 import { assertDriveInOrg, getUserDriveRole, getUserOrgRole } from "./rbac.js";
 import { createPendingInvite, revokeOpenInviteForEmail } from "./invites.js";
@@ -148,83 +148,93 @@ export function removeOrgMember(
   db: DB,
   params: { orgId: string; userId: string }
 ): void {
-  // Guard: cannot remove from personal org
-  const org = db
-    .select({ isPersonal: schema.orgs.isPersonal })
-    .from(schema.orgs)
-    .where(eq(schema.orgs.id, params.orgId))
-    .get();
+  withWriteLock(db, (tx) => {
+    // Guard: cannot remove from personal org
+    const org = tx
+      .select({ isPersonal: schema.orgs.isPersonal })
+      .from(schema.orgs)
+      .where(eq(schema.orgs.id, params.orgId))
+      .get();
 
-  if (org?.isPersonal) {
-    throw new Error("Cannot remove members from a personal org");
-  }
+    if (org?.isPersonal) {
+      throw new Error("Cannot remove members from a personal org");
+    }
 
-  // Guard: cannot remove last admin
-  const member = db
-    .select({ role: schema.orgMembers.role })
-    .from(schema.orgMembers)
-    .where(
-      and(
-        eq(schema.orgMembers.orgId, params.orgId),
-        eq(schema.orgMembers.userId, params.userId)
-      )
-    )
-    .get();
-
-  if (!member) {
-    throw new Error("Member not found in org");
-  }
-
-  if (member.role === "admin") {
-    const adminCount = db
-      .select({ count: sql<number>`count(*)` })
+    // Guard: cannot remove last admin
+    const member = tx
+      .select({ role: schema.orgMembers.role })
       .from(schema.orgMembers)
       .where(
         and(
           eq(schema.orgMembers.orgId, params.orgId),
-          eq(schema.orgMembers.role, "admin")
+          eq(schema.orgMembers.userId, params.userId)
         )
       )
-      .get()!.count;
+      .get();
 
-    if (adminCount <= 1) {
-      throw new Error("Cannot remove the last admin from the org");
+    if (!member) {
+      throw new Error("Member not found in org");
     }
-  }
 
-  // Remove from all drives in this org
-  const orgDrives = db
-    .select({ id: schema.drives.id })
-    .from(schema.drives)
-    .where(eq(schema.drives.orgId, params.orgId))
-    .all();
+    if (member.role === "admin") {
+      const adminCount = tx
+        .select({ count: sql<number>`count(*)` })
+        .from(schema.orgMembers)
+        .where(
+          and(
+            eq(schema.orgMembers.orgId, params.orgId),
+            eq(schema.orgMembers.role, "admin")
+          )
+        )
+        .get()!.count;
 
-  // Guard: the cascade must not strip a drive of its only admin. Check every
-  // drive before the first delete so a refusal leaves no partial removal.
-  for (const drive of orgDrives) {
-    assertNotLastDriveAdmin(db, { driveId: drive.id, userId: params.userId, action: "remove" });
-  }
+      if (adminCount <= 1) {
+        throw new Error("Cannot remove the last admin from the org");
+      }
+    }
 
-  for (const drive of orgDrives) {
-    db.delete(schema.driveMembers)
+    // Remove from all drives in this org
+    const orgDrives = tx
+      .select({ id: schema.drives.id })
+      .from(schema.drives)
+      .where(eq(schema.drives.orgId, params.orgId))
+      .all();
+
+    // Guard: the cascade must not strip a drive of its only admin. Check every
+    // drive before the first delete so a refusal leaves no partial removal, and
+    // name every drive that blocks it so one retry is enough.
+    const blocking = findSoleAdminDrives(tx, {
+      userId: params.userId,
+      driveIds: orgDrives.map((d) => d.id),
+    });
+    if (blocking.length > 0) {
+      throw new ValidationError(
+        `Cannot remove this member: they are the only admin of ${blocking.length === 1 ? "drive" : "drives"} ${describeDrives(blocking)}`,
+        { suggestion: "Make another member an admin of each of these drives first" }
+      );
+    }
+
+    for (const drive of orgDrives) {
+      tx.delete(schema.driveMembers)
+        .where(
+          and(
+            eq(schema.driveMembers.driveId, drive.id),
+            eq(schema.driveMembers.userId, params.userId)
+          )
+        )
+        .run();
+    }
+
+    // Remove from org
+    tx.delete(schema.orgMembers)
       .where(
         and(
-          eq(schema.driveMembers.driveId, drive.id),
-          eq(schema.driveMembers.userId, params.userId)
+          eq(schema.orgMembers.orgId, params.orgId),
+          eq(schema.orgMembers.userId, params.userId)
         )
       )
       .run();
-  }
-
-  // Remove from org
-  db.delete(schema.orgMembers)
-    .where(
-      and(
-        eq(schema.orgMembers.orgId, params.orgId),
-        eq(schema.orgMembers.userId, params.userId)
-      )
-    )
-    .run();
+  });
 }
 
 export type MemberRole = "viewer" | "editor" | "admin";
