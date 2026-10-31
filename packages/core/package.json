@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs-core",
-  "version": "0.18.13",
+  "version": "0.18.14",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
