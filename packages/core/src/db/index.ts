@@ -35,6 +35,9 @@ export function createDatabase(dbPath?: string): ReturnType<typeof drizzle> {
   // Enable WAL mode for concurrent reads during async embedding writes
   sqlite.exec("PRAGMA journal_mode=WAL;");
   sqlite.exec("PRAGMA foreign_keys=ON;");
+  // A second connection to the same file (another process) that hits the write
+  // lock waits for it instead of failing at once with "database is locked".
+  sqlite.exec("PRAGMA busy_timeout=5000;");
 
   // Create all tables (idempotent)
   sqlite.exec(CREATE_TABLES_SQL);

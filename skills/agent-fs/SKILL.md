@@ -294,8 +294,8 @@ Stars follow files: `mv` moves every user's star on the file to the new path, `r
 | `member invites` | `agent-fs member invites` | List pending invites (id, email, drives, expiry; org admin only) |
 | `member invite-revoke` | `agent-fs member invite-revoke <id>` | Revoke a pending invite so its link stops working (org admin only) |
 | `member add` | `agent-fs --drive <id-or-name> member add <email> --role <role>` | Give an existing org member access to a drive. Raise-only: a role they already hold is never lowered, and the command prints the role they end up with. To lower it, use `member update-role --drive <id>` |
-| `member update-role` | `agent-fs member update-role <email> --role <role>` | Update org role (use `--drive <id>` for drive role) |
-| `member remove` | `agent-fs member remove <email>` | Remove from org (use `--drive <id>` for drive only) |
+| `member update-role` | `agent-fs member update-role <email> --role <role>` | Update org role (use `--drive <id>` for drive role). The only admin of an org or a drive cannot be demoted: make someone else admin first |
+| `member remove` | `agent-fs member remove <email>` | Remove from org (use `--drive <id>` for drive only). The only admin of an org or a drive cannot be removed, and removing an org member is refused while they are the only admin of any of its drives |
 | `member reset-key` | `agent-fs member reset-key <email>` | Reset a member's API key (org admin only). The old key stops working immediately. |
 | `invite accept` | `agent-fs invite accept <link-or-token>` | Accept an org invite as the signed-in account (its email must match the invite: an exact match, or the only account whose email differs just in letter case) |
 
