@@ -19,6 +19,7 @@ code scrolling, table-row comment controls, and wrapping of long raw preview lin
 `presence.spec.ts` mocks the drive event stream (`/events?presence=1`) to cover the
 presence avatars, the See cursors / See selections toggles, comment-card presence,
 and the absence of presence requests on servers without the `presence` feature.
+`viewer-header.spec.ts` checks that the file header's status badge and comment count never overlap the action icons at 390x844 and 360x740, and that the 1280 px header keeps the badge.
 Screenshots are written to `test-results/`.
 `invite.spec.ts` runs against an in-memory org (`tests/support/invite-fixture.ts`) served to several
 browser contexts at once. It covers the Invite dialog,

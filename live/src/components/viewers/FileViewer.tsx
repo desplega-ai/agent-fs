@@ -745,14 +745,17 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
   const filename = path.split("/").pop() ?? path
 
   return (
-    <div className="flex h-10 items-center justify-between border-b border-border px-4 shrink-0">
-      <div className="flex items-center gap-2 min-w-0">
+    <div data-viewer-header className="flex h-10 items-center justify-between border-b border-border px-4 shrink-0">
+      {/* The action group never shrinks, so on a phone this side has room for little more than the
+          filename (already in the breadcrumb). The badge and count appear from `sm` up; `overflow-hidden`
+          keeps anything that still does not fit from painting over the actions. */}
+      <div className="flex items-center gap-2 min-w-0 overflow-hidden">
         <span className="text-sm font-medium truncate">{filename}</span>
         {stat?.embeddingStatus && (
-          <span className="text-xs text-muted-foreground shrink-0">Embedding: {stat.embeddingStatus}</span>
+          <span className="hidden sm:inline text-xs text-muted-foreground shrink-0">Embedding: {stat.embeddingStatus}</span>
         )}
         {commentCount > 0 && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+          <span className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
             <MessageSquare className="size-3" />
             {commentCount}
           </span>
