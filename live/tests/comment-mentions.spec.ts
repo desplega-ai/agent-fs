@@ -165,10 +165,14 @@ test("servers without comment-mentions get no picker", async ({ page }) => {
 test("mention names take priority over long emails and UUID identities", async ({ page }) => {
   const longEmail = "marcel+local-agent-with-a-long-address@example.test"
   const uuid = "26228419-b707-4a8c-af4c-69a123456789"
+  const recoveryEmail = `${uuid}+recovery-26228419-b707-4a8c-af4c-69a987654321@swarm.local`
+  const humanUuidEmail = `marcel+${uuid}@example.test`
   const longName = "Very long member name that exceeds the entire available picker row"
   await installFixture(page, ["comment-mentions"], [
     { userId: "human", email: longEmail, displayName: "Marcel (local)" },
     { userId: "agent", email: `${uuid}@swarm.local`, displayName: "Mobile Agent" },
+    { userId: "recovery", email: recoveryEmail, displayName: "Recovery Agent" },
+    { userId: "human-uuid", email: humanUuidEmail, displayName: "UUID-addressed human" },
     { userId: "bare", email: uuid, displayName: "Notes Agent" },
     { userId: "long", email: "long@example.test", displayName: longName },
   ])
@@ -179,10 +183,12 @@ test("mention names take priority over long emails and UUID identities", async (
   await list.evaluate(el => { el.style.width = "280px" })
   expect(await human.getByText("Marcel (local)", { exact: true }).evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   await expect(human).toHaveAttribute("title", longEmail)
-  for (const name of ["Mobile Agent", "Notes Agent"]) {
+  await expect(human.getByText(longEmail, { exact: true })).toBeVisible()
+  await expect(list.getByRole("option", { name: /UUID-addressed human/ }).getByText(humanUuidEmail, { exact: true })).toBeVisible()
+  for (const [name, email] of [["Mobile Agent", `${uuid}@swarm.local`], ["Notes Agent", uuid], ["Recovery Agent", recoveryEmail]]) {
     const agent = list.getByRole("option", { name, exact: true })
     await expect(agent).toBeVisible()
-    await expect(agent).toHaveAttribute("title", name === "Mobile Agent" ? `${uuid}@swarm.local` : uuid)
+    await expect(agent).toHaveAttribute("title", email)
     await expect(agent).not.toContainText(uuid)
   }
   for (const width of [280, 160]) {
@@ -199,4 +205,8 @@ test("mention names take priority over long emails and UUID identities", async (
   await expect(list.getByRole("option", { selected: true })).toHaveAccessibleName("Mobile Agent")
   await box.press("Enter")
   await expect(box).toHaveValue("@Mobile Agent ")
+  await box.fill("")
+  await box.pressSequentially("@Recovery")
+  await box.press("Enter")
+  await expect(box).toHaveValue("@Recovery Agent ")
 })
