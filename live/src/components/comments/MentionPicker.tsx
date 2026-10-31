@@ -123,8 +123,8 @@ export function useMentionPicker({
       >
         {candidates.map((member, index) => {
           const label = mentionLabel(member)
-          // Agent identities can use a UUID as the email local part (or the whole value).
-          const uuidEmail = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:@|$)/i.test(member.email)
+          // Agent identities can use a UUID as the email local part, optionally plus-addressed (or the whole value).
+          const uuidEmail = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\+[^@]+)?(?:@|$)/i.test(member.email)
           return (
             <li
               key={member.userId}
