@@ -1354,6 +1354,22 @@ async function runStandardTests(daemonUrl: string) {
     assert(names.includes("hello-moved.txt"), true, "hello-moved.txt should exist after mv");
   });
 
+  await test("mv keeps operand order when one is token-shaped and starts with '-'", () => {
+    // Only invite and share-revoke rewrite dash-led tokens. A 43-char dash-led
+    // operand of mv must stay an unknown option, never be moved behind "--"
+    // (which used to run mv report.md <token> and delete report.md).
+    runJson("write /dash-mv/report.md --content keep");
+    let failed = false;
+    try {
+      run(`mv -${"A".repeat(42)} /dash-mv/report.md`);
+    } catch (e: any) {
+      failed = true;
+      assertIncludes(`${e.stderr ?? ""}${e.message}`, "unknown option");
+    }
+    assert(failed, true, "mv with a dash-led operand should fail");
+    assert(runJson("cat /dash-mv/report.md").content, "keep");
+  });
+
   await test("write --expected-version 0 recreates a moved or removed path", () => {
     runJson("write /recreate/a.txt --content one --expected-version 0");
     runJson("mv /recreate/a.txt /recreate/b.txt");

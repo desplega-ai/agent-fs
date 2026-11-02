@@ -9,9 +9,8 @@ const HELP_LIKE = "-hSC3ZFdCnOK_q0aXk2W8sY1vJm4tR7uPbN9eLhGcIo";
 const DOUBLE_DASH = "--SC3ZFdCnOK_q0aXk2W8sY1vJm4tR7uPbN9eLhGcIo";
 const PLAIN = "aDSC3ZFdCnOK_q0aXk2W8sY1vJm4tR7uPbN9eLhGcIo";
 
-/** A program shaped like the real CLI: a version flag, global options, and the token-taking commands. */
-function parse(args: string[]): Record<string, any> {
-  const seen: Record<string, any> = {};
+/** A program shaped like the real CLI: a version flag, global options, the token-taking commands and a few others. */
+function buildProgram(seen: Record<string, any>): Command {
   const program = new Command()
     .exitOverride()
     .version("1.2.3")
@@ -50,7 +49,54 @@ function parse(args: string[]): Record<string, any> {
     .action((mountpoint: string, opts: { remote?: boolean }) => {
       seen.mount = { mountpoint, remote: opts.remote };
     });
+  program
+    .command("mv")
+    .exitOverride()
+    .argument("<from>")
+    .argument("<to>")
+    .option("-m, --message <msg>")
+    .action((from: string, to: string, opts: { message?: string }) => {
+      seen.mv = { from, to, message: opts.message };
+    });
+  program
+    .command("cp")
+    .exitOverride()
+    .argument("<from>")
+    .argument("<to>")
+    .action((from: string, to: string) => {
+      seen.cp = { from, to };
+    });
+  program
+    .command("grep")
+    .exitOverride()
+    .argument("<pattern>")
+    .argument("<path>")
+    .action((pattern: string, path: string) => {
+      seen.grep = { pattern, path };
+    });
+  const config = new Command("config").exitOverride();
+  config
+    .command("set")
+    .exitOverride()
+    .argument("<key>")
+    .argument("<value>")
+    .action((key: string, value: string) => {
+      seen.configSet = { key, value };
+    });
+  program.addCommand(config);
+  program
+    .command("ack")
+    .exitOverride()
+    .argument("[ids...]")
+    .action((ids: string[]) => {
+      seen.ack = ids;
+    });
+  return program;
+}
 
+function parse(args: string[]): Record<string, any> {
+  const seen: Record<string, any> = {};
+  const program = buildProgram(seen);
   try {
     program.parse(shieldDashTokens(program, args), { from: "user" });
   } catch (err: any) {
@@ -85,7 +131,74 @@ describe("shieldDashTokens", () => {
   });
 
   test("a boolean flag before a dash token leaves the token positional", () => {
-    expect(parse(["mount", "--remote", DASH]).mount).toEqual({ mountpoint: DASH, remote: true });
+    expect(parse(["invite", "accept", "--json", DASH])).toMatchObject({ accept: DASH, opts: { json: true } });
+  });
+
+  test("invite accept keeps its operands in their original order", () => {
+    expect(shieldDashTokens(buildProgram({}), ["invite", "accept", DASH, "extra", "--json"])).toEqual([
+      "invite",
+      "accept",
+      "--json",
+      "--",
+      DASH,
+      "extra",
+    ]);
+    expect(shieldDashTokens(buildProgram({}), ["invite", "accept", "x", DASH, "--", "y"])).toEqual([
+      "invite",
+      "accept",
+      "--",
+      "x",
+      DASH,
+      "y",
+    ]);
+  });
+
+  test("commands that take no token keep their argv untouched", () => {
+    const program = buildProgram({});
+    const cases = [
+      ["mv", DASH, "report.md"],
+      ["mv", "-m", "msg", DASH, "report.md"],
+      ["mv", "report.md", DASH],
+      ["--json", "mv", DASH, "report.md", "--org", "o1"],
+      ["cp", DASH, "report.md"],
+      ["grep", DASH, "docs/"],
+      ["grep", "pattern", DASH],
+      ["config", "set", DASH, "value"],
+      ["config", "set", "key", DASH],
+      ["ack", "a", DASH, "b"],
+      ["mount", "--remote", DASH],
+      ["share-revoke", DASH],
+    ];
+    for (const args of cases) {
+      expect(shieldDashTokens(program, args)).toBe(args);
+    }
+  });
+
+  test("mv never swaps source and destination around a dash-led operand", () => {
+    // Moving the operand behind "--" used to dispatch mv(report.md, <token>),
+    // overwriting the destination and deleting report.md.
+    const result = parse(["mv", DASH, "report.md"]);
+    expect(result.mv).toBeUndefined();
+    expect(result.error).toBe("commander.unknownOption");
+    expect(parse(["cp", DASH, "report.md"]).cp).toBeUndefined();
+    expect(parse(["config", "set", DASH, "value"]).configSet).toBeUndefined();
+    expect(parse(["ack", "a", DASH, "b"]).ack).toBeUndefined();
+    expect(parse(["mv", "a.md", "b.md", "-m", "note"]).mv).toEqual({ from: "a.md", to: "b.md", message: "note" });
+  });
+
+  test("a dash token only joins a token flag", () => {
+    // share-revoke takes no token operand; --org is not a token flag.
+    expect(parse(["share-revoke", DASH]).error).toBe("commander.unknownOption");
+    expect(shieldDashTokens(buildProgram({}), ["share-revoke", "--org", DASH, "--token", DASH])).toEqual([
+      "share-revoke",
+      "--org",
+      DASH,
+      `--token=${DASH}`,
+    ]);
+    expect(parse(["--org", "o1", "share-revoke", "abc", "--token", DOUBLE_DASH])).toMatchObject({
+      revoke: { id: "abc", token: DOUBLE_DASH },
+      opts: { org: "o1" },
+    });
   });
 
   test("an existing '--' separator is kept", () => {
