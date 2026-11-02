@@ -22,12 +22,15 @@ export interface ToastItem {
   description?: string
   variant: ToastVariant
   action?: ToastAction
+  onClose?: () => void
 }
 
 export interface ToastOptions {
   description?: string
   variant?: ToastVariant
   action?: ToastAction
+  /** Runs when the user closes the toast with its X button (not on auto-dismiss). */
+  onClose?: () => void
   /** ms before auto-dismiss; 0 to keep until dismissed. */
   duration?: number
 }
@@ -56,6 +59,7 @@ class ToastStore {
       description: opts?.description,
       variant: opts?.variant ?? "default",
       action: opts?.action,
+      onClose: opts?.onClose,
     }]
     // Cap the stack so a burst of actions can't fill the screen.
     if (this.items.length > 4) this.items = this.items.slice(-4)

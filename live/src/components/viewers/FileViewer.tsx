@@ -12,6 +12,7 @@ import { useFileSave } from "@/hooks/use-file-save"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { uiChromeStore } from "@/stores/ui-chrome"
 import { sidePanelStore } from "@/stores/side-panel"
+import { recordWriteAction } from "@/stores/star-nudge"
 import { toast } from "@/stores/toast"
 import { Kbd } from "@/components/ui/kbd"
 import { ShareButton } from "@/components/ShareDialog"
@@ -261,6 +262,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     try {
       const result = await save(text, stat?.currentVersion)
       toast.success(`Saved (v${result.version})`)
+      recordWriteAction()
       setIsDirty(false)
       // Keep the cached text in step with the write so Cancel and the preview
       // show the saved content without a reload.

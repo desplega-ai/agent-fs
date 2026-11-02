@@ -53,7 +53,10 @@ export function Toaster() {
               </button>
             )}
             <button
-              onClick={() => toast.dismiss(t.id)}
+              onClick={() => {
+                t.onClose?.()
+                toast.dismiss(t.id)
+              }}
               className="-mr-1 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
               aria-label="Dismiss"
             >
