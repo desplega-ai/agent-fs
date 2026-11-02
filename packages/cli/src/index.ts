@@ -20,6 +20,7 @@ import { mountCommand, umountCommand } from "./commands/mount.js";
 import { downloadCommand } from "./commands/download.js";
 import { sqlCommand } from "./commands/sql.js";
 import { watchCommand } from "./commands/watch.js";
+import { shieldDashTokens } from "./lib/dash-tokens.js";
 
 const program = new Command();
 
@@ -156,4 +157,6 @@ for (const cmd of program.commands) {
   cmd.addHelpText("after", globalHelp);
 }
 
-program.parse();
+// A token starting with "-" (invite accept, share-revoke --token) must reach
+// its command as a value, not be parsed as an option.
+program.parse([...process.argv.slice(0, 2), ...shieldDashTokens(program, process.argv.slice(2))]);

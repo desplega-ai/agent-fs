@@ -2210,6 +2210,13 @@ async function runStandardTests(daemonUrl: string) {
     assert((await fetch(byUrl.url)).status, 410);
     // idempotent
     assert(runJson(`share-revoke ${byId.id}`).revoked, 0);
+    // A token starting with "-V" reaches the server instead of printing the version.
+    try {
+      run(`share-revoke --token -V${"A".repeat(41)}`);
+      throw new Error("Expected share-revoke of an unknown token to fail");
+    } catch (e: any) {
+      assertIncludes(`${e.stderr ?? ""}${e.message}`, "Share link not found");
+    }
   });
 
   await test("share-revoke --path revokes every link of a file", async () => {
@@ -3233,6 +3240,14 @@ async function runStandardTests(daemonUrl: string) {
     run("member invite expired@e2e.local --role viewer --to e2e-work:viewer");
     assert(runJson("member invites").length, 0, "Direct add revokes the open invite");
     run("member remove expired@e2e.local");
+  });
+
+  await test("invite accept takes a token that starts with '-'", () => {
+    // Base64url tokens start with "-" about 1 time in 64; commander used to
+    // read one as an option ("unknown option", or the version for "-V...").
+    for (const token of [`-${"A".repeat(42)}`, `-V${"A".repeat(41)}`]) {
+      expectCliError(() => run(`invite accept ${token}`), "Invite not found or no longer valid");
+    }
   });
 
   await test("member remove last admin fails", () => {
