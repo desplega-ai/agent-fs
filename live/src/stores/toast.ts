@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react"
+import { pushToast } from "@/lib/toast-stack"
 
 /**
  * Tiny toast store — a singleton so `toast(...)` can be called from anywhere
@@ -23,6 +24,7 @@ export interface ToastItem {
   variant: ToastVariant
   action?: ToastAction
   onClose?: () => void
+  sticky?: boolean
 }
 
 export interface ToastOptions {
@@ -33,6 +35,8 @@ export interface ToastOptions {
   onClose?: () => void
   /** ms before auto-dismiss; 0 to keep until dismissed. */
   duration?: number
+  /** Survives the stack cap: newer toasts evict older non-sticky ones first. */
+  sticky?: boolean
 }
 
 type Listener = () => void
@@ -53,16 +57,15 @@ class ToastStore {
 
   add(message: string, opts?: ToastOptions): number {
     const id = nextId++
-    this.items = [...this.items, {
+    this.items = pushToast(this.items, {
       id,
       message,
       description: opts?.description,
       variant: opts?.variant ?? "default",
       action: opts?.action,
       onClose: opts?.onClose,
-    }]
-    // Cap the stack so a burst of actions can't fill the screen.
-    if (this.items.length > 4) this.items = this.items.slice(-4)
+      sticky: opts?.sticky,
+    })
     this.emit()
     const duration = opts?.duration ?? 2600
     if (duration > 0) {
