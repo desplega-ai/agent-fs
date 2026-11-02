@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createTestConfigDir, createTestContext } from "../../../core/src/test-utils.js";
 import { write, writeRaw } from "../../../core/src/ops/write.js";
 import { createApp } from "../app.js";
+import { getConfig } from "../../../core/src/config.js";
 
 const MiB = 1024 * 1024;
 let cleanup: () => void;
@@ -17,6 +18,41 @@ afterEach(() => {
 });
 
 describe("configured raw upload limits", () => {
+  test("Fly config accepts uploads over 50 MiB and rejects bodies over 200 MiB", async () => {
+    const fly = Bun.TOML.parse(await Bun.file(new URL("../../../../fly.toml", import.meta.url)).text()) as {
+      env: Record<string, string>;
+    };
+    process.env.AGENT_FS_MAX_UPLOAD_BYTES = fly.env.AGENT_FS_MAX_UPLOAD_BYTES;
+    const { db, s3, apiKey, orgId, driveId } = createTestContext();
+    const app = createApp(db, s3);
+    expect(getConfig().server.maxUploadBytes).toBe(200 * MiB);
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: app.fetch,
+      maxRequestBodySize: getConfig().server.maxUploadBytes,
+    });
+    try {
+      const url = new URL(`/orgs/${orgId}/drives/${driveId}/files/fly.bin/raw`, server.url);
+      const accepted = await fetch(url, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: new Uint8Array(51 * MiB),
+      });
+      expect(accepted.status).toBe(200);
+      expect((await accepted.json()).size).toBe(51 * MiB);
+      const rejected = await fetch(url, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: new Uint8Array(200 * MiB + 1),
+      });
+      expect(rejected.status).toBe(413);
+      await rejected.text();
+    } finally {
+      await server.stop(true);
+    }
+  }, 30_000);
+
   test("HTTP accepts more than 50 MiB and advertises the same limit", async () => {
     process.env.AGENT_FS_MAX_UPLOAD_BYTES = String(51 * MiB);
     const { db, s3, apiKey, orgId, driveId } = createTestContext();
