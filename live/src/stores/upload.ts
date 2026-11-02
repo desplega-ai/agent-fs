@@ -4,6 +4,7 @@ import { isConflictError, type AgentFsClient } from "@/api/client"
 import { invalidateForPath } from "@/lib/listing-cache"
 import { cleanPath, joinPath } from "@/lib/paths"
 import { healthQueryOptions, uploadLimitBytes } from "@/lib/upload-limit"
+import { recordWriteAction } from "./star-nudge"
 import { toast } from "./toast"
 
 export const MAX_CONCURRENT_UPLOADS = 3
@@ -221,6 +222,7 @@ class UploadStore {
     } else {
       toast.success(done === 1 ? "Uploaded 1 file" : `Uploaded ${done} files`)
     }
+    if (done > 0) recordWriteAction()
   }
 }
 

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react"
+import { pushToast } from "@/lib/toast-stack"
 
 /**
  * Tiny toast store — a singleton so `toast(...)` can be called from anywhere
@@ -8,7 +9,7 @@ import { useSyncExternalStore } from "react"
  * switch, comment added, …) so both a button click and its shortcut surface
  * the same confirmation.
  */
-export type ToastVariant = "default" | "success" | "error"
+export type ToastVariant = "default" | "success" | "error" | "invite"
 
 /** A button inside the toast; clicking it runs `onClick` and dismisses the toast. */
 export interface ToastAction {
@@ -22,14 +23,21 @@ export interface ToastItem {
   description?: string
   variant: ToastVariant
   action?: ToastAction
+  onClose?: () => void
+  sticky?: boolean
 }
 
 export interface ToastOptions {
   description?: string
+  /** `invite`: star icon, wrapped description, full-width action row (the GitHub star nudge). */
   variant?: ToastVariant
   action?: ToastAction
+  /** Runs when the user closes the toast with its X button (not on auto-dismiss). */
+  onClose?: () => void
   /** ms before auto-dismiss; 0 to keep until dismissed. */
   duration?: number
+  /** Survives the stack cap: newer toasts evict older non-sticky ones first. */
+  sticky?: boolean
 }
 
 type Listener = () => void
@@ -50,15 +58,15 @@ class ToastStore {
 
   add(message: string, opts?: ToastOptions): number {
     const id = nextId++
-    this.items = [...this.items, {
+    this.items = pushToast(this.items, {
       id,
       message,
       description: opts?.description,
       variant: opts?.variant ?? "default",
       action: opts?.action,
-    }]
-    // Cap the stack so a burst of actions can't fill the screen.
-    if (this.items.length > 4) this.items = this.items.slice(-4)
+      onClose: opts?.onClose,
+      sticky: opts?.sticky,
+    })
     this.emit()
     const duration = opts?.duration ?? 2600
     if (duration > 0) {

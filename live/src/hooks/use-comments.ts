@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-query"
 import type { AgentFsClient } from "@/api/client"
 import { useAuth } from "@/contexts/auth"
+import { recordWriteAction } from "@/stores/star-nudge"
 import { toast } from "@/stores/toast"
 import type {
   CommentListResult,
@@ -369,6 +370,7 @@ export function createAddCommentMutationOptions({ client, orgId, driveId, user, 
         }
       }
       toast.success(vars.parentId ? "Reply added" : "Comment added")
+      recordWriteAction()
     },
     onSettled: (_data, _error, vars) => {
       queryClient.invalidateQueries({ queryKey: commentQueryKey(orgId, driveId, vars.path) })
