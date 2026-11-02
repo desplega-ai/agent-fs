@@ -1,17 +1,67 @@
-import { Check, AlertCircle, Info, X } from "lucide-react"
+import { Check, AlertCircle, Info, Star, X } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { useToasts, toast, type ToastVariant } from "@/stores/toast"
+import { useToasts, toast, type ToastItem, type ToastVariant } from "@/stores/toast"
 
 const VARIANT_ICON = {
   default: Info,
   success: Check,
   error: AlertCircle,
+  invite: Star,
 } as const
 
 const VARIANT_ICON_CLASS: Record<ToastVariant, string> = {
   default: "text-muted-foreground",
   success: "text-emerald-500",
   error: "text-destructive",
+  invite: "fill-amber-400 text-amber-400",
+}
+
+/**
+ * Invitation card (the GitHub star nudge): a title, a wrapped one-line
+ * description and the action as a real button on its own row.
+ */
+function InviteToast({ t }: { t: ToastItem }) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        "pointer-events-auto flex items-start gap-2.5 rounded-lg border border-border bg-popover p-3 shadow-lg",
+        "animate-in slide-in-from-bottom-2 fade-in-0 duration-200",
+      )}
+    >
+      <Star className={cn("mt-px size-4 shrink-0", VARIANT_ICON_CLASS.invite)} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold leading-snug text-foreground">{t.message}</p>
+        {t.description && (
+          <p className="mt-0.5 text-[0.8rem] leading-snug text-muted-foreground">{t.description}</p>
+        )}
+        {t.action && (
+          <Button
+            size="sm"
+            className="mt-3"
+            onClick={() => {
+              t.action?.onClick()
+              toast.dismiss(t.id)
+            }}
+          >
+            <Star className="fill-current" />
+            {t.action.label}
+          </Button>
+        )}
+      </div>
+      <button
+        onClick={() => {
+          t.onClose?.()
+          toast.dismiss(t.id)
+        }}
+        className="-mr-1 -mt-0.5 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+        aria-label="Dismiss"
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  )
 }
 
 /**
@@ -24,6 +74,7 @@ export function Toaster() {
   return (
     <div className="pointer-events-none fixed bottom-20 right-4 z-[100] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2 lg:bottom-4">
       {toasts.map((t) => {
+        if (t.variant === "invite") return <InviteToast key={t.id} t={t} />
         const Icon = VARIANT_ICON[t.variant]
         return (
           <div
