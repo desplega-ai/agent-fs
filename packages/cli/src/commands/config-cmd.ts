@@ -148,8 +148,10 @@ export function configCommands() {
       const embProvider = config.embedding.provider;
       const hasEmbKey = !!config.embedding.apiKey || (embProvider === "openrouter"
         ? !!process.env.OPENROUTER_API_KEY
-        : !!process.env.OPENAI_API_KEY || !!process.env.GEMINI_API_KEY);
-      if (embProvider === "openai" || embProvider === "gemini" || embProvider === "openrouter") {
+        : embProvider === "cheaperinference"
+          ? !!process.env.CHEAPER_INFERENCE_API_KEY
+          : !!process.env.OPENAI_API_KEY || !!process.env.GEMINI_API_KEY);
+      if (embProvider === "openai" || embProvider === "gemini" || embProvider === "openrouter" || embProvider === "cheaperinference") {
         if (hasEmbKey) {
           try {
             const provider = await createEmbeddingProviderFromEnv(config.embedding);
