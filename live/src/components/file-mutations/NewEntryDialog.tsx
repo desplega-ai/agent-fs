@@ -16,7 +16,6 @@ import { useFileMutations, KEEP_FILE } from "@/hooks/use-file-mutations"
 import { isConflictError } from "@/api/client"
 import { ancestorListings, joinPath, normalizeRelativePath } from "@/lib/paths"
 import { treeExpansionStore } from "@/stores/tree-expansion"
-import { recordWriteAction } from "@/stores/star-nudge"
 import { toast } from "@/stores/toast"
 
 export type NewEntryKind = "file" | "folder"
@@ -65,7 +64,6 @@ export function NewEntryDialog({ kind, basePath, open, onOpenChange }: NewEntryD
       if (isFile) {
         const path = await createFile(basePath, normalized.path)
         toast.success("File created", { description: path })
-        recordWriteAction()
         onOpenChange(false)
         setSelectedFile(path)
         navigate(`/file/~/${orgId}/${driveId}/${path}?edit=1`)
@@ -76,7 +74,6 @@ export function NewEntryDialog({ kind, basePath, open, onOpenChange }: NewEntryD
           ancestorListings(joinPath(folder, KEEP_FILE)).filter((p) => p !== ""),
         )
         toast.success("Folder created", { description: folder })
-        recordWriteAction()
         onOpenChange(false)
         navigateToFolder(folder)
       }

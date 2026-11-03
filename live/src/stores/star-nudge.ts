@@ -1,4 +1,4 @@
-import { createStarNudge, defaultStarNudgeStorage, STAR_REPO_URL } from "@/lib/star-nudge"
+import { STAR_REPO_URL } from "@/lib/star-nudge"
 import { toast, type ToastOptions } from "./toast"
 
 export const STAR_NUDGE_MESSAGE = "Enjoying agent-fs?"
@@ -9,7 +9,7 @@ export function showStarNudgeToast(
   onDone: () => void,
   notify: (message: string, opts?: ToastOptions) => number = toast,
 ) {
-  notify(STAR_NUDGE_MESSAGE, {
+  return notify(STAR_NUDGE_MESSAGE, {
     description: STAR_NUDGE_DESCRIPTION,
     variant: "invite",
     duration: 0,
@@ -23,14 +23,4 @@ export function showStarNudgeToast(
       },
     },
   })
-}
-
-const nudge = createStarNudge({
-  storage: defaultStarNudgeStorage(),
-  show: showStarNudgeToast,
-})
-
-/** Call after a successful write action (comment, save, upload, create). */
-export function recordWriteAction() {
-  nudge.recordWriteAction()
 }

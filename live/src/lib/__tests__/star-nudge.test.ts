@@ -1,101 +1,27 @@
 import { describe, expect, test } from "bun:test"
-import {
-  createStarNudge,
-  STAR_NUDGE_COUNT_KEY,
-  STAR_NUDGE_DONE_KEY,
-  STAR_NUDGE_THRESHOLD,
-} from "../star-nudge"
+import { hasEnoughFiles, starNudgeKey } from "../star-nudge"
+import type { LsEntry } from "../../api/types"
 
-function memoryStorage(initial: Record<string, string> = {}) {
-  const data = new Map(Object.entries(initial))
-  return {
-    data,
-    getItem: (key: string) => data.get(key) ?? null,
-    setItem: (key: string, value: string) => void data.set(key, value),
-  }
-}
-
-function setup(storage = memoryStorage()) {
-  const shows: Array<() => void> = []
-  const nudge = createStarNudge({ storage, show: (onDone) => shows.push(onDone) })
-  return { storage, shows, nudge }
-}
+const file = (name: string): LsEntry => ({ name, type: "file", size: 1 })
+const dir = (name: string): LsEntry => ({ name, type: "directory", size: 0 })
 
 describe("star nudge", () => {
-  test("shows on the 5th write action, not before", () => {
-    const { shows, nudge } = setup()
-    for (let i = 1; i < STAR_NUDGE_THRESHOLD; i++) {
-      expect(nudge.recordWriteAction()).toBe(false)
+  test("counts existing files in nested folders and stops at five", async () => {
+    const calls: string[] = []
+    const entries: Record<string, LsEntry[]> = {
+      "/": [file("a"), dir("nested")],
+      "/nested/": [file("b"), file("c"), file("d"), file("e"), dir("ignored")],
     }
-    expect(shows).toHaveLength(0)
-    expect(nudge.recordWriteAction()).toBe(true)
-    expect(shows).toHaveLength(1)
+    expect(await hasEnoughFiles(async (path) => { calls.push(path); return { entries: entries[path] } })).toBe(true)
+    expect(calls).toEqual(["/", "/nested/"])
   })
-
-  test("shows only once per page while it is open", () => {
-    const { shows, nudge } = setup()
-    for (let i = 0; i < STAR_NUDGE_THRESHOLD + 3; i++) nudge.recordWriteAction()
-    expect(shows).toHaveLength(1)
+  test("does not count folders as files", async () => {
+    expect(await hasEnoughFiles(async (path) => ({ entries: path === "/" ? [file("a"), dir("nested")] : [file("b")] }))).toBe(false)
   })
-
-  test("counts across page loads through storage", () => {
-    const storage = memoryStorage()
-    const first = setup(storage)
-    for (let i = 1; i < STAR_NUDGE_THRESHOLD; i++) first.nudge.recordWriteAction()
-    expect(first.shows).toHaveLength(0)
-    const second = setup(storage)
-    expect(second.nudge.recordWriteAction()).toBe(true)
-    expect(second.shows).toHaveLength(1)
-  })
-
-  test("never shows again after close or click", () => {
-    const storage = memoryStorage()
-    const first = setup(storage)
-    for (let i = 0; i < STAR_NUDGE_THRESHOLD; i++) first.nudge.recordWriteAction()
-    first.shows[0]!()
-    expect(storage.data.get(STAR_NUDGE_DONE_KEY)).toBe("1")
-
-    const second = setup(storage)
-    for (let i = 0; i < STAR_NUDGE_THRESHOLD * 2; i++) {
-      expect(second.nudge.recordWriteAction()).toBe(false)
-    }
-    expect(second.shows).toHaveLength(0)
-  })
-
-  test("comes back after a reload when it was never closed", () => {
-    const storage = memoryStorage()
-    const first = setup(storage)
-    for (let i = 0; i < STAR_NUDGE_THRESHOLD; i++) first.nudge.recordWriteAction()
-    const second = setup(storage)
-    expect(second.nudge.recordWriteAction()).toBe(true)
-  })
-
-  test("treats a corrupt count as zero", () => {
-    const { shows, nudge } = setup(memoryStorage({ [STAR_NUDGE_COUNT_KEY]: "nope" }))
-    for (let i = 1; i < STAR_NUDGE_THRESHOLD; i++) nudge.recordWriteAction()
-    expect(shows).toHaveLength(0)
-    nudge.recordWriteAction()
-    expect(shows).toHaveLength(1)
-  })
-
-  test("does nothing without storage or when storage throws", () => {
-    const shows: Array<() => void> = []
-    const none = createStarNudge({ storage: null, show: (d) => shows.push(d) })
-    const throwing = createStarNudge({
-      storage: {
-        getItem: () => {
-          throw new Error("blocked")
-        },
-        setItem: () => {
-          throw new Error("blocked")
-        },
-      },
-      show: (d) => shows.push(d),
-    })
-    for (let i = 0; i < STAR_NUDGE_THRESHOLD * 2; i++) {
-      none.recordWriteAction()
-      throwing.recordWriteAction()
-    }
-    expect(shows).toHaveLength(0)
+  test("dismissal keys separate users, drives and servers", () => {
+    const key = starNudgeKey("server", "user", "org", "drive")
+    expect(key).not.toBe(starNudgeKey("server", "other", "org", "drive"))
+    expect(key).not.toBe(starNudgeKey("server", "user", "org", "other"))
+    expect(key).not.toBe(starNudgeKey("other", "user", "org", "drive"))
   })
 })
