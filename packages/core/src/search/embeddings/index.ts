@@ -82,6 +82,13 @@ export async function createEmbeddingProvider(
       const { OpenRouterEmbeddingProvider } = await import("./openrouter.js");
       return new OpenRouterEmbeddingProvider(config.apiKey, config.model || undefined);
     }
+    case "cheaperinference": {
+      if (!config.apiKey) {
+        throw new Error("Cheaper Inference API key required. Set embedding.apiKey in config or CHEAPER_INFERENCE_API_KEY with EMBEDDING_PROVIDER=cheaperinference.");
+      }
+      const { CheaperInferenceEmbeddingProvider } = await import("./cheaperinference.js");
+      return new CheaperInferenceEmbeddingProvider(config.apiKey, config.model || undefined);
+    }
     case "gemini": {
       if (!config.apiKey) {
         throw new Error("Gemini API key required. Set embedding.apiKey in config.");
@@ -110,6 +117,7 @@ export async function createEmbeddingProviderFromEnv(
       openai: process.env.OPENAI_API_KEY,
       gemini: process.env.GEMINI_API_KEY,
       openrouter: process.env.OPENROUTER_API_KEY,
+      cheaperinference: process.env.CHEAPER_INFERENCE_API_KEY,
     };
     try {
       return await createEmbeddingProvider({
@@ -143,7 +151,10 @@ export async function createEmbeddingProviderFromEnv(
   }
 
   // 2. Fall back to config file
-  const configKey = config?.apiKey || (config?.provider === "openrouter" ? process.env.OPENROUTER_API_KEY : undefined);
+  const providerEnvKey = config?.provider === "openrouter" ? process.env.OPENROUTER_API_KEY
+    : config?.provider === "cheaperinference" ? process.env.CHEAPER_INFERENCE_API_KEY
+    : undefined;
+  const configKey = config?.apiKey || providerEnvKey;
   if (config?.provider && config.provider !== "local" && configKey) {
     try {
       return await createEmbeddingProvider({ ...config, apiKey: configKey }, localIndex);

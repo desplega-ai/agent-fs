@@ -189,9 +189,10 @@ Semantic search requires an embedding provider. Configure via environment variab
 | **OpenAI** | `OPENAI_API_KEY` | ~$0.02/1M tokens | Best quality, requires API key |
 | **Google Gemini** | `GEMINI_API_KEY` | Free tier available | Good quality, generous free tier |
 | **OpenRouter** | `EMBEDDING_PROVIDER=openrouter` + `OPENROUTER_API_KEY` | Depends on model | Defaults to `openai/text-embedding-3-small`; requires 768-dimensional text embeddings. |
+| **Cheaper Inference** | `EMBEDDING_PROVIDER=cheaperinference` + `CHEAPER_INFERENCE_API_KEY` | Depends on model | OpenAI-compatible gateway. Defaults to `text-embedding-3-small`; requires 768-dimensional text embeddings. |
 | **Local** | None | Free | Runs nomic-embed-text-v1.5 on llama.cpp or EmbeddingGemma 2 on transformers.js. Requires a model download. |
 
-Priority: an explicit `EMBEDDING_PROVIDER` (`local`, `openai`, `gemini`, or `openrouter`) > `OPENAI_API_KEY` > `GEMINI_API_KEY` > `config.json` > none (semantic search disabled). An explicit hosted provider takes its key from `EMBEDDING_API_KEY` or `config.json` first, then from its own API key variable. `OPENROUTER_API_KEY` alone does not select a provider; select OpenRouter through `EMBEDDING_PROVIDER` or `config.json`.
+Priority: an explicit `EMBEDDING_PROVIDER` (`local`, `openai`, `gemini`, `openrouter`, or `cheaperinference`) > `OPENAI_API_KEY` > `GEMINI_API_KEY` > `config.json` > none (semantic search disabled). An explicit hosted provider takes its key from `EMBEDDING_API_KEY` or `config.json` first, then from its own API key variable. `OPENROUTER_API_KEY` alone does not select a provider; select OpenRouter through `EMBEDDING_PROVIDER` or `config.json`. The same applies to `CHEAPER_INFERENCE_API_KEY`.
 
 When `EMBEDDING_PROVIDER` names another provider than config.json, agent-fs does not use the model and API key from config.json. `EMBEDDING_MODEL` and `EMBEDDING_API_KEY` still apply.
 
@@ -218,6 +219,32 @@ The opt-in live test makes billable requests using `OPENROUTER_API_KEY`:
 
 ```bash
 AGENT_FS_TEST_OPENROUTER=1 bun test packages/core/src/__manual_tests__/openrouter.test.ts
+```
+
+### Cheaper Inference
+
+[Cheaper Inference](https://cheaperinference.com) is an OpenAI-compatible LLM gateway.
+Set these variables on the agent-fs server (or local daemon):
+
+```bash
+EMBEDDING_PROVIDER=cheaperinference
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_API_KEY=<your-cheaper-inference-key>
+```
+
+`CHEAPER_INFERENCE_API_KEY` is also accepted when no embedding-specific key is configured.
+The provider uses `https://api.cheaperinference.com/v1/embeddings` and requests float vectors with 768 dimensions.
+`EMBEDDING_MODEL` defaults to `text-embedding-3-small`. Other text embedding models must support 768-dimensional output; incompatible responses fail validation.
+Restart after changing the provider or model. The existing background migration regenerates stored embeddings after a successful warmup. It may incur API charges; search can mix old and new vectors until the migration finishes.
+
+With Agent Swarm's Compose deployment, use `AGENT_FS_EMBEDDING_PROVIDER`, `AGENT_FS_EMBEDDING_MODEL`, and `AGENT_FS_EMBEDDING_API_KEY` instead. The agent-fs image must include Cheaper Inference support.
+
+For CLI onboarding, use `agent-fs onboard --embeddings cheaperinference --cheaperinference-key <key>`. Configure a different model afterward with `agent-fs config set embedding.model <model>`.
+
+The opt-in live test makes billable requests using `CHEAPER_INFERENCE_API_KEY`:
+
+```bash
+AGENT_FS_TEST_CHEAPER_INFERENCE=1 bun test packages/core/src/__manual_tests__/cheaperinference.test.ts
 ```
 
 ### Text embedding size cap

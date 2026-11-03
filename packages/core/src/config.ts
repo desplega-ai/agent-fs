@@ -91,7 +91,7 @@ export interface AgentFSConfig {
    */
   s3: AgentFSStorageConfig;
   embedding: {
-    provider: "local" | "openai" | "gemini" | "openrouter";
+    provider: "local" | "openai" | "gemini" | "openrouter" | "cheaperinference";
     model: string;
     apiKey: string;
   };

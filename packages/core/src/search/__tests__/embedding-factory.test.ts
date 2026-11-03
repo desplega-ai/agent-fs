@@ -64,6 +64,7 @@ describe("createEmbeddingProviderFromEnv", () => {
     "EMBEDDING_API_KEY",
     "OPENAI_API_KEY",
     "OPENROUTER_API_KEY",
+    "CHEAPER_INFERENCE_API_KEY",
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
   ] as const;
@@ -336,6 +337,51 @@ describe("createEmbeddingProviderFromEnv", () => {
     try {
       expect(await createEmbeddingProviderFromEnv()).toBeNull();
       expect(error.mock.calls[0][0]).toContain("OpenRouter API key required");
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  test("explicit Cheaper Inference uses its own key and configured model", async () => {
+    process.env.EMBEDDING_PROVIDER = "cheaperinference";
+    process.env.OPENAI_API_KEY = "openai-key";
+    process.env.GEMINI_API_KEY = "gemini-key";
+    process.env.CHEAPER_INFERENCE_API_KEY = "ci-key";
+    process.env.EMBEDDING_MODEL = "text-embedding-3-large";
+    const home = mkdtempSync(join(tmpdir(), "agent-fs-cheaperinference-"));
+    process.env.AGENT_FS_HOME = home;
+    try {
+      const provider = await createEmbeddingProviderFromEnv(getConfig().embedding);
+      expect(provider!.name).toBe("cheaperinference/text-embedding-3-large");
+      expect(provider).toMatchObject({ client: { apiKey: "ci-key", baseURL: "https://api.cheaperinference.com/v1" } });
+      process.env.EMBEDDING_API_KEY = "embedding-key";
+      expect(await createEmbeddingProviderFromEnv(getConfig().embedding)).toMatchObject({ client: { apiKey: "embedding-key" } });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("Cheaper Inference config uses a stored key before its provider environment key", async () => {
+    process.env.CHEAPER_INFERENCE_API_KEY = "ci-key";
+    const config = { provider: "cheaperinference" as const, model: "", apiKey: "config-key" };
+    expect(await createEmbeddingProviderFromEnv(config)).toMatchObject({ client: { apiKey: "config-key" } });
+    expect(await createEmbeddingProviderFromEnv({ ...config, apiKey: "" })).toMatchObject({ client: { apiKey: "ci-key" } });
+  });
+
+  test("a Cheaper Inference key alone does not change automatic provider selection", async () => {
+    process.env.CHEAPER_INFERENCE_API_KEY = "ci-key";
+    expect(await createEmbeddingProviderFromEnv()).toBeNull();
+    process.env.OPENAI_API_KEY = "openai-key";
+    expect((await createEmbeddingProviderFromEnv())!.name).toBe("openai");
+  });
+
+  test("explicit Cheaper Inference without a key does not fall back to OpenAI", async () => {
+    process.env.EMBEDDING_PROVIDER = "cheaperinference";
+    process.env.OPENAI_API_KEY = "openai-key";
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await createEmbeddingProviderFromEnv()).toBeNull();
+      expect(error.mock.calls[0][0]).toContain("Cheaper Inference API key required");
     } finally {
       error.mockRestore();
     }
