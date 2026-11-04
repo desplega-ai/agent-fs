@@ -22,6 +22,10 @@ import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import type { OutlineItem } from "@/lib/outline"
 import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
+import { fetchFileStat } from "@/lib/file-stat-query"
+import { normalizeEtag } from "@/lib/file-content-cache"
+import { documentUpdateNotice, hasDocumentUpdate, type DisplayedDocument } from "@/lib/document-update"
+import { useAutoUpdateDocuments } from "@/stores/auto-update"
 import { useComments } from "@/hooks/use-comments"
 import { useSniffedAudioType } from "@/hooks/use-sniffed-audio-type"
 import { AUDIO_EXTS } from "@/lib/audio"
@@ -250,29 +254,94 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     stat?.currentVersion,
   )
 
-  const { data: content, isLoading, setContent } = useFileContent(
+  const { data: content, isLoading, setContent, refetch: refetchContent } = useFileContent(
     isImg || isVid || isAud || isPdf(path) || isTabBin || isDb || (isTabTxt && !showRaw) ||
       (sniffAudio && (isSniffing || !!sniffedAudio))
       ? null
       : path
   )
 
+  // Poll independently of the shared stat query: merely noticing a newer
+  // version must not change the optimistic-concurrency base of an editor.
+  const autoUpdate = useAutoUpdateDocuments()
+  const [displayed, setDisplayed] = useState<DisplayedDocument | null>(null)
+  const [updateError, setUpdateError] = useState(false)
+  const documentKey = `${orgId}/${driveId}/${path}`
+  const { data: latest } = useQuery({
+    queryKey: ["document-update-check", orgId, driveId, path],
+    queryFn: () => fetchFileStat(client, orgId!, driveId!, path),
+    enabled: !!orgId && !!driveId && !!content && !isTabTxt,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  })
+  useEffect(() => {
+    if (content && stat?.currentVersion != null && displayed?.key !== documentKey) {
+      setDisplayed({ key: documentKey, version: stat.currentVersion, etag: content.validator })
+      setUpdateError(false)
+    }
+  }, [content, stat, displayed?.key, documentKey])
+  const hasUpdate = hasDocumentUpdate(documentKey, displayed, latest)
+  const updateDocument = useCallback(async (auto = false) => {
+    if (isEditing || isSaving) return
+    setUpdateError(false)
+    const result = await refetchContent()
+    if (result.isError) {
+      setUpdateError(true)
+      return
+    }
+    // Only acknowledge the version observed before the download. A write that
+    // races the download must remain detectable by the next poll.
+    if (latest?.currentVersion != null) setDisplayed({ key: documentKey, version: latest.currentVersion, etag: normalizeEtag(latest.etag) })
+    setSaveCount(n => n + 1)
+    if (auto) toast(latest?.currentVersion != null ? `Document updated to v${latest.currentVersion}` : "Document updated")
+  }, [isEditing, isSaving, refetchContent, documentKey, latest])
+  useEffect(() => {
+    if (autoUpdate && hasUpdate && !isEditing && !isSaving && !updateError) void updateDocument(true)
+  }, [autoUpdate, hasUpdate, isEditing, isSaving, updateError, updateDocument])
+  // Toast actions outlive renders, so they call the latest updateDocument.
+  const updateDocumentRef = useRef(updateDocument)
+  updateDocumentRef.current = updateDocument
+  // One toast per new version. A dismissal holds until a newer version
+  // appears; leaving the document or loading the version closes the toast.
+  const notice = documentUpdateNotice({ key: documentKey, hasUpdate, autoUpdate, isEditing, latest })
+  const dismissedNoticeRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!notice || dismissedNoticeRef.current === notice.versionKey) return
+    const id = toast("A newer version is available", {
+      description: notice.description,
+      duration: 0,
+      action: notice.canLoad ? { label: "Load latest", onClick: () => void updateDocumentRef.current() } : undefined,
+      onClose: () => { dismissedNoticeRef.current = notice.versionKey },
+    })
+    return () => toast.dismiss(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notice?.id])
+  useEffect(() => {
+    if (!updateError) return
+    const id = toast.error("Could not load the latest version", {
+      action: { label: "Try again", onClick: () => void updateDocumentRef.current() },
+    })
+    return () => toast.dismiss(id)
+  }, [updateError])
+
   const handleSave = useCallback(async (text: string): Promise<boolean> => {
     try {
-      const result = await save(text, stat?.currentVersion)
+      const result = await save(text, displayed?.key === documentKey ? displayed.version : stat?.currentVersion)
       toast.success(`Saved (v${result.version})`)
       setIsDirty(false)
       // Keep the cached text in step with the write so Cancel and the preview
       // show the saved content without a reload.
       setContent(path, text)
       setSaveCount((n) => n + 1)
-      refetchStat()
+      const fresh = await refetchStat()
+      setDisplayed({ key: documentKey, version: result.version, etag: fresh.data?.currentVersion === result.version ? normalizeEtag(fresh.data.etag) : null })
       return true
     } catch {
       // error is already in the hook state
       return false
     }
-  }, [save, stat?.currentVersion, refetchStat, setContent])
+  }, [save, stat?.currentVersion, displayed, refetchStat, setContent, documentKey, path])
 
   // Outline only exists for a rendered markdown preview. When the viewer shows
   // anything else (source view, image, etc.) clear it so the rail's Outline

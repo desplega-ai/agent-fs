@@ -47,11 +47,12 @@ export function useFileContent(path: string | null, _offset = 0, _limit = 200) {
 
   // While a revalidation is in flight the cached body is not yet known to be
   // current, so it is withheld rather than shown and swapped.
-  const settled = query.isSuccess && !query.isFetching
+  const settled = !!query.data && !query.isFetching
   return {
     data: settled ? query.data : undefined,
     isLoading: enabled && !query.isError && !settled,
     error: query.error,
     setContent,
+    refetch: query.refetch,
   }
 }
