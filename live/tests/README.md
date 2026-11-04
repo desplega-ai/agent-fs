@@ -20,6 +20,7 @@ code scrolling, table-row comment controls, and wrapping of long raw preview lin
 presence avatars, the See cursors / See selections toggles, comment-card presence,
 and the absence of presence requests on servers without the `presence` feature.
 `viewer-header.spec.ts` checks that the file header's status badge and comment count never overlap the action icons at 390x844 and 360x740, and that the 1280 px header keeps the badge.
+`full-page.spec.ts` checks that `/page/~/...` presents an HTML file alone at 1280x844 and 390x844 (no sidebar, header, comments rail or star nudge) in the same sandbox as the file view, its Back to file link (also for a name with `#`, `?` and `%`), the signed-out redirect, and that the detail toolbar offers Present only for HTML files on servers with `html-sites`.
 Screenshots are written to `test-results/`.
 `invite.spec.ts` runs against an in-memory org (`tests/support/invite-fixture.ts`) served to several
 browser contexts at once. It covers the Invite dialog,
