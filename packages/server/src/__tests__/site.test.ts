@@ -8,6 +8,7 @@ import type { StorageAdapter } from "../../../core/src/storage/adapter.js";
 import { generateShareToken } from "../../../core/src/ops/share.js";
 import { createApp } from "../app.js";
 import { SITE_MAX_OBJECT_BYTES } from "../routes/site.js";
+import { injectHtmlPageBridge } from "../share/html-page-bridge.js";
 
 // One app per harness, and these tests make far more than the default limits
 // a minute from a single "IP". The limiter has its own test below.
@@ -280,6 +281,46 @@ for (const { label, make } of backends) {
       });
     });
 
+    describe("page bridge", () => {
+      const stored = '<!doctype html><img src="pic.png"><script>fetch("data.json")</script>';
+
+      test("is added to .html and .htm pages only with the flag; headers are the same either way", async () => {
+        await write(h, "/site/old.htm", stored);
+        for (const name of ["index.html", "old.htm"]) {
+          const plainRes = await get(h, `/site/${site.token}/${name}`);
+          expect(await plainRes.text(), name).toBe(stored);
+
+          const res = await get(h, `/site/${site.token}/${name}?__afs_page=1`);
+          expect(res.status).toBe(200);
+          const body = await res.text();
+          // Before the page's own scripts, so they can use window.agentfs.
+          expect(body.startsWith("<!doctype html><script>")).toBe(true);
+          expect(body.endsWith('<img src="pic.png"><script>fetch("data.json")</script>')).toBe(true);
+          expect(body).toContain("agent-fs-page:");
+          expect(body).not.toContain("agent-fs-comments:");
+          expect(res.headers.get("content-length")).toBe(String(new TextEncoder().encode(body).length));
+          expectSiteHeaders(res, name);
+          expect(res.headers.get("content-type")).toBe("text/html; charset=utf-8");
+          expect(res.headers.get("content-security-policy")).toBe(plainRes.headers.get("content-security-policy"));
+        }
+      });
+
+      test("coexists with the comment overlay", async () => {
+        const res = await get(h, `/site/${site.token}/index.html?__afs_comments=1&__afs_page=1`);
+        const body = await res.text();
+        expect(body.indexOf("agent-fs-page:")).toBeLessThan(body.indexOf("<img"));
+        expect(body.indexOf("agent-fs-comments:")).toBeGreaterThan(body.indexOf('fetch("data.json")'));
+        expectSiteHeaders(res);
+      });
+
+      test("never touches other files", async () => {
+        for (const [p, bytes] of [["data.json", '{"ok":true}'], ["app.js", "console.log(1)"], ["noindex/readme.txt", "no index here"]]) {
+          const res = await get(h, `/site/${site.token}/${p}?__afs_page=1`);
+          expect(await res.text(), p).toBe(bytes);
+        }
+      });
+    });
+
     describe("escapes", () => {
       test("positive control: the outside file exists and a drive-root site serves it", async () => {
         const root = await share(h, "/");
@@ -484,13 +525,34 @@ for (const { label, make } of backends) {
   });
 }
 
+describe("injectHtmlPageBridge", () => {
+  const inject = (html: string) => new TextDecoder().decode(injectHtmlPageBridge(new TextEncoder().encode(html)));
+  const at = (html: string) => inject(html).indexOf("<script>(function");
+
+  test("goes right after <head>, else <html>, else the doctype, else the top", () => {
+    expect(at('<!doctype html><html lang="en"><head data-x="1"><title>t</title>')).toBe('<!doctype html><html lang="en"><head data-x="1">'.length);
+    expect(at("<!doctype html><HTML><body><header>x</header>")).toBe("<!doctype html><HTML>".length);
+    expect(at("<!DOCTYPE html><header>x</header><p>")).toBe("<!DOCTYPE html>".length);
+    expect(at("<p>no tags</p>")).toBe(0);
+  });
+
+  test("keeps every byte of the page, Unicode included", () => {
+    const html = "<!doctype html><head><title>Ünïcødé 日本語</title></head><p>🎉</p>";
+    const out = inject(html);
+    const start = out.indexOf("<script>(function");
+    const end = out.indexOf("</script>", start) + "</script>".length;
+    expect(out.slice(0, start) + out.slice(end)).toBe(html);
+  });
+});
+
 describe("site route plumbing", () => {
-  test("/health advertises html-sites and html-comments", async () => {
+  test("/health advertises html-sites, html-comments and page-bridge", async () => {
     const h = await setup();
     const res = await h.app.request("/health");
     const { features } = await res.json();
     expect(features).toContain("html-sites");
     expect(features).toContain("html-comments");
+    expect(features).toContain("page-bridge");
   });
 
   test("has its own per-IP limit, and the 429 carries the site headers", async () => {

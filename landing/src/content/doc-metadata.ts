@@ -29,6 +29,13 @@ export const DOC_METADATA: DocMetadata[] = [
     sourcePath: "docs/deployment.md",
   },
   {
+    slug: "pages",
+    title: "Pages",
+    summary: "Let an HTML page know its viewer, read its folder and save data files.",
+    section: "Reference",
+    sourcePath: "docs/pages.md",
+  },
+  {
     slug: "sql",
     title: "SQL Queries",
     summary: "Query CSV, Parquet, Excel, JSON, and SQLite documents with DuckDB.",

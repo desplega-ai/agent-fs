@@ -1110,6 +1110,7 @@ async function runStandardTests(daemonUrl: string) {
     assert(result.version, 1);
     const cat = runJson("cat /hello.txt");
     assert(cat.content, "Hello, agent-fs!");
+    assert(cat.etag, runJson("stat /hello.txt").etag, "cat --json should carry the etag stat reports");
   });
 
   await test("bare write shares metadata with slash-form stat and log", () => {

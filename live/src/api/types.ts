@@ -30,6 +30,8 @@ export interface CatResult {
   content: string
   totalLines: number
   truncated: boolean
+  /** Storage ETag of the bytes read (newer servers only). Opaque. */
+  etag?: string
 }
 
 export interface StatResult {

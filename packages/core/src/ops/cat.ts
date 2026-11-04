@@ -42,6 +42,7 @@ export async function cat(
       content: sliced.join("\n"),
       totalLines,
       truncated,
+      etag: result.etag,
     };
   } catch (err: any) {
     if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {

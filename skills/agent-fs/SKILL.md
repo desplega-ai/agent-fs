@@ -601,6 +601,10 @@ agent-fs share-revoke --path report-site
 - **A page can read every file under its folder while the link is valid.** Do not put secrets next to HTML you publish, and do not publish a folder whose HTML you did not write. The live UI renders `.html` files the same way, with a 15-minute site link for the file's folder.
 - Each file is served up to 25 MB. Larger files return 413.
 
+### Pages
+
+An HTML page opened in the web app by a signed-in member can use `window.agentfs`: learn who is viewing (after the member allows it once), read files in its folder, and save `json`/`txt`/`md`/`csv`/`yaml`/`yml`/`ndjson` files under `<its folder>/data/` with `expectedVersion`, as that member. It never holds a key. Read `docs/pages.md` before writing such a page: render data with `textContent`, never `innerHTML`, and retry on `EDIT_CONFLICT`.
+
 ### App URL in responses
 
 When `AGENT_FS_APP_URL` is set (e.g., `https://live.agent-fs.dev`), file-related ops automatically include an `appUrl` field pointing to the file in the live web app:

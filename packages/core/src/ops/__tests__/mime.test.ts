@@ -9,6 +9,7 @@ describe("detectMimeType", () => {
     expect(detectMimeType("readme.md")).toBe("text/markdown");
     expect(detectMimeType("app.ts")).toBe("text/plain");
     expect(detectMimeType("style.css")).toBe("text/css");
+    expect(detectMimeType("page.htm")).toBe("text/html");
   });
 
   // Case insensitivity

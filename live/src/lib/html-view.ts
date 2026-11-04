@@ -33,6 +33,18 @@ export function withCommentsFlag(url: string): string {
   return `${url}${url.includes("?") ? "&" : "?"}__afs_comments=1`
 }
 
+export const PAGE_BRIDGE_FEATURE = "page-bridge"
+
+/** Servers that add `window.agentfs` to site pages. Older ones serve pages without it. */
+export function supportsPageBridge(health?: HealthResponse): boolean {
+  return health?.features?.includes(PAGE_BRIDGE_FEATURE) === true
+}
+
+/** The site URL with the flag that asks the server for the page bridge. */
+export function withPageFlag(url: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}__afs_page=1`
+}
+
 export function isHtmlPath(path: string): boolean {
   const name = path.split("/").pop() ?? ""
   const dot = name.lastIndexOf(".")
