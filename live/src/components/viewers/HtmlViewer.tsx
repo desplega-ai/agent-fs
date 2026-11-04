@@ -3,9 +3,10 @@ import { Globe, MessageSquare } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useHealth } from "@/hooks/use-health"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
-import { approveRootHtml, folderOf, isRootHtmlApproved, resolveHtmlViewUrl, supportsHtmlComments, withCommentsFlag } from "@/lib/html-view"
+import { approveRootHtml, folderOf, isRootHtmlApproved, resolveHtmlViewUrl, supportsHtmlComments, supportsPageBridge, withCommentsFlag, withPageFlag } from "@/lib/html-view"
 import { captureQuote, resolveAnchor } from "@/lib/comment-anchor"
 import { createHtmlCommentBridge, type HighlightRange, type HtmlCommentBridge } from "@/lib/html-comment-bridge"
+import { createHtmlPageBridge, hasPageAccess, memberPageHost, setPageAccess, type ConsentScope, type MemberPageHost, type Viewer } from "@/lib/html-page-bridge"
 import { frameTextSpace, htmlSourceTextSpace } from "@/lib/html-text-space"
 import { commentAnchors, revealComment, useActiveComment, useHoveredComment } from "@/stores/comment-anchors"
 import { toast } from "@/stores/toast"
@@ -72,7 +73,14 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
   const { orgId, driveId } = useAuth()
   const { data: health } = useHealth()
   const commenting = content != null && supportsHtmlComments(health)
+  const pageBridge = supportsPageBridge(health)
   const frameRef = useRef<HTMLIFrameElement>(null)
+  // The page bridge follows the element itself: a reload replaces it.
+  const [frameEl, setFrameEl] = useState<HTMLIFrameElement | null>(null)
+  const attachFrame = useCallback((el: HTMLIFrameElement | null) => {
+    frameRef.current = el
+    setFrameEl(el)
+  }, [])
   // A file at the drive root gets a share of the whole drive, so ask first.
   const atRoot = folderOf(path) === "/"
   const [confirmed, setConfirmed] = useState(() => !atRoot || (!!orgId && !!driveId && isRootHtmlApproved(orgId, driveId, path)))
@@ -119,12 +127,15 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
     )
   }
 
-  const src = commenting ? withCommentsFlag(url) : url
+  const commentsSrc = commenting ? withCommentsFlag(url) : url
+  const src = pageBridge ? withPageFlag(commentsSrc) : commentsSrc
   return (
     <div className={cn("relative flex flex-col", className)}>
+      {pageBridge && <PageAccess frame={frameEl} path={path} />}
       <iframe
-        ref={frameRef}
-        key={reloadKey}
+        ref={attachFrame}
+        // A new element for each page, so the old document can never reach the new page's bridge.
+        key={`${reloadKey}:${src}`}
         src={src}
         title={path}
         sandbox={SANDBOX}
@@ -142,6 +153,108 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
           onScrollToCommentRef={onScrollToCommentRef}
         />
       )}
+    </div>
+  )
+}
+
+/** `window.agentfs` for the page in `frame` (`html-page-bridge`), and its consent banner. */
+function PageAccess({ frame, path }: { frame: HTMLIFrameElement | null; path: string }) {
+  const { client, user, orgId, driveId } = useAuth()
+  const folder = folderOf(path)
+  const scope: ConsentScope | null = user && orgId && driveId && folder !== "/"
+    ? { endpoint: client.endpoint, userId: user.userId, orgId, driveId, folder }
+    : null
+  const scopeKey = scope && JSON.stringify(scope)
+  const scopeRef = useRef(scope)
+  scopeRef.current = scope
+  const viewerRef = useRef<Viewer | null>(null)
+  viewerRef.current = user ? { name: user.displayName || user.email, email: user.email, kind: "member" } : null
+  // Display only: every request reads the stored decision itself.
+  const [allowed, setAllowed] = useState(false)
+  // Allowed, but the browser would not store it: it lasts for this view.
+  const [viewOnly, setViewOnly] = useState(false)
+  // Revoked, but the browser would not store it: other views keep their access.
+  const [revokedHere, setRevokedHere] = useState(false)
+  const [asking, setAsking] = useState(false)
+  const host = useRef<MemberPageHost | null>(null)
+  const waiting = useRef<Array<(allow: boolean) => void>>([])
+  // "Keep read-only" lasts for this frame's page.
+  const declined = useRef(false)
+
+  useEffect(() => {
+    setAllowed(!!scopeRef.current && hasPageAccess(scopeRef.current))
+    setViewOnly(false)
+    setRevokedHere(false)
+  }, [scopeKey])
+
+  const settle = useCallback((allow: boolean) => {
+    waiting.current.splice(0).forEach((resolve) => resolve(allow))
+    setAsking(false)
+  }, [])
+
+  const answer = (allow: boolean) => {
+    if (!allow) declined.current = true
+    settle(allow)
+  }
+
+  const revoke = () => {
+    // No host before the frame exists: the stored choice is all there is.
+    const stored = host.current ? host.current.revoke() : !scopeRef.current || setPageAccess(scopeRef.current, false)
+    setAllowed(false)
+    setViewOnly(false)
+    setRevokedHere(!stored)
+  }
+
+  useEffect(() => {
+    if (!frame || !orgId || !driveId) return
+    declined.current = false
+    host.current = memberPageHost({
+      folder: folder === "/" ? null : folder,
+      scope: () => scopeRef.current,
+      viewer: () => viewerRef.current,
+      callOp: (op, params) => client.callOp(orgId, op, params, driveId),
+      ask: () => declined.current ? Promise.resolve(false) : new Promise((resolve) => {
+        waiting.current.push(resolve)
+        setAsking(true)
+      }),
+      onAllow: (stored) => {
+        setAllowed(true)
+        setViewOnly(!stored)
+        setRevokedHere(false)
+      },
+    })
+    const bridge = createHtmlPageBridge(frame, host.current, () => settle(false))
+    return () => {
+      bridge.dispose()
+      settle(false)
+    }
+  }, [frame, client, user?.userId, orgId, driveId, folder, settle])
+
+  if (asking) {
+    return (
+      <div role="region" aria-label="Page access" className="flex flex-wrap items-center gap-2 border-b border-border bg-muted px-3 py-2 text-sm">
+        <p className="min-w-0 flex-1">
+          This page, and any page or script in <code>{folder}</code>, will know your name and email and can save data
+          files under <code>{folder}/data/</code> as you, until you revoke it.
+        </p>
+        <Button size="sm" onClick={() => answer(true)}>Allow</Button>
+        <Button size="sm" variant="outline" onClick={() => answer(false)}>Keep read-only</Button>
+      </div>
+    )
+  }
+  if (!allowed) {
+    if (!revokedHere) return null
+    return (
+      <div className="border-b border-border px-3 py-1 text-xs text-muted-foreground">
+        Access revoked in this view. Your browser did not save the change, so other open views, and this page after a
+        reload, may still be allowed.
+      </div>
+    )
+  }
+  return (
+    <div className="border-b border-border px-3 py-1 text-xs text-muted-foreground">
+      This page can save data files as you{viewOnly ? " for this view only" : ""} ·{" "}
+      <button onClick={revoke} className="underline hover:text-foreground">Revoke</button>
     </div>
   )
 }

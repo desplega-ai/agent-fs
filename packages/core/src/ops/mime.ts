@@ -16,6 +16,7 @@ const MIME_MAP: Record<string, string> = {
   md: "text/markdown",
   mdx: "text/markdown",
   html: "text/html",
+  htm: "text/html",
   css: "text/css",
   csv: "text/csv",
   tsv: "text/tab-separated-values",

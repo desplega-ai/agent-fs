@@ -139,6 +139,27 @@ describe("registerTools", () => {
     expect(body.sharePath).toMatch(/^\/site\/[^/]+\/$/);
     expect(body.url).toBe(`http://127.0.0.1:7433${body.sharePath}`);
     expect(body.maxViews).toBeNull();
+    expect(body.writable).toBe(false);
+  });
+
+  test("share-create with writable returns a /page/ link", async () => {
+    const handlers = new Map<string, (params: any, extra: any) => Promise<any>>();
+    const mockServer = {
+      tool: (name: string, _desc: string, _schema: any, handler: any) => {
+        handlers.set(name, handler);
+      },
+    };
+
+    const { ctx } = createTestContext();
+    registerTools(mockServer as any, () => ({ ...ctx, apiUrl: "http://127.0.0.1:7433" }));
+
+    await handlers.get("write")!({ path: "/mcp-page/index.html", content: "<!doctype html><p>hi</p>" }, {});
+    const result = await handlers.get("share-create")!({ path: "/mcp-page", writable: true }, {});
+    expect(result.isError).toBeFalsy();
+    const body = JSON.parse(result.content[0].text);
+    expect(body).toMatchObject({ kind: "site", writable: true });
+    expect(body.sharePath).toMatch(/^\/page\/[^/]+\/$/);
+    expect(body).not.toHaveProperty("guestSecret");
   });
 });
 

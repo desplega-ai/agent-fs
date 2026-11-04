@@ -278,6 +278,10 @@ export const shares = sqliteTable(
     createdBy: text("created_by").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     revokedAt: integer("revoked_at", { mode: "timestamp" }),
+    /** Site shares only: pages served at /page/<token>/ may save data files as the creator. */
+    writable: integer("writable", { mode: "boolean" }).notNull().default(false),
+    /** HMAC key of a writable share's guest cookies; cleared on revoke, which ends them all. Never returned. */
+    guestSecret: text("guest_secret"),
   },
   (table) => ({
     tokenHashUq: uniqueIndex("shares_token_hash_uq").on(table.tokenHash),

@@ -1110,6 +1110,7 @@ async function runStandardTests(daemonUrl: string) {
     assert(result.version, 1);
     const cat = runJson("cat /hello.txt");
     assert(cat.content, "Hello, agent-fs!");
+    assert(cat.etag, runJson("stat /hello.txt").etag, "cat --json should carry the etag stat reports");
   });
 
   await test("bare write shares metadata with slash-form stat and log", () => {
@@ -2349,6 +2350,45 @@ async function runStandardTests(daemonUrl: string) {
     assert(r.url.startsWith(`${shareBase}/site/`), true, `Expected an API-host URL, got ${r.url}`);
     assert(r.url.endsWith("/"), true, `Expected a trailing slash, got ${r.url}`);
     assert(r.maxViews, null);
+  });
+
+  await test("share-create --writable: a /page/ shell, a guest cookie and guest writes as the creator", async () => {
+    const r = runJson("share-create site-e2e --writable");
+    assert(r.writable, true);
+    assert(r.url.startsWith(`${shareBase}/page/`), true, `Expected a /page/ URL, got ${r.url}`);
+    assert(r.url.endsWith("/"), true, `Expected a trailing slash, got ${r.url}`);
+    const text = run("share-create site-e2e --writable");
+    assertIncludes(text, "Page: ");
+    assertIncludes(text, "Writable: viewers can save data files under data/");
+
+    const shell = await fetch(r.url);
+    assert(shell.status, 200);
+    const csp = shell.headers.get("content-security-policy") ?? "";
+    assert(csp.startsWith("default-src 'none'; script-src 'sha256-"), true, `Unexpected shell CSP: ${csp}`);
+    assertIncludes(csp, "frame-ancestors 'none'");
+    assert(shell.headers.get("access-control-allow-origin"), null);
+    assertIncludes(await shell.text(), "?__afs_page=1");
+
+    const origin = new URL(r.url).origin;
+    const headers = { Origin: origin, "X-Agent-FS-Page": "1", "Content-Type": "application/json" };
+    const guest = await fetch(`${r.url}guest`, { method: "POST", headers, body: JSON.stringify({ name: "E2E Guest", email: "guest@e2e.local" }) });
+    assert(guest.status, 200);
+    const cookie = (guest.headers.get("set-cookie") ?? "").split(";")[0];
+    assert(cookie.startsWith("afs_guest="), true, `Expected the guest cookie, got ${cookie}`);
+
+    const write = { op: "write", path: "data/state.json", content: '{"done":[1]}', expectedVersion: 0, message: "Done" };
+    const noCookie = await fetch(`${r.url}ops`, { method: "POST", headers, body: JSON.stringify(write) });
+    assert(noCookie.status, 403);
+    const wrongOrigin = await fetch(`${r.url}ops`, { method: "POST", headers: { ...headers, Origin: "https://evil.example", Cookie: cookie }, body: JSON.stringify(write) });
+    assert(wrongOrigin.status, 403);
+    const saved = await fetch(`${r.url}ops`, { method: "POST", headers: { ...headers, Cookie: cookie }, body: JSON.stringify(write) });
+    assert(saved.status, 200, `Guest write failed: ${saved.status}`);
+    assert((await saved.json() as any).version, 1);
+    const log = runJson("log /site-e2e/data/state.json");
+    assert(log.versions[0].message, "Guest E2E Guest <guest@e2e.local>: Done");
+
+    assert(runJson(`share-revoke --token ${r.url}`).revoked, 1);
+    assert((await fetch(r.url)).status, 404);
   });
 
   await test("GET /site/:token/ serves index.html with the sandbox CSP, no credentials", async () => {

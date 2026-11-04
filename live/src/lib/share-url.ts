@@ -7,10 +7,10 @@ import type { ShareCreateResult } from "@/api/client"
 export class InvalidShareResponseError extends Error {}
 
 // The routes the server mints: `/share/<token>` for a file, `/site/<token>/`
-// for a folder (the slash is part of it: the site's relative paths need it).
-// Tokens are base64url.
-const SHARE_PATH = /^\/(?:share\/[A-Za-z0-9_-]+|site\/[A-Za-z0-9_-]+\/)$/
-const SHARE_PATH_SUFFIX = /\/(?:share\/[A-Za-z0-9_-]+|site\/[A-Za-z0-9_-]+\/)$/
+// for a folder and `/page/<token>/` for a writable one (the slash is part of
+// them: the pages' relative paths need it). Tokens are base64url.
+const SHARE_PATH = /^\/(?:share\/[A-Za-z0-9_-]+|(?:site|page)\/[A-Za-z0-9_-]+\/)$/
+const SHARE_PATH_SUFFIX = /\/(?:share\/[A-Za-z0-9_-]+|(?:site|page)\/[A-Za-z0-9_-]+\/)$/
 
 /**
  * A server-built link, parsed once: it must already be the canonical absolute

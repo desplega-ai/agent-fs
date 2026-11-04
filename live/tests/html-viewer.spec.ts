@@ -158,9 +158,14 @@ test("right-clicking a folder shares it as a site with the chosen expiry", async
 })
 
 /** Answer share-create with these responses in turn, then open the share dialog for a folder. */
-async function openShareDialogWith(page: Page, context: BrowserContext, responses: Array<Record<string, unknown>>) {
+async function openShareDialogWith(
+  page: Page,
+  context: BrowserContext,
+  responses: Array<Record<string, unknown>>,
+  features = ["share-links", "html-sites"],
+) {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" })
-  await installFixture(page, [], ["share-links", "html-sites"], [{ name: "reports", type: "directory", size: 0 }])
+  await installFixture(page, [], features, [{ name: "reports", type: "directory", size: 0 }])
   await page.route("http://fixture.test/**", (route) => {
     if (!route.request().url().endsWith("/ops") || route.request().postDataJSON()?.op !== "share-create") return route.fallback()
     const base = { id: "tok", kind: "site", path: "reports", expiresIn: 86400, expiresAt: new Date(Date.now() + 86_400_000).toISOString(), maxViews: null }
@@ -227,4 +232,31 @@ test("a server without html-sites offers no share link on folders", async ({ pag
   await page.locator('[data-tree-path="reports"]').click({ button: "right" })
   await expect(page.getByRole("menuitem", { name: "Copy link", exact: true })).toBeVisible()
   await expect(page.getByRole("menuitem", { name: /^Share/ })).toHaveCount(0)
+})
+
+test("the share dialog offers a writable link only when the server supports it", async ({ page, context }) => {
+  const dialog = await openShareDialogWith(page, context, [])
+  await expect(dialog.getByText("Every file in it is public")).toBeVisible()
+  await expect(dialog.getByRole("switch")).toHaveCount(0)
+})
+
+test("a writable folder link sends writable: true and copies the /page/ link", async ({ page, context }) => {
+  const dialog = await openShareDialogWith(
+    page,
+    context,
+    [{ sharePath: "/page/t1/", url: "http://internal:7433/page/t1/", urlSource: "request", writable: true }],
+    ["share-links", "html-sites", "writable-shares"],
+  )
+  const toggle = dialog.getByRole("switch", { name: "Viewers can save data files on the page" })
+  await expect(toggle).toBeVisible()
+  await expect(dialog.getByText("Anyone with the link can write to this folder's data files.")).toHaveCount(0)
+  await toggle.click()
+  await expect(dialog.getByText("Anyone with the link can write to this folder's data files.")).toBeVisible()
+  const request = page.waitForRequest((req) => req.url().endsWith("/ops") && req.postDataJSON()?.op === "share-create")
+  await dialog.getByRole("button", { name: "Copy link" }).click()
+  expect((await request).postDataJSON()).toMatchObject({ op: "share-create", path: "reports", writable: true })
+  await expect(dialog.getByRole("textbox", { name: "Share link" })).toHaveValue("http://fixture.test/page/t1/")
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("http://fixture.test/page/t1/")
+  await expect(page.getByText("Page link copied")).toBeVisible()
+  if (process.env.EVIDENCE_DIR) await page.screenshot({ path: `${process.env.EVIDENCE_DIR}/share-dialog-writable.png` })
 })

@@ -254,6 +254,361 @@
         }
       }
     },
+    "/page/{token}/": {
+      "get": {
+        "summary": "Shell of a writable site share",
+        "description": "For an active share created with `writable: true`: a host page that frames the folder's entry page (index.html, else its only HTML page) from `/site/{token}/…?__afs_page=1` in a sandbox and serves the page bridge (`window.agentfs`) for public viewers. CSP `default-src 'none'; script-src 'sha256-…'; style-src 'sha256-…'; frame-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`. Unknown, expired, revoked or read-only shares, and a folder with several pages and no index.html, are 404. Same per-IP limit as /site.",
+        "operationId": "pageShell",
+        "tags": [
+          "Share"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The shell",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not an active writable share, or no entry page"
+          },
+          "429": {
+            "description": "Too many requests from this address"
+          }
+        }
+      }
+    },
+    "/page/{token}/{page}": {
+      "get": {
+        "summary": "Shell of a named page of a writable site share",
+        "description": "Like `/page/{token}/` for one `.html`/`.htm` file directly in the shared folder (no sub-folders). Other names and missing files are 404.",
+        "operationId": "pageShellNamed",
+        "tags": [
+          "Share"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            }
+          },
+          {
+            "name": "page",
+            "in": "path",
+            "required": true,
+            "description": "A page file name in the shared folder",
+            "schema": {
+              "type": "string",
+              "pattern": "\\.html?$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The shell",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not a page of an active writable share"
+          },
+          "429": {
+            "description": "Too many requests from this address"
+          }
+        }
+      }
+    },
+    "/page/{token}/guest": {
+      "post": {
+        "summary": "Remember a guest viewer",
+        "description": "Body `{ name, email }` (name 1 to 80 characters, a syntactically valid email of at most 254). Sets the `afs_guest` cookie (HttpOnly, SameSite=Strict, Path=/page/{token}, Secure on https, 180 days), signed for this share; revoking the share invalidates it. The name and email are self-reported. At most 10 per minute per address. Requires `Origin` equal to this server's own origin (AGENT_FS_PUBLIC_URL when set, else the request's), the `X-Agent-FS-Page: 1` header and, for POST, `Content-Type: application/json`; anything else is 403. No CORS headers are ever sent.",
+        "operationId": "pageGuestCreate",
+        "tags": [
+          "Share"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "email"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "description": "Trimmed; 1 to 80 characters, no control characters"
+                  },
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254,
+                    "description": "A syntactically valid email address"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ name, email } as stored"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR: name or email"
+          },
+          "403": {
+            "description": "Not a request from the shell"
+          },
+          "404": {
+            "description": "Not an active writable share"
+          },
+          "429": {
+            "description": "Too many guests from this address"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Forget the guest viewer",
+        "description": "Clears the `afs_guest` cookie. Requires `Origin` equal to this server's own origin (AGENT_FS_PUBLIC_URL when set, else the request's), the `X-Agent-FS-Page: 1` header and, for POST, `Content-Type: application/json`; anything else is 403. No CORS headers are ever sent.",
+        "operationId": "pageGuestDelete",
+        "tags": [
+          "Share"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cleared"
+          },
+          "403": {
+            "description": "Not a request from the shell"
+          },
+          "404": {
+            "description": "Not an active writable share"
+          }
+        }
+      }
+    },
+    "/page/{token}/me": {
+      "post": {
+        "summary": "The guest viewer of this browser",
+        "description": "`{ name, email }` from a valid `afs_guest` cookie of this share, else `null`. Requires `Origin` equal to this server's own origin (AGENT_FS_PUBLIC_URL when set, else the request's), the `X-Agent-FS-Page: 1` header and, for POST, `Content-Type: application/json`; anything else is 403. No CORS headers are ever sent.",
+        "operationId": "pageGuestMe",
+        "tags": [
+          "Share"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ name, email } or null"
+          },
+          "403": {
+            "description": "Not a request from the shell"
+          },
+          "404": {
+            "description": "Not an active writable share"
+          }
+        }
+      }
+    },
+    "/page/{token}/ops": {
+      "post": {
+        "summary": "A page operation for the guest viewer",
+        "description": "Body `{ op: \"read\" | \"stat\" | \"write\", path, content?, expectedVersion?, message? }` with a path relative to the shared folder (at most 512 characters, no leading slash, no empty, '.' or '..' segment, no backslash or NUL, never URL-decoded). `read` and `stat` need no cookie; `write` needs a valid `afs_guest` cookie (403 NOT_ALLOWED without). `read` returns `{ content, version }` (files up to 1 MB); `stat` returns `{ version, size, modifiedAt }` or null; `write` returns `{ version }`, only for json, txt, md, csv, yaml, yml and ndjson files under `data/`, at most 256 KB of UTF-8 (the JSON body at most 2 MB, room for escaping), with `expectedVersion` (0 to create). Runs as the share's creator, whose role is checked on every call; the version message is `Guest <name> <email>: <message>`. Writes to one file run one at a time, whichever link they come through, with at most 8 pending per file and 16 per share; a share saves at most 60 files a minute and 20 MB a day (429 NOT_ALLOWED). These counters are per server process and reset on restart. Errors use the `/orgs/{orgId}/ops` shape. Requires `Origin` equal to this server's own origin (AGENT_FS_PUBLIC_URL when set, else the request's), the `X-Agent-FS-Page: 1` header and, for POST, `Content-Type: application/json`; anything else is 403. No CORS headers are ever sent.",
+        "operationId": "pageOps",
+        "tags": [
+          "Share"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "op",
+                      "path"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "enum": [
+                          "read"
+                        ]
+                      },
+                      "path": {
+                        "type": "string",
+                        "maxLength": 512
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "op",
+                      "path"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "enum": [
+                          "stat"
+                        ]
+                      },
+                      "path": {
+                        "type": "string",
+                        "maxLength": 512
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "op",
+                      "path",
+                      "content",
+                      "expectedVersion"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "enum": [
+                          "write"
+                        ]
+                      },
+                      "path": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "description": "Under data/, a json, txt, md, csv, yaml, yml or ndjson file"
+                      },
+                      "content": {
+                        "type": "string",
+                        "description": "At most 256 KB of UTF-8"
+                      },
+                      "expectedVersion": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "The version read, or 0 to create"
+                      },
+                      "message": {
+                        "type": "string",
+                        "maxLength": 1000
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The op's result"
+          },
+          "400": {
+            "description": "VALIDATION_ERROR or NOT_ALLOWED (path, data area, size)"
+          },
+          "403": {
+            "description": "A write without a guest cookie, not from the shell, or the creator lost write access"
+          },
+          "404": {
+            "description": "Not an active writable share, or no such file"
+          },
+          "409": {
+            "description": "EDIT_CONFLICT: expectedVersion is not the current version"
+          },
+          "413": {
+            "description": "Body larger than 2 MB"
+          },
+          "429": {
+            "description": "Too many pending writes to the file, over the share's write budget, or the per-IP limit"
+          }
+        }
+      }
+    },
     "/auth/register": {
       "post": {
         "summary": "Register a new user",
@@ -2119,7 +2474,7 @@
                   {
                     "type": "object",
                     "title": "cat",
-                    "description": "Read file content with optional pagination via offset/limit; defaults to the first 200 lines when limit is omitted. Returns { content, totalLines, truncated } — always check `truncated` before trusting a row/line count. For a complete, byte-exact read (e.g. before parsing as CSV/JSON), use `download` instead.",
+                    "description": "Read file content with optional pagination via offset/limit; defaults to the first 200 lines when limit is omitted. Returns { content, totalLines, truncated, etag } (etag: the bytes read, equal to `stat`'s when current) — always check `truncated` before trusting a row/line count. For a complete, byte-exact read (e.g. before parsing as CSV/JSON), use `download` instead.",
                     "required": [
                       "op",
                       "path"
@@ -2833,7 +3188,7 @@
                   {
                     "type": "object",
                     "title": "share-create",
-                    "description": "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. Default expiry is 24 hours (max 7 days); set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, urlSource, sharePath, path, expiresIn, expiresAt, maxViews }; urlSource (always present) is \"configured\" when url is built on AGENT_FS_PUBLIC_URL, \"request\" when it comes from the request's Host (resolve sharePath against the address you reached the API at). The link is shown only once; keep the id to revoke it.",
+                    "description": "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. With writable=true (a folder other than the drive root; drive editors and admins only), the link is /page/<token>/ instead: it frames the folder's pages and lets public viewers, after giving a name and email, save data files under <folder>/data/ with the creator's rights; the version message names the viewer, which is self-reported. Default expiry is 24 hours (max 7 days); set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, urlSource, sharePath, path, expiresIn, expiresAt, maxViews, writable }; urlSource (always present) is \"configured\" when url is built on AGENT_FS_PUBLIC_URL, \"request\" when it comes from the request's Host (resolve sharePath against the address you reached the API at). The link is shown only once; keep the id to revoke it.",
                     "required": [
                       "op",
                       "path"
@@ -2859,6 +3214,9 @@
                         "type": "integer",
                         "minimum": 1,
                         "maximum": 1000000
+                      },
+                      "writable": {
+                        "type": "boolean"
                       }
                     },
                     "additionalProperties": false
@@ -2866,7 +3224,7 @@
                   {
                     "type": "object",
                     "title": "share-revoke",
-                    "description": "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share URL), or path (revokes every link to that file or folder). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
+                    "description": "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share, site or page URL), or path (revokes every link to that file or folder). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
                     "required": [
                       "op"
                     ],

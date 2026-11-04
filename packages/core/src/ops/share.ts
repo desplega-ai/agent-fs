@@ -42,13 +42,13 @@ export function hashShareToken(token: string): string {
 }
 
 /**
- * Accept a bare token or a full share or site URL (`https://host/share/<token>?x=1`,
- * `https://host/site/<token>/`) and return the token, or null when the input is
- * not a well-formed token.
+ * Accept a bare token or a full share, site or page URL (`https://host/share/<token>?x=1`,
+ * `https://host/site/<token>/`, `https://host/page/<token>/`) and return the
+ * token, or null when the input is not a well-formed token.
  */
 export function extractShareToken(input: string): string | null {
   const trimmed = input.trim();
-  const match = /\/(?:share|site)\/([^/?#]+)/.exec(trimmed);
+  const match = /\/(?:share|site|page)\/([^/?#]+)/.exec(trimmed);
   const candidate = match ? match[1] : trimmed;
   return isWellFormedShareToken(candidate) ? candidate : null;
 }
@@ -67,6 +67,10 @@ export interface ShareRecord {
   createdBy: string;
   createdAt: Date;
   revokedAt: Date | null;
+  /** A site share whose pages, at /page/<token>/, may save data files as the creator. */
+  writable: boolean;
+  /** Signs this share's guest cookies. Null when not writable or revoked. Never leaves the server. */
+  guestSecret: string | null;
 }
 
 /** `file`: one file, opened at /share/<token>. `site`: a folder, served at /site/<token>/. */
@@ -88,6 +92,8 @@ function toRecord(row: typeof schema.shares.$inferSelect): ShareRecord {
     createdBy: row.createdBy,
     createdAt: row.createdAt,
     revokedAt: row.revokedAt,
+    writable: row.writable,
+    guestSecret: row.guestSecret,
   };
 }
 
@@ -387,12 +393,44 @@ export function recordShareViewed(db: DB, share: ShareRecord): void {
   }
 }
 
+/**
+ * Audit trail: one `share_guest_write` event per data file a guest saved
+ * through a writable share. Attributed to the creator, whose rights the write
+ * used. Best effort, like `recordShareViewed`.
+ */
+export function recordShareGuestWrite(
+  db: DB,
+  share: ShareRecord,
+  guest: { gid: string; email: string },
+  path: string
+): void {
+  try {
+    db.insert(schema.events)
+      .values({
+        id: crypto.randomUUID(),
+        orgId: share.orgId,
+        type: "share_guest_write",
+        resourceType: "share",
+        resourceId: share.id,
+        actor: share.createdBy,
+        target: null,
+        status: "created",
+        metadata: JSON.stringify({ guestId: guest.gid, email: guest.email, path, driveId: share.driveId }),
+        createdAt: new Date(),
+      })
+      .run();
+  } catch (err) {
+    console.warn("share_guest_write event not recorded:", err);
+  }
+}
+
 // --- share-create ---
 
 export interface ShareCreateParams {
   path: string;
   expiresIn?: number;
   maxViews?: number;
+  writable?: boolean;
 }
 
 export interface ShareCreateResult {
@@ -411,13 +449,15 @@ export interface ShareCreateResult {
    * so a client should build the link on the address it reached the API at.
    */
   urlSource: "configured" | "request";
-  /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
+  /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder, `/page/<token>/` for a writable folder. */
   sharePath: string;
   path: string;
   expiresIn: number;
   expiresAt: string;
   /** `null` = unlimited; `1` = one-off. */
   maxViews: number | null;
+  /** Viewers of the link's pages can save data files under `<path>/data/`. */
+  writable: boolean;
 }
 
 export async function shareCreate(
@@ -440,6 +480,23 @@ export async function shareCreate(
       field: "maxViews",
       suggestion: "Leave out maxViews; use expiresIn and share-revoke to limit a site link",
     });
+  }
+
+  const writable = params.writable === true;
+  if (writable) {
+    if (kind !== "site" || normalizedPath === "/") {
+      throw new ValidationError("writable is only supported when sharing a folder other than the drive root", {
+        field: "writable",
+      });
+    }
+    // The link delegates the creator's write right to anyone holding it.
+    const role = getUserDriveRole(ctx.db, ctx.userId, ctx.driveId);
+    if (role !== "editor" && role !== "admin" && getUserOrgRole(ctx.db, ctx.userId, ctx.orgId) !== "admin") {
+      throw new PermissionDeniedError("Only drive editors and admins can create a writable link", {
+        requiredRole: "editor",
+        ...(role && { yourRole: role }),
+      });
+    }
   }
 
   const expiresIn = params.expiresIn ?? SHARE_DEFAULT_TTL_SECONDS;
@@ -465,10 +522,12 @@ export async function shareCreate(
       views: 0,
       createdBy: ctx.userId,
       createdAt: now,
+      writable,
+      guestSecret: writable ? randomBytes(32).toString("base64url") : null,
     })
     .run();
 
-  const sharePath = kind === "site" ? `/site/${token}/` : `/share/${token}`;
+  const sharePath = writable ? `/page/${token}/` : kind === "site" ? `/site/${token}/` : `/share/${token}`;
   return {
     id,
     kind,
@@ -479,6 +538,7 @@ export async function shareCreate(
     expiresIn,
     expiresAt: expiresAt.toISOString(),
     maxViews: params.maxViews ?? null,
+    writable,
   };
 }
 
@@ -552,7 +612,7 @@ export async function shareRevoke(
     // Re-check `revoked_at IS NULL` so a concurrent revoke is not counted twice.
     const updated = ctx.db
       .update(schema.shares)
-      .set({ revokedAt: now })
+      .set({ revokedAt: now, guestSecret: null })
       .where(and(eq(schema.shares.id, row.id), isNull(schema.shares.revokedAt)))
       .returning({ id: schema.shares.id })
       .get();

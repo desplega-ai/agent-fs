@@ -5,6 +5,7 @@ import { detectMimeType, withUtf8Charset } from "@/core/ops/mime.js";
 import { ipRateLimitMiddleware } from "../middleware/ip-rate-limit.js";
 import { escapeHtml, HTML_SANDBOX } from "../share/render.js";
 import { injectHtmlCommentOverlay, isHtmlCommentsRequested } from "../share/html-comment-overlay.js";
+import { injectHtmlPageBridge, isHtmlPageRequested } from "../share/html-page-bridge.js";
 
 /** `getObject` buffers the whole body, so anything bigger is refused. */
 export const SITE_MAX_OBJECT_BYTES = 25 * 1024 * 1024;
@@ -53,14 +54,14 @@ function redirect(location: string, status: 301 | 302 = 301): Response {
 
 const INDEX = "index.html";
 
-const isHtmlName = (name: string) => /\.html?$/i.test(name);
+export const isHtmlName = (name: string) => /\.html?$/i.test(name);
 
 /**
  * The HTML pages directly inside a folder, by storage key prefix (ends with
  * `/`). Only pages: other files and sub-folders are never enumerated, so a
  * link holder still has to know their names, as before listings existed.
  */
-async function htmlPagesIn(s3: StorageAdapter, prefix: string): Promise<string[]> {
+export async function htmlPagesIn(s3: StorageAdapter, prefix: string): Promise<string[]> {
   const { objects } = await s3.listObjects(prefix, { delimiter: "/" });
   return objects
     .map((o) => o.key.slice(prefix.length))
@@ -90,7 +91,7 @@ function listingPage(rest: string, pages: string[]): Response {
  * No object at this key. The local backend refuses to read a directory with
  * EISDIR rather than a not-found error; a directory is not a file either.
  */
-function isMissing(err: any): boolean {
+export function isMissing(err: any): boolean {
   return (
     err?.name === "NotFound" ||
     err?.name === "NoSuchKey" ||
@@ -211,9 +212,10 @@ export function siteRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinute
     // meanwhile. Check again against the clock as it is now.
     if (!isLive(findShareByToken(db, token))) return plain(410, "This link has expired");
 
-    // The live UI asks for its comment overlay on HTML pages; every other
-    // response is the stored bytes as they are.
+    // The live UI asks for its comment overlay and page bridge on HTML pages;
+    // every other response is the stored bytes as they are.
     const mime = detectMimeType(key);
+    if (mime === "text/html" && isHtmlPageRequested(url)) body = injectHtmlPageBridge(body);
     if (mime === "text/html" && isHtmlCommentsRequested(url)) body = injectHtmlCommentOverlay(body);
 
     return new Response(body.slice(), {

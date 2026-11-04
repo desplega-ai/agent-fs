@@ -90,6 +90,7 @@ export {
   presignShareUrl,
   presignedUrlDeadline,
   recordShareViewed,
+  recordShareGuestWrite,
   isWellFormedShareToken,
   extractShareToken,
   SHARE_DEFAULT_TTL_SECONDS,
@@ -106,6 +107,12 @@ export type {
   ShareViewGrant,
   OpenedShareView,
 } from "./ops/share.js";
+export {
+  resolvePagePath,
+  assertPageDataWrite,
+  PAGE_MAX_READ_BYTES,
+  PAGE_MAX_WRITE_BYTES,
+} from "./ops/page-paths.js";
 export type { OpContext, OpDefinition } from "./ops/index.js";
 export type { WriteParams, WriteRawParams, WriteResult } from "./ops/types.js";
 export type {

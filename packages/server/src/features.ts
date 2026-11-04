@@ -8,6 +8,8 @@ export const SERVER_FEATURES = [
   "change-stream",
   "html-sites",
   "html-comments",
+  "page-bridge",
+  "writable-shares",
   "favorites",
   "presence",
 ] as const;

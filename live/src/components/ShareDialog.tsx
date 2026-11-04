@@ -1,8 +1,10 @@
 import { useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Check, Copy, ExternalLink, Share2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
-import { copyShareLink, DEFAULT_SHARE_EXPIRY_SECONDS, SHARE_EXPIRY_CHOICES } from "@/lib/share-link"
+import { copyShareLink, DEFAULT_SHARE_EXPIRY_SECONDS, SHARE_EXPIRY_CHOICES, supportsWritableShares } from "@/lib/share-link"
 import { isHtmlPath } from "@/lib/html-view"
+import { healthQueryOptions } from "@/lib/upload-limit"
 import { toast } from "@/stores/toast"
 import {
   Dialog,
@@ -14,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 interface ShareDialogProps {
@@ -51,12 +54,16 @@ export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProp
   const [link, setLink] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copiedAgain, setCopiedAgain] = useState(false)
+  const [writable, setWritable] = useState(false)
+  const { data: health } = useQuery(healthQueryOptions(client))
   const name = path.split("/").filter(Boolean).pop() ?? "drive"
+  // Pages at the drive root get no page bridge, so the root cannot be writable.
+  const canBeWritable = isDir && path.split("/").some(Boolean) && supportsWritableShares(health)
 
   const handleCreate = async () => {
     if (!orgId || !driveId) return
     setBusy(true)
-    const next = await copyShareLink(client, orgId, driveId, path, { expiresIn })
+    const next = await copyShareLink(client, orgId, driveId, path, { expiresIn, writable: canBeWritable && writable })
     setBusy(false)
     if (next) setLink(next)
   }
@@ -97,6 +104,25 @@ export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProp
             ))}
           </ToggleGroup>
         </div>
+        {canBeWritable && (
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span className="grid gap-0.5">
+              <span>Viewers can save data files on the page</span>
+              {writable && (
+                <span className="text-xs text-muted-foreground">
+                  Anyone with the link can write to this folder's data files.
+                </span>
+              )}
+            </span>
+            <Switch
+              checked={writable}
+              onCheckedChange={(next) => {
+                setWritable(next)
+                setLink(null)
+              }}
+            />
+          </label>
+        )}
         {link && (
           <div className="flex items-center gap-1.5">
             <Input

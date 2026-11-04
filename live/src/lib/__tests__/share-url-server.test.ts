@@ -23,7 +23,7 @@ afterEach(() => {
   cleanup()
 })
 
-/** share-create for a file and a folder, through the API, with a private Host. */
+/** share-create for a file, a folder and a writable folder, through the API, with a private Host. */
 async function shareBoth(app = newApp()) {
   const reg = await app.request("/auth/register", {
     method: "POST",
@@ -41,7 +41,11 @@ async function shareBoth(app = newApp()) {
     return res.json()
   }
   await op({ op: "write", path: "/site/index.html", content: "<p>hi</p>" })
-  return [await op({ op: "share-create", path: "/site/index.html" }), await op({ op: "share-create", path: "/site" })]
+  return [
+    await op({ op: "share-create", path: "/site/index.html" }),
+    await op({ op: "share-create", path: "/site" }),
+    await op({ op: "share-create", path: "/site", writable: true }),
+  ]
 }
 
 test("a configured prefix, normalized by the server, is copied as the server built it", async () => {
@@ -60,7 +64,7 @@ test("without one, the link is built on the endpoint the app talks to", async ()
 
 // Every public URL the server starts with must give links the web app copies:
 // one the server accepts but the app refuses breaks sharing for that server.
-test("any AGENT_FS_PUBLIC_URL the server accepts gives copyable links, for both kinds", async () => {
+test("any AGENT_FS_PUBLIC_URL the server accepts gives copyable links, for every kind", async () => {
   for (const configured of ["https://example.com", "https://example.com/", "https://example.com/a/./b/", "https://example.com/a//b", "https://example.com//a", "https://example.com/a%20b/", "https://Example.com:8443/x"]) {
     process.env.AGENT_FS_PUBLIC_URL = configured
     let app: ReturnType<typeof createApp>

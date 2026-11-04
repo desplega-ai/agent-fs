@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { diffSourceWarning, outputResult, writeLinkWarnings } from "../formatters.js";
+import { diffSourceWarning, outputResult, writableShareError, writeLinkWarnings } from "../formatters.js";
 import { stdio } from "../stdio.js";
 
 // Capture stdio.writeStdout output (outputResult writes via a flush-safe
@@ -109,6 +109,35 @@ describe("share-create formatter", () => {
     expect(output).not.toContain("Views:");
     expect(output).toContain("Expires:");
     expect(output).toContain("share-revoke share-2");
+  });
+});
+
+describe("writable share-create", () => {
+  const result = {
+    id: "share-3",
+    kind: "site",
+    url: "http://127.0.0.1:7433/page/tok/",
+    sharePath: "/page/tok/",
+    path: "/tasks",
+    expiresIn: 3600,
+    expiresAt: "2026-03-19T13:00:00.000Z",
+    maxViews: null,
+    writable: true,
+  };
+
+  test("prints Page: <url> and what viewers can do", () => {
+    const output = captureOutput(() => outputResult("share-create", result, false));
+    expect(output.split("\n")[0]).toBe("Page: http://127.0.0.1:7433/page/tok/");
+    expect(output).toContain("Writable: viewers can save data files under data/");
+    expect(writableShareError(result)).toBeNull();
+  });
+
+  test("a result without writable: true is an old server's read-only link", () => {
+    const old = { ...result, url: "http://127.0.0.1:7433/site/tok/", sharePath: "/site/tok/", writable: undefined };
+    expect(writableShareError(old)).toBe(
+      "This server is too old for writable links, so the link it created is read-only. Revoke it with: agent-fs share-revoke share-3"
+    );
+    expect(captureOutput(() => outputResult("share-create", old, false))).not.toContain("Writable");
   });
 });
 

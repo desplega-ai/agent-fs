@@ -8,7 +8,7 @@ mock.module("../../stores/toast", () => ({
   },
 }))
 
-const { copyShareLink, describeExpiry, InvalidShareResponseError, isUnknownOpError, resolveShareUrl, supportsShareLinks } = await import("../share-link")
+const { copyShareLink, describeExpiry, InvalidShareResponseError, isUnknownOpError, resolveShareUrl, supportsShareLinks, supportsWritableShares } = await import("../share-link")
 
 const result = {
   id: "s1",
@@ -27,6 +27,12 @@ describe("share link support", () => {
     // older servers omit the field; an unreachable server has no health at all
     expect(supportsShareLinks({ ok: true, version: "old", maxUploadBytes: 1 })).toBe(false)
     expect(supportsShareLinks(undefined)).toBe(false)
+  })
+
+  test("only servers that advertise writable-shares offer writable links", () => {
+    expect(supportsWritableShares({ ok: true, version: "x", features: ["share-links", "writable-shares"] })).toBe(true)
+    expect(supportsWritableShares({ ok: true, version: "x", features: ["share-links"] })).toBe(false)
+    expect(supportsWritableShares(undefined)).toBe(false)
   })
 
   test("recognises an older server rejecting the op", () => {
@@ -172,7 +178,30 @@ describe("copyShareLink", () => {
     } as any
     await copyShareLink(client, "org", "drive", "/a.md", { expiresIn: 3600 })
     await copyShareLink(client, "org", "drive", "/a.md")
-    expect(calls).toEqual([{ expiresIn: 3600 }, undefined])
+    expect(calls).toEqual([{ expiresIn: 3600 }, {}])
+  })
+
+  test("a writable folder copies the /page/ link", async () => {
+    const written = stubClipboard()
+    const page = { ...result, kind: "site" as const, url: "http://internal-host:7433/page/tok/", sharePath: "/page/tok/", path: "/tasks", writable: true }
+    const calls: unknown[] = []
+    const client = {
+      endpoint: "https://api.example",
+      createShare: async (_org: string, _drive: string, _path: string, options?: unknown) => (calls.push(options), page),
+    } as any
+    expect(await copyShareLink(client, "org", "drive", "tasks", { expiresIn: 3600, writable: true })).toBe("https://api.example/page/tok/")
+    expect(calls).toEqual([{ expiresIn: 3600, writable: true }])
+    expect(written).toEqual(["https://api.example/page/tok/"])
+    expect(toasts.at(-1)).toMatchObject({ kind: "success", message: "Page link copied" })
+  })
+
+  test("a server that does not echo writable: true gets an error, and nothing is copied", async () => {
+    const written = stubClipboard()
+    const site = { ...result, kind: "site" as const, url: "http://internal-host:7433/site/tok/", sharePath: "/site/tok/", path: "/tasks" }
+    const client = { endpoint: "https://api.example", createShare: async () => site } as any
+    expect(await copyShareLink(client, "org", "drive", "tasks", { writable: true })).toBeNull()
+    expect(written).toEqual([])
+    expect(toasts.at(-1)).toMatchObject({ kind: "error", message: "This server can't make writable links yet" })
   })
 
   test("an older server produces a clear message instead of a crash", async () => {

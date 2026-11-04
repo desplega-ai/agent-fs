@@ -147,6 +147,8 @@ export interface CatResult {
   content: string;
   totalLines: number;
   truncated: boolean;
+  /** Storage ETag of the bytes read; equal to `stat`'s when they are the current version's. */
+  etag?: string;
 }
 
 export interface EditResult {
