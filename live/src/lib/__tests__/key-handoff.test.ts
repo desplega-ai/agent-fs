@@ -9,6 +9,7 @@ import {
   orgIdFromAppPath,
   parseKeyHandoff,
   rememberHandoffNonce,
+  signInWithKeyHandoff,
   takeKeyHandoff,
 } from "../key-handoff"
 import { getActiveCredential, getCredentials, saveCredential, setActiveCredential } from "@/stores/credentials"
@@ -20,7 +21,10 @@ class MemoryStorage {
   getItem(k: string) { return this.map.get(k) ?? null }
   setItem(k: string, v: string) { this.map.set(k, String(v)) }
   removeItem(k: string) { this.map.delete(k) }
+  key(i: number) { return [...this.map.keys()][i] ?? null }
+  get length() { return this.map.size }
   clear() { this.map.clear() }
+  keys() { return [...this.map.keys()] }
 }
 
 const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage")
@@ -34,15 +38,18 @@ beforeEach(() => storage.clear())
 
 const NONCE = "n0nce_n0nce_n0nce_n0nce"
 const NOW = 1_700_000_000_000
+const ENDPOINT = "https://fs.example.com"
+const STORED = `agent-fs-key-handoff:${NONCE}`
 
-function fakeWindow(url: string, saved?: string) {
+/** A tab of live.test; tabs share `local`, as localStorage is per origin. */
+function fakeWindow(url: string, saved?: string, local = new MemoryStorage()) {
   const u = new URL(url)
   const calls: string[] = []
-  const session = new MemoryStorage()
   const win = {
     __agentFsKeyHandoff: saved,
     location: { hash: u.hash, pathname: u.pathname, search: u.search },
-    sessionStorage: session,
+    localStorage: local,
+    sessionStorage: new MemoryStorage(),
     history: {
       state: null,
       replaceState: (_s: unknown, _t: string, next?: string | URL | null) => {
@@ -51,13 +58,13 @@ function fakeWindow(url: string, saved?: string) {
       },
     },
   }
-  return { win, calls, session }
+  return { win, calls, local }
 }
 
-/** A tab that clicked Continue `ago` ms before NOW. */
-function startedWindow(url: string, opts: { saved?: string; ago?: number } = {}) {
+/** A browser that showed the Continue link for ENDPOINT `ago` ms before NOW; `url` is the return. */
+function startedWindow(url: string, opts: { saved?: string; ago?: number; endpoint?: string } = {}) {
   const fake = fakeWindow(url, opts.saved)
-  rememberHandoffNonce(fake.win, NONCE, NOW - (opts.ago ?? 1000))
+  rememberHandoffNonce(fake.win, NONCE, opts.endpoint ?? ENDPOINT, NOW - (opts.ago ?? 1000))
   return fake
 }
 
@@ -85,67 +92,111 @@ describe("parseKeyHandoff", () => {
 describe("takeKeyHandoff", () => {
   const fragment = `#key=${KEY}&apiUrl=${encodeURIComponent("https://fs.example.com")}`
 
-  test("with the tab's nonce: returns the key, strips fragment and nonce, keeps path and query", () => {
-    const { win, calls, session } = startedWindow(`https://live.test/file/~/o/d/a.md?apiUrl=x&handoff=${NONCE}${fragment}`)
-    expect(takeKeyHandoff(win, NOW)).toEqual({ apiKey: KEY, endpoint: "https://fs.example.com" })
+  test("with a stored nonce: returns the key, strips fragment and nonce, keeps path and query", () => {
+    const { win, calls, local } = startedWindow(`https://live.test/file/~/o/d/a.md?apiUrl=x&handoff=${NONCE}${fragment}`)
+    expect(takeKeyHandoff(win, NOW)).toEqual({ apiKey: KEY, endpoint: ENDPOINT })
     expect(calls).toEqual(["/file/~/o/d/a.md?apiUrl=x"])
     expect(win.location.hash).toBe("")
-    expect(session.getItem("agent-fs-key-handoff")).toBeNull()
+    expect(local.getItem(STORED)).toBeNull()
+  })
+
+  test("a new tab opened from the link finds the nonce stored when the link was shown", () => {
+    const shown = fakeWindow("https://live.test/credentials?next=%2Ffile%2F~%2Fo%2Fd%2Fa.md")
+    rememberHandoffNonce(shown.win, NONCE, ENDPOINT, NOW - 1000)
+    const newTab = fakeWindow(`https://live.test/file/~/o/d/a.md?handoff=${NONCE}${fragment}`, undefined, shown.local)
+    expect(takeKeyHandoff(newTab.win, NOW)).toEqual({ apiKey: KEY, endpoint: ENDPOINT })
+    expect(shown.local.getItem(STORED)).toBeNull()
   })
 
   test("the nonce works once", () => {
-    const { win } = startedWindow(`https://live.test/file/~/o/d/a.md?handoff=${NONCE}${fragment}`)
-    expect(takeKeyHandoff(win, NOW)?.apiKey).toBe(KEY)
-    const again = fakeWindow(`https://live.test/file/~/o/d/a.md?handoff=${NONCE}${fragment}`)
-    again.win.sessionStorage = win.sessionStorage
-    expect(takeKeyHandoff(again.win, NOW)).toBeNull()
+    const { win, local } = startedWindow(`https://live.test/file/~/o/d/a.md?handoff=${NONCE}${fragment}`)
+    expect(takeKeyHandoff(win, NOW)).toMatchObject({ apiKey: KEY })
+    const again = fakeWindow(`https://live.test/file/~/o/d/a.md?handoff=${NONCE}${fragment}`, undefined, local)
+    expect(takeKeyHandoff(again.win, NOW)).toBe("refused")
+  })
+
+  test("several shown links each keep their own nonce", () => {
+    const { win, local } = startedWindow(`https://live.test/files?handoff=${NONCE}${fragment}`)
+    rememberHandoffNonce(win, "other-nonce", ENDPOINT, NOW - 500)
+    expect(takeKeyHandoff(win, NOW)).toMatchObject({ apiKey: KEY })
+    expect(local.keys()).toEqual(["agent-fs-key-handoff:other-nonce"])
   })
 
   test("uses the copy index.html saved, once, and only strips the nonce from the address bar", () => {
-    const { win, calls } = startedWindow(`https://live.test/file/~/o/d/a.md?handoff=${NONCE}`, { saved: `#key=${KEY}` })
-    expect(takeKeyHandoff(win, NOW)?.apiKey).toBe(KEY)
+    const { win, calls } = startedWindow(`https://live.test/file/~/o/d/a.md?handoff=${NONCE}`, { saved: fragment })
+    expect(takeKeyHandoff(win, NOW)).toMatchObject({ apiKey: KEY })
     expect(calls).toEqual(["/file/~/o/d/a.md"])
     expect(win.__agentFsKeyHandoff).toBeUndefined()
     expect(takeKeyHandoff(win, NOW)).toBeNull()
   })
 
-  test("a crafted fragment without a nonce is stripped and ignored, also while a real flow is pending", () => {
-    const { win, calls, session } = startedWindow(`https://live.test/file/~/o/d/a.md${fragment}`)
-    expect(takeKeyHandoff(win, NOW)).toBeNull()
+  test("a crafted fragment without a nonce is stripped and refused, and leaves a pending flow alone", () => {
+    const { win, calls, local } = startedWindow(`https://live.test/file/~/o/d/a.md${fragment}`)
+    expect(takeKeyHandoff(win, NOW)).toBe("refused")
     expect(calls).toEqual(["/file/~/o/d/a.md"])
-    expect(session.getItem("agent-fs-key-handoff")).toBeNull()
+    expect(local.getItem(STORED)).not.toBeNull()
 
     const fresh = fakeWindow(`https://live.test/files${fragment}`)
-    expect(takeKeyHandoff(fresh.win, NOW)).toBeNull()
+    expect(takeKeyHandoff(fresh.win, NOW)).toBe("refused")
     expect(fresh.calls).toEqual(["/files"])
   })
 
-  test("a crafted fragment the inline script saved, without a nonce, is dropped", () => {
+  test("a crafted fragment the inline script saved, without a nonce, is refused", () => {
     const { win, calls } = fakeWindow("https://live.test/files", fragment)
-    expect(takeKeyHandoff(win, NOW)).toBeNull()
+    expect(takeKeyHandoff(win, NOW)).toBe("refused")
     expect(calls).toEqual([])
     expect(win.__agentFsKeyHandoff).toBeUndefined()
   })
 
-  test("a wrong or expired nonce is refused", () => {
+  test("a wrong nonce is refused", () => {
     const wrong = startedWindow(`https://live.test/files?handoff=someone-elses-nonce${fragment}`)
-    expect(takeKeyHandoff(wrong.win, NOW)).toBeNull()
+    expect(takeKeyHandoff(wrong.win, NOW)).toBe("refused")
     expect(wrong.calls).toEqual(["/files"])
-    const expired = startedWindow(`https://live.test/files?handoff=${NONCE}${fragment}`, { ago: 10 * 60 * 1000 + 1 })
-    expect(takeKeyHandoff(expired.win, NOW)).toBeNull()
   })
 
-  test("a foreign apiUrl never becomes the endpoint without the nonce, and never from the query", () => {
+  test("an expired nonce is refused and removed, and old entries are pruned", () => {
+    const expired = startedWindow(`https://live.test/files?handoff=${NONCE}${fragment}`, { ago: 10 * 60 * 1000 + 1 })
+    expect(takeKeyHandoff(expired.win, NOW)).toBe("refused")
+    expect(expired.local.getItem(STORED)).toBeNull()
+
+    const { win, local } = fakeWindow("https://live.test/credentials")
+    rememberHandoffNonce(win, "old", ENDPOINT, NOW - 11 * 60 * 1000)
+    local.setItem("agent-fs-key-handoff:junk", "{not json")
+    local.setItem("unrelated", "kept")
+    rememberHandoffNonce(win, NONCE, ENDPOINT, NOW)
+    expect(local.keys().sort()).toEqual([STORED, "unrelated"])
+  })
+
+  test("showing the link again restarts its 10 minutes", () => {
+    const { win } = startedWindow(`https://live.test/files?handoff=${NONCE}${fragment}`, { ago: 10 * 60 * 1000 + 1 })
+    rememberHandoffNonce(win, NONCE, ENDPOINT, NOW - 1000)
+    expect(takeKeyHandoff(win, NOW)).toMatchObject({ apiKey: KEY })
+  })
+
+  test("an apiUrl that is not the server the Continue area named is refused", () => {
+    const evil = encodeURIComponent("https://evil.test")
+    const other = startedWindow(`https://live.test/files?handoff=${NONCE}#key=${KEY}&apiUrl=${evil}`)
+    expect(takeKeyHandoff(other.win, NOW)).toBe("refused")
+    expect(other.local.getItem(STORED)).toBeNull()
+
+    const otherPath = startedWindow(`https://live.test/files?handoff=${NONCE}#key=${KEY}&apiUrl=${encodeURIComponent(`${ENDPOINT}/v2`)}`)
+    expect(takeKeyHandoff(otherPath.win, NOW)).toBe("refused")
+
+    const sameNormalized = startedWindow(`https://live.test/files?handoff=${NONCE}#key=${KEY}&apiUrl=${encodeURIComponent(`${ENDPOINT}/`)}`)
+    expect(takeKeyHandoff(sameNormalized.win, NOW)).toEqual({ apiKey: KEY, endpoint: ENDPOINT })
+  })
+
+  test("a foreign apiUrl never becomes the endpoint, and never from the query", () => {
     const evil = encodeURIComponent("https://evil.test")
     const crafted = fakeWindow(`https://live.test/file/~/o/d/a.md?apiUrl=${evil}#key=${KEY}&apiUrl=${evil}`)
-    expect(takeKeyHandoff(crafted.win, NOW)).toBeNull()
+    expect(takeKeyHandoff(crafted.win, NOW)).toBe("refused")
     expect(getCredentials()).toEqual([])
 
     const queryOnly = startedWindow(`https://live.test/file/~/o/d/a.md?apiUrl=${evil}&handoff=${NONCE}#key=${KEY}`)
-    expect(takeKeyHandoff(queryOnly.win, NOW)).toEqual({ apiKey: KEY, endpoint: null })
+    expect(takeKeyHandoff(queryOnly.win, NOW)).toBe("refused")
   })
 
-  test("an invalid key is still stripped from the address bar", () => {
+  test("an invalid key is still stripped from the address bar, without the refusal toast", () => {
     const { win, calls } = startedWindow(`https://live.test/files?handoff=${NONCE}#key=nope`)
     expect(takeKeyHandoff(win, NOW)).toBeNull()
     expect(calls).toEqual(["/files"])
@@ -158,6 +209,45 @@ describe("takeKeyHandoff", () => {
     const stray = fakeWindow(`https://live.test/file/~/o/d/a.md?handoff=${NONCE}#heading`)
     expect(takeKeyHandoff(stray.win, NOW)).toBeNull()
     expect(stray.calls).toEqual(["/file/~/o/d/a.md#heading"])
+  })
+})
+
+describe("signInWithKeyHandoff", () => {
+  const fragment = `#key=${KEY}&apiUrl=${encodeURIComponent(ENDPOINT)}`
+  function notices() {
+    const shown: string[] = []
+    return { shown, notify: { info: (m: string) => shown.push(`info: ${m}`), error: (m: string) => shown.push(`error: ${m}`) } }
+  }
+
+  test("a matching return signs in without a notice", () => {
+    const { win } = startedWindow(`https://live.test/file/~/o/d/a.md?handoff=${NONCE}${fragment}`)
+    const { shown, notify } = notices()
+    signInWithKeyHandoff(win, notify, NOW)
+    expect(shown).toEqual([])
+    expect(getActiveCredential()).toMatchObject({ endpoint: ENDPOINT, apiKey: KEY })
+  })
+
+  test("a refused key fragment shows the neutral notice and saves nothing", () => {
+    for (const url of [
+      `https://live.test/files${fragment}`,
+      `https://live.test/files?handoff=wrong${fragment}`,
+      `https://live.test/files?handoff=${NONCE}#key=${KEY}&apiUrl=${encodeURIComponent("https://evil.test")}`,
+    ]) {
+      const { win } = startedWindow(url)
+      const { shown, notify } = notices()
+      signInWithKeyHandoff(win, notify, NOW)
+      expect(shown).toEqual(["info: The sign-in link expired or was already used. Continue again."])
+    }
+    expect(getCredentials()).toEqual([])
+  })
+
+  test("no key fragment, no notice", () => {
+    for (const url of ["https://live.test/files", `https://live.test/files?handoff=${NONCE}#heading`, `https://live.test/files?handoff=${NONCE}#key=nope`]) {
+      const { win } = startedWindow(url)
+      const { shown, notify } = notices()
+      signInWithKeyHandoff(win, notify, NOW)
+      expect(shown).toEqual([])
+    }
   })
 })
 
@@ -186,7 +276,7 @@ describe("the key strip in index.html", () => {
   test("a crafted key fragment is gone from the address bar and then ignored by the app", () => {
     const { win, calls } = run(`https://live.test/files#key=${KEY}&apiUrl=https%3A%2F%2Fevil.test`)
     expect(calls).toEqual(["/files"])
-    expect(takeKeyHandoff(win, NOW)).toBeNull()
+    expect(takeKeyHandoff(win, NOW)).toBe("refused")
     expect(win.__agentFsKeyHandoff).toBeUndefined()
   })
 

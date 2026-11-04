@@ -16,11 +16,14 @@ import {
  * swarm writes, never from the query string: a crafted `?apiUrl=` on the
  * return URL would otherwise receive the freshly minted key.
  *
- * A handoff counts only for a flow this tab started. The Continue click keeps a
- * single-use nonce in sessionStorage for 10 minutes and puts it in the
- * `return_to` query as `?handoff=<nonce>`. A `#key=` without that nonce (a link
- * someone else crafted, signing the user in as them or pointing the app at
- * their server) is stripped and ignored.
+ * A handoff counts only for a flow this browser started. The Continue link
+ * carries a nonce in the `return_to` query as `?handoff=<nonce>`, and the page
+ * that shows the link keeps it in localStorage (so a new tab or window that
+ * opens the link also finds it), single use, for 10 minutes, together with the
+ * agent-fs server the Continue area named. A `#key=` without a stored nonce,
+ * or with an `apiUrl` that is not that server (a link someone else crafted,
+ * signing the user in as them or pointing the app at their server), is
+ * stripped and refused.
  */
 
 export interface KeyHandoff {
@@ -54,11 +57,12 @@ export function parseKeyHandoff(hash: string): KeyHandoff | null {
 
 /** Query parameter of `return_to` that brings the Continue nonce back from the swarm. */
 export const HANDOFF_PARAM = "handoff"
-const NONCE_STORAGE_KEY = "agent-fs-key-handoff"
+/** One localStorage entry per nonce: `agent-fs-key-handoff:<nonce>` -> `{ expiresAt, endpoint }`. */
+const NONCE_STORAGE_PREFIX = "agent-fs-key-handoff:"
 const NONCE_TTL_MS = 10 * 60 * 1000
 
-interface SessionStorageHolder {
-  sessionStorage: Pick<Storage, "getItem" | "setItem" | "removeItem">
+interface LocalStorageHolder {
+  localStorage: Pick<Storage, "getItem" | "setItem" | "removeItem" | "key" | "length">
 }
 
 /** 128 random bits, base64url. */
@@ -67,30 +71,57 @@ export function newHandoffNonce(): string {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
 
-/** Keep the nonce of a Continue click in this tab: valid for 10 minutes and one return. */
-export function rememberHandoffNonce(win: SessionStorageHolder, nonce: string, now = Date.now()): void {
-  try {
-    win.sessionStorage.setItem(NONCE_STORAGE_KEY, JSON.stringify({ nonce, expiresAt: now + NONCE_TTL_MS }))
-  } catch {
-    // Storage blocked: the return is then refused, which is the safe side.
+/** Remove the stored nonces that have expired (or cannot be read). */
+function pruneHandoffNonces(storage: LocalStorageHolder["localStorage"], now: number): void {
+  const keys: string[] = []
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i)
+    if (key?.startsWith(NONCE_STORAGE_PREFIX)) keys.push(key)
+  }
+  for (const key of keys) {
+    if (!readEntry(storage.getItem(key), now)) storage.removeItem(key)
   }
 }
 
-/** The pending nonce if it has not expired, or null. It is removed either way. */
-function consumeHandoffNonce(win: SessionStorageHolder, now: number): string | null {
+function readEntry(raw: string | null, now: number): { endpoint: string } | null {
+  if (!raw) return null
   try {
-    const raw = win.sessionStorage.getItem(NONCE_STORAGE_KEY)
-    win.sessionStorage.removeItem(NONCE_STORAGE_KEY)
-    if (!raw) return null
-    const value = JSON.parse(raw) as { nonce?: unknown; expiresAt?: unknown }
-    if (typeof value.nonce !== "string" || typeof value.expiresAt !== "number") return null
-    return now < value.expiresAt ? value.nonce : null
+    const value = JSON.parse(raw) as { endpoint?: unknown; expiresAt?: unknown }
+    if (typeof value.endpoint !== "string" || typeof value.expiresAt !== "number") return null
+    return now < value.expiresAt ? { endpoint: value.endpoint } : null
   } catch {
     return null
   }
 }
 
-interface HandoffWindow extends SessionStorageHolder {
+/**
+ * Keep the nonce of a shown Continue link for `endpoint`, the agent-fs server
+ * the Continue area named: valid for 10 minutes from now and one return. Call
+ * it again to restart the 10 minutes. Expired nonces are removed.
+ */
+export function rememberHandoffNonce(win: LocalStorageHolder, nonce: string, endpoint: string, now = Date.now()): void {
+  try {
+    pruneHandoffNonces(win.localStorage, now)
+    win.localStorage.setItem(NONCE_STORAGE_PREFIX + nonce, JSON.stringify({ expiresAt: now + NONCE_TTL_MS, endpoint }))
+  } catch {
+    // Storage blocked: the return is then refused, which is the safe side.
+  }
+}
+
+/** The server stored with `nonce` if it has not expired, or null. The nonce is removed either way. */
+function consumeHandoffNonce(win: LocalStorageHolder, nonce: string, now: number): string | null {
+  try {
+    const key = NONCE_STORAGE_PREFIX + nonce
+    const entry = readEntry(win.localStorage.getItem(key), now)
+    win.localStorage.removeItem(key)
+    pruneHandoffNonces(win.localStorage, now)
+    return entry?.endpoint ?? null
+  } catch {
+    return null
+  }
+}
+
+interface HandoffWindow extends LocalStorageHolder {
   __agentFsKeyHandoff?: string
   location: { hash: string; pathname: string; search: string }
   history: Pick<History, "replaceState" | "state">
@@ -100,9 +131,12 @@ interface HandoffWindow extends SessionStorageHolder {
  * Take the handoff fragment: the copy index.html saved, or the address bar if
  * that script did not run. The address bar loses the fragment and the
  * `handoff` nonce either way. The key comes back only when the nonce in the
- * query is the one this tab stored on the Continue click; that nonce is used up.
+ * query is one this browser stored for a shown Continue link, and the
+ * fragment's `apiUrl` is the server stored with it; that nonce is used up.
+ * `"refused"`: a valid key fragment came back without that match (missing,
+ * wrong, used or expired nonce, or another server).
  */
-export function takeKeyHandoff(win: HandoffWindow, now = Date.now()): KeyHandoff | null {
+export function takeKeyHandoff(win: HandoffWindow, now = Date.now()): KeyHandoff | "refused" | null {
   const saved = win.__agentFsKeyHandoff
   delete win.__agentFsKeyHandoff
   const hash = saved ?? win.location.hash
@@ -117,9 +151,11 @@ export function takeKeyHandoff(win: HandoffWindow, now = Date.now()): KeyHandoff
     const search = nonce === null ? win.location.search : rest ? `?${rest}` : ""
     win.history.replaceState(win.history.state, "", win.location.pathname + search + (hasKey ? "" : win.location.hash))
   }
-  const expected = consumeHandoffNonce(win, now)
-  if (!hasKey || !nonce || nonce !== expected) return null
-  return parseKeyHandoff(hash)
+  const expectedEndpoint = nonce ? consumeHandoffNonce(win, nonce, now) : null
+  const handoff = hasKey ? parseKeyHandoff(hash) : null
+  if (!handoff) return null
+  if (!expectedEndpoint || handoff.endpoint !== normalizeEndpoint(expectedEndpoint)) return "refused"
+  return handoff
 }
 
 /**
@@ -144,6 +180,22 @@ export function applyKeyHandoff(handoff: KeyHandoff): { ok: true; credentialId: 
   localStorage.removeItem("agent-fs-active-org")
   localStorage.removeItem("agent-fs-active-drive")
   return { ok: true, credentialId: id }
+}
+
+/**
+ * At boot, before any request: sign in with a handed-off key, or tell the user
+ * why not. A refused key fragment gets a neutral notice, nothing else does.
+ */
+export function signInWithKeyHandoff(
+  win: HandoffWindow,
+  notify: { info: (message: string) => void; error: (message: string) => void },
+  now = Date.now(),
+): void {
+  const handoff = takeKeyHandoff(win, now)
+  if (handoff === "refused") notify.info("The sign-in link expired or was already used. Continue again.")
+  else if (handoff && !applyKeyHandoff(handoff).ok) {
+    notify.error("The sign-in link did not say which agent-fs server it is for. Connect with a key instead.")
+  }
 }
 
 /** `host[:port]` of a URL, for labels. */

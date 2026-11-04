@@ -173,7 +173,9 @@ export function CredentialsPage() {
           <div className="space-y-3">
             <a
               href={continueHref.href}
-              onClick={() => rememberHandoffNonce(window, continueHref.nonce)}
+              onClick={continueHref.remember}
+              onAuxClick={continueHref.remember}
+              onContextMenu={continueHref.remember}
               className={buttonVariants({ size: "lg", className: "w-full" })}
             >
               Continue with {continueHref.host}
@@ -423,10 +425,12 @@ export function CredentialsPage() {
 
 /**
  * The "Continue with <swarm host>" link for the deep link in `?next=`, or null
- * while unknown. The click stores the nonce the link carries; the return is
- * accepted only with it (see takeKeyHandoff).
+ * while unknown. Showing the link stores the nonce it carries with the agent-fs
+ * server it names, so a new tab opened from the link finds it too; `remember`
+ * (on click, middle click and context menu) restarts its 10 minutes. The return
+ * is accepted only with that nonce and server (see takeKeyHandoff).
  */
-function useContinueWithSwarm(params: URLSearchParams): (ContinueLink & { nonce: string }) | null {
+function useContinueWithSwarm(params: URLSearchParams): (ContinueLink & { remember: () => void }) | null {
   const next = params.get("next")
   const target = next && isAppReturnPath(next) ? next : null
   const orgId = target ? orgIdFromAppPath(target) : null
@@ -441,8 +445,16 @@ function useContinueWithSwarm(params: URLSearchParams): (ContinueLink & { nonce:
     staleTime: Infinity,
   })
 
-  if (!target || !endpoint) return null
-  const endpointSaved = getCredentials().some((c) => normalizeEndpoint(c.endpoint) === endpoint)
-  const link = continueWithSwarmLink({ swarmUrl, target, origin: window.location.origin, nonce, endpoint, endpointSaved })
-  return link && { ...link, nonce }
+  const endpointSaved = !!endpoint && getCredentials().some((c) => normalizeEndpoint(c.endpoint) === endpoint)
+  const link =
+    target && endpoint
+      ? continueWithSwarmLink({ swarmUrl, target, origin: window.location.origin, nonce, endpoint, endpointSaved })
+      : null
+
+  const href = link?.href
+  useEffect(() => {
+    if (href && endpoint) rememberHandoffNonce(window, nonce, endpoint)
+  }, [href, nonce, endpoint])
+
+  return link && endpoint ? { ...link, remember: () => rememberHandoffNonce(window, nonce, endpoint) } : null
 }
