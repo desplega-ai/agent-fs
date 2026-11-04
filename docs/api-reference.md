@@ -87,6 +87,19 @@ curl http://localhost:7433/auth/me \
 
 For an org-scoped key the answer is identity only, without the personal defaults: `{"userId","email","displayName","scopedOrgId"}`. It is the only `/auth` route such a key may call.
 
+### Org swarm URL
+
+An org can name the agent-swarm dashboard it trusts for sign-in. When a browser with no key opens a deep link into that org (`/file/~/<orgId>/<driveId>/<path>?apiUrl=<this server>`), the live UI shows "Continue with <swarm host>", which opens `<swarmUrl>/fs/continue?return_to=<the live URL>`. The swarm mints a key for the signed-in user and sends the browser back to `return_to` with `#key=<af_...>&apiUrl=<this server>` in the fragment. The live UI saves that key, removes the fragment from the address bar before any request, and opens the original path.
+
+| Method | Path | Who | Body | Response |
+|---|---|---|---|---|
+| `PATCH` | `/orgs/{orgId}` | org admin | `{"swarmUrl":"https://swarm.example.com"}` or `{"swarmUrl":null}` | `{"id","name","isPersonal","swarmUrl"}` |
+| `GET` | `/orgs/{orgId}` | org member | none | `{"id","name","isPersonal","swarmUrl"}` |
+| `GET` | `/orgs/{orgId}/public` | anyone (no key) | none | `{"swarmUrl"}` |
+
+- `swarmUrl` must be an absolute `http` or `https` URL without credentials, query or fragment (max 2048 characters). A trailing slash is dropped. Anything else gets `400 {"error":"VALIDATION_ERROR","field":"swarmUrl"}`. Members below admin get 403, non-members 404. Sending the stored value again changes nothing, so a swarm can set it on every boot.
+- `GET /orgs/{orgId}/public` sits before authentication with a per-IP limit of 120 requests per minute. It returns only `swarmUrl`. An unknown org gets the same `{"swarmUrl":null}` as an org without one.
+
 ### `ALL /mcp`
 
 MCP endpoint (Streamable HTTP transport). Accepts JSON-RPC requests from MCP clients. Stateless — each request creates a fresh MCP server instance.

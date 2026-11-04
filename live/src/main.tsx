@@ -8,6 +8,15 @@ import "./index.css"
 import App from "./App"
 import { trackSessionStart } from "./lib/telemetry"
 import { installStaleChunkReload } from "./lib/stale-chunk"
+import { applyKeyHandoff, takeKeyHandoff } from "./lib/key-handoff"
+import { toast } from "./stores/toast"
+
+// First, before any request or render: a "Continue with <swarm>" return
+// carries an API key in the URL fragment.
+const handoff = takeKeyHandoff(window)
+if (handoff && !applyKeyHandoff(handoff).ok) {
+  toast.error("The sign-in link did not say which agent-fs server it is for. Connect with a key instead.")
+}
 
 installStaleChunkReload()
 trackSessionStart()

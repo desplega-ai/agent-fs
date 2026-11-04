@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router"
-import { Eye, EyeOff, Trash2, LogIn, Plus, UserPlus, Info } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { Eye, EyeOff, Trash2, LogIn, Plus, UserPlus, Info, ArrowRight } from "lucide-react"
 import { AgentFsClient } from "@/api/client"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
   Tooltip,
@@ -10,6 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import {
+  getActiveCredential,
   getCredentials,
   saveCredential,
   removeCredential,
@@ -20,6 +22,13 @@ import { CredentialDetailsDialog } from "@/components/credentials/CredentialDeta
 import { toast } from "@/stores/toast"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { isInviteReturnPath } from "@/lib/invites"
+import {
+  continueWithSwarmHref,
+  endpointHost,
+  isAppReturnPath,
+  normalizeEndpoint,
+  orgIdFromAppPath,
+} from "@/lib/key-handoff"
 
 type Mode = "connect" | "register"
 
@@ -44,13 +53,18 @@ export function CredentialsPage() {
   const successTarget = useMemo(() => {
     // Only the invite accept page may send people here and take them back.
     const next = initialParams.get("next")
-    if (next && isInviteReturnPath(next)) return next
+    if (next && (isInviteReturnPath(next) || isAppReturnPath(next))) return next
     const orgId = initialParams.get("orgId")
     const driveId = initialParams.get("driveId")
     if (orgId && driveId) return `/file/~/${orgId}/${driveId}/`
     if (orgId) return `/orgs/${orgId}/files/`
     return "/files"
   }, [initialParams])
+
+  // "Continue with <swarm>": a deep link into an org whose agent-swarm
+  // dashboard is known. The API address comes from `?apiUrl=` or the saved
+  // account; the swarm sends the browser back to the deep link with a key.
+  const continueHref = useContinueWithSwarm(initialParams)
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -152,6 +166,19 @@ export function CredentialsPage() {
           <h1 className="text-2xl font-bold tracking-tight">{heading}</h1>
           <p className="text-sm text-muted-foreground mt-1">{subheading}</p>
         </div>
+
+        {continueHref && (
+          <div className="space-y-3">
+            <a
+              href={continueHref.href}
+              className={buttonVariants({ size: "lg", className: "w-full" })}
+            >
+              Continue with {continueHref.host}
+              <ArrowRight />
+            </a>
+            <p className="text-center text-xs text-muted-foreground">or connect with an API key</p>
+          </div>
+        )}
 
         <div
           role="tablist"
@@ -384,4 +411,31 @@ export function CredentialsPage() {
       </div>
     </div>
   )
+}
+
+/**
+ * The "Continue with <swarm host>" link for the deep link in `?next=`, or null
+ * while unknown. The swarm URL is checked again here: a crafted `?apiUrl=` can
+ * point at any server, which must not be able to plant a `javascript:` link.
+ */
+function useContinueWithSwarm(params: URLSearchParams): { href: string; host: string } | null {
+  const next = params.get("next")
+  const target = next && isAppReturnPath(next) ? next : null
+  const orgId = target ? orgIdFromAppPath(target) : null
+  const endpoint = normalizeEndpoint(params.get("apiUrl")) ?? normalizeEndpoint(getActiveCredential()?.endpoint)
+
+  const { data: swarmUrl } = useQuery({
+    queryKey: ["org-swarm-url", endpoint, orgId],
+    queryFn: () => AgentFsClient.getOrgSwarmUrl({ endpoint: endpoint!, orgId: orgId! }),
+    enabled: !!endpoint && !!orgId,
+    retry: false,
+    staleTime: Infinity,
+  })
+
+  const safeSwarmUrl = normalizeEndpoint(swarmUrl)
+  if (!target || !safeSwarmUrl) return null
+  return {
+    href: continueWithSwarmHref(safeSwarmUrl, window.location.origin + target),
+    host: endpointHost(safeSwarmUrl),
+  }
 }

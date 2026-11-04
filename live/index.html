@@ -19,6 +19,14 @@
         }
         history.replaceState(history.state, "", "/invite" + location.search + location.hash)
       })()
+      // "Continue with <swarm>" comes back with an API key in the fragment (#key=af_...).
+      // Hand it to the app in memory and take it out of the address bar before any other script
+      // (analytics included) can read location.href. src/lib/key-handoff.ts consumes it.
+      ;(function () {
+        if (!/(^#|&)key=/.test(location.hash)) return
+        window.__agentFsKeyHandoff = location.hash
+        history.replaceState(history.state, "", location.pathname + location.search)
+      })()
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 

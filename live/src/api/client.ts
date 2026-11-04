@@ -119,6 +119,19 @@ export class AgentFsClient {
   }
 
   /**
+   * Where a browser with no key can sign in to an org: its agent-swarm
+   * dashboard, or null. Public; an unknown org also answers null, and so does
+   * a server that predates the route (404).
+   */
+  static async getOrgSwarmUrl(opts: { endpoint: string; orgId: string }): Promise<string | null> {
+    const endpoint = opts.endpoint.replace(/\/+$/, "")
+    const res = await fetch(`${endpoint}/orgs/${encodeURIComponent(opts.orgId)}/public`)
+    if (!res.ok) return null
+    const body = (await res.json()) as { swarmUrl?: unknown }
+    return typeof body.swarmUrl === "string" ? body.swarmUrl : null
+  }
+
+  /**
    * Public preview of an accept link: who invited you, to which org and drives.
    * The token is the credential, so no Authorization header. Unknown, expired,
    * revoked and used links all answer the same 404.
@@ -208,6 +221,10 @@ export class AgentFsClient {
   /** Revoke one of the caller's keys. `primary` revokes the primary key. */
   async revokeApiKey(id: string): Promise<void> {
     await this.request(`/auth/keys/${encodeURIComponent(id)}`, { method: "DELETE" })
+  }
+
+  async getOrg(orgId: string): Promise<Org> {
+    return this.get<Org>(`/orgs/${orgId}`)
   }
 
   async getOrgs(): Promise<{ orgs: Org[] }> {

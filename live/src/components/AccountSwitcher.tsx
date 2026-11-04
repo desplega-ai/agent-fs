@@ -44,11 +44,16 @@ export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}
             <DropdownMenuSeparator />
           </>
         )}
-        <DropdownMenuItem onClick={() => setEditingProfile(true)}>Edit profile</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => navigate("/keys")}>
-          <KeyRound className="size-3" />
-          <span>API keys</span>
-        </DropdownMenuItem>
+        {/* An org-scoped key gets 403 on /auth/profile and /auth/keys. */}
+        {!user?.scopedOrgId && (
+          <>
+            <DropdownMenuItem onClick={() => setEditingProfile(true)}>Edit profile</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate("/keys")}>
+              <KeyRound className="size-3" />
+              <span>API keys</span>
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuItem onClick={() => setConfigOpen(true)}>
           <Settings className="size-3" />
           <span>User configuration</span>

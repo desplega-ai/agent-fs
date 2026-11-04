@@ -9,6 +9,7 @@ import {
   type Credential,
 } from "@/stores/credentials"
 import { treeExpansionStore } from "@/stores/tree-expansion"
+import { credentialsRedirect } from "@/lib/key-handoff"
 
 interface AuthContextValue {
   credential: Credential
@@ -47,7 +48,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!credential) {
-      navigate(`/credentials${window.location.search}`, { replace: true })
+      navigate(credentialsRedirect(window.location), { replace: true })
     }
   }, [credential, navigate])
 
@@ -63,14 +64,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     retry: false,
   })
 
+  // An org-scoped key gets 403 on the org list; it can read its one org.
+  const scopedOrgId = user?.scopedOrgId ?? null
   const { data: orgsData } = useQuery({
-    queryKey: ["orgs", credential?.id],
-    queryFn: () => client!.getOrgs(),
-    enabled: !!client,
+    queryKey: ["orgs", credential?.id, scopedOrgId],
+    queryFn: async () => (scopedOrgId ? { orgs: [await client!.getOrg(scopedOrgId)] } : client!.getOrgs()),
+    enabled: !!client && !!user,
   })
 
   const orgs = orgsData?.orgs ?? []
-  const orgId = activeOrgId ?? user?.defaultOrgId ?? null
+  const orgId = scopedOrgId ?? activeOrgId ?? user?.defaultOrgId ?? null
   const orgName = orgs.find((o) => o.id === orgId)?.name ?? null
 
   const { data: drivesData } = useQuery({
@@ -131,7 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (meError) {
-      navigate(`/credentials${window.location.search}`, { replace: true })
+      navigate(credentialsRedirect(window.location), { replace: true })
     }
   }, [meError, navigate])
 

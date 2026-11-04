@@ -89,6 +89,13 @@ export function runMigrations(sqlite: Database): void {
   // primary key, so no data moves.
   sqlite.exec(USER_API_KEYS_SQL);
 
+  // Migration 3g: add orgs.swarm_url, the agent-swarm dashboard the live UI
+  // offers for sign-in ("Continue with <swarm>"). Nullable, so no backfill.
+  const orgCols = sqlite.prepare("PRAGMA table_info(orgs)").all() as Array<{ name: string }>;
+  if (!orgCols.some((c) => c.name === "swarm_url")) {
+    sqlite.exec("ALTER TABLE orgs ADD COLUMN swarm_url TEXT");
+  }
+
   // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //
   // Drive visibility is strict explicit membership: drives with zero

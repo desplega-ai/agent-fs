@@ -79,15 +79,17 @@ function DetailsBody({
         apiKey: credential.apiKey,
       })
       const me = await client.getMe()
-      const orgsRes = await client.getOrgs()
+      // An org-scoped key reaches one org and gets 403 on the org list.
+      const orgCount = me.scopedOrgId ? 1 : (await client.getOrgs()).orgs.length
+      const orgId = me.scopedOrgId ?? me.defaultOrgId
       let driveCount: number | null = null
-      if (me.defaultOrgId) {
-        const drivesRes = await client.getDrives(me.defaultOrgId)
+      if (orgId) {
+        const drivesRes = await client.getDrives(orgId)
         driveCount = drivesRes.drives.length
       }
       return {
         me,
-        orgCount: orgsRes.orgs.length,
+        orgCount,
         driveCount,
       }
     },
