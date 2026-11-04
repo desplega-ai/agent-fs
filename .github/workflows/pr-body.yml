@@ -1,0 +1,29 @@
+name: PR Body
+
+# Every PR fills the PR template: this repo's .github/pull_request_template.md
+# when it has one, else the org default from desplega-ai/.github. The check
+# logic lives there (.github/workflows/pr-body.yml). A red PR Body blocks the
+# merge through the last step of the required `ci` job (ci.yml); a description
+# edit re-runs that job, so no push is needed.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+  merge_group:
+    types: [checks_requested]
+
+concurrency:
+  group: pr-body-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-body:
+    uses: desplega-ai/.github/.github/workflows/pr-body.yml@aa9436df8f0ef570f033e78dc68d1ef052add22c
+    with:
+      ref: aa9436df8f0ef570f033e78dc68d1ef052add22c
+      gate-workflow: ci.yml
+      gate-job: ci
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: write
