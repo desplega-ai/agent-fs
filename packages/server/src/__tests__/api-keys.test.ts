@@ -376,6 +376,26 @@ describe("admin-minted keys are scoped to the org and die with the grant", () =>
     expect((await keyReq(second.apiKey, `/orgs/${orgId}/drives`)).status).toBe(401);
   });
 
+  test("review repro: a scoped key cannot reset-key itself (or anyone) into a full-account key", async () => {
+    const admin = await register("scope-escape-admin@example.com");
+    const member = await register("scope-escape-member@example.com");
+    const orgId = await orgWith(admin, "scope-escape-member@example.com", "scope-escape-org");
+    const scoped = await mintFor(admin, orgId, admin.userId);
+
+    for (const path of [
+      `/orgs/${orgId}/members/${admin.userId}/reset-key`,
+      `/orgs/${orgId}/members/${member.userId}/reset-key`,
+      `/orgs/${orgId}/members/${admin.userId}/reset%2Dkey`,
+    ]) {
+      const res = await keyReq(scoped.apiKey, path, { method: "POST" });
+      expect({ path, status: res.status }).toEqual({ path, status: 403 });
+    }
+    // Nothing was rotated: both primary keys still work, and so does the scoped key.
+    expect((await keyReq(admin.apiKey, "/auth/keys")).status).toBe(200);
+    expect((await keyReq(member.apiKey, "/auth/me")).status).toBe(200);
+    expect((await keyReq(scoped.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
+  });
+
   test("an admin reset-key of the member leaves the keys alone", async () => {
     const admin = await register("scope-adminreset-admin@example.com");
     const member = await register("scope-adminreset-member@example.com");

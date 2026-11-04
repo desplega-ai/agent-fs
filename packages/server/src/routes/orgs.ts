@@ -213,6 +213,20 @@ export function orgRoutes(db: DB, appUrl?: string) {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
     const targetUserId = c.req.param("userId");
+    // reset-key returns a new primary key, which reaches the whole account.
+    // An org-scoped key must not mint one, or it escapes its scope. The check
+    // lives here, not in the middleware's path filter, because Hono matches
+    // routes on the decoded path (e.g. `reset%2Dkey`).
+    if (c.get("scopeOrgId")) {
+      return c.json(
+        {
+          error: "FORBIDDEN",
+          message: "An org-scoped API key cannot reset a member's primary key",
+          suggestion: "Use an unscoped API key for this request",
+        },
+        403
+      );
+    }
     requireOrgAdmin(db, user.id, orgId);
     requireOrgMember(db, targetUserId, orgId);
     const result = resetApiKey(db, {

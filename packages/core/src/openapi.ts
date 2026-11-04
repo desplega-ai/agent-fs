@@ -395,7 +395,7 @@ export function generateOpenAPISpec() {
         post: {
           summary: "Reset a member's API key (org admin only)",
           description:
-            "Org admins can rotate a member's API key on their behalf, e.g. to recover a locked-out user. The old key stops working immediately. Records an api_key_reset audit event with the admin as actor.",
+            "Org admins can rotate a member's API key on their behalf, e.g. to recover a locked-out user. The old key stops working immediately. Org-scoped keys get 403 here, because the new primary key reaches the whole account. Records an api_key_reset audit event with the admin as actor.",
           operationId: "resetMemberApiKey",
           tags: ["Auth"],
           parameters: [
@@ -539,7 +539,7 @@ export function generateOpenAPISpec() {
         post: {
           summary: "Create an additional API key for a member (org admin only)",
           description:
-            "Org admins can mint an extra key for a member of the org without touching the member's existing keys (reset-key, by contrast, rotates the primary key). The key is scoped to this org: it authenticates as the member only on /orgs/{orgId} and the routes under it, with the member's current role; every other path returns 403. It is revoked when the member leaves the org, when the minting admin leaves the org or loses admin there, and when the member runs their own POST /auth/reset-key. The plaintext key is returned once and never stored. Records an api_key_created audit event in this org with the admin as actor.",
+            "Org admins can mint an extra key for a member of the org without touching the member's existing keys (reset-key, by contrast, rotates the primary key). The key is scoped to this org: it authenticates as the member only on /orgs/{orgId} and the routes under it, with the member's current role; every other path returns 403, and so does POST /orgs/{orgId}/members/{userId}/reset-key. It is revoked when the member leaves the org, when the minting admin leaves the org or loses admin there, and when the member runs their own POST /auth/reset-key. The plaintext key is returned once and never stored. Records an api_key_created audit event in this org with the admin as actor.",
           operationId: "createMemberApiKey",
           tags: ["Auth"],
           parameters: [
