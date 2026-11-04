@@ -16,6 +16,28 @@ export const users = sqliteTable("users", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+// user_api_keys: additional API keys per user. See raw.ts.
+export const userApiKeys = sqliteTable(
+  "user_api_keys",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    keyHash: text("key_hash").notNull(),
+    label: text("label").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
+    revokedAt: integer("revoked_at", { mode: "timestamp" }),
+    createdByUserId: text("created_by_user_id").notNull(),
+    /** Null for a self-minted key; the minting org for an admin-minted one. */
+    orgId: text("org_id"),
+  },
+  (table) => ({
+    keyHashUq: uniqueIndex("user_api_keys_key_hash_uq").on(table.keyHash),
+    userIdx: index("idx_user_api_keys_user").on(table.userId),
+    orgIdx: index("idx_user_api_keys_org").on(table.orgId),
+  })
+);
+
 // orgs
 export const orgs = sqliteTable("orgs", {
   id: text("id").primaryKey(),

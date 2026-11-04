@@ -62,6 +62,43 @@ export function generateOpenAPISpec() {
     "404": { description: "Drive not found or the user is not a member" },
     "429": { description: "RATE_LIMITED: presence request limit or 32 sessions per user per drive exceeded" },
   };
+  const errorContent = { "application/json": { schema: { $ref: "#/components/schemas/Error" } } };
+  const apiKeyCreateBody = {
+    type: "object",
+    properties: { label: { type: "string", minLength: 1, maxLength: 100, description: "Trimmed; shown in GET /auth/keys" } },
+    required: ["label"],
+  };
+  const apiKeyInfo = {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "`primary` for the legacy primary key" },
+      label: { type: "string" },
+      createdAt: { type: ["string", "null"], format: "date-time" },
+      lastUsedAt: { type: ["string", "null"], format: "date-time" },
+      primary: { type: "boolean" },
+      orgId: { type: ["string", "null"], description: "Org the key is limited to; null for a key that reaches the whole account" },
+      createdByUserId: { type: "string", description: "Who minted the key: the user, or the org admin who did" },
+    },
+    required: ["id", "label", "createdAt", "lastUsedAt", "primary", "orgId", "createdByUserId"],
+  };
+  const selfApiKeyInfo = {
+    ...apiKeyInfo,
+    properties: {
+      ...apiKeyInfo.properties,
+      current: { type: "boolean", description: "True for the key that authenticated this request" },
+    },
+    required: [...apiKeyInfo.required, "current"],
+  };
+  const createdApiKey = {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      label: { type: "string" },
+      createdAt: { type: "string", format: "date-time" },
+      apiKey: { type: "string", description: "Plaintext `af_` key, returned once" },
+    },
+    required: ["id", "label", "createdAt", "apiKey"],
+  };
 
   return {
     openapi: "3.1.0",
@@ -265,6 +302,8 @@ export function generateOpenAPISpec() {
       "/auth/me": {
         get: {
           summary: "Get current user info",
+          description:
+            "The one /auth route an org-scoped key (minted by an org admin) may call. For such a key the answer is identity only: `userId`, `email`, `displayName` and `scopedOrgId`, without the personal `defaultOrgId`/`defaultDriveId`. Every other key gets the defaults and `scopedOrgId: null`.",
           operationId: "me",
           tags: ["Auth"],
           responses: {
@@ -275,11 +314,14 @@ export function generateOpenAPISpec() {
                   schema: {
                     type: "object",
                     properties: {
-                      id: { type: "string" },
+                      userId: { type: "string" },
                       email: { type: "string" },
-                      createdAt: { type: "string", format: "date-time" },
+                      displayName: { type: ["string", "null"] },
+                      defaultOrgId: { type: ["string", "null"], description: "Absent for an org-scoped key" },
+                      defaultDriveId: { type: ["string", "null"], description: "Absent for an org-scoped key" },
+                      scopedOrgId: { type: ["string", "null"], description: "Org the calling key is limited to; null for an unscoped key" },
                     },
-                    required: ["id", "email", "createdAt"],
+                    required: ["userId", "email", "displayName", "scopedOrgId"],
                   },
                 },
               },
@@ -320,7 +362,7 @@ export function generateOpenAPISpec() {
         post: {
           summary: "Reset your own API key",
           description:
-            "Rotates the caller's API key. The old key stops working immediately. Records an api_key_reset audit event.",
+            "Rotates the caller's primary API key. The old key stops working immediately. Also revokes every org-scoped key of the caller (keys org admins minted); keys from POST /auth/keys keep working. Records an api_key_reset audit event.",
           operationId: "resetApiKey",
           tags: ["Auth"],
           responses: {
@@ -353,7 +395,7 @@ export function generateOpenAPISpec() {
         post: {
           summary: "Reset a member's API key (org admin only)",
           description:
-            "Org admins can rotate a member's API key on their behalf, e.g. to recover a locked-out user. The old key stops working immediately. Records an api_key_reset audit event with the admin as actor.",
+            "Org admins can rotate a member's API key on their behalf, e.g. to recover a locked-out user. The old key stops working immediately. Org-scoped keys get 403 here, because the new primary key reaches the whole account. Records an api_key_reset audit event with the admin as actor.",
           operationId: "resetMemberApiKey",
           tags: ["Auth"],
           parameters: [
@@ -413,6 +455,134 @@ export function generateOpenAPISpec() {
                 },
               },
             },
+          },
+        },
+      },
+      "/auth/keys": {
+        get: {
+          summary: "List your API keys",
+          description:
+            "Lists the caller's active keys: the primary key (id `primary`, the one register and reset-key hand out) and every non-revoked additional key, including org-scoped keys an org admin minted for the caller. Never returns hashes or plaintext. `createdAt` and `lastUsedAt` are null for the primary key. `lastUsedAt` is refreshed at most once per minute per key. Org-scoped keys get 403 here.",
+          operationId: "listApiKeys",
+          tags: ["Auth"],
+          responses: {
+            "200": {
+              description: "Active keys, primary first",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { keys: { type: "array", items: selfApiKeyInfo } },
+                    required: ["keys"],
+                  },
+                },
+              },
+            },
+            "401": { description: "Unauthorized", content: errorContent },
+          },
+        },
+        post: {
+          summary: "Create an additional API key",
+          description:
+            "Mints a new key for the caller next to the existing ones; no other key changes. The key reaches the whole account, like the primary. The plaintext key is returned once and never stored. Records an api_key_created audit event in the caller's personal org. Org-scoped keys get 403 here.",
+          operationId: "createApiKey",
+          tags: ["Auth"],
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: apiKeyCreateBody } },
+          },
+          responses: {
+            "201": {
+              description: "Key created",
+              content: { "application/json": { schema: createdApiKey } },
+            },
+            "400": { description: "Missing or invalid label", content: errorContent },
+            "401": { description: "Unauthorized", content: errorContent },
+          },
+        },
+      },
+      "/auth/keys/{keyId}": {
+        delete: {
+          summary: "Revoke one of your API keys",
+          description:
+            "Revokes the key immediately. Any key may be revoked, including `primary`, the key making the request, and the last remaining key. A user with no keys left is locked out until an org admin runs POST /orgs/{orgId}/members/{userId}/reset-key, which mints a new primary key. Records an api_key_revoked audit event in the caller's personal org.",
+          operationId: "revokeApiKey",
+          tags: ["Auth"],
+          parameters: [
+            {
+              name: "keyId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "Key id from GET /auth/keys, or `primary`",
+            },
+          ],
+          responses: {
+            "200": {
+              description: "Key revoked",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { ok: { type: "boolean" } },
+                    required: ["ok"],
+                  },
+                },
+              },
+            },
+            "401": { description: "Unauthorized", content: errorContent },
+            "404": { description: "No active key with this id belongs to the caller", content: errorContent },
+          },
+        },
+      },
+      "/orgs/{orgId}/members/{userId}/keys": {
+        post: {
+          summary: "Create an additional API key for a member (org admin only)",
+          description:
+            "Org admins can mint an extra key for a member of the org without touching the member's existing keys (reset-key, by contrast, rotates the primary key). The key is scoped to this org: it authenticates as the member only on /orgs/{orgId} and the routes under it, with the member's current role; every other path returns 403, and so does POST /orgs/{orgId}/members/{userId}/reset-key. It is revoked when the member leaves the org, when the minting admin leaves the org or loses admin there, and when the member runs their own POST /auth/reset-key. The plaintext key is returned once and never stored. Records an api_key_created audit event in this org with the admin as actor.",
+          operationId: "createMemberApiKey",
+          tags: ["Auth"],
+          parameters: [
+            {
+              name: "orgId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "Organization ID",
+            },
+            {
+              name: "userId",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "ID of the member to mint a key for",
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: { "application/json": { schema: apiKeyCreateBody } },
+          },
+          responses: {
+            "201": {
+              description: "Key created",
+              content: {
+                "application/json": {
+                  schema: {
+                    ...createdApiKey,
+                    properties: {
+                      ...createdApiKey.properties,
+                      userId: { type: "string" },
+                      orgId: { type: "string", description: "The org the key is limited to" },
+                    },
+                    required: [...createdApiKey.required, "userId", "orgId"],
+                  },
+                },
+              },
+            },
+            "400": { description: "Missing or invalid label", content: errorContent },
+            "401": { description: "Unauthorized", content: errorContent },
+            "403": { description: "Caller is not an org admin", content: errorContent },
+            "404": { description: "Org not found, or userId is not a member of the org", content: errorContent },
           },
         },
       },

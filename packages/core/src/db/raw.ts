@@ -32,6 +32,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS org_invites_open_email_uq
   ON org_invites(org_id, email) WHERE accepted_at IS NULL AND revoked_at IS NULL;
 `;
 
+/**
+ * Additional API keys per user, on top of the legacy primary key in
+ * `users.api_key_hash`. Only the SHA-256 of each key is stored, and the unique
+ * index on key_hash keeps authentication to one indexed probe. A revoked key
+ * keeps its row (revoked_at set) for audit. No foreign keys, same reasoning as
+ * invites: a key row must never block deleting a user. Shared with
+ * runMigrations, which adds it to older databases.
+ *
+ * org_id is NULL for a key the user minted for themselves (it reaches
+ * everything the user can). A key an org admin minted for a member carries
+ * that org's id: it only reaches /orgs/<org_id>/..., and it is revoked when
+ * the member leaves the org, when the minting admin leaves or loses admin
+ * there, and when the member runs their own reset-key.
+ */
+export const USER_API_KEYS_SQL = `
+CREATE TABLE IF NOT EXISTS user_api_keys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  key_hash TEXT NOT NULL,
+  label TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at INTEGER,
+  created_by_user_id TEXT NOT NULL,
+  org_id TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS user_api_keys_key_hash_uq ON user_api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_user_api_keys_user ON user_api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_api_keys_org ON user_api_keys(org_id) WHERE org_id IS NOT NULL;
+`;
+
 export const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -216,6 +248,8 @@ CREATE TABLE IF NOT EXISTS favorites (
 CREATE INDEX IF NOT EXISTS idx_favorites_drive_path ON favorites(drive_id, path);
 
 ${ORG_INVITES_SQL}
+
+${USER_API_KEYS_SQL}
 
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

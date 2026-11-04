@@ -49,6 +49,32 @@ Set `AGENT_FS_REGISTER_ALLOWED_DOMAINS` (comma-separated, e.g. `acme.com,acme.io
 
 `agent-fs auth reset-key` rotates your own key while you still hold the current one — it calls `/auth/reset-key`, which sits behind the same auth middleware as every other endpoint, so it cannot help if the key is genuinely lost. Recovering a lost key requires an org admin to run `agent-fs member reset-key <email>` on the locked-out user's behalf. Either path invalidates the old key immediately.
 
+### API keys
+
+A user can hold several keys at once. The key from register (and from `reset-key`) is the **primary** key. Keys the user mints for themselves work everywhere the primary does. Keys an org admin mints for a member are limited to that org (see below). All of them are listed and revoked here. Only a SHA-256 of each key is stored, so the plaintext comes back once, at creation.
+
+| Method | Path | Who | Body | Response |
+|---|---|---|---|---|
+| `POST` | `/auth/keys` | self | `{"label":"dashboard"}` (1–100 chars) | `201 {"id","label","createdAt","apiKey"}` |
+| `GET` | `/auth/keys` | self | — | `{"keys":[{"id","label","createdAt","lastUsedAt","primary","orgId","createdByUserId","current"}]}` |
+| `DELETE` | `/auth/keys/{keyId}` | self | — | `{"ok":true}` |
+| `POST` | `/orgs/{orgId}/members/{userId}/keys` | org admin | `{"label":"agent-swarm"}` | `201 {"id","label","createdAt","apiKey","userId","orgId"}` |
+
+```bash
+curl -X POST http://localhost:7433/auth/keys \
+  -H "Authorization: Bearer <api-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"laptop"}'
+# {"id":"...","label":"laptop","createdAt":"2026-11-04T09:00:00.000Z","apiKey":"af_..."}
+```
+
+- `GET /auth/keys` lists active keys, primary first (id `primary`, `createdAt` and `lastUsedAt` null). It never returns hashes or plaintext. `lastUsedAt` is refreshed at most once per minute per key. `orgId` is null for a key that reaches the whole account and set for an org-scoped key; `createdByUserId` says who minted it. `current` is true for the key the request came in with.
+- `DELETE /auth/keys/{keyId}` takes an id from the list, or `primary`. Any key can be revoked, including the one making the request and the last one left. A user with no keys left is locked out until an org admin runs `agent-fs member reset-key <email>`, which mints a new primary key. Unknown, foreign or already-revoked ids return 404.
+- `POST /orgs/{orgId}/members/{userId}/keys` uses the same guard as the admin `reset-key`: the caller must be an org admin (else 403) and `userId` must be a member of that org (else 404). The member's existing keys keep working.
+- An admin-minted key is **scoped to that org**. It authenticates as the member only on `/orgs/{orgId}` and the routes under it, with the member's current role there. `GET /auth/me` answers it with identity only (see below). Every other path (the rest of `/auth/*`, `/mcp`, `/invites`, other orgs, the org list) returns 403, and the local FUSE daemon refuses it. It is revoked when the member leaves the org, when the admin who minted it leaves the org or stops being an admin there, and when the member runs their own `/auth/reset-key`. An admin `reset-key` of the member does not touch it.
+- A self `/auth/reset-key` rotates the primary key and revokes every org-scoped key of the user. Keys from `POST /auth/keys` keep working.
+- Creating and revoking keys records `api_key_created` / `api_key_revoked` audit events (the self routes use the caller's personal org).
+
 ### `GET /auth/me`
 
 Get current user info with default org/drive context.
@@ -56,8 +82,10 @@ Get current user info with default org/drive context.
 ```bash
 curl http://localhost:7433/auth/me \
   -H "Authorization: Bearer <api-key>"
-# {"userId":"...","email":"...","defaultOrgId":"...","defaultDriveId":"..."}
+# {"userId":"...","email":"...","displayName":null,"defaultOrgId":"...","defaultDriveId":"...","scopedOrgId":null}
 ```
+
+For an org-scoped key the answer is identity only, without the personal defaults: `{"userId","email","displayName","scopedOrgId"}`. It is the only `/auth` route such a key may call.
 
 ### `ALL /mcp`
 

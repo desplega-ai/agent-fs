@@ -22,6 +22,7 @@ import {
   requireDriveAdmin,
   assertDriveInOrg,
   resetApiKey,
+  createUserApiKey,
   NotFoundError,
   PermissionDeniedError,
   ValidationError,
@@ -212,6 +213,20 @@ export function orgRoutes(db: DB, appUrl?: string) {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
     const targetUserId = c.req.param("userId");
+    // reset-key returns a new primary key, which reaches the whole account.
+    // An org-scoped key must not mint one, or it escapes its scope. The check
+    // lives here, not in the middleware's path filter, because Hono matches
+    // routes on the decoded path (e.g. `reset%2Dkey`).
+    if (c.get("scopeOrgId")) {
+      return c.json(
+        {
+          error: "FORBIDDEN",
+          message: "An org-scoped API key cannot reset a member's primary key",
+          suggestion: "Use an unscoped API key for this request",
+        },
+        403
+      );
+    }
     requireOrgAdmin(db, user.id, orgId);
     requireOrgMember(db, targetUserId, orgId);
     const result = resetApiKey(db, {
@@ -224,6 +239,35 @@ export function orgRoutes(db: DB, appUrl?: string) {
       userId: result.user.id,
       email: result.user.email,
     });
+  });
+
+  // Mint an additional key for a member without touching their existing
+  // keys (reset-key rotates the primary one). Same guard as reset-key. The
+  // key is scoped to this org: it only reaches /orgs/<orgId>/..., and it is
+  // revoked when the member leaves the org, when the minting admin leaves or
+  // loses admin here, and when the member runs their own reset-key.
+  router.post("/:orgId/members/:userId/keys", async (c) => {
+    const user = c.get("user");
+    const orgId = c.req.param("orgId");
+    const targetUserId = c.req.param("userId");
+    requireOrgAdmin(db, user.id, orgId);
+    requireOrgMember(db, targetUserId, orgId);
+    const body = await c.req.json().catch(() => ({}));
+    const key = createUserApiKey(db, {
+      userId: targetUserId,
+      label: body?.label,
+      actorId: user.id,
+      orgId,
+      scopeOrgId: orgId,
+    });
+    return c.json({
+      id: key.id,
+      label: key.label,
+      createdAt: key.createdAt,
+      apiKey: key.apiKey,
+      userId: targetUserId,
+      orgId,
+    }, 201);
   });
 
   router.delete("/:orgId/members/:userId", (c) => {

@@ -9,6 +9,13 @@ export {
   resetApiKeyOrgless,
 } from "./users.js";
 export type { ResetApiKeyResult } from "./users.js";
+export {
+  createUserApiKey,
+  listUserApiKeys,
+  revokeUserApiKey,
+  PRIMARY_API_KEY_ID,
+} from "./api-keys.js";
+export type { ApiKeyInfo, CreatedApiKey } from "./api-keys.js";
 export { createOrg, listUserOrgs, getOrg, inviteToOrg, addDriveMember, listOrgMembers, updateOrgMemberRole, removeOrgMember } from "./orgs.js";
 export type { MemberRole, DriveGrant, InviteResult, AddedInviteResult } from "./orgs.js";
 export {

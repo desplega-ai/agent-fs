@@ -79,7 +79,7 @@ function classifyError(e: any): ErrorResponse {
     return err(502, "EMBEDDING_PROVIDER_ERROR", msg);
   }
   // Unknown user/auth issue from the resolver
-  if (/no.*api.*key|no.*user/i.test(msg)) {
+  if (name === "AuthError" || /no.*api.*key|no.*user/i.test(msg)) {
     return err(401, "AUTH_MISSING", msg);
   }
   return err(500, "INTERNAL", msg);
@@ -104,6 +104,13 @@ function resolveAuth(ctx: IpcContext): AuthState {
   const user = getUserByApiKey(ctx.db, key);
   if (!user) {
     const e: any = new Error("API key did not resolve to a user");
+    e.name = "AuthError";
+    throw e;
+  }
+  // IPC ops address any drive the user can reach, so an org-scoped key
+  // (minted by an org admin) cannot be confined here. Refuse it.
+  if (user.scopeOrgId) {
+    const e: any = new Error("API key is limited to one org; the daemon needs one of your own keys");
     e.name = "AuthError";
     throw e;
   }

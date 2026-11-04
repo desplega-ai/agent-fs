@@ -7,6 +7,7 @@ import { grantDriveRole, grantOrgRole } from "./grants.js";
 import { assertDriveInOrg, getUserDriveRole, getUserOrgRole } from "./rbac.js";
 import { createPendingInvite, revokeOpenInviteForEmail } from "./invites.js";
 import { ambiguousEmailError, resolveUserByEmail } from "./users.js";
+import { revokeGrantedKeys } from "./api-keys.js";
 import type { EmailUser } from "./users.js";
 import type { PendingInviteResult } from "./invites.js";
 
@@ -133,15 +134,21 @@ export function updateOrgMemberRole(
     }
   }
 
-  db.update(schema.orgMembers)
-    .set({ role: params.role })
-    .where(
-      and(
-        eq(schema.orgMembers.orgId, params.orgId),
-        eq(schema.orgMembers.userId, params.userId)
+  db.transaction((tx) => {
+    tx.update(schema.orgMembers)
+      .set({ role: params.role })
+      .where(
+        and(
+          eq(schema.orgMembers.orgId, params.orgId),
+          eq(schema.orgMembers.userId, params.userId)
+        )
       )
-    )
-    .run();
+      .run();
+    // Keys this user minted for others here were granted on their admin role.
+    if (existing.role === "admin" && params.role !== "admin") {
+      revokeGrantedKeys(tx, { reason: "adminDemoted", orgId: params.orgId, userId: params.userId });
+    }
+  });
 }
 
 export function removeOrgMember(
@@ -234,6 +241,10 @@ export function removeOrgMember(
         )
       )
       .run();
+
+    // Org-scoped keys die with the membership: the member's own keys for this
+    // org, and any key they minted here for someone else as an admin.
+    revokeGrantedKeys(tx, { reason: "memberLeftOrg", orgId: params.orgId, userId: params.userId });
   });
 }
 

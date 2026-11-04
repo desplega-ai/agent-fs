@@ -171,11 +171,17 @@ export {
   assertDriveInOrg,
   resolveContext,
   ensureLocalUser,
+  createUserApiKey,
+  listUserApiKeys,
+  revokeUserApiKey,
+  PRIMARY_API_KEY_ID,
 } from "./identity/index.js";
 export type {
   Role,
   ResolvedContext,
   ResetApiKeyResult,
+  ApiKeyInfo,
+  CreatedApiKey,
   MemberRole,
   DriveGrant,
   InviteResult,

@@ -19,6 +19,7 @@ import {
   resetApiKeyOrgless,
   getConfig,
   setConfigValue,
+  createUserApiKey,
 } from "../../../../core/src/index.js";
 import { startIpcServer } from "../server.js";
 
@@ -432,5 +433,27 @@ describe("IPC server — encoding helpers", () => {
     expect(dec!.env.id).toBe(42);
     expect((dec!.env.body as any).op).toBe("ping");
     expect(dec!.rest.length).toBe(0);
+  });
+});
+
+describe("IPC refuses org-scoped keys", () => {
+  test("an admin-minted, org-scoped key is refused; the user's own extra key works", async () => {
+    const h = setup();
+    try {
+      const orgId = listUserOrgs(h.db, h.userId)[0].id;
+      const scoped = createUserApiKey(h.db, { userId: h.userId, label: "s", actorId: h.userId, scopeOrgId: orgId });
+      const own = createUserApiKey(h.db, { userId: h.userId, label: "o", actorId: h.userId });
+
+      h.setApiKey(scoped.apiKey);
+      const refused: any = await roundTrip(h.socketPath, { op: "list_drives" });
+      expect(refused.error).toBeDefined();
+      expect(refused.error.http_status).toBe(401);
+
+      h.setApiKey(own.apiKey);
+      const ok: any = await roundTrip(h.socketPath, { op: "list_drives" });
+      expect(ok.drives).toBeInstanceOf(Array);
+    } finally {
+      h.stop();
+    }
   });
 });
