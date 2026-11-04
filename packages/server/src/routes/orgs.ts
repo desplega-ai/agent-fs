@@ -22,6 +22,7 @@ import {
   requireDriveAdmin,
   assertDriveInOrg,
   resetApiKey,
+  createUserApiKey,
   NotFoundError,
   PermissionDeniedError,
   ValidationError,
@@ -224,6 +225,30 @@ export function orgRoutes(db: DB, appUrl?: string) {
       userId: result.user.id,
       email: result.user.email,
     });
+  });
+
+  // Mint an additional key for a member without touching their existing
+  // keys (reset-key rotates the primary one). Same guard as reset-key.
+  router.post("/:orgId/members/:userId/keys", async (c) => {
+    const user = c.get("user");
+    const orgId = c.req.param("orgId");
+    const targetUserId = c.req.param("userId");
+    requireOrgAdmin(db, user.id, orgId);
+    requireOrgMember(db, targetUserId, orgId);
+    const body = await c.req.json().catch(() => ({}));
+    const key = createUserApiKey(db, {
+      userId: targetUserId,
+      label: body?.label,
+      actorId: user.id,
+      orgId,
+    });
+    return c.json({
+      id: key.id,
+      label: key.label,
+      createdAt: key.createdAt,
+      apiKey: key.apiKey,
+      userId: targetUserId,
+    }, 201);
   });
 
   router.delete("/:orgId/members/:userId", (c) => {

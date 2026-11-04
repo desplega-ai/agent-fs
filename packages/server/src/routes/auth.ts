@@ -8,6 +8,9 @@ import {
   resolveContext,
   resetApiKey,
   resetApiKeyOrgless,
+  createUserApiKey,
+  listUserApiKeys,
+  revokeUserApiKey,
 } from "@/core";
 import type { DB } from "@/core";
 import type { AppEnv } from "../types.js";
@@ -114,6 +117,40 @@ export function authRoutes(db: DB) {
       orgId: org.id,
     });
     return c.json({ apiKey: result.apiKey });
+  });
+
+  // --- Additional API keys (self) ---
+  //
+  // Audit events go to the caller's personal org, like /reset-key. A user
+  // with no orgs (should not happen) gets the key without an event.
+  const auditOrgId = (userId: string) => {
+    const orgs = listUserOrgs(db, userId);
+    return (orgs.find((o) => o.isPersonal) ?? orgs[0])?.id;
+  };
+
+  router.post("/keys", async (c) => {
+    const user = c.get("user");
+    const body = await c.req.json().catch(() => ({}));
+    const key = createUserApiKey(db, {
+      userId: user.id,
+      label: body?.label,
+      actorId: user.id,
+      orgId: auditOrgId(user.id),
+    });
+    return c.json({ id: key.id, label: key.label, createdAt: key.createdAt, apiKey: key.apiKey }, 201);
+  });
+
+  router.get("/keys", (c) => c.json({ keys: listUserApiKeys(db, c.get("user").id) }));
+
+  router.delete("/keys/:id", (c) => {
+    const user = c.get("user");
+    revokeUserApiKey(db, {
+      userId: user.id,
+      keyId: c.req.param("id"),
+      actorId: user.id,
+      orgId: auditOrgId(user.id),
+    });
+    return c.json({ ok: true });
   });
 
   return router;

@@ -5,13 +5,13 @@ import { createOrg } from "./orgs.js";
 import { z } from "zod";
 import { ValidationError, NotFoundError } from "../errors.js";
 
-function hashApiKey(key: string): string {
+export function hashApiKey(key: string): string {
   const hasher = new Bun.CryptoHasher("sha256");
   hasher.update(key);
   return hasher.digest("hex");
 }
 
-function generateApiKey(): string {
+export function generateApiKey(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -118,19 +118,45 @@ export function resetApiKeyOrgless(db: DB, userId: string): { apiKey: string } {
   return { apiKey };
 }
 
+/** `last_used_at` is written at most once per this many seconds per key. */
+export const API_KEY_LAST_USED_THROTTLE_SECONDS = 60;
+
+/**
+ * Resolve an API key to its user. Accepts the primary key
+ * (`users.api_key_hash`) and any non-revoked key in `user_api_keys`. One
+ * statement, two indexed probes. For a `user_api_keys` hit, `last_used_at` is
+ * refreshed only when it is older than API_KEY_LAST_USED_THROTTLE_SECONDS, so
+ * the hot path stays read-only.
+ */
 export function getUserByApiKey(
   db: DB,
   apiKey: string
 ): { id: string; email: string } | null {
   const hash = hashApiKey(apiKey);
-  const user = db
-    .select()
-    .from(schema.users)
-    .where(eq(schema.users.apiKeyHash, hash))
-    .get();
+  // `values` returns positional rows; drizzle's raw `get` does not map
+  // column names for compound selects.
+  const [row] = db.values<[string, string, string | null, number | null]>(sql`
+    SELECT id, email, NULL AS key_id, NULL AS last_used_at
+      FROM users WHERE api_key_hash = ${hash}
+    UNION ALL
+    SELECT u.id, u.email, k.id, k.last_used_at
+      FROM user_api_keys k JOIN users u ON u.id = k.user_id
+      WHERE k.key_hash = ${hash} AND k.revoked_at IS NULL
+    LIMIT 1
+  `);
 
-  if (!user) return null;
-  return { id: user.id, email: user.email };
+  if (!row) return null;
+  const [id, email, keyId, lastUsedAt] = row;
+  if (keyId) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (lastUsedAt == null || nowSec - lastUsedAt >= API_KEY_LAST_USED_THROTTLE_SECONDS) {
+      db.update(schema.userApiKeys)
+        .set({ lastUsedAt: new Date(nowSec * 1000) })
+        .where(eq(schema.userApiKeys.id, keyId))
+        .run();
+    }
+  }
+  return { id, email };
 }
 
 export function getUserByEmail(
