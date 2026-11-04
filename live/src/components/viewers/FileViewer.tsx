@@ -24,7 +24,7 @@ import { useFileContent } from "@/hooks/use-file-content"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { fetchFileStat } from "@/lib/file-stat-query"
 import { normalizeEtag } from "@/lib/file-content-cache"
-import { hasDocumentUpdate, type DisplayedDocument } from "@/lib/document-update"
+import { documentUpdateNotice, hasDocumentUpdate, type DisplayedDocument } from "@/lib/document-update"
 import { useAutoUpdateDocuments } from "@/stores/auto-update"
 import { useComments } from "@/hooks/use-comments"
 import { useSniffedAudioType } from "@/hooks/use-sniffed-audio-type"
@@ -282,7 +282,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     }
   }, [content, stat, displayed?.key, documentKey])
   const hasUpdate = hasDocumentUpdate(documentKey, displayed, latest)
-  const updateDocument = useCallback(async () => {
+  const updateDocument = useCallback(async (auto = false) => {
     if (isEditing || isSaving) return
     setUpdateError(false)
     const result = await refetchContent()
@@ -294,10 +294,36 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
     // races the download must remain detectable by the next poll.
     if (latest?.currentVersion != null) setDisplayed({ key: documentKey, version: latest.currentVersion, etag: normalizeEtag(latest.etag) })
     setSaveCount(n => n + 1)
+    if (auto) toast(latest?.currentVersion != null ? `Document updated to v${latest.currentVersion}` : "Document updated")
   }, [isEditing, isSaving, refetchContent, documentKey, latest])
   useEffect(() => {
-    if (autoUpdate && hasUpdate && !isEditing && !isSaving && !updateError) void updateDocument()
+    if (autoUpdate && hasUpdate && !isEditing && !isSaving && !updateError) void updateDocument(true)
   }, [autoUpdate, hasUpdate, isEditing, isSaving, updateError, updateDocument])
+  // Toast actions outlive renders, so they call the latest updateDocument.
+  const updateDocumentRef = useRef(updateDocument)
+  updateDocumentRef.current = updateDocument
+  // One toast per new version. A dismissal holds until a newer version
+  // appears; leaving the document or loading the version closes the toast.
+  const notice = documentUpdateNotice({ key: documentKey, hasUpdate, autoUpdate, isEditing, latest })
+  const dismissedNoticeRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!notice || dismissedNoticeRef.current === notice.versionKey) return
+    const id = toast("A newer version is available", {
+      description: notice.description,
+      duration: 0,
+      action: notice.canLoad ? { label: "Load latest", onClick: () => void updateDocumentRef.current() } : undefined,
+      onClose: () => { dismissedNoticeRef.current = notice.versionKey },
+    })
+    return () => toast.dismiss(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notice?.id])
+  useEffect(() => {
+    if (!updateError) return
+    const id = toast.error("Could not load the latest version", {
+      action: { label: "Try again", onClick: () => void updateDocumentRef.current() },
+    })
+    return () => toast.dismiss(id)
+  }, [updateError])
 
   const handleSave = useCallback(async (text: string): Promise<boolean> => {
     try {
@@ -542,13 +568,6 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           splitOrientation={editingMarkdown && mdEditView === "split" ? splitOrientation : undefined}
           onToggleOrientation={editingMarkdown && mdEditView === "split" ? () => setSplitOrientation(o => o === "horizontal" ? "vertical" : "horizontal") : undefined}
         />
-      )}
-      {(hasUpdate || updateError) && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2 text-xs text-muted-foreground">
-          {hasUpdate && <span role="status">A newer version is available.{isEditing ? " Finish editing to update." : ""}</span>}
-          {hasUpdate && !isEditing && <Button variant="outline" size="sm" onClick={() => void updateDocument()}>Load latest</Button>}
-          {updateError && <span role="alert">Could not load the latest version. Try again.</span>}
-        </div>
       )}
       {isEditing ? (
         editingMarkdown ? (
