@@ -6,7 +6,7 @@ import { useCommentAnchors } from "@/hooks/use-comment-anchors"
 import { approveRootHtml, folderOf, isRootHtmlApproved, resolveHtmlViewUrl, supportsHtmlComments, supportsPageBridge, withCommentsFlag, withPageFlag } from "@/lib/html-view"
 import { captureQuote, resolveAnchor } from "@/lib/comment-anchor"
 import { createHtmlCommentBridge, type HighlightRange, type HtmlCommentBridge } from "@/lib/html-comment-bridge"
-import { createHtmlPageBridge, hasPageAccess, memberPageHost, setPageAccess, type ConsentScope, type Viewer } from "@/lib/html-page-bridge"
+import { createHtmlPageBridge, hasPageAccess, memberPageHost, setPageAccess, type ConsentScope, type MemberPageHost, type Viewer } from "@/lib/html-page-bridge"
 import { frameTextSpace, htmlSourceTextSpace } from "@/lib/html-text-space"
 import { commentAnchors, revealComment, useActiveComment, useHoveredComment } from "@/stores/comment-anchors"
 import { toast } from "@/stores/toast"
@@ -171,13 +171,20 @@ function PageAccess({ frame, path }: { frame: HTMLIFrameElement | null; path: st
   viewerRef.current = user ? { name: user.displayName || user.email, email: user.email, kind: "member" } : null
   // Display only: every request reads the stored decision itself.
   const [allowed, setAllowed] = useState(false)
+  // Allowed, but the browser would not store it: it lasts for this view.
+  const [viewOnly, setViewOnly] = useState(false)
+  // Revoked, but the browser would not store it: other views keep their access.
+  const [revokedHere, setRevokedHere] = useState(false)
   const [asking, setAsking] = useState(false)
+  const host = useRef<MemberPageHost | null>(null)
   const waiting = useRef<Array<(allow: boolean) => void>>([])
   // "Keep read-only" lasts for this frame's page.
   const declined = useRef(false)
 
   useEffect(() => {
     setAllowed(!!scopeRef.current && hasPageAccess(scopeRef.current))
+    setViewOnly(false)
+    setRevokedHere(false)
   }, [scopeKey])
 
   const settle = useCallback((allow: boolean) => {
@@ -186,20 +193,22 @@ function PageAccess({ frame, path }: { frame: HTMLIFrameElement | null; path: st
   }, [])
 
   const answer = (allow: boolean) => {
-    if (allow) setAllowed(true)
-    else declined.current = true
+    if (!allow) declined.current = true
     settle(allow)
   }
 
   const revoke = () => {
-    if (scopeRef.current) setPageAccess(scopeRef.current, false)
+    // No host before the frame exists: the stored choice is all there is.
+    const stored = host.current ? host.current.revoke() : !scopeRef.current || setPageAccess(scopeRef.current, false)
     setAllowed(false)
+    setViewOnly(false)
+    setRevokedHere(!stored)
   }
 
   useEffect(() => {
     if (!frame || !orgId || !driveId) return
     declined.current = false
-    const bridge = createHtmlPageBridge(frame, memberPageHost({
+    host.current = memberPageHost({
       folder: folder === "/" ? null : folder,
       scope: () => scopeRef.current,
       viewer: () => viewerRef.current,
@@ -208,7 +217,13 @@ function PageAccess({ frame, path }: { frame: HTMLIFrameElement | null; path: st
         waiting.current.push(resolve)
         setAsking(true)
       }),
-    }), () => settle(false))
+      onAllow: (stored) => {
+        setAllowed(true)
+        setViewOnly(!stored)
+        setRevokedHere(false)
+      },
+    })
+    const bridge = createHtmlPageBridge(frame, host.current, () => settle(false))
     return () => {
       bridge.dispose()
       settle(false)
@@ -227,10 +242,18 @@ function PageAccess({ frame, path }: { frame: HTMLIFrameElement | null; path: st
       </div>
     )
   }
-  if (!allowed) return null
+  if (!allowed) {
+    if (!revokedHere) return null
+    return (
+      <div className="border-b border-border px-3 py-1 text-xs text-muted-foreground">
+        Access revoked in this view. Your browser did not save the change, so other open views, and this page after a
+        reload, may still be allowed.
+      </div>
+    )
+  }
   return (
     <div className="border-b border-border px-3 py-1 text-xs text-muted-foreground">
-      This page can save data files as you ·{" "}
+      This page can save data files as you{viewOnly ? " for this view only" : ""} ·{" "}
       <button onClick={revoke} className="underline hover:text-foreground">Revoke</button>
     </div>
   )

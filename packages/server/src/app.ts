@@ -21,6 +21,7 @@ import { presenceRoutes } from "./routes/presence.js";
 import { eventRoutes } from "./routes/events.js";
 import { shareRoutes } from "./routes/share.js";
 import { siteRoutes } from "./routes/site.js";
+import { pageRoutes } from "./routes/page.js";
 import { SERVER_FEATURES } from "./features.js";
 
 export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null) {
@@ -33,13 +34,16 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   const maxUploadBytes = config.server.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
 
   // CORS — configurable origins. /site sets its own CORS headers (pages run in
-  // an opaque origin, so they need `*` whatever this list says).
+  // an opaque origin, so they need `*` whatever this list says); /page sets
+  // none, so only its own shell can call its guest routes.
   const origins = config.server?.cors?.origins ?? ["*"];
   const corsMiddleware = origins.length === 1 && origins[0] === "*" ? cors() : cors({ origin: origins });
-  app.use("*", (c, next) => (isSitePath(c.req.path) ? next() : corsMiddleware(c, next)));
+  app.use("*", (c, next) => (isSiteOrPagePath(c.req.path) ? next() : corsMiddleware(c, next)));
 
   app.use("*", requestLogMiddleware());
   app.use("*", (c, next) => {
+    // /page brings its own, smaller limit.
+    if (c.req.path.startsWith("/page/")) return next();
     // Only raw PUTs need the configurable cap; other routes keep the default.
     const isRawUpload = c.req.method === "PUT"
       && /^\/orgs\/[^/]+\/drives\/[^/]+\/files\/.+\/raw$/.test(c.req.path);
@@ -63,6 +67,14 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   // with a higher limit because one page load fetches many files.
   app.route("/site", siteRoutes(db, s3, {
     requestsPerMinute: config.server?.siteRateLimit?.requestsPerMinute ?? 600,
+  }));
+
+  // Writable site shares (/page/<token>/): the shell and its guest routes,
+  // under the same per-IP limit as /site.
+  app.route("/page", pageRoutes(db, s3, {
+    requestsPerMinute: config.server?.siteRateLimit?.requestsPerMinute ?? 600,
+    publicUrl,
+    embeddingProvider,
   }));
 
   // Invite accept links: the preview is public, accept needs a signed-in
@@ -138,8 +150,8 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   return app;
 }
 
-function isSitePath(path: string): boolean {
-  return path === "/site" || path.startsWith("/site/");
+function isSiteOrPagePath(path: string): boolean {
+  return /^\/(site|page)(\/|$)/.test(path);
 }
 
 function isPresencePath(path: string): boolean {

@@ -42,13 +42,15 @@ export interface ShareCreateResult {
    * request's Host). Absent on older servers. Unchecked: validate before use.
    */
   urlSource?: unknown
-  /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
+  /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder, `/page/<token>/` for a writable folder. */
   sharePath: string
   path: string
   expiresIn: number
   expiresAt: string
   /** `null` = unlimited, `1` = one-off. */
   maxViews: number | null
+  /** Viewers can save data files on the page. Absent on servers older than writable shares. */
+  writable?: boolean
 }
 
 export interface ApiError {
@@ -306,7 +308,7 @@ export class AgentFsClient {
     orgId: string,
     driveId: string,
     path: string,
-    options?: { expiresIn?: number; maxViews?: number },
+    options?: { expiresIn?: number; maxViews?: number; writable?: boolean },
   ): Promise<ShareCreateResult> {
     return this.callOp<ShareCreateResult>(orgId, "share-create", { path, ...options }, driveId)
   }

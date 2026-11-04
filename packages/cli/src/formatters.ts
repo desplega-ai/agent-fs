@@ -333,10 +333,21 @@ function formatSignedUrl(result: any): string {
   return out;
 }
 
+/**
+ * The error for `share-create --writable` when the result is not a writable
+ * link: an older server drops the option and makes a read-only one.
+ */
+export function writableShareError(result: any): string | null {
+  if (result?.writable === true) return null;
+  const revoke = result?.id ? ` Revoke it with: agent-fs share-revoke ${result.id}` : "";
+  return `This server is too old for writable links, so the link it created is read-only.${revoke}`;
+}
+
 function formatShareCreate(result: any): string {
   if (result.kind === "site") {
     // Site shares (a folder) have no view limit, so there is no Views line.
-    let out = `Site: ${result.url}\n\nExpires: ${formatDate(result.expiresAt)} (${result.expiresIn}s)`;
+    let out = `${result.writable ? "Page" : "Site"}: ${result.url}\n\nExpires: ${formatDate(result.expiresAt)} (${result.expiresIn}s)`;
+    if (result.writable) out += `\nWritable: viewers can save data files under data/`;
     out += `\nID:      ${result.id}  (revoke: agent-fs share-revoke ${result.id})`;
     if (result.appUrl) out += `\nApp:     ${result.appUrl}`;
     return out;

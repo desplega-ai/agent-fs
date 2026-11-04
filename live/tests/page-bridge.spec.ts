@@ -48,6 +48,10 @@ const inlinePage = [
   "</body></html>",
 ].join("\n")
 
+// A page whose own first script reports whether the API exists, after `doctype`.
+const doctypePage = (doctype: string) =>
+  `${doctype}<html><head><script>document.title = typeof agentfs</script></head><body><p>doctype</p></body></html>`
+
 // A page that says hello a second time and counts the host answers it sees.
 const twicePage = [
   "<!doctype html><html><head><script>",
@@ -80,15 +84,21 @@ async function installFixture(page: Page, f: Fixture) {
     if (window !== window.top) return
     localStorage.setItem("agent-fs-credentials", JSON.stringify([
       { id: "qa", name: "QA", endpoint: "http://fixture.test", apiKey: "fixture" },
+      { id: "qa2", name: "QA Two", endpoint: "http://fixture.test", apiKey: "fixture2" },
     ]))
     localStorage.setItem("agent-fs-active-credential", "qa")
   })
   await page.route("http://fixture.test/**", async route => {
     const url = new URL(route.request().url())
     let json: unknown
-    if (url.pathname === "/auth/me") json = { userId: "qa", email: "qa@example.test", displayName: "Quinn QA", defaultOrgId: "org", defaultDriveId: "drive" }
-    else if (url.pathname === "/orgs") json = { orgs: [{ id: "org", name: "QA" }] }
-    else if (url.pathname.endsWith("/drives")) json = { drives: [{ id: "drive", name: "QA", orgId: "org" }] }
+    const second = route.request().headers()["authorization"] === "Bearer fixture2"
+    if (url.pathname === "/auth/me") {
+      json = second
+        ? { userId: "qa2", email: "robin@example.test", displayName: "Robin Two", defaultOrgId: "org", defaultDriveId: "drive" }
+        : { userId: "qa", email: "qa@example.test", displayName: "Quinn QA", defaultOrgId: "org", defaultDriveId: "drive" }
+    } else if (url.pathname === "/orgs") json = { orgs: [{ id: "org", name: "QA" }, { id: "org2", name: "QA Org 2" }] }
+    else if (url.pathname === "/orgs/org2/drives") json = { drives: [{ id: "drive3", name: "Org 2 drive", orgId: "org2" }] }
+    else if (url.pathname.endsWith("/drives")) json = { drives: [{ id: "drive", name: "QA", orgId: "org" }, { id: "drive2", name: "QA 2", orgId: "org" }] }
     else if (url.pathname === "/content") return route.fulfill({ body: pageHtml(f, url.searchParams.get("path") ?? ""), contentType: "text/plain" })
     else if (url.pathname.startsWith("/site/")) {
       const name = url.pathname.split("/").pop() ?? ""
@@ -154,7 +164,12 @@ function fixture(over: Partial<Fixture> = {}): Fixture {
       "/reports/data/state.json": { content: "{\"done\":[]}", version: 1 },
     },
     ops: [],
-    pages: { "inline.html": inlinePage, "twice.html": twicePage },
+    pages: {
+      "inline.html": inlinePage,
+      "twice.html": twicePage,
+      "legacy.html": doctypePage('<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">'),
+      "quoted.html": doctypePage('<!DOCTYPE html SYSTEM "a>b">'),
+    },
     pageVersion: 1,
     siteLoads: [],
     ...over,
@@ -326,6 +341,9 @@ test("a page's own inline script uses the API: refused before ready, then identi
   await expect(shown(page, "me", "inline.html")).toHaveText(viewer)
   await expect(shown(page, "write", "inline.html")).toHaveText(JSON.stringify({ version: 2 }))
   expect(f.files["/reports/data/state.json"]).toEqual({ content: "{\"done\":[0]}", version: 2 })
+  // The bridge goes after the doctype, so the page keeps standards mode.
+  const frame = await pageFrame(page, "inline.html")
+  expect(await frame.evaluate(() => document.compatMode)).toBe("CSS1Compat")
   await evidence(page, "page-bridge-inline-script.png")
 })
 
@@ -393,4 +411,142 @@ test("a same-URL reload gives the new document a working bridge", async ({ page 
   const second = await pageFrame(page)
   await run(second, "read", "read('notes.md')")
   await expect(shown(page, "read")).toHaveText(JSON.stringify({ content: "# Notes\n\nhello\n", version: 2 }))
+})
+
+const QUINN = JSON.stringify({ name: "Quinn QA", email: "qa@example.test", kind: "member" })
+
+/**
+ * Opens the page, starts a `requestIdentity()` that the consent banner holds,
+ * runs `change`, and checks the banner closes, the old document never gets a
+ * viewer, no consent is stored, and the page in the new context asks again
+ * and works through Allow, answering `viewer`.
+ */
+async function changeWhileAsking(page: Page, change: () => Promise<void>, viewer: string) {
+  const f = fixture()
+  await installFixture(page, f)
+  await page.goto("/file/~/org/drive/reports/page.html")
+  const before = await pageFrame(page)
+  // The page reports how its pending request settles to the app window, which outlives it.
+  await page.evaluate(() => {
+    const w = window as unknown as { probes: unknown[] }
+    w.probes = []
+    addEventListener("message", (e) => { if (e.data && "probe" in e.data) w.probes.push(e.data.probe) })
+  })
+  await before.evaluate(() => {
+    const a = (window as unknown as { agentfs: { ready: Promise<void>; requestIdentity(): Promise<unknown> } }).agentfs
+    a.ready.then(() => a.requestIdentity()).then(
+      (v) => parent.postMessage({ probe: v }, "*"),
+      (e) => parent.postMessage({ probe: `rejected ${e.code}` }, "*"),
+    )
+  })
+  const banner = page.getByRole("region", { name: "Page access" })
+  await expect(banner.getByRole("button", { name: "Allow" })).toBeVisible()
+
+  await change()
+  await expect(banner).toHaveCount(0)
+  await expect.poll(() => f.siteLoads.filter((n) => n === "page.html").length).toBe(2)
+  // The old document's request rejected as it unloaded, or never settled: it never got a viewer.
+  const probes = await page.evaluate(() => (window as unknown as { probes: unknown[] }).probes)
+  expect(probes.every((p) => typeof p === "string" && p.startsWith("rejected"))).toBe(true)
+  expect(await page.evaluate(() => localStorage.getItem("liveui:page-access"))).toBeNull()
+
+  const after = await pageFrame(page)
+  await run(after, "who", "requestIdentity()")
+  await banner.getByRole("button", { name: "Allow" }).click()
+  await expect(shown(page, "who")).toHaveText(viewer)
+}
+
+/** In-app navigation, as the app's own links do. */
+const navigate = (page: Page, path: string) => page.evaluate((path) => {
+  history.pushState({}, "", path)
+  dispatchEvent(new PopStateEvent("popstate"))
+}, path)
+
+test("a drive change while the consent banner is open closes it, and the new document gets a bridge", async ({ page }) => {
+  await changeWhileAsking(page, () => navigate(page, "/file/~/org/drive2/reports/page.html"), QUINN)
+})
+
+test("an org change while the consent banner is open closes it, and the new document gets a bridge", async ({ page }) => {
+  await changeWhileAsking(page, () => navigate(page, "/file/~/org2/drive3/reports/page.html"), QUINN)
+})
+
+test("switching account while the consent banner is open closes it, and the next page asks the new member", async ({ page }) => {
+  await changeWhileAsking(page, async () => {
+    await page.locator("[data-slot=dropdown-menu-trigger]", { hasText: "Quinn QA" }).click()
+    await page.getByRole("menuitem", { name: /QA Two/ }).click()
+    // The switch lands on the drive root; open the page again as the new member.
+    await expect(page.locator(FRAME)).toHaveCount(0)
+    await navigate(page, "/file/~/org/drive/reports/page.html")
+  }, JSON.stringify({ name: "Robin Two", email: "robin@example.test", kind: "member" }))
+})
+
+test("when the browser will not store Allow, it holds for this view only", async ({ page }) => {
+  await page.addInitScript(() => {
+    const setItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === "liveui:page-access") throw new DOMException("full", "QuotaExceededError")
+      return setItem.call(this, key, value)
+    }
+  })
+  const f = fixture()
+  await installFixture(page, f)
+  await page.goto("/file/~/org/drive/reports/page.html")
+  const frame = await pageFrame(page)
+  await run(frame, "who", "requestIdentity()")
+  await page.getByRole("region", { name: "Page access" }).getByRole("button", { name: "Allow" }).click()
+  await expect(page.getByText("This page can save data files as you for this view only")).toBeVisible()
+  await run(frame, "write", "write('data/state.json', '{}', { expectedVersion: 1 })")
+  await expect(shown(page, "write")).toHaveText(JSON.stringify({ version: 2 }))
+  await page.getByRole("button", { name: "Revoke" }).click()
+  await run(frame, "write", "write('data/state.json', '{}', { expectedVersion: 2 })")
+  await expect(shown(page, "write")).toHaveText("error NOT_ALLOWED")
+})
+
+for (const [file, label] of [["legacy.html", "quoted identifiers"], ["quoted.html", "a quoted >"]] as const) {
+  test(`a doctype with ${label} keeps the browser's own mode and the API`, async ({ page }) => {
+    await installFixture(page, fixture())
+    await page.goto(`/file/~/org/drive/reports/${file}`)
+    const frame = await pageFrame(page, file)
+    await expect.poll(() => frame.evaluate(() => document.title)).toBe("object")
+    // The mode the same bytes get without the bridge: the injection must not change it.
+    const plain = await page.context().newPage()
+    await plain.setContent(fixture().pages[file])
+    const expected = await plain.evaluate(() => document.compatMode)
+    expect(expected).toBe(file === "legacy.html" ? "CSS1Compat" : "BackCompat")
+    expect(await frame.evaluate(() => document.compatMode)).toBe(expected)
+  })
+}
+
+test("a revoke the browser will not store holds for this view and says so", async ({ page }) => {
+  const f = fixture()
+  await installFixture(page, f)
+  await page.goto("/file/~/org/drive/reports/page.html")
+  const frame = await pageFrame(page)
+  await run(frame, "who", "requestIdentity()")
+  await page.getByRole("region", { name: "Page access" }).getByRole("button", { name: "Allow" }).click()
+  await expect(page.getByText("This page can save data files as you")).toBeVisible()
+  await page.evaluate(() => {
+    const setItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (key === "liveui:page-access") throw new DOMException("full", "QuotaExceededError")
+      return setItem.call(this, key, value)
+    }
+  })
+  await page.getByRole("button", { name: "Revoke" }).click()
+  await expect(page.getByText("Access revoked in this view.")).toBeVisible()
+  await run(frame, "write", "write('data/state.json', '{}', { expectedVersion: 1 })")
+  await expect(shown(page, "write")).toHaveText("error NOT_ALLOWED")
+  await evidence(page, "page-bridge-revoked-this-view.png")
+})
+
+test("a write of 256 KB of control characters fits through the bridge", async ({ page }) => {
+  const f = fixture()
+  await installFixture(page, f)
+  await page.goto("/file/~/org/drive/reports/page.html")
+  const frame = await pageFrame(page)
+  await run(frame, "who", "requestIdentity()")
+  await page.getByRole("region", { name: "Page access" }).getByRole("button", { name: "Allow" }).click()
+  await run(frame, "write", "write('data/state.json', '\\u0001'.repeat(256 * 1024), { expectedVersion: 1 })")
+  await expect(shown(page, "write")).toHaveText(JSON.stringify({ version: 2 }))
+  expect(f.files["/reports/data/state.json"].content).toBe("\u0001".repeat(256 * 1024))
 })

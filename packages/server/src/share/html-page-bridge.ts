@@ -1,5 +1,6 @@
 /**
- * `window.agentfs` for a site page framed by a host (the live UI). With
+ * `window.agentfs` for a site page framed by a host (the live UI, or a
+ * writable share's `/page/` shell). With
  * `?__afs_page=1`, `/site` adds this script to an HTML page. The flag
  * authorises nothing: the script only asks `window.parent` for a
  * `MessagePort`, and every request runs on that port in the host, which holds
@@ -7,15 +8,18 @@
  * lives in this document only: the page proves it is the document that said
  * hello by acking with its nonce, and says bye when it unloads.
  *
- * Kept as a string: no backticks or `${` in the body.
+ * Kept as a string: no backticks or `${` in the body, other than the shared
+ * protocol constants.
  */
+import { PAGE_MAX_IN_FLIGHT, PAGE_MAX_MESSAGE_BYTES, PAGE_MESSAGE_PREFIX } from "./html-page-protocol.js"
+
 export const HTML_PAGE_PARAM = "__afs_page"
 
 export const HTML_PAGE_BRIDGE = String.raw`(function () {
   "use strict";
   if (window.parent === window || window.agentfs) return;
-  var P = "agent-fs-page:";
-  var MAX_IN_FLIGHT = 16, MAX_BYTES = 1024 * 1024;
+  var P = ${JSON.stringify(PAGE_MESSAGE_PREFIX)};
+  var MAX_IN_FLIGHT = ${PAGE_MAX_IN_FLIGHT}, MAX_BYTES = ${PAGE_MAX_MESSAGE_BYTES};
   var port = null, nextId = 1, inFlight = 0, pending = {}, viewer = null, onReady;
   var ready = new Promise(function (resolve) { onReady = resolve; });
   var bytes = new Uint8Array(16);
@@ -35,7 +39,7 @@ export const HTML_PAGE_BRIDGE = String.raw`(function () {
     for (var k in params) msg[k] = params[k];
     var size;
     try { size = new TextEncoder().encode(JSON.stringify(msg)).length; } catch (e) { return Promise.reject(failure("VALIDATION_ERROR", "Request is not serializable")); }
-    if (size > MAX_BYTES) return Promise.reject(failure("NOT_ALLOWED", "Request is larger than 1 MB"));
+    if (size > MAX_BYTES) return Promise.reject(failure("NOT_ALLOWED", "Request is larger than 2 MB"));
     return new Promise(function (resolve, reject) {
       try { port.postMessage(msg); } catch (e) { return reject(failure("VALIDATION_ERROR", "Request is not serializable")); }
       inFlight++;
@@ -100,25 +104,26 @@ export function isHtmlPageRequested(url: URL): boolean {
   return url.searchParams.get(HTML_PAGE_PARAM) === "1"
 }
 
-// Searched in the bytes read as Latin-1, which keeps byte offsets. `head` and
-// `html` must be whole tag names (`<header>` is not `<head>`).
-const INSERT_AFTER = [/<head(?=[\s/>])[^>]*>/i, /<html(?=[\s/>])[^>]*>/i, /<!doctype[^>]*>/i]
+// Matched against the bytes read as Latin-1, which keeps byte offsets: an
+// optional UTF-8 BOM, then whitespace and comments, then the doctype.
+// The doctype ends at its first `>`, quoted or not, as in the HTML tokenizer:
+// `<!DOCTYPE html SYSTEM "a>b">` is a doctype up to `"a>`, in quirks mode.
+const PROLOGUE = /^(\xEF\xBB\xBF)?(?:\s|<!--[\s\S]*?-->)*(<!doctype[^>]*>)?/i
 
 /**
- * The page with the bridge inserted before any of its own scripts: right
- * after `<head …>`, else after `<html …>`, else after the doctype, else at the
- * top. The page's own bytes are otherwise untouched.
+ * The page with the bridge inserted before anything of its own: right after
+ * the doctype when one leads the page (after a BOM, whitespace and comments),
+ * else at the top (after a BOM). The parser puts a leading `<script>` into an
+ * implicit `<head>` and merges the page's own `<html>` and `<head>` into it, so
+ * `window.agentfs` exists before any author script, and the doctype still sets
+ * the document mode. Nothing inside the page is searched, so a `<head>` in a
+ * comment, a script or an attribute cannot move the script. The page's own
+ * bytes are otherwise untouched.
  */
 export function injectHtmlPageBridge(body: Uint8Array): Uint8Array {
   const text = Buffer.from(body.buffer, body.byteOffset, body.byteLength).toString("latin1")
-  let at = 0
-  for (const tag of INSERT_AFTER) {
-    const m = tag.exec(text)
-    if (m) {
-      at = m.index + m[0].length
-      break
-    }
-  }
+  const m = PROLOGUE.exec(text)!
+  const at = m[2] ? m[0].length : (m[1]?.length ?? 0)
   const script = new TextEncoder().encode(`<script>${HTML_PAGE_BRIDGE}</script>`)
   const out = new Uint8Array(body.length + script.length)
   out.set(body.subarray(0, at), 0)

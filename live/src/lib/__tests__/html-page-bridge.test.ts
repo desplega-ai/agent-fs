@@ -437,7 +437,7 @@ describe("createHtmlPageBridge", () => {
     port.close()
   })
 
-  test("refuses the 17th request in flight and messages over 1 MB at once", async () => {
+  test("refuses the 17th request in flight and messages over 2 MB at once", async () => {
     let releaseAll!: () => void
     const gate = new Promise<void>((r) => { releaseAll = r })
     const h = harness(fakeHost({}, async () => { await gate; return stat("e") }).host)
@@ -453,9 +453,9 @@ describe("createHtmlPageBridge", () => {
     releaseAll()
     await tick()
     expect(replies).toHaveLength(18)
-    port.postMessage({ id: 19, op: "write", path: "data/a.txt", content: "x".repeat(1024 * 1024), expectedVersion: 0 })
+    port.postMessage({ id: 19, op: "write", path: "data/a.txt", content: "x".repeat(2 * 1024 * 1024), expectedVersion: 0 })
     await tick()
-    expect(replies.at(-1)).toEqual({ id: 19, error: { code: "NOT_ALLOWED", message: "Request is larger than 1 MB" } })
+    expect(replies.at(-1)).toEqual({ id: 19, error: { code: "NOT_ALLOWED", message: "Request is larger than 2 MB" } })
     h.bridge.dispose()
     port.close()
   })
@@ -477,8 +477,8 @@ describe("createHtmlPageBridge", () => {
     port.close()
   })
 
-  test("a sign-out or endpoint, org or drive change while consent is pending settles it and closes the port", async () => {
-    // HtmlViewer disposes the bridge and answers the pending banner "no" when any of these change.
+  test("dispose while consent is pending closes the port and drops the answer", async () => {
+    // HtmlViewer does this on sign-out and on an endpoint, org or drive change.
     const storage = memoryStorage()
     let settle!: (allow: boolean) => void
     const host = memberPageHost({ ...memberOpts(storage), ask: () => new Promise((r) => { settle = r }) })
@@ -527,6 +527,64 @@ describe("memberPageHost", () => {
     expect((await rejection(handlePageRequest(host, write))).code).toBe("NOT_ALLOWED")
     expect(await handlePageRequest(host, { id: 1, op: "identity" })).toBeNull() // asked again, declined
     expect(asked).toBe(2)
+  })
+
+  for (const [label, storage] of [
+    ["setItem throws", { getItem: () => null, setItem: () => { throw new Error("QuotaExceededError") } }],
+    ["no storage", null],
+  ] as const) {
+    test(`when the browser will not store Allow (${label}), it holds in memory for this host until revoked`, async () => {
+      const stored: boolean[] = []
+      let asked = 0
+      const host = memberPageHost({
+        ...memberOpts(memoryStorage()),
+        storage,
+        ask: async () => (++asked, true),
+        onAllow: (s) => stored.push(s),
+      })
+      const write = { id: 1, op: "write", path: "data/a.json", content: "{}", expectedVersion: 1 } as PageRequest
+      expect(await handlePageRequest(host, { id: 1, op: "identity" })).toEqual(VIEWER)
+      expect(stored).toEqual([false]) // shown as "for this view only"
+      expect(host.allowed()).toBe(true)
+      expect(await handlePageRequest(host, write)).toEqual({ version: 2 })
+      expect(await handlePageRequest(host, { id: 1, op: "identity" })).toEqual(VIEWER)
+      expect(asked).toBe(1)
+
+      host.revoke()
+      expect(host.allowed()).toBe(false)
+      expect((await rejection(handlePageRequest(host, write))).code).toBe("NOT_ALLOWED")
+    })
+  }
+
+  test("a revoke the browser will not store still holds for this host", async () => {
+    const storage = memoryStorage()
+    let asked = 0
+    const host = memberPageHost({ ...memberOpts(storage), ask: async () => (++asked, true) })
+    const write = { id: 1, op: "write", path: "data/a.json", content: "{}", expectedVersion: 1 } as PageRequest
+    await host.requestIdentity()
+    expect(hasPageAccess(SCOPE, storage)).toBe(true)
+    storage.setItem = () => { throw new Error("QuotaExceededError") }
+
+    expect(host.revoke()).toBe(false) // shown as revoked in this view only
+    expect(hasPageAccess(SCOPE, storage)).toBe(true) // still stored for other views
+    expect(host.allowed()).toBe(false)
+    expect((await rejection(handlePageRequest(host, write))).code).toBe("NOT_ALLOWED")
+    // Asking again and allowing holds in memory.
+    expect(await host.requestIdentity()).toEqual(VIEWER)
+    expect(asked).toBe(2)
+    expect(await handlePageRequest(host, write)).toEqual({ version: 2 })
+  })
+
+  test("a stored Allow is reported as stored, and revoke clears it", async () => {
+    const storage = memoryStorage()
+    const stored: boolean[] = []
+    const host = memberPageHost({ ...memberOpts(storage), onAllow: (s) => stored.push(s) })
+    await host.requestIdentity()
+    expect(stored).toEqual([true])
+    expect(hasPageAccess(SCOPE, storage)).toBe(true)
+    expect(host.revoke()).toBe(true)
+    expect(hasPageAccess(SCOPE, storage)).toBe(false)
+    expect(host.allowed()).toBe(false)
   })
 
   test("no scope (member unknown) means no identity and no writes, without asking", async () => {

@@ -54,14 +54,14 @@ function redirect(location: string, status: 301 | 302 = 301): Response {
 
 const INDEX = "index.html";
 
-const isHtmlName = (name: string) => /\.html?$/i.test(name);
+export const isHtmlName = (name: string) => /\.html?$/i.test(name);
 
 /**
  * The HTML pages directly inside a folder, by storage key prefix (ends with
  * `/`). Only pages: other files and sub-folders are never enumerated, so a
  * link holder still has to know their names, as before listings existed.
  */
-async function htmlPagesIn(s3: StorageAdapter, prefix: string): Promise<string[]> {
+export async function htmlPagesIn(s3: StorageAdapter, prefix: string): Promise<string[]> {
   const { objects } = await s3.listObjects(prefix, { delimiter: "/" });
   return objects
     .map((o) => o.key.slice(prefix.length))
@@ -91,7 +91,7 @@ function listingPage(rest: string, pages: string[]): Response {
  * No object at this key. The local backend refuses to read a directory with
  * EISDIR rather than a not-found error; a directory is not a file either.
  */
-function isMissing(err: any): boolean {
+export function isMissing(err: any): boolean {
   return (
     err?.name === "NotFound" ||
     err?.name === "NoSuchKey" ||

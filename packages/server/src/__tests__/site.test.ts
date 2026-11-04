@@ -529,11 +529,36 @@ describe("injectHtmlPageBridge", () => {
   const inject = (html: string) => new TextDecoder().decode(injectHtmlPageBridge(new TextEncoder().encode(html)));
   const at = (html: string) => inject(html).indexOf("<script>(function");
 
-  test("goes right after <head>, else <html>, else the doctype, else the top", () => {
-    expect(at('<!doctype html><html lang="en"><head data-x="1"><title>t</title>')).toBe('<!doctype html><html lang="en"><head data-x="1">'.length);
-    expect(at("<!doctype html><HTML><body><header>x</header>")).toBe("<!doctype html><HTML>".length);
-    expect(at("<!DOCTYPE html><header>x</header><p>")).toBe("<!DOCTYPE html>".length);
-    expect(at("<p>no tags</p>")).toBe(0);
+  test("goes right after a leading doctype, else at the top", () => {
+    expect(at('<!doctype html><html lang="en"><head data-x="1"><title>t</title>')).toBe("<!doctype html>".length);
+    expect(at("<!DOCTYPE html><HTML><body><header>x</header>")).toBe("<!DOCTYPE html>".length);
+    expect(at("<p>no doctype</p><head></head>")).toBe(0);
+    expect(at("<html><head><title>t</title>")).toBe(0);
+  });
+
+  test("skips a BOM, whitespace and comments before the doctype, and nothing else", () => {
+    const lead = "\n  <!-- <head> --><!--x-->\n";
+    expect(at(`${lead}<!doctype html><head>`)).toBe(`${lead}<!doctype html>`.length);
+    // A doctype after content is not the page's doctype.
+    expect(at("<p>x</p><!doctype html>")).toBe(0);
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("<!doctype html><p>x")]);
+    const withBom = injectHtmlPageBridge(bom);
+    expect([...withBom.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    expect(new TextDecoder().decode(withBom.subarray(3, 3 + "<!doctype html><script>".length))).toBe("<!doctype html><script>");
+    const bomOnly = injectHtmlPageBridge(new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("<p>x")]));
+    expect(new TextDecoder().decode(bomOnly.subarray(3, 11))).toBe("<script>");
+  });
+
+  test("is not moved by a <head> in a comment, a script or an attribute", () => {
+    expect(at("<!doctype html><!-- <head> --><head>")).toBe("<!doctype html>".length);
+    expect(at('<!doctype html><script>var s = "<head>"</script><head>')).toBe("<!doctype html>".length);
+    expect(at('<!doctype html><html data-x="a>b"><head>')).toBe("<!doctype html>".length);
+    expect(at("<!-- <head> --><p>no doctype</p>")).toBe(0);
+    // Quoted identifiers without a `>` are part of the doctype.
+    const legacy = '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">';
+    expect(at(`${legacy}<head>`)).toBe(legacy.length);
+    // A `>` ends the doctype even inside quotes, as the browser parses it.
+    expect(at('<!DOCTYPE html SYSTEM "a>b"><head>')).toBe('<!DOCTYPE html SYSTEM "a>'.length);
   });
 
   test("keeps every byte of the page, Unicode included", () => {

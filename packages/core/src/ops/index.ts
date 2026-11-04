@@ -271,16 +271,17 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "share-create": {
-    description: "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. Default expiry is 24 hours (max 7 days); set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, urlSource, sharePath, path, expiresIn, expiresAt, maxViews }; urlSource (always present) is \"configured\" when url is built on AGENT_FS_PUBLIC_URL, \"request\" when it comes from the request's Host (resolve sharePath against the address you reached the API at). The link is shown only once; keep the id to revoke it.",
+    description: "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. With writable=true (a folder other than the drive root; drive editors and admins only), the link is /page/<token>/ instead: it frames the folder's pages and lets public viewers, after giving a name and email, save data files under <folder>/data/ with the creator's rights; the version message names the viewer, which is self-reported. Default expiry is 24 hours (max 7 days); set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, urlSource, sharePath, path, expiresIn, expiresAt, maxViews, writable }; urlSource (always present) is \"configured\" when url is built on AGENT_FS_PUBLIC_URL, \"request\" when it comes from the request's Host (resolve sharePath against the address you reached the API at). The link is shown only once; keep the id to revoke it.",
     handler: shareCreate,
     schema: z.object({
       path: z.string(),
       expiresIn: z.number().int().min(60).max(604800).optional(),
       maxViews: z.number().int().min(1).max(1000000).optional(),
+      writable: z.boolean().optional(),
     }),
   },
   "share-revoke": {
-    description: "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share URL), or path (revokes every link to that file or folder). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
+    description: "Revoke share links so they stop working immediately. Pass exactly one of: id (from share-create), token (the token or the full share, site or page URL), or path (revokes every link to that file or folder). Only the link's creator or a drive admin can revoke. Returns { revoked, ids }.",
     handler: shareRevoke,
     schema: z.object({
       id: z.string().optional(),

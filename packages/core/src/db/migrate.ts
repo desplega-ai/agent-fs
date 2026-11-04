@@ -64,6 +64,13 @@ export function runMigrations(sqlite: Database): void {
   if (!shareCols.some((c) => c.name === "kind")) {
     sqlite.exec("ALTER TABLE shares ADD COLUMN kind TEXT NOT NULL DEFAULT 'file'");
   }
+  // Migration 3g: writable site shares. Existing rows stay read-only.
+  if (!shareCols.some((c) => c.name === "writable")) {
+    sqlite.exec("ALTER TABLE shares ADD COLUMN writable INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!shareCols.some((c) => c.name === "guest_secret")) {
+    sqlite.exec("ALTER TABLE shares ADD COLUMN guest_secret TEXT");
+  }
 
   // Migration 3d: add content_chunks.page for PDF text chunks.
   const chunkCols = sqlite

@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import type { ApiClient } from "../api-client.js";
 import { getConfig, getOpDefinition } from "@/core";
-import { diffSourceWarning, outputResult, writeLinkWarnings } from "../formatters.js";
+import { diffSourceWarning, outputResult, writableShareError, writeLinkWarnings } from "../formatters.js";
 import { stdio } from "../stdio.js";
 
 interface OpCommandDef {
@@ -73,13 +73,14 @@ const OP_COMMANDS: OpCommandDef[] = [
       { flag: "--expires-in <seconds>", description: "Expiry in seconds (default: 86400 = 24h, max: 604800 = 7d)" },
       { flag: "--max-views <n>", description: "Limit how many times the page can be opened" },
       { flag: "--one-off", description: "Single-use link (same as --max-views 1)" },
+      { flag: "--writable", description: "Folders only: the link opens the page at /page/<token>/ and viewers, after giving a name and email, can save data files under data/" },
     ],
   },
   {
     name: "share-revoke",
     args: [{ name: "id", required: false }],
     options: [
-      { flag: "--token <token-or-url>", description: "Revoke by share token or the full share URL" },
+      { flag: "--token <token-or-url>", description: "Revoke by share token or the full share, site or page URL" },
       { flag: "--path <path>", description: "Revoke every share link of this file" },
     ],
   },
@@ -243,6 +244,11 @@ export function registerOpCommands(
         }
 
         const result = await client.callOp(orgId, def.name, params);
+
+        if (def.name === "share-create" && params.writable) {
+          const error = writableShareError(result);
+          if (error) throw new Error(error);
+        }
 
         if (def.name === "write") {
           // stderr even in --json mode: stdout stays the result document.

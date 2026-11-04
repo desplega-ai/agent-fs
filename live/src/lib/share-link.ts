@@ -6,6 +6,7 @@ import { InvalidShareResponseError, resolveShareUrl } from "./share-url"
 export { InvalidShareResponseError, resolveShareUrl }
 
 export const SHARE_LINKS_FEATURE = "share-links"
+export const WRITABLE_SHARES_FEATURE = "writable-shares"
 
 /** Expiry choices offered when sharing. The server allows 60 seconds to 7 days. */
 export const SHARE_EXPIRY_CHOICES = [
@@ -26,6 +27,14 @@ export const DEFAULT_SHARE_EXPIRY_SECONDS = 86_400
 export function supportsShareLinks(health?: HealthResponse): boolean {
   return health?.features?.includes(SHARE_LINKS_FEATURE) === true
 }
+
+/** Servers that can make a folder link whose viewers save data files list `writable-shares`. */
+export function supportsWritableShares(health?: HealthResponse): boolean {
+  return health?.features?.includes(WRITABLE_SHARES_FEATURE) === true
+}
+
+/** The server made a read-only link when a writable one was asked for: an older server drops the option. */
+export class WritableNotSupportedError extends Error {}
 
 export function describeExpiry(seconds: number): string {
   if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))} minutes`
@@ -51,13 +60,20 @@ async function mintAndCopy(
   orgId: string,
   driveId: string,
   path: string,
-  expiresIn?: number,
+  options: { expiresIn?: number; writable?: boolean },
 ): Promise<ShareCreateResult & { link: string }> {
   // The endpoint this request goes to, fixed before it is sent.
   const endpoint = client.endpoint
   const request = client
-    .createShare(orgId, driveId, path, expiresIn === undefined ? undefined : { expiresIn })
-    .then((result) => ({ ...result, link: resolveShareUrl(endpoint, result) }))
+    .createShare(orgId, driveId, path, {
+      ...(options.expiresIn !== undefined && { expiresIn: options.expiresIn }),
+      ...(options.writable && { writable: true }),
+    })
+    .then((result) => {
+      // Never copy a read-only link the user would hand out as a writable one.
+      if (options.writable && result.writable !== true) throw new WritableNotSupportedError()
+      return { ...result, link: resolveShareUrl(endpoint, result) }
+    })
 
   if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
     const item = new ClipboardItem({
@@ -75,24 +91,36 @@ async function mintAndCopy(
 /**
  * Copy a fresh share link for `path` and report the outcome as a toast. The
  * link lives `expiresIn` seconds, or the server's default of 24 hours. For a
- * folder the server returns a site share, and `sharePath` is `/site/<token>/`.
- * Returns the copied link, or null when it failed.
+ * folder the server returns a site share, and `sharePath` is `/site/<token>/`,
+ * or `/page/<token>/` when `writable`. Returns the copied link, or null when
+ * it failed.
  */
 export async function copyShareLink(
   client: AgentFsClient,
   orgId: string,
   driveId: string,
   path: string,
-  options: { expiresIn?: number } = {},
+  options: { expiresIn?: number; writable?: boolean } = {},
 ): Promise<string | null> {
   try {
-    const result = await mintAndCopy(client, orgId, driveId, path, options.expiresIn)
-    toast.success(result.kind === "site" ? "Site link copied" : "Share link copied", {
-      description: `Anyone with the link can view it for ${describeExpiry(result.expiresIn)}`,
-    })
+    const result = await mintAndCopy(client, orgId, driveId, path, options)
+    const expiry = describeExpiry(result.expiresIn)
+    if (result.writable) {
+      toast.success("Page link copied", {
+        description: `Anyone with the link can view it and save its data files for ${expiry}`,
+      })
+    } else {
+      toast.success(result.kind === "site" ? "Site link copied" : "Share link copied", {
+        description: `Anyone with the link can view it for ${expiry}`,
+      })
+    }
     return result.link
   } catch (err) {
-    if (err instanceof InvalidShareResponseError) {
+    if (err instanceof WritableNotSupportedError) {
+      toast.error("This server can't make writable links yet", {
+        description: "It made a read-only link instead, which was not copied.",
+      })
+    } else if (err instanceof InvalidShareResponseError) {
       toast.error("Couldn't create a share link", { description: "The server returned an invalid link." })
     } else if (isUnknownOpError(err)) {
       toast.error("This server doesn't support share links yet")

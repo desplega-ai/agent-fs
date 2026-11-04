@@ -9,6 +9,7 @@ export const SERVER_FEATURES = [
   "html-sites",
   "html-comments",
   "page-bridge",
+  "writable-shares",
   "favorites",
   "presence",
 ] as const;

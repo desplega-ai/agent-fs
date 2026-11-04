@@ -57,6 +57,7 @@ describe("share token", () => {
     expect(extractShareToken(token)).toBe(token);
     expect(extractShareToken(`https://x.fly.dev/share/${token}`)).toBe(token);
     expect(extractShareToken(`https://x.fly.dev/share/${token}?a=1#b`)).toBe(token);
+    expect(extractShareToken(`https://x.fly.dev/page/${token}/`)).toBe(token);
     expect(extractShareToken("nope")).toBeNull();
     expect(extractShareToken("https://x.fly.dev/share/short")).toBeNull();
   });
@@ -477,6 +478,63 @@ describe("site shares (folders)", () => {
 
     const file = findShareByToken(t.db, tokenOf(await create()))!;
     expect(siteObjectKey(file, "x")).toBeNull();
+  });
+});
+
+describe("writable site shares", () => {
+  const pageTokenOf = (r: ShareCreateResult) => r.sharePath.replace(/^\/page\/|\/$/g, "");
+  const row = (id: string) => t.db.select().from(schema.shares).where(eq(schema.shares.id, id)).get()!;
+
+  beforeEach(async () => {
+    await dispatchOp(ctx, "write", { path: "/site/index.html", content: "<h1>hi</h1>" });
+  });
+
+  test("a writable folder link is a /page/ link with its own guest secret", async () => {
+    const r = await create({ path: "/site", writable: true });
+    expect(r).toMatchObject({ kind: "site", writable: true });
+    expect(r.sharePath).toMatch(/^\/page\/[A-Za-z0-9_-]{43}\/$/);
+    expect(r.url).toBe(`https://api.example.test${r.sharePath}`);
+    const share = findShareByToken(t.db, pageTokenOf(r))!;
+    expect(share.writable).toBe(true);
+    expect(share.guestSecret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const other = findShareByToken(t.db, pageTokenOf(await create({ path: "/site", writable: true })))!;
+    expect(other.guestSecret).not.toBe(share.guestSecret);
+    // The secret is never part of an op result.
+    expect(JSON.stringify(r)).not.toContain(share.guestSecret!);
+  });
+
+  test("links are read-only by default", async () => {
+    const r = await create({ path: "/site" });
+    expect(r.writable).toBe(false);
+    expect(row(r.id)).toMatchObject({ writable: false, guestSecret: null });
+    expect((await create()).writable).toBe(false);
+  });
+
+  test("a file or the drive root cannot be writable, and nothing is stored", async () => {
+    await expect(create({ writable: true })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(create({ path: "/", writable: true })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    expect(t.db.select().from(schema.shares).all()).toHaveLength(0);
+  });
+
+  test("only drive editors and admins, or org admins, can create one", async () => {
+    const viewer = createUser(t.db, { email: "w-viewer@example.com" });
+    setDriveMember(t.db, { driveId: t.driveId, userId: viewer.user.id, role: "viewer" });
+    await expect(create({ path: "/site", writable: true }, { ...ctx, userId: viewer.user.id })).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
+    expect(t.db.select().from(schema.shares).all()).toHaveLength(0);
+
+    const editor = createUser(t.db, { email: "w-editor@example.com" });
+    setDriveMember(t.db, { driveId: t.driveId, userId: editor.user.id, role: "editor" });
+    expect((await create({ path: "/site", writable: true }, { ...ctx, userId: editor.user.id })).writable).toBe(true);
+  });
+
+  test("revoking by the /page/ link ends it and clears the secret", async () => {
+    const r = await create({ path: "/site", writable: true });
+    const revoked = (await dispatchOp(ctx, "share-revoke", { token: `${r.url}?x=1` })) as { revoked: number; ids: string[] };
+    expect(revoked).toEqual({ revoked: 1, ids: [r.id] });
+    expect(row(r.id).guestSecret).toBeNull();
+    expect(getShareState(findShareByToken(t.db, pageTokenOf(r))!)).toBe("revoked");
   });
 });
 

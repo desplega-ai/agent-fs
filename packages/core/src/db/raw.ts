@@ -211,7 +211,9 @@ CREATE TABLE IF NOT EXISTS shares (
   last_viewed_at INTEGER,
   created_by TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  revoked_at INTEGER
+  revoked_at INTEGER,
+  writable INTEGER NOT NULL DEFAULT 0,
+  guest_secret TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS shares_token_hash_uq ON shares(token_hash);

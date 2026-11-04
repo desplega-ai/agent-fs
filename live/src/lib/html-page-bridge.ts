@@ -17,7 +17,8 @@ export const MAX_READ_BYTES = 1024 * 1024
 export const MAX_WRITE_BYTES = 256 * 1024
 const MAX_MESSAGE = 1000
 const MAX_IN_FLIGHT = 16
-const MAX_MESSAGE_BYTES = 1024 * 1024
+// Same as the server's PAGE_MAX_MESSAGE_BYTES: room for 256 KB of escape-heavy content as JSON.
+const MAX_MESSAGE_BYTES = 2 * 1024 * 1024
 const READ_RETRIES = 3
 const DATA_EXTENSIONS = new Set(["json", "txt", "md", "csv", "yaml", "yml", "ndjson"])
 
@@ -139,11 +140,14 @@ function readAccess(storage: KeyValueStorage | null): Record<string, true> {
   }
 }
 
-function writeAccess(storage: KeyValueStorage | null, value: Record<string, true>): void {
+/** Whether the value was stored. */
+function writeAccess(storage: KeyValueStorage | null, value: Record<string, true>): boolean {
+  if (!storage) return false
   try {
-    storage?.setItem(PAGE_ACCESS_KEY, JSON.stringify(value))
+    storage.setItem(PAGE_ACCESS_KEY, JSON.stringify(value))
+    return true
   } catch {
-    // ignore quota / privacy errors: access then lasts this page view only
+    return false // quota or privacy mode
   }
 }
 
@@ -151,11 +155,12 @@ export function hasPageAccess(scope: ConsentScope, storage = defaultStorage()): 
   return readAccess(storage)[pageAccessKey(scope)] === true
 }
 
-export function setPageAccess(scope: ConsentScope, allowed: boolean, storage = defaultStorage()): void {
+/** Stores the decision; false when the browser would not store it. */
+export function setPageAccess(scope: ConsentScope, allowed: boolean, storage = defaultStorage()): boolean {
   const access = readAccess(storage)
   if (allowed) access[pageAccessKey(scope)] = true
   else delete access[pageAccessKey(scope)]
-  writeAccess(storage, access)
+  return writeAccess(storage, access)
 }
 
 /** What the bridge needs from the app. */
@@ -169,11 +174,18 @@ export interface PageHost {
   allowed(): boolean
 }
 
+export interface MemberPageHost extends PageHost {
+  /** Withdraws the consent, stored and in memory. False when the browser would not store the revoke. */
+  revoke(): boolean
+}
+
 /**
  * The host for a signed-in member. Consent is read from storage on every
  * identity and write request, so a revoke in another view or tab applies to
- * the next one. `scope` is null until the member is known; `ask` shows the
- * consent banner and resolves true for "Allow".
+ * the next one. When the browser will not store an "Allow" or a revoke, the
+ * decision holds for this host only, in memory, over what storage says. `scope` is null until the member is known; `ask` shows
+ * the consent banner and resolves true for "Allow"; `onAllow` says whether
+ * the choice was stored.
  */
 export function memberPageHost(opts: {
   folder: string | null
@@ -181,12 +193,15 @@ export function memberPageHost(opts: {
   viewer: () => Viewer | null
   callOp: PageHost["callOp"]
   ask: () => Promise<boolean>
+  onAllow?: (stored: boolean) => void
   storage?: KeyValueStorage | null
-}): PageHost {
+}): MemberPageHost {
   const storage = opts.storage === undefined ? defaultStorage() : opts.storage
+  let inMemory: { key: string; allowed: boolean } | null = null
   const allowed = () => {
     const scope = opts.scope()
-    return !!scope && hasPageAccess(scope, storage)
+    if (!scope) return false
+    return inMemory?.key === pageAccessKey(scope) ? inMemory.allowed : hasPageAccess(scope, storage)
   }
   return {
     folder: opts.folder,
@@ -197,9 +212,18 @@ export function memberPageHost(opts: {
       if (!scope) return null
       if (!allowed()) {
         if (!(await opts.ask())) return null
-        setPageAccess(scope, true, storage)
+        const stored = setPageAccess(scope, true, storage)
+        inMemory = stored ? null : { key: pageAccessKey(scope), allowed: true }
+        opts.onAllow?.(stored)
       }
       return opts.viewer()
+    },
+    revoke() {
+      const scope = opts.scope()
+      if (!scope) return true
+      const stored = setPageAccess(scope, false, storage)
+      inMemory = stored ? null : { key: pageAccessKey(scope), allowed: false }
+      return stored
     },
   }
 }
@@ -322,7 +346,7 @@ export function createHtmlPageBridge(
         reply({ error: { code: e.code, message: e.message } })
       }
       if (inFlight >= MAX_IN_FLIGHT) return fail(refuse(`At most ${MAX_IN_FLIGHT} requests in flight`))
-      if (messageBytes(data) > MAX_MESSAGE_BYTES) return fail(refuse("Request is larger than 1 MB"))
+      if (messageBytes(data) > MAX_MESSAGE_BYTES) return fail(refuse("Request is larger than 2 MB"))
       if ("error" in req) return fail(req.error)
       inFlight++
       handlePageRequest(host, req)
