@@ -2,7 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { createOrg } from "./orgs.js";
-import { revokeGrantedKeys } from "./api-keys.js";
+import { PRIMARY_API_KEY_ID, revokeGrantedKeys } from "./api-keys.js";
 import { z } from "zod";
 import { ValidationError, NotFoundError } from "../errors.js";
 
@@ -139,11 +139,13 @@ export const API_KEY_LAST_USED_THROTTLE_SECONDS = 60;
  * `scopeOrgId` is set for an org-scoped key (minted by an org admin): such a
  * key may only act inside that org, and every caller must enforce it (the HTTP
  * middleware limits it to `/orgs/<scopeOrgId>/...`; IPC refuses it).
+ * `keyId` names the key that matched (`primary` for the legacy key), so
+ * `GET /auth/keys` can mark the one the caller is using.
  */
 export function getUserByApiKey(
   db: DB,
   apiKey: string
-): { id: string; email: string; scopeOrgId: string | null } | null {
+): { id: string; email: string; scopeOrgId: string | null; keyId: string } | null {
   const hash = hashApiKey(apiKey);
   // `values` returns positional rows; drizzle's raw `get` does not map
   // column names for compound selects.
@@ -168,7 +170,7 @@ export function getUserByApiKey(
         .run();
     }
   }
-  return { id, email, scopeOrgId: scopeOrgId ?? null };
+  return { id, email, scopeOrgId: scopeOrgId ?? null, keyId: keyId ?? PRIMARY_API_KEY_ID };
 }
 
 export function getUserByEmail(

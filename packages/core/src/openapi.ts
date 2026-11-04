@@ -81,6 +81,14 @@ export function generateOpenAPISpec() {
     },
     required: ["id", "label", "createdAt", "lastUsedAt", "primary", "orgId", "createdByUserId"],
   };
+  const selfApiKeyInfo = {
+    ...apiKeyInfo,
+    properties: {
+      ...apiKeyInfo.properties,
+      current: { type: "boolean", description: "True for the key that authenticated this request" },
+    },
+    required: [...apiKeyInfo.required, "current"],
+  };
   const createdApiKey = {
     type: "object",
     properties: {
@@ -294,6 +302,8 @@ export function generateOpenAPISpec() {
       "/auth/me": {
         get: {
           summary: "Get current user info",
+          description:
+            "The one /auth route an org-scoped key (minted by an org admin) may call. For such a key the answer is identity only: `userId`, `email`, `displayName` and `scopedOrgId`, without the personal `defaultOrgId`/`defaultDriveId`. Every other key gets the defaults and `scopedOrgId: null`.",
           operationId: "me",
           tags: ["Auth"],
           responses: {
@@ -304,11 +314,14 @@ export function generateOpenAPISpec() {
                   schema: {
                     type: "object",
                     properties: {
-                      id: { type: "string" },
+                      userId: { type: "string" },
                       email: { type: "string" },
-                      createdAt: { type: "string", format: "date-time" },
+                      displayName: { type: ["string", "null"] },
+                      defaultOrgId: { type: ["string", "null"], description: "Absent for an org-scoped key" },
+                      defaultDriveId: { type: ["string", "null"], description: "Absent for an org-scoped key" },
+                      scopedOrgId: { type: ["string", "null"], description: "Org the calling key is limited to; null for an unscoped key" },
                     },
-                    required: ["id", "email", "createdAt"],
+                    required: ["userId", "email", "displayName", "scopedOrgId"],
                   },
                 },
               },
@@ -459,7 +472,7 @@ export function generateOpenAPISpec() {
                 "application/json": {
                   schema: {
                     type: "object",
-                    properties: { keys: { type: "array", items: apiKeyInfo } },
+                    properties: { keys: { type: "array", items: selfApiKeyInfo } },
                     required: ["keys"],
                   },
                 },

@@ -426,12 +426,20 @@ export interface AcceptInviteResult {
   skippedDrives: string[]
 }
 
+/**
+ * `GET /auth/me`. An org-scoped key (minted by an org admin) gets identity
+ * only: `scopedOrgId` is set and the personal defaults are absent.
+ */
 export interface MeResponse {
   displayName?: string | null
   userId: string
   email: string
-  defaultOrgId: string | null
-  defaultDriveId: string | null
+  /** Absent for an org-scoped key. */
+  defaultOrgId?: string | null
+  /** Absent for an org-scoped key. */
+  defaultDriveId?: string | null
+  /** Org the signed-in key is limited to; null for an unscoped key. Absent on servers that predate it. */
+  scopedOrgId?: string | null
 }
 
 export interface RegisterResponse {
@@ -533,3 +541,28 @@ export interface PresenceSnapshot {
 export type PresenceEvent =
   | { type: "presence.updated"; driveId: string; session: PresenceSession; at: string }
   | { type: "presence.left"; driveId: string; sessionId: string; userId: string; at: string }
+
+/** One of the caller's active API keys, from `GET /auth/keys`. Never carries a secret. */
+export interface ApiKeyInfo {
+  /** `primary` for the key register and reset-key hand out. */
+  id: string
+  label: string
+  /** Null for the primary key. */
+  createdAt: string | null
+  /** Null until first use, and always for the primary key. */
+  lastUsedAt: string | null
+  primary: boolean
+  /** Org the key is limited to; null for a key that reaches the whole account. */
+  orgId: string | null
+  createdByUserId: string
+  /** True for the key this browser signs in with. Absent on servers that predate it. */
+  current?: boolean
+}
+
+/** `POST /auth/keys`: the plaintext key, returned this once. */
+export interface CreatedApiKey {
+  id: string
+  label: string
+  createdAt: string
+  apiKey: string
+}

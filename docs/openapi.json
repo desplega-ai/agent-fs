@@ -338,6 +338,7 @@
     "/auth/me": {
       "get": {
         "summary": "Get current user info",
+        "description": "The one /auth route an org-scoped key (minted by an org admin) may call. For such a key the answer is identity only: `userId`, `email`, `displayName` and `scopedOrgId`, without the personal `defaultOrgId`/`defaultDriveId`. Every other key gets the defaults and `scopedOrgId: null`.",
         "operationId": "me",
         "tags": [
           "Auth"
@@ -350,21 +351,45 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "id": {
+                    "userId": {
                       "type": "string"
                     },
                     "email": {
                       "type": "string"
                     },
-                    "createdAt": {
-                      "type": "string",
-                      "format": "date-time"
+                    "displayName": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "defaultOrgId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Absent for an org-scoped key"
+                    },
+                    "defaultDriveId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Absent for an org-scoped key"
+                    },
+                    "scopedOrgId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Org the calling key is limited to; null for an unscoped key"
                     }
                   },
                   "required": [
-                    "id",
+                    "userId",
                     "email",
-                    "createdAt"
+                    "displayName",
+                    "scopedOrgId"
                   ]
                 }
               }
@@ -640,6 +665,10 @@
                           "createdByUserId": {
                             "type": "string",
                             "description": "Who minted the key: the user, or the org admin who did"
+                          },
+                          "current": {
+                            "type": "boolean",
+                            "description": "True for the key that authenticated this request"
                           }
                         },
                         "required": [
@@ -649,7 +678,8 @@
                           "lastUsedAt",
                           "primary",
                           "orgId",
-                          "createdByUserId"
+                          "createdByUserId",
+                          "current"
                         ]
                       }
                     }

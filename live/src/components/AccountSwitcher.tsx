@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { ProfileDialog } from "./ProfileDialog"
 import { useNavigate } from "react-router"
-import { ChevronDown, Plus, Check, User } from "lucide-react"
+import { ChevronDown, Plus, Check, KeyRound, User } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { getCredentials } from "@/stores/credentials"
 import {
@@ -43,6 +43,10 @@ export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}
           </>
         )}
         <DropdownMenuItem onClick={() => setEditingProfile(true)}>Edit profile</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate("/keys")}>
+          <KeyRound className="size-3" />
+          <span>API keys</span>
+        </DropdownMenuItem>
         {allCredentials.map((cred) => (
           <DropdownMenuItem
             key={cred.id}

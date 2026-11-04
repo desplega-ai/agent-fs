@@ -75,6 +75,18 @@ export function authRoutes(db: DB) {
 
   router.get("/me", (c) => {
     const user = c.get("user");
+    const scopedOrgId = c.get("scopeOrgId") ?? null;
+
+    // An org-scoped key gets identity only: the defaults below come from the
+    // user's personal context, which the key must not learn.
+    if (scopedOrgId) {
+      return c.json({
+        userId: user.id,
+        email: user.email,
+        displayName: getProfile(db, user.id).displayName,
+        scopedOrgId,
+      });
+    }
 
     try {
       const resolved = resolveContext(db, { userId: user.id });
@@ -84,6 +96,7 @@ export function authRoutes(db: DB) {
         displayName: getProfile(db, user.id).displayName,
         defaultOrgId: resolved.orgId,
         defaultDriveId: resolved.driveId,
+        scopedOrgId: null,
       });
     } catch {
       // If context resolution fails, return basic user info without defaults
@@ -93,6 +106,7 @@ export function authRoutes(db: DB) {
         displayName: getProfile(db, user.id).displayName,
         defaultOrgId: null,
         defaultDriveId: null,
+        scopedOrgId: null,
       });
     }
   });
@@ -140,7 +154,13 @@ export function authRoutes(db: DB) {
     return c.json({ id: key.id, label: key.label, createdAt: key.createdAt, apiKey: key.apiKey }, 201);
   });
 
-  router.get("/keys", (c) => c.json({ keys: listUserApiKeys(db, c.get("user").id) }));
+  // `current` marks the key this request came in with, so a client can warn
+  // before revoking the key it is signed in with.
+  router.get("/keys", (c) => {
+    const currentId = c.get("apiKeyId");
+    const keys = listUserApiKeys(db, c.get("user").id).map((k) => ({ ...k, current: k.id === currentId }));
+    return c.json({ keys });
+  });
 
   router.delete("/keys/:id", (c) => {
     const user = c.get("user");

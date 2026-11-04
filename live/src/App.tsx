@@ -9,6 +9,7 @@ import { BrowserProvider, useBrowser } from "@/contexts/browser"
 import { Shell } from "@/components/layout/Shell"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { AcceptInvitePage } from "@/pages/AcceptInvite"
+import { ApiKeysPage } from "@/pages/ApiKeys"
 import { CredentialsPage } from "@/pages/Credentials"
 import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
@@ -173,6 +174,14 @@ function MembersRoute() {
   )
 }
 
+function ApiKeysRoute() {
+  return (
+    <Shell>
+      <ApiKeysPage />
+    </Shell>
+  )
+}
+
 function FilesRoute() {
   return (
     <Shell>
@@ -226,6 +235,7 @@ export default function App() {
                   <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
                   <Route path="/sql/~/:orgId/:driveId" element={<SqlRoute />} />
                   <Route path="/members/~/:orgId/:driveId" element={<MembersRoute />} />
+                  <Route path="/keys" element={<ApiKeysRoute />} />
                   <Route path="/files" element={<FilesRoute />} />
                   <Route path="*" element={<Navigate to="/files" replace />} />
                 </Route>

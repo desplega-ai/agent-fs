@@ -88,13 +88,22 @@ describe("self-service API keys", () => {
     const text = await res.text();
     const { keys } = JSON.parse(text);
     expect(keys).toEqual([
-      { id: "primary", label: "primary", createdAt: null, lastUsedAt: null, primary: true, orgId: null, createdByUserId: user.userId },
-      { id: key.id, label: "cli", createdAt: key.createdAt, lastUsedAt: null, primary: false, orgId: null, createdByUserId: user.userId },
+      { id: "primary", label: "primary", createdAt: null, lastUsedAt: null, primary: true, orgId: null, createdByUserId: user.userId, current: true },
+      { id: key.id, label: "cli", createdAt: key.createdAt, lastUsedAt: null, primary: false, orgId: null, createdByUserId: user.userId, current: false },
     ]);
     expect(text).not.toContain(key.apiKey);
     expect(text).not.toContain(user.apiKey);
     expect(text).not.toMatch(/[0-9a-f]{64}/);
     expect(text).not.toMatch(/hash/i);
+  });
+
+  test("list marks the key the request came in with as current", async () => {
+    const user = await register("keys-current@example.com");
+    const key = await mintSelf(user.apiKey, "laptop");
+    const current = async (apiKey: string) =>
+      (await (await keyReq(apiKey, "/auth/keys")).json()).keys.filter((k: any) => k.current).map((k: any) => k.id);
+    expect(await current(user.apiKey)).toEqual(["primary"]);
+    expect(await current(key.apiKey)).toEqual([key.id]);
   });
 
   test("revoking every key, the primary included, is allowed and reset-key recovers", async () => {
@@ -258,7 +267,7 @@ async function invite(admin: { apiKey: string }, orgId: string, email: string, r
 // An admin-minted key is a credential someone else created for the member. It
 // must reach only the minting org and must not outlive the grant behind it.
 describe("admin-minted keys are scoped to the org and die with the grant", () => {
-  test("the key cannot leave the org: auth routes, MCP, other orgs and the org list are refused", async () => {
+  test("the key cannot leave the org: auth routes but GET /auth/me, MCP, other orgs and the org list are refused", async () => {
     const admin = await register("scope-admin@example.com");
     const member = await register("scope-member@example.com");
     const orgId = await orgWith(admin, "scope-member@example.com", "scope-org");
@@ -267,8 +276,19 @@ describe("admin-minted keys are scoped to the org and die with the grant", () =>
     expect((await keyReq(key.apiKey, `/orgs/${orgId}`)).status).toBe(200);
     expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
 
+    // GET /auth/me answers with identity only: no personal defaults.
+    const me = await keyReq(key.apiKey, "/auth/me");
+    expect(me.status).toBe(200);
+    const meBody = await me.json();
+    expect(meBody).toEqual({ userId: member.userId, email: "scope-member@example.com", displayName: null, scopedOrgId: orgId });
+    expect(meBody).not.toHaveProperty("defaultOrgId");
+    expect(meBody).not.toHaveProperty("defaultDriveId");
+
     const refused: Array<[string, RequestInit?]> = [
-      ["/auth/me"],
+      ["/auth/me", { method: "POST" }],
+      ["/auth/me/"],
+      ["/auth/profile"],
+      ["/auth/profile", { method: "PATCH", body: JSON.stringify({ displayName: "escape" }) }],
       ["/auth/keys"],
       ["/auth/keys", { method: "POST", body: JSON.stringify({ label: "escape" }) }],
       ["/auth/keys/primary", { method: "DELETE" }],
@@ -283,8 +303,13 @@ describe("admin-minted keys are scoped to the org and die with the grant", () =>
       const res = await keyReq(key.apiKey, path, opts);
       expect({ path, status: res.status }).toEqual({ path, status: 403 });
     }
-    // Nothing above touched the member's own keys.
-    expect((await keyReq(member.apiKey, "/auth/me")).status).toBe(200);
+    // Nothing above touched the member's own keys or profile.
+    const ownMe = await keyReq(member.apiKey, "/auth/me");
+    expect(ownMe.status).toBe(200);
+    const ownMeBody = await ownMe.json();
+    expect(ownMeBody.scopedOrgId).toBeNull();
+    expect(ownMeBody.displayName).toBeNull();
+    expect(ownMeBody.defaultOrgId).toBe(member.orgId);
     const own = await (await keyReq(member.apiKey, "/auth/keys")).json();
     expect(own.keys.map((k: any) => [k.id, k.orgId, k.createdByUserId])).toEqual([
       ["primary", null, member.userId],

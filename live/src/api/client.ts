@@ -1,5 +1,7 @@
 import type {
   AcceptInviteResult,
+  ApiKeyInfo,
+  CreatedApiKey,
   AddDriveMemberResult,
   DriveGrant,
   DriveMemberWithRole,
@@ -191,6 +193,21 @@ export class AgentFsClient {
 
   async getMe(): Promise<MeResponse> {
     return this.get<MeResponse>("/auth/me")
+  }
+
+  /** The caller's active API keys, primary first. */
+  async listApiKeys(): Promise<{ keys: ApiKeyInfo[] }> {
+    return this.get<{ keys: ApiKeyInfo[] }>("/auth/keys")
+  }
+
+  /** Mint another key for the caller. The plaintext comes back only in this response. */
+  async createApiKey(label: string): Promise<CreatedApiKey> {
+    return this.post<CreatedApiKey>("/auth/keys", { label })
+  }
+
+  /** Revoke one of the caller's keys. `primary` revokes the primary key. */
+  async revokeApiKey(id: string): Promise<void> {
+    await this.request(`/auth/keys/${encodeURIComponent(id)}`, { method: "DELETE" })
   }
 
   async getOrgs(): Promise<{ orgs: Org[] }> {
