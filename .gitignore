@@ -1,5 +1,6 @@
 .qa-use-tests.json
 .mcp.json
+.pi/
 node_modules/
 dist/
 *.db
