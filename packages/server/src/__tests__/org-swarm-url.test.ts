@@ -151,6 +151,17 @@ describe("GET /orgs/:orgId/public", () => {
     expect(await res.json()).toEqual({ swarmUrl: null });
   });
 
+  test("one address gets 429 after 120 requests a minute", async () => {
+    // A fresh app: its own limiter, so the other tests' requests do not count.
+    const limited = createApp(db, new MockS3Client() as any);
+    const orgId = crypto.randomUUID();
+    for (let i = 0; i < 120; i++) expect((await limited.request(`/orgs/${orgId}/public`)).status).toBe(200);
+    const refused = await limited.request(`/orgs/${orgId}/public`);
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("retry-after")).toBeTruthy();
+    expect(await refused.text()).toBe("Too many requests");
+  });
+
   test("other /orgs routes still need a key", async () => {
     const admin = await register("swarm-public-auth@example.com");
     expect((await app.request(`/orgs/${admin.orgId}`)).status).toBe(401);

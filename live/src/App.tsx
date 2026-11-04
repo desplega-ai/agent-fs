@@ -175,11 +175,10 @@ function MembersRoute() {
 }
 
 function ApiKeysRoute() {
-  return (
-    <Shell>
-      <ApiKeysPage />
-    </Shell>
-  )
+  const { user } = useAuth()
+  // An org-scoped key (a swarm handoff) gets 403 on /auth/keys: open its org instead.
+  if (user?.scopedOrgId) return <Navigate to={`/orgs/${encodeURIComponent(user.scopedOrgId)}/files`} replace />
+  return <Shell>{user && <ApiKeysPage />}</Shell>
 }
 
 function FilesRoute() {

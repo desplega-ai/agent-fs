@@ -89,7 +89,7 @@ For an org-scoped key the answer is identity only, without the personal defaults
 
 ### Org swarm URL
 
-An org can name the agent-swarm dashboard it trusts for sign-in. When a browser with no key opens a deep link into that org (`/file/~/<orgId>/<driveId>/<path>?apiUrl=<this server>`), the live UI shows "Continue with <swarm host>", which opens `<swarmUrl>/fs/continue?return_to=<the live URL>`. The swarm mints a key for the signed-in user and sends the browser back to `return_to` with `#key=<af_...>&apiUrl=<this server>` in the fragment. The live UI saves that key, removes the fragment from the address bar before any request, and opens the original path.
+An org can name the agent-swarm dashboard it trusts for sign-in. When a browser with no key opens a deep link into that org (`/file/~/<orgId>/<driveId>/<path>?apiUrl=<this server>`), the live UI shows "Continue with <swarm host>", which opens `<swarmUrl>/fs/continue?return_to=<the live URL>`. The live URL carries `handoff=<nonce>` in its query: a single-use value the click stores in the tab's sessionStorage for 10 minutes. The swarm mints a key for the signed-in user and sends the browser back to `return_to`, query unchanged, with `#key=<af_...>&apiUrl=<this server>` in the fragment. The live UI removes the fragment from the address bar before any request. It saves the key and opens the original path only when `handoff` matches the stored nonce. Otherwise it ignores the key. Servers that support this list `org-swarm-url` in the `/health` `features` array.
 
 | Method | Path | Who | Body | Response |
 |---|---|---|---|---|

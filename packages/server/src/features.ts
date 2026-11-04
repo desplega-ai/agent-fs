@@ -10,4 +10,5 @@ export const SERVER_FEATURES = [
   "html-comments",
   "favorites",
   "presence",
+  "org-swarm-url",
 ] as const;

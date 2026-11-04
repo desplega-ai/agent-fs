@@ -57,6 +57,7 @@ describe("Health check", () => {
       "change-stream",
       "favorites",
       "presence",
+      "org-swarm-url",
     ]));
   });
 });

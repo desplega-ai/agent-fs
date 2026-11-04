@@ -23,11 +23,13 @@ import { toast } from "@/stores/toast"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { isInviteReturnPath } from "@/lib/invites"
 import {
-  continueWithSwarmHref,
-  endpointHost,
+  type ContinueLink,
+  continueWithSwarmLink,
   isAppReturnPath,
+  newHandoffNonce,
   normalizeEndpoint,
   orgIdFromAppPath,
+  rememberHandoffNonce,
 } from "@/lib/key-handoff"
 
 type Mode = "connect" | "register"
@@ -171,11 +173,17 @@ export function CredentialsPage() {
           <div className="space-y-3">
             <a
               href={continueHref.href}
+              onClick={() => rememberHandoffNonce(window, continueHref.nonce)}
               className={buttonVariants({ size: "lg", className: "w-full" })}
             >
               Continue with {continueHref.host}
               <ArrowRight />
             </a>
+            {continueHref.apiHost && (
+              <p className="text-center text-xs text-muted-foreground">
+                agent-fs server: <span className="font-mono text-foreground">{continueHref.apiHost}</span>
+              </p>
+            )}
             <p className="text-center text-xs text-muted-foreground">or connect with an API key</p>
           </div>
         )}
@@ -415,14 +423,15 @@ export function CredentialsPage() {
 
 /**
  * The "Continue with <swarm host>" link for the deep link in `?next=`, or null
- * while unknown. The swarm URL is checked again here: a crafted `?apiUrl=` can
- * point at any server, which must not be able to plant a `javascript:` link.
+ * while unknown. The click stores the nonce the link carries; the return is
+ * accepted only with it (see takeKeyHandoff).
  */
-function useContinueWithSwarm(params: URLSearchParams): { href: string; host: string } | null {
+function useContinueWithSwarm(params: URLSearchParams): (ContinueLink & { nonce: string }) | null {
   const next = params.get("next")
   const target = next && isAppReturnPath(next) ? next : null
   const orgId = target ? orgIdFromAppPath(target) : null
   const endpoint = normalizeEndpoint(params.get("apiUrl")) ?? normalizeEndpoint(getActiveCredential()?.endpoint)
+  const [nonce] = useState(newHandoffNonce)
 
   const { data: swarmUrl } = useQuery({
     queryKey: ["org-swarm-url", endpoint, orgId],
@@ -432,10 +441,8 @@ function useContinueWithSwarm(params: URLSearchParams): { href: string; host: st
     staleTime: Infinity,
   })
 
-  const safeSwarmUrl = normalizeEndpoint(swarmUrl)
-  if (!target || !safeSwarmUrl) return null
-  return {
-    href: continueWithSwarmHref(safeSwarmUrl, window.location.origin + target),
-    host: endpointHost(safeSwarmUrl),
-  }
+  if (!target || !endpoint) return null
+  const endpointSaved = getCredentials().some((c) => normalizeEndpoint(c.endpoint) === endpoint)
+  const link = continueWithSwarmLink({ swarmUrl, target, origin: window.location.origin, nonce, endpoint, endpointSaved })
+  return link && { ...link, nonce }
 }
