@@ -17,6 +17,7 @@ test("an existing DB without user_api_keys gains the table and its indexes", () 
     runMigrations(raw);
 
     expect(tables()).toEqual([
+      { name: "idx_user_api_keys_org" },
       { name: "idx_user_api_keys_user" },
       { name: "user_api_keys" },
       { name: "user_api_keys_key_hash_uq" },

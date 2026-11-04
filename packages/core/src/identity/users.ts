@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { createOrg } from "./orgs.js";
+import { revokeGrantedKeys } from "./api-keys.js";
 import { z } from "zod";
 import { ValidationError, NotFoundError } from "../errors.js";
 
@@ -79,6 +80,12 @@ export function resetApiKey(
       .where(eq(schema.users.id, params.userId))
       .run();
 
+    // A self reset is the user's recovery path: it also cuts off every
+    // org-scoped (admin-minted) key. Keys from POST /auth/keys stay.
+    if (params.actorId === params.userId) {
+      revokeGrantedKeys(tx, { reason: "selfReset", userId: params.userId });
+    }
+
     tx.insert(schema.events)
       .values({
         id: crypto.randomUUID(),
@@ -114,6 +121,7 @@ export function resetApiKeyOrgless(db: DB, userId: string): { apiKey: string } {
   const apiKeyHash = hashApiKey(apiKey);
   db.transaction((tx) => {
     tx.update(schema.users).set({ apiKeyHash }).where(eq(schema.users.id, userId)).run();
+    revokeGrantedKeys(tx, { reason: "selfReset", userId });
   });
   return { apiKey };
 }
@@ -127,26 +135,30 @@ export const API_KEY_LAST_USED_THROTTLE_SECONDS = 60;
  * statement, two indexed probes. For a `user_api_keys` hit, `last_used_at` is
  * refreshed only when it is older than API_KEY_LAST_USED_THROTTLE_SECONDS, so
  * the hot path stays read-only.
+ *
+ * `scopeOrgId` is set for an org-scoped key (minted by an org admin): such a
+ * key may only act inside that org, and every caller must enforce it (the HTTP
+ * middleware limits it to `/orgs/<scopeOrgId>/...`; IPC refuses it).
  */
 export function getUserByApiKey(
   db: DB,
   apiKey: string
-): { id: string; email: string } | null {
+): { id: string; email: string; scopeOrgId: string | null } | null {
   const hash = hashApiKey(apiKey);
   // `values` returns positional rows; drizzle's raw `get` does not map
   // column names for compound selects.
-  const [row] = db.values<[string, string, string | null, number | null]>(sql`
-    SELECT id, email, NULL AS key_id, NULL AS last_used_at
+  const [row] = db.values<[string, string, string | null, number | null, string | null]>(sql`
+    SELECT id, email, NULL AS key_id, NULL AS last_used_at, NULL AS org_id
       FROM users WHERE api_key_hash = ${hash}
     UNION ALL
-    SELECT u.id, u.email, k.id, k.last_used_at
+    SELECT u.id, u.email, k.id, k.last_used_at, k.org_id
       FROM user_api_keys k JOIN users u ON u.id = k.user_id
       WHERE k.key_hash = ${hash} AND k.revoked_at IS NULL
     LIMIT 1
   `);
 
   if (!row) return null;
-  const [id, email, keyId, lastUsedAt] = row;
+  const [id, email, keyId, lastUsedAt, scopeOrgId] = row;
   if (keyId) {
     const nowSec = Math.floor(Date.now() / 1000);
     if (lastUsedAt == null || nowSec - lastUsedAt >= API_KEY_LAST_USED_THROTTLE_SECONDS) {
@@ -156,7 +168,7 @@ export function getUserByApiKey(
         .run();
     }
   }
-  return { id, email };
+  return { id, email, scopeOrgId: scopeOrgId ?? null };
 }
 
 export function getUserByEmail(

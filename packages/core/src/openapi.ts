@@ -76,8 +76,10 @@ export function generateOpenAPISpec() {
       createdAt: { type: ["string", "null"], format: "date-time" },
       lastUsedAt: { type: ["string", "null"], format: "date-time" },
       primary: { type: "boolean" },
+      orgId: { type: ["string", "null"], description: "Org the key is limited to; null for a key that reaches the whole account" },
+      createdByUserId: { type: "string", description: "Who minted the key: the user, or the org admin who did" },
     },
-    required: ["id", "label", "createdAt", "lastUsedAt", "primary"],
+    required: ["id", "label", "createdAt", "lastUsedAt", "primary", "orgId", "createdByUserId"],
   };
   const createdApiKey = {
     type: "object",
@@ -347,7 +349,7 @@ export function generateOpenAPISpec() {
         post: {
           summary: "Reset your own API key",
           description:
-            "Rotates the caller's API key. The old key stops working immediately. Records an api_key_reset audit event.",
+            "Rotates the caller's primary API key. The old key stops working immediately. Also revokes every org-scoped key of the caller (keys org admins minted); keys from POST /auth/keys keep working. Records an api_key_reset audit event.",
           operationId: "resetApiKey",
           tags: ["Auth"],
           responses: {
@@ -447,7 +449,7 @@ export function generateOpenAPISpec() {
         get: {
           summary: "List your API keys",
           description:
-            "Lists the caller's active keys: the primary key (id `primary`, the one register and reset-key hand out) and every non-revoked additional key. Never returns hashes or plaintext. `createdAt` and `lastUsedAt` are null for the primary key. `lastUsedAt` is refreshed at most once per minute per key.",
+            "Lists the caller's active keys: the primary key (id `primary`, the one register and reset-key hand out) and every non-revoked additional key, including org-scoped keys an org admin minted for the caller. Never returns hashes or plaintext. `createdAt` and `lastUsedAt` are null for the primary key. `lastUsedAt` is refreshed at most once per minute per key. Org-scoped keys get 403 here.",
           operationId: "listApiKeys",
           tags: ["Auth"],
           responses: {
@@ -469,7 +471,7 @@ export function generateOpenAPISpec() {
         post: {
           summary: "Create an additional API key",
           description:
-            "Mints a new key for the caller next to the existing ones; no other key changes. The plaintext key is returned once and never stored. Records an api_key_created audit event in the caller's personal org.",
+            "Mints a new key for the caller next to the existing ones; no other key changes. The key reaches the whole account, like the primary. The plaintext key is returned once and never stored. Records an api_key_created audit event in the caller's personal org. Org-scoped keys get 403 here.",
           operationId: "createApiKey",
           tags: ["Auth"],
           requestBody: {
@@ -524,7 +526,7 @@ export function generateOpenAPISpec() {
         post: {
           summary: "Create an additional API key for a member (org admin only)",
           description:
-            "Org admins can mint an extra key for a member of the org without touching the member's existing keys (reset-key, by contrast, rotates the primary key). The key authenticates as the member everywhere, like any of their keys. The plaintext key is returned once and never stored. Records an api_key_created audit event in this org with the admin as actor.",
+            "Org admins can mint an extra key for a member of the org without touching the member's existing keys (reset-key, by contrast, rotates the primary key). The key is scoped to this org: it authenticates as the member only on /orgs/{orgId} and the routes under it, with the member's current role; every other path returns 403. It is revoked when the member leaves the org, when the minting admin leaves the org or loses admin there, and when the member runs their own POST /auth/reset-key. The plaintext key is returned once and never stored. Records an api_key_created audit event in this org with the admin as actor.",
           operationId: "createMemberApiKey",
           tags: ["Auth"],
           parameters: [
@@ -554,8 +556,12 @@ export function generateOpenAPISpec() {
                 "application/json": {
                   schema: {
                     ...createdApiKey,
-                    properties: { ...createdApiKey.properties, userId: { type: "string" } },
-                    required: [...createdApiKey.required, "userId"],
+                    properties: {
+                      ...createdApiKey.properties,
+                      userId: { type: "string" },
+                      orgId: { type: "string", description: "The org the key is limited to" },
+                    },
+                    required: [...createdApiKey.required, "userId", "orgId"],
                   },
                 },
               },

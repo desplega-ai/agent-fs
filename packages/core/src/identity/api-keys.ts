@@ -1,8 +1,9 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, ne, or, type SQL } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { NotFoundError, ValidationError } from "../errors.js";
 import { generateApiKey, hashApiKey } from "./users.js";
+import type { DbTx } from "./drives.js";
 
 /**
  * Multiple API keys per user.
@@ -12,6 +13,12 @@ import { generateApiKey, hashApiKey } from "./users.js";
  * `primary`. Every other key lives in `user_api_keys`. Revoking the primary
  * key replaces its hash with a value no key can hash to, so it stops matching
  * until reset-key mints a new one.
+ *
+ * A key an org admin mints for a member is scoped to that org (`org_id`): the
+ * auth middleware only lets it reach `/orgs/<org_id>/...`. It lives only as
+ * long as the grant behind it: removing the member from the org, removing the
+ * minting admin or taking their admin role, and the member's own reset-key all
+ * revoke it (see `revokeGrantedKeys`).
  */
 
 export const PRIMARY_API_KEY_ID = "primary";
@@ -26,6 +33,10 @@ export interface ApiKeyInfo {
   /** Null for the primary key, which is not tracked. */
   lastUsedAt: Date | null;
   primary: boolean;
+  /** Org the key is limited to; null for a key that reaches the whole account. */
+  orgId: string | null;
+  /** Who minted it: the user themselves, or the org admin who did. */
+  createdByUserId: string;
 }
 
 export interface CreatedApiKey {
@@ -34,6 +45,7 @@ export interface CreatedApiKey {
   createdAt: Date;
   /** Plaintext. Returned once, never stored. */
   apiKey: string;
+  orgId: string | null;
 }
 
 export function parseApiKeyLabel(input: unknown): string {
@@ -49,10 +61,11 @@ export function parseApiKeyLabel(input: unknown): string {
 /**
  * Mint an additional key for `userId`. When `orgId` is given, records an
  * `api_key_created` audit event in that org (method `self` or `admin`).
+ * `scopeOrgId` limits the key to one org; the admin route always sets it.
  */
 export function createUserApiKey(
   db: DB,
-  params: { userId: string; label: unknown; actorId: string; orgId?: string }
+  params: { userId: string; label: unknown; actorId: string; orgId?: string; scopeOrgId?: string }
 ): CreatedApiKey {
   const label = parseApiKeyLabel(params.label);
   const user = db
@@ -75,6 +88,7 @@ export function createUserApiKey(
         label,
         createdAt,
         createdByUserId: params.actorId,
+        orgId: params.scopeOrgId ?? null,
       })
       .run();
     if (params.orgId) {
@@ -92,6 +106,7 @@ export function createUserApiKey(
             method: params.actorId === params.userId ? "self" : "admin",
             keyId: id,
             label,
+            scopeOrgId: params.scopeOrgId ?? null,
           }),
           createdAt,
         })
@@ -99,7 +114,7 @@ export function createUserApiKey(
     }
   });
 
-  return { id, label, createdAt, apiKey };
+  return { id, label, createdAt, apiKey, orgId: params.scopeOrgId ?? null };
 }
 
 /** Active keys of `userId`, primary first. Never returns hashes or plaintext. */
@@ -113,7 +128,15 @@ export function listUserApiKeys(db: DB, userId: string): ApiKeyInfo[] {
 
   const keys: ApiKeyInfo[] = [];
   if (!user.apiKeyHash.startsWith(REVOKED_PRIMARY_PREFIX)) {
-    keys.push({ id: PRIMARY_API_KEY_ID, label: "primary", createdAt: null, lastUsedAt: null, primary: true });
+    keys.push({
+      id: PRIMARY_API_KEY_ID,
+      label: "primary",
+      createdAt: null,
+      lastUsedAt: null,
+      primary: true,
+      orgId: null,
+      createdByUserId: userId,
+    });
   }
   const rows = db
     .select({
@@ -121,6 +144,8 @@ export function listUserApiKeys(db: DB, userId: string): ApiKeyInfo[] {
       label: schema.userApiKeys.label,
       createdAt: schema.userApiKeys.createdAt,
       lastUsedAt: schema.userApiKeys.lastUsedAt,
+      orgId: schema.userApiKeys.orgId,
+      createdByUserId: schema.userApiKeys.createdByUserId,
     })
     .from(schema.userApiKeys)
     .where(and(eq(schema.userApiKeys.userId, userId), isNull(schema.userApiKeys.revokedAt)))
@@ -193,4 +218,43 @@ export function revokeUserApiKey(
         .run();
     }
   });
+}
+
+/**
+ * Revoke every active key a grant no longer backs. Call inside the
+ * transaction that removes the grant:
+ *
+ * - `memberLeftOrg`: the member's keys scoped to that org, and every key the
+ *   member minted there for someone else (they are no longer an admin of it).
+ * - `adminDemoted`: keys the user minted in that org for someone else.
+ * - `selfReset`: every org-scoped key of the user. Reset-key is the user's
+ *   recovery path, so it must cut off every credential an org admin minted
+ *   for them, including one minted through an org-scoped key of their own
+ *   (whose created_by is the user). Keys from POST /auth/keys stay.
+ *
+ * Returns the number of keys revoked.
+ */
+export function revokeGrantedKeys(
+  tx: DB | DbTx,
+  params:
+    | { reason: "memberLeftOrg"; orgId: string; userId: string }
+    | { reason: "adminDemoted"; orgId: string; userId: string }
+    | { reason: "selfReset"; userId: string }
+): number {
+  const k = schema.userApiKeys;
+  let match: SQL | undefined;
+  if (params.reason === "memberLeftOrg") {
+    match = and(eq(k.orgId, params.orgId), or(eq(k.userId, params.userId), eq(k.createdByUserId, params.userId)));
+  } else if (params.reason === "adminDemoted") {
+    match = and(eq(k.orgId, params.orgId), eq(k.createdByUserId, params.userId), ne(k.userId, params.userId));
+  } else {
+    match = and(eq(k.userId, params.userId), isNotNull(k.orgId));
+  }
+  const now = new Date(Math.floor(Date.now() / 1000) * 1000);
+  return tx
+    .update(k)
+    .set({ revokedAt: now })
+    .where(and(match, isNull(k.revokedAt)))
+    .returning({ id: k.id })
+    .all().length;
 }

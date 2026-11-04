@@ -228,7 +228,10 @@ export function orgRoutes(db: DB, appUrl?: string) {
   });
 
   // Mint an additional key for a member without touching their existing
-  // keys (reset-key rotates the primary one). Same guard as reset-key.
+  // keys (reset-key rotates the primary one). Same guard as reset-key. The
+  // key is scoped to this org: it only reaches /orgs/<orgId>/..., and it is
+  // revoked when the member leaves the org, when the minting admin leaves or
+  // loses admin here, and when the member runs their own reset-key.
   router.post("/:orgId/members/:userId/keys", async (c) => {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
@@ -241,6 +244,7 @@ export function orgRoutes(db: DB, appUrl?: string) {
       label: body?.label,
       actorId: user.id,
       orgId,
+      scopeOrgId: orgId,
     });
     return c.json({
       id: key.id,
@@ -248,6 +252,7 @@ export function orgRoutes(db: DB, appUrl?: string) {
       createdAt: key.createdAt,
       apiKey: key.apiKey,
       userId: targetUserId,
+      orgId,
     }, 201);
   });
 

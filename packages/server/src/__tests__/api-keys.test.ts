@@ -88,8 +88,8 @@ describe("self-service API keys", () => {
     const text = await res.text();
     const { keys } = JSON.parse(text);
     expect(keys).toEqual([
-      { id: "primary", label: "primary", createdAt: null, lastUsedAt: null, primary: true },
-      { id: key.id, label: "cli", createdAt: key.createdAt, lastUsedAt: null, primary: false },
+      { id: "primary", label: "primary", createdAt: null, lastUsedAt: null, primary: true, orgId: null, createdByUserId: user.userId },
+      { id: key.id, label: "cli", createdAt: key.createdAt, lastUsedAt: null, primary: false, orgId: null, createdByUserId: user.userId },
     ]);
     expect(text).not.toContain(key.apiKey);
     expect(text).not.toContain(user.apiKey);
@@ -120,7 +120,7 @@ describe("self-service API keys", () => {
     expect(after.keys.map((k: any) => k.id)).toEqual(["primary"]);
   });
 
-  test("self reset-key rotates only the primary key", async () => {
+  test("self reset-key rotates the primary key and keeps the user's own keys", async () => {
     const user = await register("keys-reset-primary@example.com");
     const extra = await mintSelf(user.apiKey, "swarm");
     const reset = await keyReq(user.apiKey, "/auth/reset-key", { method: "POST" });
@@ -177,9 +177,10 @@ describe("org admin mints a member key", () => {
     expect(body.apiKey).toMatch(/^af_[0-9a-f]{64}$/);
     expect(body.label).toBe("agent-swarm");
     expect(body.userId).toBe(member.userId);
+    expect(body.orgId).toBe(orgId);
 
-    const me = await keyReq(body.apiKey, "/auth/me");
-    expect((await me.json()).userId).toBe(member.userId);
+    // The minted key acts as the member inside this org only.
+    expect((await keyReq(body.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
     expect((await keyReq(member.apiKey, "/auth/me")).status).toBe(200);
 
     const events = db.$client
@@ -188,7 +189,7 @@ describe("org admin mints a member key", () => {
     expect(events).toHaveLength(1);
     expect(events[0].actor).toBe(admin.userId);
     expect(events[0].target).toBe(member.userId);
-    expect(JSON.parse(events[0].metadata!)).toEqual({ method: "admin", keyId: body.id, label: "agent-swarm" });
+    expect(JSON.parse(events[0].metadata!)).toEqual({ method: "admin", keyId: body.id, label: "agent-swarm", scopeOrgId: orgId });
   });
 
   test("a non-admin member gets 403", async () => {
@@ -234,5 +235,181 @@ describe("org admin mints a member key", () => {
       body: JSON.stringify({ label: "x" }),
     });
     expect(res.status).toBe(404);
+  });
+});
+
+async function mintFor(admin: { apiKey: string }, orgId: string, userId: string, label = "agent-swarm") {
+  const res = await keyReq(admin.apiKey, `/orgs/${orgId}/members/${userId}/keys`, {
+    method: "POST",
+    body: JSON.stringify({ label }),
+  });
+  expect(res.status).toBe(201);
+  return res.json() as Promise<{ id: string; apiKey: string; orgId: string }>;
+}
+
+async function invite(admin: { apiKey: string }, orgId: string, email: string, role: "viewer" | "editor" | "admin") {
+  const res = await keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
+    method: "POST",
+    body: JSON.stringify({ email, role }),
+  });
+  expect(res.status).toBe(200);
+}
+
+// An admin-minted key is a credential someone else created for the member. It
+// must reach only the minting org and must not outlive the grant behind it.
+describe("admin-minted keys are scoped to the org and die with the grant", () => {
+  test("the key cannot leave the org: auth routes, MCP, other orgs and the org list are refused", async () => {
+    const admin = await register("scope-admin@example.com");
+    const member = await register("scope-member@example.com");
+    const orgId = await orgWith(admin, "scope-member@example.com", "scope-org");
+    const key = await mintFor(admin, orgId, member.userId);
+
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}`)).status).toBe(200);
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
+
+    const refused: Array<[string, RequestInit?]> = [
+      ["/auth/me"],
+      ["/auth/keys"],
+      ["/auth/keys", { method: "POST", body: JSON.stringify({ label: "escape" }) }],
+      ["/auth/keys/primary", { method: "DELETE" }],
+      ["/auth/reset-key", { method: "POST" }],
+      ["/orgs"],
+      [`/orgs/${member.orgId}`],
+      [`/orgs/${member.orgId}/drives`],
+      [`/orgs/${orgId}x/drives`],
+      ["/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) }],
+    ];
+    for (const [path, opts] of refused) {
+      const res = await keyReq(key.apiKey, path, opts);
+      expect({ path, status: res.status }).toEqual({ path, status: 403 });
+    }
+    // Nothing above touched the member's own keys.
+    expect((await keyReq(member.apiKey, "/auth/me")).status).toBe(200);
+    const own = await (await keyReq(member.apiKey, "/auth/keys")).json();
+    expect(own.keys.map((k: any) => [k.id, k.orgId, k.createdByUserId])).toEqual([
+      ["primary", null, member.userId],
+      [key.id, orgId, admin.userId],
+    ]);
+  });
+
+  test("review repro: invite, mint, remove member, victim reset-key leaves the attacker with nothing", async () => {
+    const victim = await register("scope-repro-victim@example.com");
+    const attacker = await register("scope-repro-attacker@example.com");
+    const orgId = await orgWith(attacker, "scope-repro-victim@example.com", "scope-repro-org");
+    const stolen = await mintFor(attacker, orgId, victim.userId);
+
+    expect((await keyReq(attacker.apiKey, `/orgs/${orgId}/members/${victim.userId}`, { method: "DELETE" })).status).toBe(200);
+    expect((await keyReq(victim.apiKey, "/auth/reset-key", { method: "POST" })).status).toBe(200);
+    expect((await keyReq(stolen.apiKey, "/auth/me")).status).toBe(401);
+  });
+
+  test("removing the member revokes the key", async () => {
+    const admin = await register("scope-remove-admin@example.com");
+    const member = await register("scope-remove-member@example.com");
+    const orgId = await orgWith(admin, "scope-remove-member@example.com", "scope-remove-org");
+    const key = await mintFor(admin, orgId, member.userId);
+    const own = await mintSelf(member.apiKey, "cli");
+
+    expect((await keyReq(admin.apiKey, `/orgs/${orgId}/members/${member.userId}`, { method: "DELETE" })).status).toBe(200);
+    expect((await keyReq(key.apiKey, "/auth/me")).status).toBe(401);
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(401);
+    // Re-adding the member does not bring the key back.
+    await invite(admin, orgId, "scope-remove-member@example.com", "viewer");
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(401);
+    // The member's own keys are untouched.
+    expect((await keyReq(own.apiKey, "/auth/me")).status).toBe(200);
+    expect((await keyReq(member.apiKey, "/auth/me")).status).toBe(200);
+  });
+
+  test("the member's own reset-key revokes keys others minted for them, not their own", async () => {
+    const admin = await register("scope-reset-admin@example.com");
+    const member = await register("scope-reset-member@example.com");
+    const orgId = await orgWith(admin, "scope-reset-member@example.com", "scope-reset-org");
+    const key = await mintFor(admin, orgId, member.userId);
+    const own = await mintSelf(member.apiKey, "cli");
+
+    expect((await keyReq(member.apiKey, "/auth/reset-key", { method: "POST" })).status).toBe(200);
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(401);
+    expect((await keyReq(own.apiKey, "/auth/me")).status).toBe(200);
+  });
+
+  test("a key minted through the member's own scoped key dies with the member's reset-key", async () => {
+    const owner = await register("scope-chain-owner@example.com");
+    const member = await register("scope-chain-member@example.com");
+    const orgId = await orgWith(owner, "scope-chain-member@example.com", "scope-chain-org");
+    await keyReq(owner.apiKey, `/orgs/${orgId}/members/${member.userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "admin" }),
+    });
+    const first = await mintFor(owner, orgId, member.userId);
+    // The scoped key acts as the member (an admin here) and mints another one
+    // for the member, so its created_by is the member, not the owner.
+    const second = await mintFor({ apiKey: first.apiKey }, orgId, member.userId, "chained");
+
+    expect((await keyReq(member.apiKey, "/auth/reset-key", { method: "POST" })).status).toBe(200);
+    expect((await keyReq(first.apiKey, `/orgs/${orgId}/drives`)).status).toBe(401);
+    expect((await keyReq(second.apiKey, `/orgs/${orgId}/drives`)).status).toBe(401);
+  });
+
+  test("an admin reset-key of the member leaves the keys alone", async () => {
+    const admin = await register("scope-adminreset-admin@example.com");
+    const member = await register("scope-adminreset-member@example.com");
+    const orgId = await orgWith(admin, "scope-adminreset-member@example.com", "scope-adminreset-org");
+    const key = await mintFor(admin, orgId, member.userId);
+
+    const reset = await keyReq(admin.apiKey, `/orgs/${orgId}/members/${member.userId}/reset-key`, { method: "POST" });
+    expect(reset.status).toBe(200);
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
+  });
+
+  test("demoting the minting admin revokes the keys they minted for others", async () => {
+    const owner = await register("scope-demote-owner@example.com");
+    const minter = await register("scope-demote-minter@example.com");
+    const member = await register("scope-demote-member@example.com");
+    const orgId = await orgWith(owner, "scope-demote-member@example.com", "scope-demote-org");
+    await invite(owner, orgId, "scope-demote-minter@example.com", "admin");
+    const key = await mintFor(minter, orgId, member.userId);
+    const byOwner = await mintFor(owner, orgId, member.userId, "owner");
+
+    const res = await keyReq(owner.apiKey, `/orgs/${orgId}/members/${minter.userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "editor" }),
+    });
+    expect(res.status).toBe(200);
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(401);
+    // Keys other admins minted are unaffected.
+    expect((await keyReq(byOwner.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
+  });
+
+  test("demoting the member keeps the key, which acts with the member's current role", async () => {
+    const admin = await register("scope-memberdemote-admin@example.com");
+    const member = await register("scope-memberdemote-member@example.com");
+    const orgId = await orgWith(admin, "scope-memberdemote-member@example.com", "scope-memberdemote-org");
+    await keyReq(admin.apiKey, `/orgs/${orgId}/members/${member.userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "admin" }),
+    });
+    const key = await mintFor(admin, orgId, member.userId);
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/invites`)).status).toBe(200);
+
+    await keyReq(admin.apiKey, `/orgs/${orgId}/members/${member.userId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role: "viewer" }),
+    });
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/invites`)).status).toBe(403);
+  });
+
+  test("removing the minting admin revokes the keys they minted for others", async () => {
+    const owner = await register("scope-minterleft-owner@example.com");
+    const minter = await register("scope-minterleft-minter@example.com");
+    const member = await register("scope-minterleft-member@example.com");
+    const orgId = await orgWith(owner, "scope-minterleft-member@example.com", "scope-minterleft-org");
+    await invite(owner, orgId, "scope-minterleft-minter@example.com", "admin");
+    const key = await mintFor(minter, orgId, member.userId);
+
+    expect((await keyReq(owner.apiKey, `/orgs/${orgId}/members/${minter.userId}`, { method: "DELETE" })).status).toBe(200);
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(401);
+    expect((await keyReq(member.apiKey, "/auth/me")).status).toBe(200);
   });
 });

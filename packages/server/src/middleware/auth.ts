@@ -5,6 +5,18 @@ import type { DB } from "@/core";
 // Paths that don't require authentication
 const PUBLIC_PATHS = ["/auth/register", "/health"];
 
+/**
+ * An org-scoped key (minted by an org admin) only reaches `/orgs/<scopeOrgId>`
+ * and the routes under it. Everything else (`/auth/*`, `/mcp`, `/invites`,
+ * other orgs, the org list) is refused, so the key can neither act outside
+ * the org nor mint, list, revoke or reset the user's other keys. The segment
+ * is compared raw: Hono's `:orgId` param is matched from the same segment.
+ */
+export function scopedKeyAllows(path: string, scopeOrgId: string): boolean {
+  const parts = path.split("/");
+  return parts[0] === "" && parts[1] === "orgs" && parts[2] === scopeOrgId;
+}
+
 export function authMiddleware(db: DB) {
   return async (c: Context, next: Next) => {
     const path = new URL(c.req.url).pathname;
@@ -39,7 +51,18 @@ export function authMiddleware(db: DB) {
       );
     }
 
-    c.set("user", user);
+    if (user.scopeOrgId && !scopedKeyAllows(path, user.scopeOrgId)) {
+      return c.json(
+        {
+          error: "FORBIDDEN",
+          message: "This API key is limited to one org",
+          suggestion: `Use it only under /orgs/${user.scopeOrgId}/`,
+        },
+        403
+      );
+    }
+
+    c.set("user", { id: user.id, email: user.email });
     return next();
   };
 }
