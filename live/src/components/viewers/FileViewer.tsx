@@ -25,6 +25,7 @@ import { useFileStat } from "@/hooks/use-file-stat"
 import { fetchFileStat } from "@/lib/file-stat-query"
 import { normalizeEtag } from "@/lib/file-content-cache"
 import { hasDocumentUpdate, type DisplayedDocument } from "@/lib/document-update"
+import { useAutoUpdateDocuments } from "@/stores/auto-update"
 import { useComments } from "@/hooks/use-comments"
 import { useSniffedAudioType } from "@/hooks/use-sniffed-audio-type"
 import { AUDIO_EXTS } from "@/lib/audio"
@@ -262,7 +263,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
 
   // Poll independently of the shared stat query: merely noticing a newer
   // version must not change the optimistic-concurrency base of an editor.
-  const [autoUpdate, setAutoUpdate] = useLocalStorage("liveui:auto-update-document", false)
+  const autoUpdate = useAutoUpdateDocuments()
   const [displayed, setDisplayed] = useState<DisplayedDocument | null>(null)
   const [updateError, setUpdateError] = useState(false)
   const documentKey = `${orgId}/${driveId}/${path}`
@@ -542,15 +543,13 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           onToggleOrientation={editingMarkdown && mdEditView === "split" ? () => setSplitOrientation(o => o === "horizontal" ? "vertical" : "horizontal") : undefined}
         />
       )}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2 text-xs text-muted-foreground">
-        {hasUpdate && <span role="status">A newer version is available.{isEditing ? " Finish editing to update." : ""}</span>}
-        {hasUpdate && !isEditing && <Button variant="outline" size="sm" onClick={() => void updateDocument()}>Load latest</Button>}
-        {updateError && <span role="alert">Could not load the latest version. Try again.</span>}
-        <label className="ml-auto flex items-center gap-2">
-          <input type="checkbox" checked={autoUpdate} onChange={e => setAutoUpdate(e.target.checked)} />
-          Automatically update documents
-        </label>
-      </div>
+      {(hasUpdate || updateError) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2 text-xs text-muted-foreground">
+          {hasUpdate && <span role="status">A newer version is available.{isEditing ? " Finish editing to update." : ""}</span>}
+          {hasUpdate && !isEditing && <Button variant="outline" size="sm" onClick={() => void updateDocument()}>Load latest</Button>}
+          {updateError && <span role="alert">Could not load the latest version. Try again.</span>}
+        </div>
+      )}
       {isEditing ? (
         editingMarkdown ? (
           <MarkdownEditView

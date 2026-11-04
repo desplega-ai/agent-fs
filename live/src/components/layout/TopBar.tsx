@@ -2,7 +2,6 @@ import { CircleHelp } from "lucide-react"
 import { OrgSwitcher } from "./OrgSwitcher"
 import { DriveSwitcher } from "./DriveSwitcher"
 import { HealthIndicator } from "./HealthIndicator"
-import { ThemeToggle } from "./ThemeToggle"
 import { AccountSwitcher } from "@/components/AccountSwitcher"
 import { CommentNotifications } from "@/components/comments/CommentNotifications"
 import { Button } from "@/components/ui/button"
@@ -28,7 +27,6 @@ export function TopBar({ leading }: { leading?: React.ReactNode }) {
         <CommentNotifications />
         <HealthIndicator />
         <HelpButton />
-        <ThemeToggle />
         <div className="w-px h-4 bg-border mx-1" aria-hidden />
         <AccountSwitcher />
       </div>
