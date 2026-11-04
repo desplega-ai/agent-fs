@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { ProfileDialog } from "./ProfileDialog"
+import { UserConfigDialog } from "./UserConfigDialog"
 import { useNavigate } from "react-router"
-import { ChevronDown, Plus, Check, KeyRound, User } from "lucide-react"
+import { ChevronDown, Plus, Check, KeyRound, User, Settings } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { getCredentials } from "@/stores/credentials"
 import {
@@ -21,6 +22,7 @@ import { toast } from "@/stores/toast"
 export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}) {
   const { credential, switchAccount, user } = useAuth()
   const [editingProfile, setEditingProfile] = useState(false)
+  const [configOpen, setConfigOpen] = useState(false)
   const navigate = useNavigate()
   const allCredentials = getCredentials()
 
@@ -47,6 +49,11 @@ export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}
           <KeyRound className="size-3" />
           <span>API keys</span>
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setConfigOpen(true)}>
+          <Settings className="size-3" />
+          <span>User configuration</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         {allCredentials.map((cred) => (
           <DropdownMenuItem
             key={cred.id}
@@ -73,6 +80,7 @@ export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}
       </DropdownMenuContent>
     </DropdownMenu>
     {editingProfile && <ProfileDialog key={credential.id} onClose={() => setEditingProfile(false)} />}
+    {configOpen && <UserConfigDialog onClose={() => setConfigOpen(false)} />}
     </>
   )
 }
