@@ -8,12 +8,14 @@ import { dispatchOp, getOpDefinition } from "../index.js";
 import {
   consumeShareView,
   authorizeShareBytes,
+  capUrlTtlSeconds,
   extractShareToken,
   findShareByToken,
   generateShareToken,
   getShareState,
   hashShareToken,
   isWellFormedShareToken,
+  SHARE_NEVER_EXPIRES_AT,
   SHARE_VIEW_GRANT_TTL_SECONDS,
   openShareView,
   presignShareUrl,
@@ -69,6 +71,7 @@ describe("share-create", () => {
     expect(def.schema.parse({ path: "/a" })).toEqual({ path: "/a" });
     expect(() => def.schema.parse({ path: "/a", expiresIn: 10 })).toThrow();
     expect(() => def.schema.parse({ path: "/a", expiresIn: 604801 })).toThrow();
+    expect(def.schema.parse({ path: "/a", expiresIn: null })).toEqual({ path: "/a", expiresIn: null });
     expect(() => def.schema.parse({ path: "/a", maxViews: 0 })).toThrow();
     expect(() => def.schema.parse({ path: "/a", maxViews: 1.5 })).toThrow();
     expect(def.schema.parse({ path: "/a", expiresIn: 604800, maxViews: 1 })).toEqual({
@@ -86,7 +89,7 @@ describe("share-create", () => {
     expect(r.path).toBe("/docs/hello.md");
     expect(r.expiresIn).toBe(86400);
     expect(r.maxViews).toBeNull();
-    const ttl = new Date(r.expiresAt).getTime() - before;
+    const ttl = new Date(r.expiresAt!).getTime() - before;
     expect(ttl).toBeGreaterThan(86_400_000 - 5_000);
     expect(ttl).toBeLessThanOrEqual(86_400_000 + 1_000);
   });
@@ -133,6 +136,50 @@ describe("share-create", () => {
     await expect(create({}, { ...ctx, userId: stranger.user.id })).rejects.toMatchObject({
       code: "PERMISSION_DENIED",
     });
+  });
+});
+
+describe("links that never expire", () => {
+  const tenYearsOn = () => new Date(Date.now() + 10 * 365 * 86_400_000);
+
+  test("expiresIn null sets the flag, stores the far-future date and reports null", async () => {
+    const r = await create({ expiresIn: null });
+    expect(r.expiresIn).toBeNull();
+    expect(r.expiresAt).toBeNull();
+    const share = findShareByToken(t.db, tokenOf(r))!;
+    expect(share.neverExpires).toBe(true);
+    expect(share.expiresAt.getTime()).toBe(SHARE_NEVER_EXPIRES_AT.getTime());
+    expect(getShareState(share, tenYearsOn())).toBe("active");
+    expect(consumeShareView(t.db, tokenOf(r), tenYearsOn())).not.toBeNull();
+  });
+
+  test("only null means never: an omitted or finite expiry is unchanged", async () => {
+    const byDefault = findShareByToken(t.db, tokenOf(await create()))!;
+    expect(byDefault.neverExpires).toBe(false);
+    expect(getShareState(byDefault, tenYearsOn())).toBe("expired");
+    const week = await create({ expiresIn: 604_800 });
+    expect(week.expiresIn).toBe(604_800);
+    expect(typeof week.expiresAt).toBe("string");
+    expect(findShareByToken(t.db, tokenOf(week))!.neverExpires).toBe(false);
+  });
+
+  test("a view limit and a revoke still end it", async () => {
+    const oneOff = await create({ expiresIn: null, maxViews: 1 });
+    expect(consumeShareView(t.db, tokenOf(oneOff), tenYearsOn())).not.toBeNull();
+    expect(getShareState(findShareByToken(t.db, tokenOf(oneOff))!, tenYearsOn())).toBe("exhausted");
+
+    const revoked = await create({ expiresIn: null });
+    await dispatchOp(ctx, "share-revoke", { id: revoked.id });
+    expect(getShareState(findShareByToken(t.db, tokenOf(revoked))!)).toBe("revoked");
+  });
+
+  test("the view grant keeps its one-hour TTL and URLs keep their own cap", async () => {
+    const r = await create({ expiresIn: null, maxViews: 2 });
+    const now = new Date();
+    const opened = openShareView(t.db, tokenOf(r), now)!;
+    const nowSeconds = Math.floor(now.getTime() / 1000) * 1000;
+    expect(opened.grant!.expiresAt.getTime()).toBe(nowSeconds + SHARE_VIEW_GRANT_TTL_SECONDS * 1000);
+    expect(capUrlTtlSeconds(opened.share, 300, now)).toBe(300);
   });
 });
 

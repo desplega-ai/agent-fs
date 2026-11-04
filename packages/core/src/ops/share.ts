@@ -12,8 +12,16 @@ import { getUserDriveRole, getUserOrgRole } from "../identity/rbac.js";
 
 /** Default lifetime of a share link: 24 hours. */
 export const SHARE_DEFAULT_TTL_SECONDS = 86_400;
-/** Longest a share link may live: 7 days. */
+/** Longest a share link with an expiry may live: 7 days. */
 export const SHARE_MAX_TTL_SECONDS = 604_800;
+/**
+ * What `expires_at` holds for a link that never expires. The column is NOT
+ * NULL and every guard compares it (`consumeShareView`, the view grant, the
+ * presigned-URL cap), so a far-future date keeps them all working unchanged;
+ * `never_expires` is the flag that callers read, and the API reports
+ * `expiresAt: null` for such links.
+ */
+export const SHARE_NEVER_EXPIRES_AT = new Date(Date.UTC(2999, 0, 1));
 /**
  * How long a view-limited link's file bytes (`/share/:token/raw`, `/download`)
  * stay reachable for the page view that was counted. The page has to be able
@@ -60,7 +68,10 @@ export interface ShareRecord {
   /** For a site share, the folder (normalized like a file path: `/site`, or `/` for the drive root). */
   path: string;
   kind: ShareKind;
+  /** {@link SHARE_NEVER_EXPIRES_AT} when `neverExpires`. */
   expiresAt: Date;
+  /** The link ends only when revoked, when its file is gone, or at `maxViews`. */
+  neverExpires: boolean;
   maxViews: number | null;
   views: number;
   lastViewedAt: Date | null;
@@ -82,6 +93,7 @@ function toRecord(row: typeof schema.shares.$inferSelect): ShareRecord {
     path: row.path,
     kind: row.kind === "site" ? "site" : "file",
     expiresAt: row.expiresAt,
+    neverExpires: row.neverExpires,
     maxViews: row.maxViews,
     views: row.views,
     lastViewedAt: row.lastViewedAt,
@@ -391,7 +403,8 @@ export function recordShareViewed(db: DB, share: ShareRecord): void {
 
 export interface ShareCreateParams {
   path: string;
-  expiresIn?: number;
+  /** Seconds; omitted = 24 hours; `null` = the link never expires. */
+  expiresIn?: number | null;
   maxViews?: number;
 }
 
@@ -414,8 +427,9 @@ export interface ShareCreateResult {
   /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
   sharePath: string;
   path: string;
-  expiresIn: number;
-  expiresAt: string;
+  /** Both `null` for a link that never expires. */
+  expiresIn: number | null;
+  expiresAt: string | null;
   /** `null` = unlimited; `1` = one-off. */
   maxViews: number | null;
 }
@@ -442,11 +456,15 @@ export async function shareCreate(
     });
   }
 
-  const expiresIn = params.expiresIn ?? SHARE_DEFAULT_TTL_SECONDS;
+  // `null` is a choice (never expires); only an omitted value takes the default.
+  const neverExpires = params.expiresIn === null;
+  const expiresIn = neverExpires ? null : params.expiresIn ?? SHARE_DEFAULT_TTL_SECONDS;
   const token = generateShareToken();
   const now = new Date();
   // Stored at second precision, so build the response from the same value.
-  const expiresAt = new Date(Math.floor(now.getTime() / 1000) * 1000 + expiresIn * 1000);
+  const expiresAt = expiresIn === null
+    ? SHARE_NEVER_EXPIRES_AT
+    : new Date(Math.floor(now.getTime() / 1000) * 1000 + expiresIn * 1000);
   const id = crypto.randomUUID();
 
   // Org, drive and path are pinned here and never re-resolved from the request
@@ -461,6 +479,7 @@ export async function shareCreate(
       kind,
       tokenHash: hashShareToken(token),
       expiresAt,
+      neverExpires,
       maxViews: params.maxViews ?? null,
       views: 0,
       createdBy: ctx.userId,
@@ -477,7 +496,7 @@ export async function shareCreate(
     sharePath,
     path: normalizedPath,
     expiresIn,
-    expiresAt: expiresAt.toISOString(),
+    expiresAt: neverExpires ? null : expiresAt.toISOString(),
     maxViews: params.maxViews ?? null,
   };
 }

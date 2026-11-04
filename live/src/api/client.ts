@@ -45,8 +45,9 @@ export interface ShareCreateResult {
   /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
   sharePath: string
   path: string
-  expiresIn: number
-  expiresAt: string
+  /** Both `null` for a link that never expires (servers with `share-no-expiry`). */
+  expiresIn: number | null
+  expiresAt: string | null
   /** `null` = unlimited, `1` = one-off. */
   maxViews: number | null
 }
@@ -306,7 +307,7 @@ export class AgentFsClient {
     orgId: string,
     driveId: string,
     path: string,
-    options?: { expiresIn?: number; maxViews?: number },
+    options?: { expiresIn?: number | null; maxViews?: number },
   ): Promise<ShareCreateResult> {
     return this.callOp<ShareCreateResult>(orgId, "share-create", { path, ...options }, driveId)
   }

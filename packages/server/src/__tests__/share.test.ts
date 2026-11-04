@@ -55,7 +55,7 @@ async function share(h: Harness, path: string, extra: Record<string, unknown> = 
   expect(res.status).toBe(200);
   const body = await res.json();
   return { ...body, token: (body.sharePath as string).replace("/share/", "") } as {
-    id: string; url: string; sharePath: string; token: string; expiresAt: string; maxViews: number | null;
+    id: string; url: string; sharePath: string; token: string; expiresIn: number | null; expiresAt: string | null; maxViews: number | null;
   };
 }
 
@@ -597,6 +597,32 @@ describe("byte routes are bound to the counted page view", () => {
   });
 });
 
+describe("links that never expire", () => {
+  afterAll(() => setSystemTime());
+
+  test("open long after the 7-day maximum and say so, with no countdown", async () => {
+    const forever = await share(h, "/notes/readme.md", { expiresIn: null });
+    expect(forever.expiresAt).toBeNull();
+    expect(forever.expiresIn).toBeNull();
+    const week = await share(h, "/notes/readme.md", { expiresIn: 604_800 });
+
+    setSystemTime(new Date(Date.now() + 8 * 86_400_000));
+    const res = await get(h, forever.sharePath);
+    expect(res.status).toBe(200);
+    const page = await res.text();
+    expect(page).toContain("Never expires");
+    expect(page).not.toContain("Expires <time");
+    expect((await get(h, week.sharePath)).status).toBe(410);
+    setSystemTime();
+  });
+
+  test("a revoke still ends it", async () => {
+    const forever = await share(h, "/notes/readme.md", { expiresIn: null });
+    expect((await op(h, { op: "share-revoke", id: forever.id })).status).toBe(200);
+    expect((await get(h, forever.sharePath)).status).toBe(410);
+  });
+});
+
 describe("time is read fresh at every authorization and presign point", () => {
   let t: Harness;
   beforeAll(async () => {
@@ -723,7 +749,7 @@ describe("time is read fresh at every authorization and presign point", () => {
     await write(local, "/notes.txt", "some text");
     const s = await share(local, "/pic.png");
     const n = await share(local, "/notes.txt");
-    const jump = new Date(Date.parse(s.expiresAt) + 1000);
+    const jump = new Date(Date.parse(s.expiresAt!) + 1000);
     const undo = slowStorage(local, "getObject", jumpClockTo(jump));
     try {
       const raw = await get(local, `${s.sharePath}/raw`);

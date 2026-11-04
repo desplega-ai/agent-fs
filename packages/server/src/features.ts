@@ -1,5 +1,6 @@
 export const SERVER_FEATURES = [
   "share-links",
+  "share-no-expiry",
   "comment-path-prefix",
   "drive-members",
   "drive-invites",

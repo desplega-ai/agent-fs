@@ -170,7 +170,7 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
         filename,
         size: head.size,
         mime: type.mime,
-        expiresAt: spent.expiresAt,
+        expiresAt: spent.neverExpires ? null : spent.expiresAt,
         now: releasedAt,
         viewsLeft,
         grant,

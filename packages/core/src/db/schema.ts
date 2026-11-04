@@ -272,6 +272,8 @@ export const shares = sqliteTable(
     kind: text("kind", { enum: ["file", "site"] }).notNull().default("file"),
     tokenHash: text("token_hash").notNull(),
     expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    /** A link that never expires; `expires_at` then holds a far-future date. See share.ts. */
+    neverExpires: integer("never_expires", { mode: "boolean" }).notNull().default(false),
     maxViews: integer("max_views"),
     views: integer("views").notNull().default(0),
     lastViewedAt: integer("last_viewed_at", { mode: "timestamp" }),

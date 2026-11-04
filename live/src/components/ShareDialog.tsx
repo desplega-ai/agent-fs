@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { Check, Copy, ExternalLink, Share2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
-import { copyShareLink, DEFAULT_SHARE_EXPIRY_SECONDS, SHARE_EXPIRY_CHOICES } from "@/lib/share-link"
+import { useHealth } from "@/hooks/use-health"
+import { copyShareLink, DEFAULT_SHARE_EXPIRY_SECONDS, effectiveShareExpiry, SHARE_EXPIRY_CHOICES, supportsNoExpiry } from "@/lib/share-link"
 import { isHtmlPath } from "@/lib/html-view"
 import { toast } from "@/stores/toast"
 import {
@@ -38,6 +39,10 @@ function describeShare(path: string, isDir: boolean): string {
   return "Anyone with the link can view and download this file."
 }
 
+/** The toggle group wants string values; `null` (never expires) has none of its own. */
+const NEVER = "never"
+const choiceValue = (seconds: number | null) => (seconds === null ? NEVER : String(seconds))
+
 /**
  * Mint a public link for a file or folder, with a chosen expiry. The link is
  * copied inside the click (Safari needs that), then shown so it can be copied
@@ -47,7 +52,12 @@ function describeShare(path: string, isDir: boolean): string {
  */
 export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProps) {
   const { client, orgId, driveId } = useAuth()
-  const [expiresIn, setExpiresIn] = useState<number>(DEFAULT_SHARE_EXPIRY_SECONDS)
+  const { data: health } = useHealth()
+  // Older servers reject `expiresIn: null`, so they never see the choice, and a
+  // Never chosen before the health changed is not sent to them either.
+  const choices = supportsNoExpiry(health) ? SHARE_EXPIRY_CHOICES : SHARE_EXPIRY_CHOICES.filter((c) => c.seconds !== null)
+  const [selected, setSelected] = useState<number | null>(DEFAULT_SHARE_EXPIRY_SECONDS)
+  const expiresIn = effectiveShareExpiry(selected, health)
   const [link, setLink] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copiedAgain, setCopiedAgain] = useState(false)
@@ -82,20 +92,25 @@ export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProp
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">Link expires after</p>
           <ToggleGroup
-            value={[String(expiresIn)]}
+            value={[choiceValue(expiresIn)]}
             onValueChange={(v) => {
-              const next = Number(v[0])
-              if (!next || next === expiresIn) return
-              setExpiresIn(next)
+              const next = v[0] === undefined ? undefined : v[0] === NEVER ? null : Number(v[0])
+              if (next === undefined || next === expiresIn) return
+              setSelected(next)
               setLink(null)
             }}
           >
-            {SHARE_EXPIRY_CHOICES.map((choice) => (
-              <ToggleGroupItem key={choice.seconds} value={String(choice.seconds)} className="h-7 w-auto px-2.5 text-xs">
+            {choices.map((choice) => (
+              <ToggleGroupItem key={choice.label} value={choiceValue(choice.seconds)} className="h-7 w-auto px-2.5 text-xs">
                 {choice.label}
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
+          {expiresIn === null && (
+            <p className="text-xs text-muted-foreground">
+              This link never expires. Revoke it to end it.
+            </p>
+          )}
         </div>
         {link && (
           <div className="flex items-center gap-1.5">

@@ -168,10 +168,12 @@ export async function resolveHtmlViewUrl(
     minting = (async () => {
       const result = await client.createShare(orgId, driveId, folder, { expiresIn: VIEWER_SITE_TTL_SECONDS })
       const mintedAt = now()
-      const expiresAt = Date.parse(result.expiresAt)
+      // The viewer always asks for a finite TTL; a null here is a server fault, so
+      // the entry falls back to the TTL it asked for.
+      const expiresAt = result.expiresAt === null ? NaN : Date.parse(result.expiresAt)
       const entry: SiteTokenEntry = {
         url: siteUrlFor(client.endpoint, result.sharePath, ""),
-        expiresAt: Number.isFinite(expiresAt) ? expiresAt : mintedAt + result.expiresIn * 1000,
+        expiresAt: Number.isFinite(expiresAt) ? expiresAt : mintedAt + (result.expiresIn ?? VIEWER_SITE_TTL_SECONDS) * 1000,
       }
       // Re-read so a share minted meanwhile by another tab for another folder is kept.
       const cache = readSiteTokens(storage, mintedAt)

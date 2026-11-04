@@ -64,6 +64,11 @@ export function runMigrations(sqlite: Database): void {
   if (!shareCols.some((c) => c.name === "kind")) {
     sqlite.exec("ALTER TABLE shares ADD COLUMN kind TEXT NOT NULL DEFAULT 'file'");
   }
+  // Migration 3c2: add shares.never_expires. The default keeps every existing
+  // link's finite expiry.
+  if (!shareCols.some((c) => c.name === "never_expires")) {
+    sqlite.exec("ALTER TABLE shares ADD COLUMN never_expires INTEGER NOT NULL DEFAULT 0");
+  }
 
   // Migration 3d: add content_chunks.page for PDF text chunks.
   const chunkCols = sqlite
