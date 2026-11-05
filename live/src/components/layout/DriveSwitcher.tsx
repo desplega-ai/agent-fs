@@ -1,7 +1,8 @@
 import { useNavigate } from "react-router"
-import { HardDrive, Check, Users } from "lucide-react"
+import { HardDrive, Check, Users, Webhook } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
+import { useManageableDrives } from "@/hooks/use-org-members"
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -25,6 +26,10 @@ export function DriveSwitcher() {
   const navigate = useNavigate()
   const displayName = driveName || driveId.slice(0, 8)
   const single = drives.length <= 1
+  // Webhooks are for drive admins and org admins. The server enforces that;
+  // hiding the entry only keeps everyone else away from a page that 403s.
+  const { data: manageable } = useManageableDrives(orgId)
+  const canManageWebhooks = !!manageable?.drives.some((d) => d.id === driveId)
 
   // A one-drive org still opens the menu: it carries the Members entry.
   return (
@@ -75,6 +80,12 @@ export function DriveSwitcher() {
           <span className="flex-1">Members</span>
           <DropdownMenuShortcut>⇧M</DropdownMenuShortcut>
         </DropdownMenuItem>
+        {canManageWebhooks && (
+          <DropdownMenuItem onClick={() => navigate(`/webhooks/~/${orgId}/${driveId}`)}>
+            <Webhook className="size-3 text-muted-foreground" />
+            <span className="flex-1">Webhooks</span>
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

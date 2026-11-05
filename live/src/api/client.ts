@@ -23,6 +23,12 @@ import type {
   PresenceState,
   SqlResult,
   SqlTableBinding,
+  Webhook,
+  WebhookDeliveriesPage,
+  WebhookDeliveryStatus,
+  WebhookEventType,
+  WebhookTestResult,
+  WebhookWithSecret,
   WriteParams,
   WriteResult,
 } from "./types"
@@ -320,6 +326,50 @@ export class AgentFsClient {
   /** Star or unstar `path` for the signed-in user. The server takes the user from the API key. */
   async setFavorite(orgId: string, driveId: string, path: string, favorite: boolean): Promise<void> {
     await this.callOp(orgId, favorite ? "favorite-add" : "favorite-remove", { path }, driveId)
+  }
+
+  /** This drive's webhooks for a drive admin, plus the org's for an org admin. 403 for anyone else. */
+  async listWebhooks(orgId: string, driveId: string, opts?: { signal?: AbortSignal }): Promise<{ webhooks: Webhook[] }> {
+    return this.callOp<{ webhooks: Webhook[] }>(orgId, "webhook-list", { scope: "all" }, driveId, opts)
+  }
+
+  /** The response carries the `whsec_` secret once. Never cache or log it. */
+  async createWebhook(
+    orgId: string,
+    driveId: string,
+    params: { scope: "drive" | "org"; url: string; eventTypes: WebhookEventType[]; description?: string },
+  ): Promise<WebhookWithSecret> {
+    return this.callOp<WebhookWithSecret>(orgId, "webhook-create", { ...params }, driveId)
+  }
+
+  async setWebhookEnabled(orgId: string, driveId: string, id: string, enabled: boolean): Promise<Webhook> {
+    return this.callOp<Webhook>(orgId, "webhook-update", { id, enabled }, driveId)
+  }
+
+  /** The old secret stops working at once. The response carries the new one once. Never cache or log it. */
+  async rotateWebhookSecret(orgId: string, driveId: string, id: string): Promise<WebhookWithSecret> {
+    return this.callOp<WebhookWithSecret>(orgId, "webhook-update", { id, rotateSecret: true }, driveId)
+  }
+
+  async deleteWebhook(orgId: string, driveId: string, id: string): Promise<void> {
+    await this.callOp(orgId, "webhook-delete", { id }, driveId)
+  }
+
+  async testWebhook(orgId: string, driveId: string, id: string): Promise<WebhookTestResult> {
+    return this.callOp<WebhookTestResult>(orgId, "webhook-test", { id }, driveId)
+  }
+
+  async listWebhookDeliveries(
+    orgId: string,
+    driveId: string,
+    params: { id: string; status?: WebhookDeliveryStatus; cursor?: string; limit?: number },
+    opts?: { signal?: AbortSignal },
+  ): Promise<WebhookDeliveriesPage> {
+    return this.callOp<WebhookDeliveriesPage>(orgId, "webhook-deliveries", { ...params }, driveId, opts)
+  }
+
+  async redeliverWebhook(orgId: string, driveId: string, deliveryId: string): Promise<void> {
+    await this.callOp(orgId, "webhook-redeliver", { deliveryId }, driveId)
   }
 
   /** Who is on the drive right now (presence fallback when the event stream is unavailable). */
