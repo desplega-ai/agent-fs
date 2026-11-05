@@ -145,8 +145,8 @@ export function orgRoutes(db: DB, appUrl?: string) {
     return c.json(org);
   });
 
-  // The agent-swarm dashboard this org trusts for sign-in. The swarm sets it
-  // with its admin key on every boot, so the same value again is a no-op.
+  // The agent-swarm dashboard this org trusts for sign-in. Org admins edit it
+  // in the live app. A swarm sets it on first start, only while it is empty.
   router.patch("/:orgId", async (c) => {
     const user = c.get("user");
     const orgId = c.req.param("orgId");

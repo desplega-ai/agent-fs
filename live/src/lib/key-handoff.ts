@@ -246,6 +246,32 @@ export function credentialsRedirect(location: { pathname: string; search: string
   return `/credentials${search ? `?${search}` : ""}`
 }
 
+/** The hosted swarm. Continue offers it for an org that stored no swarm URL. */
+export const HOSTED_SWARM_URL = "https://app.agent-swarm.dev"
+
+/** `VITE_DEFAULT_SWARM_URL` when it is an http(s) URL, else the hosted swarm. */
+export function resolveDefaultSwarmUrl(override: unknown): string {
+  return (typeof override === "string" && normalizeEndpoint(override.trim())) || HOSTED_SWARM_URL
+}
+
+/** The swarm for orgs with no stored swarm URL. A build can set another with `VITE_DEFAULT_SWARM_URL`. */
+export const DEFAULT_SWARM_URL = resolveDefaultSwarmUrl(import.meta.env.VITE_DEFAULT_SWARM_URL)
+
+/**
+ * The swarm to offer for an org: the URL its agent-fs server stored, or the
+ * default when it stored none (`null`). `undefined` (not known yet) stays
+ * `undefined`. A stored value is not replaced when it is invalid:
+ * continueWithSwarmLink refuses it.
+ */
+export function orgSwarmUrlOrDefault(stored: unknown, fallback: string = DEFAULT_SWARM_URL): unknown {
+  return stored === null ? fallback : stored
+}
+
+/** What the org setting sends for the text in its field: the URL, or null (back to the default) when empty. */
+export function swarmUrlFromInput(input: string): string | null {
+  return input.trim() || null
+}
+
 /** The swarm page that signs the user in and comes back to `liveUrl` with a key. */
 export function continueWithSwarmHref(swarmUrl: string, liveUrl: string): string {
   return `${swarmUrl.replace(/\/+$/, "")}/fs/continue?return_to=${encodeURIComponent(liveUrl)}`

@@ -30,6 +30,7 @@ import {
   newHandoffNonce,
   normalizeEndpoint,
   orgIdFromAppPath,
+  orgSwarmUrlOrDefault,
   rememberHandoffNonce,
 } from "@/lib/key-handoff"
 
@@ -549,7 +550,7 @@ function useContinueWithSwarm(params: URLSearchParams): (ContinueLink & { rememb
   const endpointSaved = !!endpoint && getCredentials().some((c) => normalizeEndpoint(c.endpoint) === endpoint)
   const link =
     target && endpoint
-      ? continueWithSwarmLink({ swarmUrl, target, origin: window.location.origin, nonce, endpoint, endpointSaved })
+      ? continueWithSwarmLink({ swarmUrl: orgSwarmUrlOrDefault(swarmUrl), target,origin: window.location.origin, nonce, endpoint, endpointSaved })
       : null
 
   const href = link?.href

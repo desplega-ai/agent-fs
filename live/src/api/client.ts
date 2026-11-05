@@ -227,6 +227,11 @@ export class AgentFsClient {
     return this.get<Org>(`/orgs/${orgId}`)
   }
 
+  /** Set the org's swarm URL, or clear it with null. Org admins only; a URL that is not http(s) answers 400. */
+  async updateOrgSwarmUrl(orgId: string, swarmUrl: string | null): Promise<Org> {
+    return this.request<Org>(`/orgs/${orgId}`, { method: "PATCH", body: JSON.stringify({ swarmUrl }) })
+  }
+
   async getOrgs(): Promise<{ orgs: Org[] }> {
     return this.get<{ orgs: Org[] }>("/orgs")
   }

@@ -5,8 +5,13 @@ import {
   continueWithSwarmHref,
   continueWithSwarmLink,
   credentialsRedirect,
+  DEFAULT_SWARM_URL,
+  HOSTED_SWARM_URL,
   isAppReturnPath,
   orgIdFromAppPath,
+  orgSwarmUrlOrDefault,
+  resolveDefaultSwarmUrl,
+  swarmUrlFromInput,
   parseKeyHandoff,
   rememberHandoffNonce,
   signInWithKeyHandoff,
@@ -409,5 +414,46 @@ describe("deep links through the connect form", () => {
       endpointSaved: false,
     })
     expect(link).toMatchObject({ host: "swarm.evil.test", apiHost: "fs.evil.test:8443" })
+  })
+})
+
+describe("the default swarm", () => {
+  const base = { target: "/file/~/o/d/a.md", origin: "https://live.test", nonce: NONCE, endpoint: "https://fs.test", endpointSaved: true }
+
+  test("is the hosted swarm unless the build names another http(s) URL", () => {
+    expect(HOSTED_SWARM_URL).toBe("https://app.agent-swarm.dev")
+    expect(DEFAULT_SWARM_URL).toBe(HOSTED_SWARM_URL)
+    expect(resolveDefaultSwarmUrl(undefined)).toBe(HOSTED_SWARM_URL)
+    expect(resolveDefaultSwarmUrl(" https://swarm.corp.test/ ")).toBe("https://swarm.corp.test")
+    for (const bad of ["", "javascript:alert(1)", "swarm.corp.test", 42]) {
+      expect(resolveDefaultSwarmUrl(bad)).toBe(HOSTED_SWARM_URL)
+    }
+  })
+
+  test("an org with no stored swarm URL gets Continue with the default", () => {
+    const link = continueWithSwarmLink({ ...base, swarmUrl: orgSwarmUrlOrDefault(null) })!
+    expect(new URL(link.href).origin + new URL(link.href).pathname).toBe("https://app.agent-swarm.dev/fs/continue")
+    expect(link).toMatchObject({ host: "app.agent-swarm.dev", apiHost: null })
+  })
+
+  test("a stored swarm URL wins, and an invalid one is not replaced by the default", () => {
+    expect(continueWithSwarmLink({ ...base, swarmUrl: orgSwarmUrlOrDefault("https://swarm.test") })!.host).toBe("swarm.test")
+    expect(continueWithSwarmLink({ ...base, swarmUrl: orgSwarmUrlOrDefault("javascript:alert(1)") })).toBeNull()
+  })
+
+  test("no link while the org's swarm URL is not known yet", () => {
+    expect(orgSwarmUrlOrDefault(undefined)).toBeUndefined()
+    expect(continueWithSwarmLink({ ...base, swarmUrl: orgSwarmUrlOrDefault(undefined) })).toBeNull()
+  })
+
+  test("the default still names a server that no saved account vouches for", () => {
+    const link = continueWithSwarmLink({ ...base, endpoint: "https://fs.evil.test", endpointSaved: false, swarmUrl: orgSwarmUrlOrDefault(null) })
+    expect(link).toMatchObject({ host: "app.agent-swarm.dev", apiHost: "fs.evil.test" })
+  })
+
+  test("the org setting sends an empty field as null, back to the default", () => {
+    expect(swarmUrlFromInput("  ")).toBeNull()
+    expect(swarmUrlFromInput("")).toBeNull()
+    expect(swarmUrlFromInput(" https://swarm.test ")).toBe("https://swarm.test")
   })
 })
