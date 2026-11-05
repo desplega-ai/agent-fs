@@ -5,6 +5,7 @@ import {
   index,
   primaryKey,
   uniqueIndex,
+  unique,
 } from "drizzle-orm/sqlite-core";
 
 // users
@@ -231,6 +232,75 @@ export const events = sqliteTable(
       table.type,
       table.target,
       table.status,
+      table.createdAt
+    ),
+  })
+);
+
+// webhook_subscriptions: outbound webhook endpoints. See raw.ts. Unlike the
+// tables above, timestamps are epoch milliseconds (mode "timestamp_ms").
+export const webhookSubscriptions = sqliteTable(
+  "webhook_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    orgId: text("org_id")
+      .notNull()
+      .references(() => orgs.id),
+    driveId: text("drive_id").references(() => drives.id), // NULL = whole org
+    url: text("url").notNull(),
+    description: text("description"),
+    eventTypes: text("event_types").notNull(), // JSON array, non-empty
+    secretCiphertext: text("secret_ciphertext").notNull(),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    disabledReason: text("disabled_reason", {
+      enum: ["gone", "failing", "manual"],
+    }),
+    disabledAt: integer("disabled_at", { mode: "timestamp_ms" }),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    failingSince: integer("failing_since", { mode: "timestamp_ms" }),
+    lastSuccessAt: integer("last_success_at", { mode: "timestamp_ms" }),
+    lastFailureAt: integer("last_failure_at", { mode: "timestamp_ms" }),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    orgIdx: index("idx_webhook_subs_org").on(table.orgId, table.enabled),
+    driveIdx: index("idx_webhook_subs_drive").on(table.driveId),
+  })
+);
+
+// webhook_deliveries: the outbox, one row per (subscription, event). See
+// raw.ts. Timestamps are epoch milliseconds.
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: text("id").primaryKey(),
+    subscriptionId: text("subscription_id")
+      .notNull()
+      .references(() => webhookSubscriptions.id, { onDelete: "cascade" }),
+    eventId: text("event_id").notNull(), // events.id, sent as webhook-id
+    eventType: text("event_type").notNull(),
+    payload: text("payload").notNull(), // exact JSON body
+    status: text("status", { enum: ["pending", "delivered", "failed"] })
+      .notNull()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: integer("next_attempt_at", { mode: "timestamp_ms" }).notNull(),
+    leaseUntil: integer("lease_until", { mode: "timestamp_ms" }),
+    lastAttemptAt: integer("last_attempt_at", { mode: "timestamp_ms" }),
+    lastStatusCode: integer("last_status_code"),
+    lastError: text("last_error"),
+    deliveredAt: integer("delivered_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    subEventUq: unique().on(table.subscriptionId, table.eventId),
+    dueIdx: index("idx_webhook_deliveries_due").on(table.nextAttemptAt),
+    subIdx: index("idx_webhook_deliveries_sub").on(
+      table.subscriptionId,
       table.createdAt
     ),
   })
