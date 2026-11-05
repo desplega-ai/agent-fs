@@ -240,4 +240,4 @@ The server stores each secret encrypted with AES-256-GCM. It reads the encryptio
 2. `AGENT_FS_SECRETS_KEY_FILE`: the path of a file that holds such a string.
 3. `$AGENT_FS_HOME/.secrets-key`: created with mode `0600` by the first `webhook create` when neither variable is set.
 
-Back the key up with the database. Without it the server cannot sign deliveries, and it refuses to create a new key while webhooks exist. If the key is lost, set a new one with `AGENT_FS_SECRETS_KEY` and rotate the secret of every webhook.
+Back the key up with the database. Without it the server cannot sign deliveries: they wait and are retried every minute, without using an attempt or counting toward auto-disable. The server also refuses to create a new key while webhooks exist. If the key is lost, set a new one with `AGENT_FS_SECRETS_KEY` and rotate the secret of every webhook.

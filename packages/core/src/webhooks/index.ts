@@ -71,6 +71,7 @@ export {
   WEBHOOK_AUTO_DISABLE_MS_ENV,
   DEFAULT_WEBHOOK_POLL_MS,
   DEFAULT_WEBHOOK_BATCH,
+  SERVER_ERROR_RETRY_MS,
   startWebhookWorker,
   stopWebhookWorker,
   isWebhookWorkerRunning,

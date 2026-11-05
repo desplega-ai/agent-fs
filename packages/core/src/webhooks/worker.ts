@@ -61,7 +61,16 @@ export interface WebhookTickSummary {
   failed: number;
   /** Sends cut by stop; their lease is released, so the next process resends. */
   released: number;
+  /**
+   * Rows not sent because the server could not decrypt the signing secret
+   * (for example a lost key file). Postponed without using an attempt or
+   * counting against the subscription.
+   */
+  deferred: number;
 }
+
+/** How long a row waits when the server cannot decrypt its signing secret. */
+export const SERVER_ERROR_RETRY_MS = 60_000;
 
 /** A claimed delivery, as `UPDATE … RETURNING` hands it back. */
 export interface ClaimedDelivery {
@@ -142,7 +151,24 @@ export function countEnabledWebhookSubscriptions(db: DB): number {
   return row?.n ?? 0;
 }
 
-type Outcome = "delivered" | "retrying" | "failed" | "released";
+type Outcome = "delivered" | "retrying" | "failed" | "released" | "deferred";
+
+/**
+ * Postpone a claimed row after a server-side error that is not the
+ * receiver's fault. The attempt the claim counted is given back and the
+ * subscription's failure counters stay as they are, so a lost key never
+ * exhausts retries or auto-disables a hook. Fenced like `recordResult`.
+ */
+function deferClaim(db: DB, claim: ClaimedDelivery, error: string, now: number): Outcome | null {
+  const changed = rawOf(db)
+    .query(
+      `UPDATE webhook_deliveries
+          SET attempts = attempts - 1, next_attempt_at = $next, lease_until = NULL, last_error = $error
+        WHERE id = $id AND status = 'pending' AND lease_until = $lease`
+    )
+    .run({ $id: claim.id, $lease: claim.leaseUntil, $next: now + SERVER_ERROR_RETRY_MS, $error: error }).changes;
+  return changed === 0 ? null : "deferred";
+}
 
 /**
  * Record one attempt's result in one transaction. Every write is fenced on
@@ -267,7 +293,7 @@ export async function processDueWebhooks(db: DB, opts: WebhookTickOptions = {}):
   const now = opts.now ?? Date.now;
   const random = opts.random ?? Math.random;
   const env = opts.env ?? process.env;
-  const summary: WebhookTickSummary = { claimed: 0, delivered: 0, retrying: 0, failed: 0, released: 0 };
+  const summary: WebhookTickSummary = { claimed: 0, delivered: 0, retrying: 0, failed: 0, released: 0, deferred: 0 };
   if (opts.signal?.aborted) return summary;
 
   const claims = claimDueDeliveries(db, { now: now(), batch: opts.batch ?? DEFAULT_WEBHOOK_BATCH });
@@ -292,9 +318,11 @@ export async function processDueWebhooks(db: DB, opts: WebhookTickOptions = {}):
         secret: decryptSecret(row.secret_ciphertext, getWebhookSecretKey(db)),
       });
     } catch (err) {
-      subs.set(subscriptionId, {
-        error: `cannot decrypt the signing secret: ${err instanceof Error ? err.message : String(err)}`,
-      });
+      const error = `cannot decrypt the signing secret: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(
+        `[webhooks] subscription ${subscriptionId}: ${error}. Its deliveries wait; check AGENT_FS_SECRETS_KEY or the key file.`
+      );
+      subs.set(subscriptionId, { error });
     }
   }
 
@@ -303,10 +331,13 @@ export async function processDueWebhooks(db: DB, opts: WebhookTickOptions = {}):
       try {
         const sub = subs.get(claim.subscriptionId);
         if (!sub) return;
-        let result: SendWebhookResult;
         if ("error" in sub) {
-          result = { ok: false, error: sub.error, durationMs: 0 };
-        } else if (opts.signal?.aborted) {
+          const outcome = deferClaim(db, claim, sub.error, now());
+          if (outcome) summary[outcome] += 1;
+          return;
+        }
+        let result: SendWebhookResult;
+        if (opts.signal?.aborted) {
           result = { ok: false, error: "aborted", durationMs: 0 };
         } else {
           result = await sendWebhook({

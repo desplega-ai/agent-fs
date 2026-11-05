@@ -16,6 +16,7 @@ import {
   claimDueDeliveries,
   countEnabledWebhookSubscriptions,
   runWebhookTickForTests,
+  SERVER_ERROR_RETRY_MS,
   startWebhookWorker,
   stopWebhookWorker,
   webhookRetryJitter,
@@ -261,7 +262,37 @@ describe("webhook delivery worker", () => {
     expect(delivery(db, d.id).nextAttemptAt.getTime()).toBe(c.value + RETRY_SCHEDULE_MS[0] * 1.2);
   });
 
-  test("a 3xx, a network error and an undecryptable secret are retried failures", async () => {
+  test("an undecryptable secret postpones the row without using an attempt or failing the hook", async () => {
+    // Regression: a lost key file used to count as a receiver failure, so
+    // retries ran out and the 5-day rule disabled every hook.
+    const { db, ctx } = setup();
+    const c = clock();
+    const brokenSub = addSub(db, { orgId: ctx.orgId, createdBy: ctx.userId, secret: generateWebhookSecret() });
+    db.update(schema.webhookSubscriptions)
+      .set({ secretCiphertext: "not-a-ciphertext" })
+      .where(eq(schema.webhookSubscriptions.id, brokenSub))
+      .run();
+    const broken = addDelivery(db, brokenSub, { at: c.value });
+    const f = fakeFetch();
+    const env = { ...process.env, AGENT_FS_WEBHOOK_AUTO_DISABLE_MS: "1" };
+    for (let i = 0; i < 12; i++) {
+      const summary = await runWebhookTickForTests(db, { fetchImpl: f.impl, now: c.now, random: mid, env });
+      expect(summary).toMatchObject({ claimed: 1, deferred: 1, retrying: 0, failed: 0 });
+      expect(delivery(db, broken.id).nextAttemptAt.getTime()).toBe(c.value + SERVER_ERROR_RETRY_MS);
+      c.advance(SERVER_ERROR_RETRY_MS);
+    }
+    expect(f.sent).toHaveLength(0);
+    expect(delivery(db, broken.id)).toMatchObject({ status: "pending", attempts: 0, leaseUntil: null });
+    expect(delivery(db, broken.id).lastError).toContain("cannot decrypt the signing secret");
+    const sub = db
+      .select()
+      .from(schema.webhookSubscriptions)
+      .where(eq(schema.webhookSubscriptions.id, brokenSub))
+      .get();
+    expect(sub).toMatchObject({ enabled: true, consecutiveFailures: 0, failingSince: null, disabledReason: null });
+  });
+
+  test("a 3xx and a network error are retried failures", async () => {
     const { db, ctx, subId } = setup();
     const c = clock();
     const redirected = addDelivery(db, subId, { at: c.value });
@@ -279,18 +310,6 @@ describe("webhook delivery worker", () => {
     await runWebhookTickForTests(db, { fetchImpl: refused, now: c.now, random: mid });
     expect(delivery(db, network.id)).toMatchObject({ status: "pending", attempts: 1, lastStatusCode: null });
     expect(delivery(db, network.id).lastError).toContain("ECONNREFUSED");
-
-    const brokenSub = addSub(db, { orgId: ctx.orgId, createdBy: ctx.userId, secret: generateWebhookSecret() });
-    db.update(schema.webhookSubscriptions)
-      .set({ secretCiphertext: "not-a-ciphertext" })
-      .where(eq(schema.webhookSubscriptions.id, brokenSub))
-      .run();
-    const broken = addDelivery(db, brokenSub, { at: c.value });
-    const f = fakeFetch();
-    await runWebhookTickForTests(db, { fetchImpl: f.impl, now: c.now, random: mid });
-    expect(f.sent).toHaveLength(0);
-    expect(delivery(db, broken.id).status).toBe("pending");
-    expect(delivery(db, broken.id).lastError).toContain("cannot decrypt the signing secret");
   });
 
   test("after 8 failed attempts the row is failed", async () => {
