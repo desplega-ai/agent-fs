@@ -127,6 +127,15 @@ CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_due
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_sub ON webhook_deliveries(subscription_id, created_at);
 `;
 
+/**
+ * Serves the delivery worker's hourly prune (`status != 'pending' AND
+ * created_at < now - 30 days`). Shared with runMigrations, which adds it to
+ * databases created before it existed.
+ */
+export const WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL = `
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_prune ON webhook_deliveries(status, created_at);
+`;
+
 export const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -316,6 +325,8 @@ ${ORG_INVITES_SQL}
 ${USER_API_KEYS_SQL}
 
 ${WEBHOOKS_SQL}
+
+${WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL}
 
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

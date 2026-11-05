@@ -17,6 +17,8 @@ export {
   LEASE_MS,
   BODY_MAX_CHARS,
   MAX_SUBSCRIPTIONS_PER_ORG,
+  DELIVERY_RETENTION_MS,
+  PRUNE_INTERVAL_MS,
   retryScheduleMs,
 } from "./events.js";
 export type { WebhookEventType } from "./events.js";
@@ -67,6 +69,20 @@ export type {
   PublicWebhook,
 } from "./subscriptions.js";
 export {
+  DEFAULT_DELIVERIES_LIMIT,
+  MAX_DELIVERIES_LIMIT,
+  toPublicDelivery,
+  encodeDeliveriesCursor,
+  decodeDeliveriesCursor,
+  getScopedDelivery,
+} from "./deliveries.js";
+export type {
+  PublicDelivery,
+  WebhookDeliveryRow,
+  WebhookDeliveryStatus,
+  DeliveriesCursor,
+} from "./deliveries.js";
+export {
   WEBHOOK_POLL_MS_ENV,
   WEBHOOK_AUTO_DISABLE_MS_ENV,
   DEFAULT_WEBHOOK_POLL_MS,
@@ -79,6 +95,7 @@ export {
   claimDueDeliveries,
   countEnabledWebhookSubscriptions,
   webhookRetryJitter,
+  pruneWebhookDeliveries,
   runWebhookTickForTests,
 } from "./worker.js";
 export type {

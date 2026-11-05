@@ -303,6 +303,7 @@ export const webhookDeliveries = sqliteTable(
       table.subscriptionId,
       table.createdAt
     ),
+    pruneIdx: index("idx_webhook_deliveries_prune").on(table.status, table.createdAt),
   })
 );
 
