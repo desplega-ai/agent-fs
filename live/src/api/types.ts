@@ -612,3 +612,72 @@ export interface ShareListParams {
   limit?: number
   offset?: number
 }
+
+/** Event types a webhook may subscribe to; mirrors `WEBHOOK_EVENT_TYPES` in core. */
+export type WebhookEventType =
+  | "comment.created"
+  | "comment.mentioned"
+  | "comment.updated"
+  | "comment.resolved"
+  | "comment.reopened"
+  | "comment.deleted"
+
+/** A webhook as `webhook-list` and `webhook-update` return it. Never carries the secret. */
+export interface Webhook {
+  id: string
+  /** `drive` hooks cover one drive; `org` hooks every drive in the org. */
+  scope: "drive" | "org"
+  driveId: string | null
+  url: string
+  description: string | null
+  eventTypes: WebhookEventType[]
+  enabled: boolean
+  disabledReason: "gone" | "failing" | "manual" | null
+  disabledAt: string | null
+  consecutiveFailures: number
+  lastSuccessAt: string | null
+  lastFailureAt: string | null
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+  /** False when the server delivers nothing (AGENT_FS_WEBHOOK_WORKER unset). */
+  workerEnabled: boolean
+}
+
+/** `webhook-create`, or `webhook-update` with `rotateSecret`: the `whsec_` secret, returned this once. */
+export type WebhookWithSecret = Webhook & { secret: string }
+
+/** `webhook-test`: the receiver's answer to a signed ping. */
+export interface WebhookTestResult {
+  ok: boolean
+  statusCode?: number
+  error?: string
+  durationMs: number
+  webhookId: string
+}
+
+export type WebhookDeliveryStatus = "pending" | "delivered" | "failed"
+
+/** One row of `webhook-deliveries`. */
+export interface WebhookDelivery {
+  id: string
+  subscriptionId: string
+  /** Sent as `webhook-id`. */
+  eventId: string
+  eventType: string
+  status: WebhookDeliveryStatus
+  attempts: number
+  /** When a pending row is next due; null once delivered or failed. */
+  nextAttemptAt: string | null
+  lastAttemptAt: string | null
+  lastStatusCode: number | null
+  lastError: string | null
+  deliveredAt: string | null
+  createdAt: string
+}
+
+export interface WebhookDeliveriesPage {
+  deliveries: WebhookDelivery[]
+  /** Pass back as `cursor`; null on the last page. */
+  nextCursor: string | null
+}
