@@ -94,7 +94,7 @@ An org can name the agent-swarm dashboard it trusts for sign-in. When a browser 
 | Method | Path | Who | Body | Response |
 |---|---|---|---|---|
 | `PATCH` | `/orgs/{orgId}` | org admin | `{"swarmUrl":"https://swarm.example.com"}` or `{"swarmUrl":null}` | `{"id","name","isPersonal","swarmUrl"}` |
-| `GET` | `/orgs/{orgId}` | org member | none | `{"id","name","isPersonal","swarmUrl"}` |
+| `GET` | `/orgs/{orgId}` | org member | none | `{"id","name","isPersonal","swarmUrl","role"}` (`role` is the caller's role) |
 | `GET` | `/orgs/{orgId}/public` | anyone (no key) | none | `{"swarmUrl"}` |
 
 - `swarmUrl` must be an absolute `http` or `https` URL without credentials, query or fragment (max 2048 characters). A trailing slash is dropped. Anything else gets `400 {"error":"VALIDATION_ERROR","field":"swarmUrl"}`. Members below admin get 403, non-members 404. Sending the stored value again changes nothing, so a swarm can set it on every boot.

@@ -136,13 +136,15 @@ export function orgRoutes(db: DB, appUrl?: string) {
     return c.json(org, 201);
   });
 
+  // `role` is the caller's role, as in `GET /orgs`. An org-scoped key gets
+  // 403 on that list, so the live app reads its role here.
   router.get("/:orgId", (c) => {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
-    requireOrgMember(db, user.id, orgId);
+    const role = requireOrgMember(db, user.id, orgId);
     const org = getOrg(db, orgId);
     if (!org) return c.json({ error: "NOT_FOUND", message: "Org not found" }, 404);
-    return c.json(org);
+    return c.json({ ...org, role });
   });
 
   // The agent-swarm dashboard this org trusts for sign-in. Org admins edit it

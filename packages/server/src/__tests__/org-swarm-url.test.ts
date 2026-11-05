@@ -136,6 +136,28 @@ describe("PATCH /orgs/:orgId swarmUrl", () => {
   });
 });
 
+describe("GET /orgs/:orgId", () => {
+  test("names the caller's role, also for an org-scoped key", async () => {
+    const owner = await register("org-role-owner@example.com");
+    const member = await register("org-role-admin@example.com");
+    const orgId = await orgWith(owner, "org-role-admin@example.com", "admin");
+    const minted = await keyReq(owner.apiKey, `/orgs/${orgId}/members/${member.userId}/keys`, {
+      method: "POST",
+      body: JSON.stringify({ label: "swarm" }),
+    });
+    const { apiKey } = await minted.json();
+    expect((await keyReq(apiKey, `/orgs/${orgId}`).then((r) => r.json())).role).toBe("admin");
+    expect((await keyReq(owner.apiKey, `/orgs/${orgId}`).then((r) => r.json())).role).toBe("admin");
+  });
+
+  test("a viewer gets role viewer", async () => {
+    const owner = await register("org-role-owner2@example.com");
+    const viewer = await register("org-role-viewer2@example.com");
+    const orgId = await orgWith(owner, "org-role-viewer2@example.com", "viewer");
+    expect((await keyReq(viewer.apiKey, `/orgs/${orgId}`).then((r) => r.json())).role).toBe("viewer");
+  });
+});
+
 describe("GET /orgs/:orgId/public", () => {
   test("answers without a key, with only the swarm URL", async () => {
     const admin = await register("swarm-public@example.com");

@@ -457,7 +457,7 @@ export interface Drive {
 export interface Org {
   id: string
   name: string
-  /** The caller's role in the org. Absent on servers that predate it, and on `GET /orgs/{orgId}`. */
+  /** The caller's role in the org. Absent on servers that predate it (older servers also omit it on `GET /orgs/{orgId}`). */
   role?: MemberRole
   /** The agent-swarm dashboard the org trusts for sign-in. Only on `GET /orgs/{orgId}`. */
   swarmUrl?: string | null
