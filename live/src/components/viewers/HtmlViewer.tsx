@@ -61,7 +61,8 @@ interface HtmlViewerProps {
   className?: string
   /** Changes after a save, so the frame reloads with the new content. */
   reloadKey?: number
-  onShowSource: () => void
+  /** Without it, the drive-root confirm offers only Render. */
+  onShowSource?: () => void
   comments?: CommentListEntry[]
   /** The page's source. With it, and a server that adds the overlay, the page takes comments. */
   content?: string
@@ -95,9 +96,11 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
           >
             Render
           </Button>
-          <Button size="sm" variant="outline" onClick={onShowSource}>
-            Show source
-          </Button>
+          {onShowSource && (
+            <Button size="sm" variant="outline" onClick={onShowSource}>
+              Show source
+            </Button>
+          )}
         </div>
       </div>
     )

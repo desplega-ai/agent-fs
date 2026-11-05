@@ -1,6 +1,6 @@
 import { useParams, useNavigate, useLocation } from "react-router"
 import { useCallback, useRef, useEffect, useState } from "react"
-import { Link as LinkIcon, Download, Check, Database, History } from "lucide-react"
+import { Link as LinkIcon, Download, Check, Database, History, Presentation } from "lucide-react"
 import { FileViewer } from "@/components/viewers/FileViewer"
 import { CopyButton } from "@/components/viewers/CopyButton"
 import { VersionHistory } from "@/components/VersionHistory"
@@ -18,9 +18,11 @@ import {
 } from "@/components/ui/tooltip"
 import { useAuth } from "@/contexts/auth"
 import { useFileStat } from "@/hooks/use-file-stat"
+import { useHealth } from "@/hooks/use-health"
 import { useFileActions } from "@/hooks/use-file-actions"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { isQueryablePath } from "@/lib/sql-engine/types"
+import { isHtmlPath, supportsHtmlSites } from "@/lib/html-view"
 import { uiChromeStore } from "@/stores/ui-chrome"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import type { OutlineItem } from "@/lib/outline"
@@ -41,6 +43,7 @@ export function FileDetailPage() {
   const { data: stat } = useFileStat(filePath || null)
   const fileActions = useFileActions(filePath)
   const { copyLink, download, copiedLink, canShare, canShareLink } = fileActions
+  const { data: health } = useHealth()
 
   // Tab title reflects the open file (single-sourced via the shared hook).
   useDocumentTitle(filePath ? (filePath.split("/").pop() ?? filePath) : null)
@@ -66,6 +69,8 @@ export function FileDetailPage() {
   }
 
   const filename = filePath.split("/").pop() ?? filePath
+  // Per segment, so a `#` or `?` in a name stays part of the path.
+  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/")
 
   return (
     <MainWithComments filePath={filePath} onCommentClick={handleCommentClick} showCommentsHeader outline={outline}>
@@ -144,6 +149,25 @@ export function FileDetailPage() {
               </Tooltip>
             )}
             {canShareLink && <ShareButton path={filePath} />}
+            {isHtmlPath(filePath) && supportsHtmlSites(health) && orgId && driveId && (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      nativeButton={false}
+                      render={<a href={`/page/~/${orgId}/${driveId}/${encodedPath}`} target="_blank" rel="noopener" />}
+                      className="text-muted-foreground"
+                      aria-label="Present"
+                    >
+                      <Presentation />
+                    </Button>
+                  }
+                />
+                <TooltipContent>Present without the app chrome</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger
                 render={

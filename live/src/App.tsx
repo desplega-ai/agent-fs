@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useRef } from "react"
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router"
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useMatch, useNavigate, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/toaster"
@@ -13,6 +13,7 @@ import { ApiKeysPage } from "@/pages/ApiKeys"
 import { CredentialsPage } from "@/pages/Credentials"
 import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
+import { PresentPage } from "@/pages/PresentPage"
 import { MembersPage } from "@/pages/Members"
 import { Spinner } from "@/components/ui/spinner"
 import { PresenceConnection } from "@/components/presence/PresenceConnection"
@@ -36,12 +37,14 @@ const queryClient = new QueryClient({
  * params are synced into the providers via <RouteParamsSync/>.
  */
 function AuthenticatedLayout() {
+  // The sticky star toast would sit on top of a presented page.
+  const presenting = useMatch("/page/*")
   return (
     <AuthProvider>
       <BrowserProvider>
         <QueryParamHandler />
         <PresenceConnection />
-        <StarNudge />
+        {!presenting && <StarNudge />}
         <Outlet />
       </BrowserProvider>
     </AuthProvider>
@@ -145,6 +148,15 @@ function DetailRoute() {
   )
 }
 
+function PresentRoute() {
+  return (
+    <>
+      <RouteParamsSync />
+      <PresentPage />
+    </>
+  )
+}
+
 function SqlRoute() {
   return (
     <>
@@ -233,6 +245,7 @@ export default function App() {
                   <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
                   <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
                   <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
+                  <Route path="/page/~/:orgId/:driveId/*" element={<PresentRoute />} />
                   <Route path="/sql/~/:orgId/:driveId" element={<SqlRoute />} />
                   <Route path="/members/~/:orgId/:driveId" element={<MembersRoute />} />
                   <Route path="/keys" element={<ApiKeysRoute />} />
