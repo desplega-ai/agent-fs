@@ -999,6 +999,102 @@ async function runTests() {
   await runFuseTests();
 }
 
+/** share-list: both scopes, path coverage, status classification, and no secret in any row. */
+async function runShareListTests(shareBase: string) {
+  console.log("\n  -- share-list --");
+  runJson('write /sl-e2e/a.md --content "share-list e2e"');
+  runJson('write /sl-e2e/index.html --content "<p>sl-e2e</p>"');
+  runJson('write /sl-e2e-unshared.md --content "nobody shares this"');
+  const created: Record<string, any> = {};
+  const listed = (args: string) => runJson(`share-list ${args}`).shares as any[];
+  const byId = (rows: any[], id: string) => rows.find((s) => s.id === id);
+
+  await test("/health advertises share-list", async () => {
+    const health = await (await fetch(`${shareBase}/health`)).json() as any;
+    assert(health.features?.includes("share-list"), true, `Expected share-list in ${JSON.stringify(health)}`);
+  });
+
+  await test("share-list <file> lists its own links as exact, without the token or URL", () => {
+    created.file = runJson("share-create /sl-e2e/a.md");
+    const row = byId(listed("/sl-e2e/a.md"), created.file.id);
+    assert(row?.relation, "exact");
+    assert(row.status, "active");
+    assert(row.kind, "file");
+    assert(row.drive.id, personalDriveId);
+    assert(row.canRevoke, true);
+    for (const key of ["url", "sharePath", "token", "tokenHash"]) {
+      assert(key in row, false, `share-list row must not carry ${key}`);
+    }
+    const token = created.file.url.split("/share/")[1];
+    assert(JSON.stringify(row).includes(token), false, "share-list row must not contain the token");
+  });
+
+  await test("a folder link is listed as covering for a file inside it", () => {
+    created.site = runJson("share-create /sl-e2e");
+    assert(created.site.kind, "site");
+    const row = byId(listed("/sl-e2e/a.md"), created.site.id);
+    assert(row?.relation, "covering");
+    assert(row.kind, "site");
+    assert(row.path, "/sl-e2e");
+  });
+
+  await test("a never-expiring link lists expiresAt null", () => {
+    created.never = runJson("share-create /sl-e2e/a.md --expires-in never");
+    assert(byId(listed("/sl-e2e/a.md"), created.never.id)?.expiresAt, null);
+  });
+
+  await test("a spent one-off link is exhausted, and hidden unless --include-inactive", async () => {
+    created.oneOff = runJson("share-create /sl-e2e/a.md --one-off");
+    assert((await fetch(created.oneOff.url)).status, 200);
+    assert(byId(listed("/sl-e2e/a.md"), created.oneOff.id), undefined);
+    const row = byId(listed("/sl-e2e/a.md --include-inactive"), created.oneOff.id);
+    assert(row?.status, "exhausted");
+    assert(row.views, 1);
+  });
+
+  await test("share-list --mine spans the org's drives; drive scope does not", () => {
+    const otherDriveId = JSON.parse(run("drive create sl-e2e-other")).id;
+    runJson(`--drive ${otherDriveId} write /other.md --content "other drive"`);
+    created.other = runJson(`--drive ${otherDriveId} share-create /other.md`);
+    const mine = runJson(`--drive ${personalDriveId} share-list --mine`);
+    assert(mine.scope, "mine");
+    assert(mine.visibility, "own");
+    assert(byId(mine.shares, created.other.id)?.drive.id, otherDriveId);
+    assert(byId(mine.shares, created.file.id)?.drive.id, personalDriveId);
+    assert(byId(listed(`--drive ${personalDriveId}`), created.other.id), undefined);
+    assert(byId(listed(`--drive ${otherDriveId}`), created.other.id)?.path, "/other.md");
+    assert(runJson(`--drive ${otherDriveId} share-revoke ${created.other.id}`).revoked, 1);
+  });
+
+  await test("a revoked link leaves the default list and shows as revoked with --include-inactive", () => {
+    assert(runJson(`share-revoke ${created.file.id}`).revoked, 1);
+    assert(byId(listed("/sl-e2e/a.md"), created.file.id), undefined);
+    const row = byId(listed("/sl-e2e/a.md --include-inactive"), created.file.id);
+    assert(row?.status, "revoked");
+    assert(typeof row.revokedAt, "string");
+  });
+
+  await test("share-list rejects a path with --mine", () => {
+    let failed = false;
+    try {
+      run("share-list /sl-e2e/a.md --mine");
+    } catch {
+      failed = true;
+    }
+    assert(failed, true, "Expected share-list --mine with a path to fail");
+  });
+
+  await test("share-list human output", () => {
+    assertIncludes(run("share-list /sl-e2e-unshared.md"), "(no share links)");
+    const out = run("share-list /sl-e2e/a.md");
+    assertIncludes(out, "(covers)");
+    assertIncludes(out, "share-revoke <id>");
+  });
+
+  runJson(`share-revoke --path /sl-e2e`);
+  runJson(`share-revoke --path /sl-e2e/a.md`);
+}
+
 async function runStandardTests(daemonUrl: string) {
   // -- Basics --
 
@@ -2587,6 +2683,8 @@ async function runStandardTests(daemonUrl: string) {
       );
     });
   }
+
+  await runShareListTests(shareBase);
 
   // -- sql (DuckDB) --
 
