@@ -4,7 +4,7 @@ import type { DB } from "../db/index.js";
 import { createOrg } from "./orgs.js";
 import { PRIMARY_API_KEY_ID, revokeGrantedKeys } from "./api-keys.js";
 import { z } from "zod";
-import { ValidationError, NotFoundError } from "../errors.js";
+import { ValidationError, NotFoundError, PermissionDeniedError } from "../errors.js";
 
 export function hashApiKey(key: string): string {
   const hasher = new Bun.CryptoHasher("sha256");
@@ -56,10 +56,21 @@ export interface ResetApiKeyResult {
   apiKey: string; // Only returned on reset
 }
 
+/**
+ * Rotate the user's primary key, which reaches the whole account. Only the
+ * user may do this (`actorId` must equal `userId`); an org admin resetting a
+ * member gets an org-scoped key from `resetOrgScopedKey` instead. `orgId`
+ * names the org the audit event is recorded in.
+ */
 export function resetApiKey(
   db: DB,
   params: { userId: string; actorId: string; orgId: string }
 ): ResetApiKeyResult {
+  if (params.actorId !== params.userId) {
+    throw new PermissionDeniedError("Only the user can rotate their own primary API key", {
+      suggestion: "An org admin's reset-key mints an org-scoped key (resetOrgScopedKey)",
+    });
+  }
   const existing = db
     .select()
     .from(schema.users)
@@ -82,9 +93,7 @@ export function resetApiKey(
 
     // A self reset is the user's recovery path: it also cuts off every
     // org-scoped (admin-minted) key. Keys from POST /auth/keys stay.
-    if (params.actorId === params.userId) {
-      revokeGrantedKeys(tx, { reason: "selfReset", userId: params.userId });
-    }
+    revokeGrantedKeys(tx, { reason: "selfReset", userId: params.userId });
 
     tx.insert(schema.events)
       .values({
@@ -96,9 +105,7 @@ export function resetApiKey(
         actor: params.actorId,
         target: params.userId,
         status: "created",
-        metadata: JSON.stringify({
-          method: params.actorId === params.userId ? "self" : "admin",
-        }),
+        metadata: JSON.stringify({ method: "self" }),
         createdAt: now,
       })
       .run();

@@ -11,6 +11,7 @@ export {
 export type { ResetApiKeyResult } from "./users.js";
 export {
   createUserApiKey,
+  resetOrgScopedKey,
   listUserApiKeys,
   revokeUserApiKey,
   PRIMARY_API_KEY_ID,

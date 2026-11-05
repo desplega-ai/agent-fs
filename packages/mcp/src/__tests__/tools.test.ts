@@ -16,7 +16,7 @@ import {
 import type { OpContext } from "@/core";
 import { registerTools } from "../tools.js";
 import { registerIdentityTools } from "../server.js";
-import { createTestContext, createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
+import { acceptInviteAsInvitee, createTestContext, createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
 
 describe("registerTools", () => {
   test("registers all ops as MCP tools", () => {
@@ -314,6 +314,10 @@ describe("member tool RBAC", () => {
     );
     expect(allowed.result.isError).toBeUndefined();
     expect(allowed.body.ok).toBe(true);
+    // An existing account joins only once it accepts.
+    expect(allowed.body.status).toBe("pending");
+    expect(getUserOrgRole(h.db, h.outsider.id, h.sharedOrg.id)).toBeNull();
+    acceptInviteAsInvitee(h.db, allowed.body.token);
     expect(getUserOrgRole(h.db, h.outsider.id, h.sharedOrg.id)).toBe("viewer");
   });
 
@@ -429,6 +433,8 @@ describe("member tool RBAC", () => {
     );
     expect(result.isError).toBeUndefined();
     expect(body.drives).toEqual([{ driveId: ledger.id, role: "editor" }]);
+    expect(getUserDriveRole(h.db, h.outsider.id, ledger.id)).toBeNull();
+    acceptInviteAsInvitee(h.db, body.token);
     expect(getUserDriveRole(h.db, h.outsider.id, ledger.id)).toBe("editor");
     expect(getUserDriveRole(h.db, h.outsider.id, h.sharedDriveId)).toBeNull();
   });
@@ -483,10 +489,12 @@ describe("member tool RBAC", () => {
     expect(ambiguous.body.error).toContain("accounts match");
     expect(writes()).toEqual([null, null, null, null]);
 
-    for (const u of [upper, lower]) {
-      const invited = await h.call("member-invite", { email: u.email, role: "viewer", drives: [] }, h.admin);
-      expect(invited.body.invited).toBe(u.email);
-    }
+    // Invites are stored by lowercased email, so the lowercase twin is the
+    // one that can accept; the other twin is added through the trusted path.
+    const invited = await h.call("member-invite", { email: lower.email, role: "viewer", drives: [] }, h.admin);
+    expect(invited.body.invited).toBe(lower.email);
+    acceptInviteAsInvitee(h.db, invited.body.token);
+    inviteToOrg(h.db, { orgId: h.sharedOrg.id, email: upper.email, role: "viewer", drives: [] });
 
     const ambiguousAdd = await h.call("member-add", { email: "TWIN@example.com", driveId: ledger.id, role: "admin" }, h.admin);
     expect(ambiguousAdd.result.isError).toBe(true);

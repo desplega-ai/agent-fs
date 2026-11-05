@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll } from "bun:test";
-import { createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
+import { acceptInviteAsInvitee, createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
 import { createApp } from "../app.js";
 import type { DB } from "@/core";
 
@@ -34,7 +34,13 @@ async function mintSelf(key: string, label: string) {
   return res.json() as Promise<{ id: string; label: string; createdAt: string; apiKey: string }>;
 }
 
-/** An org owned by `admin` with `member` invited as a viewer. */
+/** Inviting an existing account is pending until they accept: accept as them. */
+async function acceptAsInvitee(res: Response) {
+  const body = await res.clone().json();
+  if (body.status === "pending") acceptInviteAsInvitee(db, body.token);
+}
+
+/** An org owned by `admin` with `member` invited as a viewer (and accepted). */
 async function orgWith(admin: { apiKey: string }, memberEmail: string, name: string) {
   const orgRes = await keyReq(admin.apiKey, "/orgs", { method: "POST", body: JSON.stringify({ name }) });
   expect(orgRes.status).toBe(201);
@@ -44,6 +50,7 @@ async function orgWith(admin: { apiKey: string }, memberEmail: string, name: str
     body: JSON.stringify({ email: memberEmail, role: "viewer" }),
   });
   expect(inv.status).toBe(200);
+  await acceptAsInvitee(inv);
   return orgId;
 }
 
@@ -106,7 +113,7 @@ describe("self-service API keys", () => {
     expect(await current(key.apiKey)).toEqual([key.id]);
   });
 
-  test("revoking every key, the primary included, is allowed and reset-key recovers", async () => {
+  test("revoking every key, the primary included, is allowed; an admin reset-key restores that org only", async () => {
     const admin = await register("keys-last-admin@example.com");
     const user = await register("keys-last@example.com");
     const orgId = await orgWith(admin, "keys-last@example.com", "keys-last-org");
@@ -124,9 +131,11 @@ describe("self-service API keys", () => {
     const reset = await keyReq(admin.apiKey, `/orgs/${orgId}/members/${user.userId}/reset-key`, { method: "POST" });
     expect(reset.status).toBe(200);
     const { apiKey } = await reset.json();
-    expect((await keyReq(apiKey, "/auth/me")).status).toBe(200);
-    const after = await (await keyReq(apiKey, "/auth/keys")).json();
-    expect(after.keys.map((k: any) => k.id)).toEqual(["primary"]);
+    expect((await keyReq(apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
+    expect((await (await keyReq(apiKey, "/auth/me")).json()).scopedOrgId).toBe(orgId);
+    // Not a key to the whole account: the user's own key routes stay closed.
+    expect((await keyReq(apiKey, "/auth/keys")).status).toBe(403);
+    expect((await keyReq(apiKey, "/auth/reset-key", { method: "POST" })).status).toBe(403);
   });
 
   test("self reset-key rotates the primary key and keeps the user's own keys", async () => {
@@ -206,10 +215,10 @@ describe("org admin mints a member key", () => {
     const viewer = await register("mint-nonadmin-viewer@example.com");
     const target = await register("mint-nonadmin-target@example.com");
     const orgId = await orgWith(admin, "mint-nonadmin-viewer@example.com", "mint-nonadmin-org");
-    await keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
+    await acceptAsInvitee(await keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
       method: "POST",
       body: JSON.stringify({ email: "mint-nonadmin-target@example.com", role: "viewer" }),
-    });
+    }));
 
     const res = await keyReq(viewer.apiKey, `/orgs/${orgId}/members/${target.userId}/keys`, {
       method: "POST",
@@ -262,6 +271,7 @@ async function invite(admin: { apiKey: string }, orgId: string, email: string, r
     body: JSON.stringify({ email, role }),
   });
   expect(res.status).toBe(200);
+  await acceptAsInvitee(res);
 }
 
 // An admin-minted key is a credential someone else created for the member. It
@@ -396,7 +406,7 @@ describe("admin-minted keys are scoped to the org and die with the grant", () =>
     expect((await keyReq(scoped.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
   });
 
-  test("an admin reset-key of the member leaves the keys alone", async () => {
+  test("an admin reset-key of the member replaces their keys scoped to that org", async () => {
     const admin = await register("scope-adminreset-admin@example.com");
     const member = await register("scope-adminreset-member@example.com");
     const orgId = await orgWith(admin, "scope-adminreset-member@example.com", "scope-adminreset-org");
@@ -404,7 +414,11 @@ describe("admin-minted keys are scoped to the org and die with the grant", () =>
 
     const reset = await keyReq(admin.apiKey, `/orgs/${orgId}/members/${member.userId}/reset-key`, { method: "POST" });
     expect(reset.status).toBe(200);
-    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
+    const fresh = await reset.json();
+    expect(fresh.orgId).toBe(orgId);
+    expect((await keyReq(key.apiKey, `/orgs/${orgId}/drives`)).status).toBe(401);
+    expect((await keyReq(fresh.apiKey, `/orgs/${orgId}/drives`)).status).toBe(200);
+    expect((await keyReq(member.apiKey, "/auth/me")).status).toBe(200);
   });
 
   test("demoting the minting admin revokes the keys they minted for others", async () => {

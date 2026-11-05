@@ -371,7 +371,7 @@ export interface DriveGrant {
   role: MemberRole
 }
 
-/** `POST /orgs/:orgId/members/invite` for someone who already has an account. */
+/** `POST /orgs/:orgId/members/invite` for someone already in the org. */
 export interface InviteAddedResult {
   status: "added"
   userId: string
@@ -381,7 +381,7 @@ export interface InviteAddedResult {
   drives: DriveGrant[]
 }
 
-/** `POST /orgs/:orgId/members/invite` for an email with no account yet. */
+/** `POST /orgs/:orgId/members/invite` for someone not in the org yet, with or without an account. */
 export interface InvitePendingResult {
   status: "pending"
   inviteId: string

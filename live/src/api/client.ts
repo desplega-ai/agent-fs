@@ -256,9 +256,10 @@ export class AgentFsClient {
   }
 
   /**
-   * Invite `email` to the org with a role per drive. Someone with an account is
-   * added at once; an unknown email gets a pending invite whose one-time token
-   * comes back in the response. Invite an existing org member again and their
+   * Invite `email` to the org with a role per drive. Someone not yet in the org
+   * (with or without an account) gets a pending invite whose one-time token
+   * comes back in the response; they join when they accept it. Someone already
+   * in the org has the grants applied at once. Invite an existing org member again and their
    * org role is overwritten, so add them to drives with `addDriveMember` instead.
    */
   async inviteToOrg(
