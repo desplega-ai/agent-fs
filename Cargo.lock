@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agent-fs-fuse"
-version = "0.18.19"
+version = "0.18.20"
 dependencies = [
  "anyhow",
  "bytes",
