@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { useAuth } from "@/contexts/auth"
 import { useRevokeShare, useShareList } from "@/hooks/use-share-list"
 import type { ShareListItem } from "@/api/types"
-import { coveringLabel, creatorLabel, expiryLabel, formatWhen, statusLabel, viewsLabel } from "@/lib/share-list"
+import { coveringLabel, creatorLabel, formatWhen, lifetimeLabel, lifetimeTitle, statusLabel, viewsLabel } from "@/lib/share-list"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -53,7 +53,6 @@ function ShareLinkRow({ item }: { item: ShareListItem }) {
   const { user } = useAuth()
   const covering = coveringLabel(item)
   const mine = user?.userId === item.createdBy.userId
-  const expiry = expiryLabel(item.expiresAt)
   return (
     <li className="flex items-start gap-2 px-2 py-1.5 text-xs">
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -62,9 +61,9 @@ function ShareLinkRow({ item }: { item: ShareListItem }) {
           <Badge variant={item.status === "active" ? "secondary" : "destructive"}>{statusLabel(item.status)}</Badge>
           <span
             className="text-muted-foreground"
-            title={item.expiresAt ? formatWhen(item.expiresAt) : undefined}
+            title={lifetimeTitle(item)}
           >
-            {item.expiresAt === null ? "Never expires" : item.status === "expired" ? `Expired ${expiry}` : `Expires ${expiry}`}
+            {lifetimeLabel(item)}
           </span>
         </div>
         <p className="truncate text-muted-foreground">

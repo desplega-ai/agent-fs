@@ -4,6 +4,9 @@ import {
   creatorLabel,
   driveOptions,
   expiryLabel,
+  formatWhen,
+  lifetimeLabel,
+  lifetimeTitle,
   shareListQueryPrefix,
   statusLabel,
   supportsShareList,
@@ -49,6 +52,32 @@ describe("expiryLabel", () => {
   })
   test("an unparseable date does not throw", () => {
     expect(expiryLabel("nope", now)).toBe("Unknown")
+  })
+})
+
+describe("lifetimeLabel", () => {
+  const now = Date.parse("2026-11-05T12:00:00.000Z")
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" })
+  test("revoked shows when, not the expiry it never reached", () => {
+    expect(lifetimeLabel({ status: "revoked", expiresAt: "2026-11-08T12:00:00.000Z", revokedAt: "2026-11-05T11:30:00.000Z" }, now))
+      .toBe(`Revoked ${rtf.format(-30, "minute")}`)
+  })
+  test("never, expired and active", () => {
+    expect(lifetimeLabel({ status: "active", expiresAt: null, revokedAt: null }, now)).toBe("Never expires")
+    expect(lifetimeLabel({ status: "expired", expiresAt: "2026-11-05T10:00:00.000Z", revokedAt: null }, now))
+      .toBe(`Expired ${rtf.format(-2, "hour")}`)
+    expect(lifetimeLabel({ status: "active", expiresAt: "2026-11-06T12:00:00.000Z", revokedAt: null }, now))
+      .toBe(`Expires ${rtf.format(24, "hour")}`)
+  })
+})
+
+describe("lifetimeTitle", () => {
+  test("revoked points at revokedAt, never-expiring has none", () => {
+    expect(lifetimeTitle({ status: "revoked", expiresAt: "2026-11-08T12:00:00.000Z", revokedAt: "2026-11-05T11:30:00.000Z" }))
+      .toBe(formatWhen("2026-11-05T11:30:00.000Z"))
+    expect(lifetimeTitle({ status: "active", expiresAt: null, revokedAt: null })).toBeUndefined()
+    expect(lifetimeTitle({ status: "expired", expiresAt: "2026-11-05T10:00:00.000Z", revokedAt: null }))
+      .toBe(formatWhen("2026-11-05T10:00:00.000Z"))
   })
 })
 

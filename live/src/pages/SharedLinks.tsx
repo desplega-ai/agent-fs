@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/auth"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { useShareList } from "@/hooks/use-share-list"
 import type { ShareListItem } from "@/api/types"
-import { driveOptions, expiryLabel, formatWhen, statusLabel, viewsLabel } from "@/lib/share-list"
+import { driveOptions, formatWhen, lifetimeLabel, lifetimeTitle, statusLabel, viewsLabel } from "@/lib/share-list"
 import { RevokeButton } from "@/components/ShareLinksList"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -116,7 +116,6 @@ export function SharedLinksPage() {
 function SharedLinkRow({ item, orgId }: { item: ShareListItem; orgId: string }) {
   const Icon = item.kind === "site" ? Folder : FileText
   const target = `/file/~/${orgId}/${item.drive.id}/${item.path.replace(/^\/+/, "")}`
-  const expiry = expiryLabel(item.expiresAt)
   return (
     <li className="flex items-start gap-3 px-3 py-2.5">
       <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
@@ -131,8 +130,8 @@ function SharedLinkRow({ item, orgId }: { item: ShareListItem; orgId: string }) 
         <p className="text-xs text-muted-foreground">
           <span>{item.drive.name ?? item.drive.id}</span>
           {" · "}
-          <span title={item.expiresAt ? formatWhen(item.expiresAt) : undefined}>
-            {item.expiresAt === null ? "Never expires" : item.status === "expired" ? `Expired ${expiry}` : `Expires ${expiry}`}
+          <span title={lifetimeTitle(item)}>
+            {lifetimeLabel(item)}
           </span>
           {" · "}
           {viewsLabel(item.views, item.maxViews)}

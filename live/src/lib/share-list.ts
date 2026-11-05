@@ -42,6 +42,23 @@ export function expiryLabel(expiresAt: string | null, now: number = Date.now()):
   return RELATIVE.format(value, unit)
 }
 
+/** The one lifetime fact worth showing for a link: when it was revoked, or when it expires or expired. */
+export function lifetimeLabel(
+  item: Pick<ShareListItem, "status" | "expiresAt" | "revokedAt">,
+  now: number = Date.now(),
+): string {
+  if (item.status === "revoked" && item.revokedAt) return `Revoked ${expiryLabel(item.revokedAt, now)}`
+  if (item.expiresAt === null) return "Never expires"
+  const when = expiryLabel(item.expiresAt, now)
+  return item.status === "expired" ? `Expired ${when}` : `Expires ${when}`
+}
+
+/** Tooltip for `lifetimeLabel`: the exact time behind the relative one, if there is one. */
+export function lifetimeTitle(item: Pick<ShareListItem, "status" | "expiresAt" | "revokedAt">): string | undefined {
+  const iso = item.status === "revoked" && item.revokedAt ? item.revokedAt : item.expiresAt
+  return iso ? formatWhen(iso) : undefined
+}
+
 /** Local date and time for a tooltip or a table cell. */
 export function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
