@@ -20,3 +20,16 @@ export {
   retryScheduleMs,
 } from "./events.js";
 export type { WebhookEventType } from "./events.js";
+export {
+  enqueueCommentWebhooks,
+  onWebhooksEnqueued,
+  notifyWebhooksEnqueued,
+  truncateWebhookBody,
+} from "./outbox.js";
+export type {
+  CommentSnapshot,
+  CommentWebhookEvent,
+  CommentWebhookData,
+  WebhookEnvelope,
+  WebhookUserRef,
+} from "./outbox.js";

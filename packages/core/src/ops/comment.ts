@@ -30,6 +30,11 @@ import {
   resolveMentions,
   saveMentions,
 } from "./comment-mentions.js";
+import {
+  enqueueCommentWebhooks,
+  notifyWebhooksEnqueued,
+  type CommentSnapshot,
+} from "../webhooks/outbox.js";
 
 // --- Event helper ---
 
@@ -42,11 +47,12 @@ function emitEvent(
     target?: string;
     metadata?: Record<string, unknown>;
   }
-) {
+): string {
+  const id = crypto.randomUUID();
   ctx.db
     .insert(schema.events)
     .values({
-      id: crypto.randomUUID(),
+      id,
       orgId: ctx.orgId,
       type: params.type,
       resourceType: params.resourceType,
@@ -58,6 +64,7 @@ function emitEvent(
       createdAt: new Date(),
     })
     .run();
+  return id;
 }
 
 function publishCommentChange(
@@ -256,40 +263,42 @@ export async function commentAdd(
     .limit(1)
     .get();
 
-  ctx.db.transaction((tx) => {
+  const commentRow: CommentSnapshot = {
+    id,
+    parentId: params.parentId ?? null,
+    orgId: ctx.orgId,
+    driveId: ctx.driveId,
+    path,
+    lineStart: params.lineStart ?? null,
+    lineEnd: params.lineEnd ?? null,
+    quotedContent: params.quotedContent ?? null,
+    quoteExact: quote?.exact ?? null,
+    quotePrefix: quote?.prefix ?? null,
+    quoteSuffix: quote?.suffix ?? null,
+    fileVersionId: currentVersion?.id ?? null,
+    body: params.body,
+    author: ctx.userId,
+    resolved: false,
+    resolvedBy: null,
+    resolvedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    isDeleted: false,
+  };
+
+  const queued = ctx.db.transaction((tx) => {
     const txCtx = { ...ctx, db: tx as unknown as typeof ctx.db };
-    tx.insert(schema.comments)
-      .values({
-        id,
-        parentId: params.parentId ?? null,
-        orgId: ctx.orgId,
-        driveId: ctx.driveId,
-        path,
-        lineStart: params.lineStart ?? null,
-        lineEnd: params.lineEnd ?? null,
-        quotedContent: params.quotedContent ?? null,
-        quoteExact: quote?.exact ?? null,
-        quotePrefix: quote?.prefix ?? null,
-        quoteSuffix: quote?.suffix ?? null,
-        fileVersionId: currentVersion?.id ?? null,
-        body: params.body,
-        author: ctx.userId,
-        resolved: false,
-        createdAt: now,
-        updatedAt: now,
-        isDeleted: false,
-      })
-      .run();
+    tx.insert(schema.comments).values(commentRow).run();
 
     const newMentionUserIds = saveMentions(txCtx, id, mentionUserIds);
-    emitMentionNotifications(txCtx, {
+    const mentionEvents = emitMentionNotifications(txCtx, {
       commentId: id,
       path,
       parentId: params.parentId,
       userIds: newMentionUserIds,
       createdAt: now,
     });
-    emitEvent(txCtx, {
+    const createdEventId = emitEvent(txCtx, {
       type: "comment_created",
       resourceType: "comment",
       resourceId: id,
@@ -301,8 +310,21 @@ export async function commentAdd(
       parentId: params.parentId,
       createdAt: now,
     });
+    return enqueueCommentWebhooks(txCtx, {
+      comment: commentRow,
+      events: [
+        { eventId: createdEventId, internalType: "comment_created" },
+        ...mentionEvents.map(({ id: eventId, userId }) => ({
+          eventId,
+          internalType: COMMENT_MENTION_EVENT,
+          mentionedUserId: userId,
+        })),
+      ],
+      at: now,
+    });
   });
   publishCommentChange(ctx, { id, path, parentId: params.parentId }, "created", now);
+  if (queued > 0) notifyWebhooksEnqueued();
 
   return addAuthorNames(ctx, [{
     id,
@@ -481,7 +503,7 @@ export async function commentUpdate(
     ? undefined
     : resolveMentions(ctx, params.mentions);
   const now = new Date();
-  ctx.db.transaction((tx) => {
+  const queued = ctx.db.transaction((tx) => {
     const txCtx = { ...ctx, db: tx as unknown as typeof ctx.db };
     tx.update(schema.comments)
       .set({ body: params.body, updatedAt: now })
@@ -494,6 +516,7 @@ export async function commentUpdate(
       )
       .run();
 
+    let mentionEvents: Array<{ id: string; userId: string }> = [];
     if (mentionUserIds !== undefined) {
       const removeCondition = mentionUserIds.length > 0
         ? and(
@@ -525,7 +548,7 @@ export async function commentUpdate(
       }
 
       const newMentionUserIds = saveMentions(txCtx, params.id, mentionUserIds);
-      emitMentionNotifications(txCtx, {
+      mentionEvents = emitMentionNotifications(txCtx, {
         commentId: params.id,
         path: row.path,
         parentId: row.parentId ?? undefined,
@@ -533,9 +556,30 @@ export async function commentUpdate(
         createdAt: now,
       });
     }
+
+    const updatedEventId = emitEvent(txCtx, {
+      type: "comment_updated",
+      resourceType: "comment",
+      resourceId: params.id,
+      metadata: { path: row.path, parentId: row.parentId ?? undefined },
+    });
+    // Removed mentions emit no webhook in v1.
+    return enqueueCommentWebhooks(txCtx, {
+      comment: { ...row, body: params.body, updatedAt: now },
+      events: [
+        { eventId: updatedEventId, internalType: "comment_updated" },
+        ...mentionEvents.map(({ id: eventId, userId }) => ({
+          eventId,
+          internalType: COMMENT_MENTION_EVENT,
+          mentionedUserId: userId,
+        })),
+      ],
+      at: now,
+    });
   });
 
   publishCommentChange(ctx, row, "updated", now);
+  if (queued > 0) notifyWebhooksEnqueued();
   return { id: params.id, body: params.body, updatedAt: now };
 }
 
@@ -559,41 +603,50 @@ export async function commentDelete(
 
   const now = new Date();
 
-  // Soft-delete the comment (scoped to the active org/drive)
-  ctx.db
-    .update(schema.comments)
-    .set({ isDeleted: true, updatedAt: now })
-    .where(
-      and(
-        eq(schema.comments.id, params.id),
-        eq(schema.comments.orgId, ctx.orgId),
-        eq(schema.comments.driveId, ctx.driveId)
-      )
-    )
-    .run();
+  const queued = ctx.db.transaction((tx) => {
+    const txCtx = { ...ctx, db: tx as unknown as typeof ctx.db };
 
-  // If root comment, also soft-delete all replies (scoped to the active org/drive)
-  if (!row.parentId) {
-    ctx.db
-      .update(schema.comments)
+    // Soft-delete the comment (scoped to the active org/drive)
+    tx.update(schema.comments)
       .set({ isDeleted: true, updatedAt: now })
       .where(
         and(
-          eq(schema.comments.parentId, params.id),
+          eq(schema.comments.id, params.id),
           eq(schema.comments.orgId, ctx.orgId),
           eq(schema.comments.driveId, ctx.driveId)
         )
       )
       .run();
-  }
 
-  emitEvent(ctx, {
-    type: "comment_deleted",
-    resourceType: "comment",
-    resourceId: params.id,
+    // If root comment, also soft-delete all replies (scoped to the active org/drive)
+    if (!row.parentId) {
+      tx.update(schema.comments)
+        .set({ isDeleted: true, updatedAt: now })
+        .where(
+          and(
+            eq(schema.comments.parentId, params.id),
+            eq(schema.comments.orgId, ctx.orgId),
+            eq(schema.comments.driveId, ctx.driveId)
+          )
+        )
+        .run();
+    }
+
+    const deletedEventId = emitEvent(txCtx, {
+      type: "comment_deleted",
+      resourceType: "comment",
+      resourceId: params.id,
+    });
+    // The payload carries the pre-delete snapshot.
+    return enqueueCommentWebhooks(txCtx, {
+      comment: row,
+      events: [{ eventId: deletedEventId, internalType: "comment_deleted" }],
+      at: now,
+    });
   });
 
   publishCommentChange(ctx, row, "deleted", now);
+  if (queued > 0) notifyWebhooksEnqueued();
   return { deleted: true };
 }
 
@@ -619,29 +672,39 @@ export async function commentResolve(
   const resolvedAt = params.resolved ? now : null;
   const resolvedBy = params.resolved ? ctx.userId : null;
 
-  ctx.db
-    .update(schema.comments)
-    .set({
-      resolved: params.resolved,
-      resolvedBy,
-      resolvedAt,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(schema.comments.id, params.id),
-        eq(schema.comments.orgId, ctx.orgId),
-        eq(schema.comments.driveId, ctx.driveId)
-      )
-    )
-    .run();
+  const internalType = params.resolved ? "comment_resolved" : "comment_reopened";
 
-  emitEvent(ctx, {
-    type: params.resolved ? "comment_resolved" : "comment_reopened",
-    resourceType: "comment",
-    resourceId: params.id,
+  const queued = ctx.db.transaction((tx) => {
+    const txCtx = { ...ctx, db: tx as unknown as typeof ctx.db };
+    tx.update(schema.comments)
+      .set({
+        resolved: params.resolved,
+        resolvedBy,
+        resolvedAt,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.comments.id, params.id),
+          eq(schema.comments.orgId, ctx.orgId),
+          eq(schema.comments.driveId, ctx.driveId)
+        )
+      )
+      .run();
+
+    const eventId = emitEvent(txCtx, {
+      type: internalType,
+      resourceType: "comment",
+      resourceId: params.id,
+    });
+    return enqueueCommentWebhooks(txCtx, {
+      comment: { ...row, resolved: params.resolved, resolvedBy, resolvedAt, updatedAt: now },
+      events: [{ eventId, internalType }],
+      at: now,
+    });
   });
   publishCommentChange(ctx, row, params.resolved ? "resolved" : "reopened", now);
+  if (queued > 0) notifyWebhooksEnqueued();
 
   return {
     id: params.id,
