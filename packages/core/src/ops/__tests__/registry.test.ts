@@ -5,7 +5,7 @@ describe("Op Registry", () => {
   const expectedOps = [
     "write", "cat", "edit", "append", "ls", "stat", "reveal", "rm", "mv", "cp",
     "tail", "log", "diff", "revert", "recent",
-    "grep", "fts", "search", "vec-search", "reindex", "tree", "glob", "find", "sql", "signed-url", "share-create", "share-revoke",
+    "grep", "fts", "search", "vec-search", "reindex", "tree", "glob", "find", "sql", "signed-url", "share-create", "share-revoke", "share-list",
     "comment-add", "comment-list", "comment-get", "comment-update", "comment-delete", "comment-resolve",
     "comment-notification-list", "comment-notification-read",
     "drive-members",
@@ -13,9 +13,9 @@ describe("Op Registry", () => {
     "webhook-create", "webhook-list", "webhook-update", "webhook-delete", "webhook-test",
   ];
 
-  test("getRegisteredOps returns all 44 ops", () => {
+  test("getRegisteredOps returns all 45 ops", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(44);
+    expect(ops.length).toBe(45);
     for (const op of expectedOps) {
       expect(ops).toContain(op);
     }
