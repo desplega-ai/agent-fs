@@ -206,6 +206,7 @@ CREATE TABLE IF NOT EXISTS shares (
   kind TEXT NOT NULL DEFAULT 'file',
   token_hash TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
+  never_expires INTEGER NOT NULL DEFAULT 0,
   max_views INTEGER,
   views INTEGER NOT NULL DEFAULT 0,
   last_viewed_at INTEGER,

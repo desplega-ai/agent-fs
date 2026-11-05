@@ -411,7 +411,8 @@ export interface SharePageInput {
   filename: string;
   size: number;
   mime: string;
-  expiresAt: Date;
+  /** Null for a link that never expires. */
+  expiresAt: Date | null;
   now: Date;
   /** Views left after this one, or null for an unlimited link. */
   viewsLeft: number | null;
@@ -489,10 +490,11 @@ const THEME_PICKER = `<select class="theme-select js-only" aria-label="Theme">
 
 export function renderSharePage(input: SharePageInput): string {
   const { token, filename, size, mime, expiresAt, now, viewsLeft, body } = input;
-  const remaining = formatRemaining(expiresAt.getTime() - now.getTime());
-  const expiry = `Expires <time datetime="${expiresAt.toISOString()}">${escapeHtml(
-    expiresAt.toISOString().replace("T", " ").slice(0, 16)
-  )} UTC</time> (${remaining})`;
+  const expiry = expiresAt === null
+    ? "Never expires"
+    : `Expires <time datetime="${expiresAt.toISOString()}">${escapeHtml(
+        expiresAt.toISOString().replace("T", " ").slice(0, 16)
+      )} UTC</time> (${formatRemaining(expiresAt.getTime() - now.getTime())})`;
 
   let viewsNote = "";
   if (viewsLeft !== null) {

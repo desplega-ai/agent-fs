@@ -2105,6 +2105,17 @@ async function runStandardTests(daemonUrl: string) {
     assertIncludes(r.appUrl ?? "", "/file/~/", "Expected the viewer link alongside the share link (local mode has an app URL)");
   });
 
+  await test("share-create --expires-in never mints a link that only a revoke ends", async () => {
+    const r = runJson("share-create /share-e2e.md --expires-in never");
+    assert(r.expiresIn, null);
+    assert(r.expiresAt, null);
+    const res = await fetch(r.url);
+    assert(res.status, 200);
+    assertIncludes(await res.text(), "Never expires");
+    assert(runJson(`share-revoke ${r.id}`).revoked, 1);
+    assert((await fetch(r.url)).status, 410);
+  });
+
   await test("share-create fails for a missing file", () => {
     try {
       run("share-create /no-such-file.md");

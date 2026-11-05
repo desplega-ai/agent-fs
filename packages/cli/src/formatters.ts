@@ -333,10 +333,16 @@ function formatSignedUrl(result: any): string {
   return out;
 }
 
+function formatShareExpiry(result: any): string {
+  return result.expiresAt === null
+    ? "never (no time limit)"
+    : `${formatDate(result.expiresAt)} (${result.expiresIn}s)`;
+}
+
 function formatShareCreate(result: any): string {
   if (result.kind === "site") {
     // Site shares (a folder) have no view limit, so there is no Views line.
-    let out = `Site: ${result.url}\n\nExpires: ${formatDate(result.expiresAt)} (${result.expiresIn}s)`;
+    let out = `Site: ${result.url}\n\nExpires: ${formatShareExpiry(result)}`;
     out += `\nID:      ${result.id}  (revoke: agent-fs share-revoke ${result.id})`;
     if (result.appUrl) out += `\nApp:     ${result.appUrl}`;
     return out;
@@ -344,7 +350,7 @@ function formatShareCreate(result: any): string {
   const views = result.maxViews === null || result.maxViews === undefined
     ? "unlimited"
     : result.maxViews === 1 ? "one-off (1 view)" : `up to ${result.maxViews}`;
-  let out = `${result.url}\n\nExpires: ${formatDate(result.expiresAt)} (${result.expiresIn}s)\nViews:   ${views}`;
+  let out = `${result.url}\n\nExpires: ${formatShareExpiry(result)}\nViews:   ${views}`;
   out += `\nID:      ${result.id}  (revoke: agent-fs share-revoke ${result.id})`;
   if (result.appUrl) out += `\nApp:     ${result.appUrl}`;
   return out;

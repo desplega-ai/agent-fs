@@ -110,6 +110,25 @@ describe("share-create formatter", () => {
     expect(output).toContain("Expires:");
     expect(output).toContain("share-revoke share-2");
   });
+
+  test("a link that never expires says so instead of a date", () => {
+    const result = {
+      id: "share-3",
+      kind: "file",
+      url: "http://127.0.0.1:7433/share/tok",
+      sharePath: "/share/tok",
+      path: "/notes.md",
+      expiresIn: null,
+      expiresAt: null,
+      maxViews: null,
+    };
+
+    const output = captureOutput(() => outputResult("share-create", result, false));
+    expect(output).toContain("Expires: never (no time limit)");
+    expect(output).toContain("Views:   unlimited");
+    const site = captureOutput(() => outputResult("share-create", { ...result, kind: "site", url: "http://127.0.0.1:7433/site/tok/" }, false));
+    expect(site).toContain("Expires: never (no time limit)");
+  });
 });
 
 describe("stat formatter embedding status", () => {

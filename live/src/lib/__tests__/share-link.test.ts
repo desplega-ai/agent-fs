@@ -8,7 +8,7 @@ mock.module("../../stores/toast", () => ({
   },
 }))
 
-const { copyShareLink, describeExpiry, InvalidShareResponseError, isUnknownOpError, resolveShareUrl, supportsShareLinks } = await import("../share-link")
+const { copyShareLink, describeExpiry, effectiveShareExpiry, InvalidShareResponseError, isUnknownOpError, resolveShareUrl, SHARE_EXPIRY_CHOICES, supportsNoExpiry, supportsShareLinks } = await import("../share-link")
 
 const result = {
   id: "s1",
@@ -33,6 +33,23 @@ describe("share link support", () => {
     expect(isUnknownOpError(new Error("Unknown operation: share-create"))).toBe(true)
     expect(isUnknownOpError(new Error("File not found"))).toBe(false)
     expect(isUnknownOpError("Unknown operation")).toBe(false)
+  })
+
+  test("only servers that advertise share-no-expiry get the Never choice", () => {
+    expect(supportsNoExpiry({ ok: true, version: "x", features: ["share-links", "share-no-expiry"] })).toBe(true)
+    expect(supportsNoExpiry({ ok: true, version: "x", features: ["share-links"] })).toBe(false)
+    expect(supportsNoExpiry(undefined)).toBe(false)
+    // Never is the one choice without seconds, so the dialog can drop it alone.
+    expect(SHARE_EXPIRY_CHOICES.filter((c) => c.seconds === null)).toEqual([{ label: "Never", seconds: null }])
+  })
+
+  test("a chosen Never is sent only while the server offers it", () => {
+    const newer = { ok: true, version: "x", features: ["share-links", "share-no-expiry"] }
+    const older = { ok: true, version: "x", features: ["share-links"] }
+    expect(effectiveShareExpiry(null, newer)).toBeNull()
+    expect(effectiveShareExpiry(null, older)).toBe(86_400)
+    expect(effectiveShareExpiry(null, undefined)).toBe(86_400)
+    expect(effectiveShareExpiry(3600, older)).toBe(3600)
   })
 })
 
@@ -121,6 +138,22 @@ describe("copyShareLink", () => {
     const shown = toasts.at(-1)!
     expect(shown.message).toBe("Share link copied")
     expect(shown.description).toContain("24 hours")
+  })
+
+  test("asks for a link that never expires with null and says so", async () => {
+    const written = stubClipboard()
+    const requested: unknown[] = []
+    const client = {
+      endpoint: "https://api.example",
+      createShare: async (_o: string, _d: string, _p: string, options: unknown) => {
+        requested.push(options)
+        return { ...result, expiresIn: null, expiresAt: null }
+      },
+    } as any
+    expect(await copyShareLink(client, "org", "drive", "/a.md", { expiresIn: null })).toBe("https://api.example/share/tok")
+    expect(requested).toEqual([{ expiresIn: null }])
+    expect(written).toEqual(["https://api.example/share/tok"])
+    expect(toasts.at(-1)!.description).toBe("Anyone with the link can view it until it is revoked")
   })
 
   test("with ClipboardItem, a malformed response rejects the clipboard data and reports no success", async () => {

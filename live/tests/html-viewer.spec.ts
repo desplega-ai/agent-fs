@@ -210,6 +210,43 @@ test("share link: two creates copy their own results", async ({ page, context })
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("https://b.example/site/b/")
 })
 
+test("share link: Never is offered only by servers that advertise share-no-expiry", async ({ page }) => {
+  await installFixture(page, [], ["share-links", "html-sites"], [{ name: "reports", type: "directory", size: 0 }])
+  await page.goto("/")
+  await page.locator('[data-tree-path="reports"]').click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Share as site…" }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog.getByRole("button", { name: "7 days" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Never" })).toHaveCount(0)
+})
+
+test("share link: a link that never expires", async ({ page, context }, testInfo) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" })
+  await installFixture(page, [], ["share-links", "html-sites", "share-no-expiry"], [{ name: "reports", type: "directory", size: 0 }])
+  await page.route("http://fixture.test/**", (route) => {
+    const body = route.request().url().endsWith("/ops") ? route.request().postDataJSON() : null
+    if (body?.op !== "share-create") return route.fallback()
+    // The server answers null for both when asked for a link that never expires.
+    const never = body.expiresIn === null
+    return route.fulfill({ json: {
+      id: "tok", kind: "site", path: "reports", sharePath: "/site/tok/", url: "http://internal:7433/site/tok/", urlSource: "request",
+      expiresIn: never ? null : 86400, expiresAt: never ? null : new Date(Date.now() + 86_400_000).toISOString(), maxViews: null,
+    } })
+  })
+  await page.goto("/")
+  await page.locator('[data-tree-path="reports"]').click({ button: "right" })
+  await page.getByRole("menuitem", { name: "Share as site…" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByRole("button", { name: "Never" }).click()
+  await expect(dialog).toContainText("This link never expires.")
+  const request = page.waitForRequest((req) => req.url().endsWith("/ops") && req.postDataJSON()?.op === "share-create")
+  await dialog.getByRole("button", { name: "Copy link" }).click()
+  expect((await request).postDataJSON()).toMatchObject({ op: "share-create", path: "reports", expiresIn: null })
+  await expect(page.getByText("Anyone with the link can view it until it is revoked")).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("http://fixture.test/site/tok/")
+  await page.screenshot({ path: testInfo.outputPath("share-dialog-never.png") })
+})
+
 test("a row's ... button opens the same menu as right-click", async ({ page }, testInfo) => {
   await installFixture(page, [], ["share-links", "html-sites"], [{ name: "notes.md", type: "file", size: 5 }])
   await page.goto("/")
