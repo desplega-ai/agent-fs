@@ -4,9 +4,9 @@ import type { ApiClient } from "../api-client.js";
 import { outputResult } from "../formatters.js";
 import { collect } from "./collect.js";
 
-export type WebhookCliAction = "create" | "list" | "update";
+export type WebhookCliAction = "create" | "list" | "update" | "deliveries";
 
-/** Commander's parsed options for `webhook create|list|update`. */
+/** Commander's parsed options for `webhook create|list|update|deliveries`. */
 export interface WebhookCliOpts {
   event?: string[];
   orgWide?: boolean;
@@ -16,6 +16,10 @@ export interface WebhookCliOpts {
   enable?: boolean;
   disable?: boolean;
   rotateSecret?: boolean;
+  status?: string;
+  limit?: string;
+  cursor?: string;
+  payload?: boolean;
 }
 
 const EVENT_LIST = WEBHOOK_EVENT_TYPES.join(", ");
@@ -24,7 +28,7 @@ const SECRET_NOTE =
 
 /**
  * Map CLI flags to op params. `target` is the URL for `create` and the
- * webhook id for `update`. Throws on a flag combination the op cannot take.
+ * webhook id for `update` and `deliveries`. Throws on a flag combination the op cannot take.
  * Event names are checked by the server.
  */
 export function webhookParamsFromOpts(
@@ -57,6 +61,24 @@ export function webhookParamsFromOpts(
   }
 
   if (!target) throw new Error("Give the webhook id");
+
+  if (action === "deliveries") {
+    const params: Record<string, unknown> = { id: target };
+    if (opts.status !== undefined) {
+      if (!["pending", "delivered", "failed"].includes(opts.status)) {
+        throw new Error("--status must be pending, delivered or failed");
+      }
+      params.status = opts.status;
+    }
+    if (opts.limit !== undefined) {
+      if (!/^\d+$/.test(opts.limit)) throw new Error("--limit must be a positive integer");
+      params.limit = Number(opts.limit);
+    }
+    if (opts.cursor !== undefined) params.cursor = opts.cursor;
+    if (opts.payload) params.includePayload = true;
+    return params;
+  }
+
   if (opts.enable && opts.disable) {
     throw new Error("Use --enable or --disable, not both");
   }
@@ -168,6 +190,26 @@ export function webhookCommands(
     .action(async (id: string) => {
       const result = await run("webhook-test", () => ({ id }));
       if (result?.ok !== true) process.exitCode = 1;
+    });
+
+  cmd
+    .command("deliveries")
+    .argument("<id>", "Webhook ID")
+    .option("--status <status>", "Only pending, delivered or failed deliveries")
+    .option("--limit <n>", "Page size (default 50, max 200)")
+    .option("--cursor <cursor>", "nextCursor from the previous page")
+    .option("--payload", "Include each delivery's exact JSON body")
+    .description("List a webhook's deliveries, newest first (kept 30 days once delivered or failed)")
+    .action(async (id: string, opts: WebhookCliOpts) => {
+      await run("webhook-deliveries", () => webhookParamsFromOpts("deliveries", opts, id));
+    });
+
+  cmd
+    .command("redeliver")
+    .argument("<delivery-id>", "Delivery ID (from webhook deliveries)")
+    .description("Send one delivery again now, same webhook-id and body (the webhook must be enabled)")
+    .action(async (deliveryId: string) => {
+      await run("webhook-redeliver", () => ({ deliveryId }));
     });
 
   return cmd;

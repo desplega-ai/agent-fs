@@ -9,12 +9,20 @@ import { grantDriveRole, grantOrgRole } from "../../identity/grants.js";
 import { commentAdd } from "../../ops/comment.js";
 import { __resetEncryptionKeyForTests, getWebhookSecretKey } from "../crypto/key.js";
 import { encryptSecret } from "../crypto/secrets-cipher.js";
-import { AUTO_DISABLE_AFTER_MS, LEASE_MS, RETRY_SCHEDULE_MS, WEBHOOK_EVENT_TYPES } from "../events.js";
+import {
+  AUTO_DISABLE_AFTER_MS,
+  DELIVERY_RETENTION_MS,
+  LEASE_MS,
+  RETRY_SCHEDULE_MS,
+  WEBHOOK_EVENT_TYPES,
+} from "../events.js";
 import { notifyWebhooksEnqueued } from "../outbox.js";
 import { generateWebhookSecret } from "../signature.js";
 import {
   claimDueDeliveries,
   countEnabledWebhookSubscriptions,
+  PRUNE_DELIVERIES_SQL,
+  pruneWebhookDeliveries,
   runWebhookTickForTests,
   SERVER_ERROR_RETRY_MS,
   startWebhookWorker,
@@ -583,5 +591,47 @@ describe("startWebhookWorker / stopWebhookWorker", () => {
     notifyWebhooksEnqueued();
     await Bun.sleep(200);
     expect(f.sent).toHaveLength(0);
+  });
+});
+
+describe("pruneWebhookDeliveries", () => {
+  function setStatus(db: DB, id: string, status: "delivered" | "failed") {
+    db.update(schema.webhookDeliveries).set({ status }).where(eq(schema.webhookDeliveries.id, id)).run();
+  }
+
+  test("deletes delivered and failed rows older than 30 days and keeps pending ones", () => {
+    const { db, subId } = setup();
+    const now = Date.now();
+    const old = now - DELIVERY_RETENTION_MS - 60_000;
+    const oldDelivered = addDelivery(db, subId, { at: old });
+    setStatus(db, oldDelivered.id, "delivered");
+    const oldFailed = addDelivery(db, subId, { at: old });
+    setStatus(db, oldFailed.id, "failed");
+    const oldPending = addDelivery(db, subId, { at: old });
+    const recentDelivered = addDelivery(db, subId, { at: now - DELIVERY_RETENTION_MS + 60_000 });
+    setStatus(db, recentDelivered.id, "delivered");
+
+    expect(pruneWebhookDeliveries(db, { now })).toBe(2);
+    const left = db.select({ id: schema.webhookDeliveries.id }).from(schema.webhookDeliveries).all().map((r) => r.id);
+    expect(left.sort()).toEqual([oldPending.id, recentDelivered.id].sort());
+    // A second pass has nothing left to do.
+    expect(pruneWebhookDeliveries(db, { now })).toBe(0);
+  });
+
+  test("the prune query uses the (status, created_at) index", () => {
+    const { db } = setup();
+    const plan = db.$client.query(`EXPLAIN QUERY PLAN ${PRUNE_DELIVERIES_SQL}`).all({ $cutoff: 1 }) as Array<{
+      detail: string;
+    }>;
+    expect(plan.map((r) => r.detail).join("\n")).toMatch(/SEARCH .*INDEX idx_webhook_deliveries_prune/);
+  });
+
+  test("the worker prunes at start", async () => {
+    const { db, subId } = setup();
+    const c = clock();
+    const old = addDelivery(db, subId, { at: c.value - DELIVERY_RETENTION_MS - 60_000 });
+    setStatus(db, old.id, "delivered");
+    startWebhookWorker(db, { fetchImpl: fakeFetch().impl, pollMs: 60_000, now: c.now });
+    expect(db.select().from(schema.webhookDeliveries).all()).toEqual([]);
   });
 });

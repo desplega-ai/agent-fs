@@ -66,6 +66,16 @@ describe("webhookParamsFromOpts", () => {
     expect(webhookParamsFromOpts("update", { description: "" }, "wh1")).toEqual({ id: "wh1", description: "" });
   });
 
+  test("deliveries maps --status, --limit, --cursor and --payload", () => {
+    expect(webhookParamsFromOpts("deliveries", {}, "wh1")).toEqual({ id: "wh1" });
+    expect(
+      webhookParamsFromOpts("deliveries", { status: "failed", limit: "20", cursor: "abc", payload: true }, "wh1")
+    ).toEqual({ id: "wh1", status: "failed", limit: 20, cursor: "abc", includePayload: true });
+    expect(() => webhookParamsFromOpts("deliveries", { status: "sent" }, "wh1")).toThrow("--status");
+    expect(() => webhookParamsFromOpts("deliveries", { limit: "ten" }, "wh1")).toThrow("--limit");
+    expect(() => webhookParamsFromOpts("deliveries", {})).toThrow("webhook id");
+  });
+
   test("update refuses --enable with --disable, and no change at all", () => {
     expect(() => webhookParamsFromOpts("update", { enable: true, disable: true }, "wh1")).toThrow("not both");
     expect(() => webhookParamsFromOpts("update", { event: [] }, "wh1")).toThrow("Nothing to update");
@@ -116,5 +126,29 @@ describe("webhook command", () => {
     ]);
     expect(JSON.parse(stdout.join(""))).toEqual({ id: "wh1", workerEnabled: true, secret: "whsec_x" });
     expect(stderr.join("\n")).toContain("shown only this once");
+  });
+
+  test("deliveries and redeliver reach their ops", async () => {
+    const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
+    const client = {
+      callOp: async (_orgId: string, op: string, params: Record<string, unknown>) => {
+        calls.push({ op, params });
+        return {};
+      },
+    };
+    const program = new Command().option("--json").exitOverride();
+    program.addCommand(webhookCommands(program, client as never, () => "org1", () => "drive1"));
+    const originalWrite = stdio.writeStdout;
+    stdio.writeStdout = () => {};
+    try {
+      await program.parseAsync(["webhook", "deliveries", "wh1", "--status", "failed", "--payload"], { from: "user" });
+      await program.parseAsync(["webhook", "redeliver", "dl1"], { from: "user" });
+    } finally {
+      stdio.writeStdout = originalWrite;
+    }
+    expect(calls).toEqual([
+      { op: "webhook-deliveries", params: { id: "wh1", status: "failed", includePayload: true, driveId: "drive1" } },
+      { op: "webhook-redeliver", params: { deliveryId: "dl1", driveId: "drive1" } },
+    ]);
   });
 });

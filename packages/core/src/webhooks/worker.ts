@@ -18,7 +18,13 @@ import type { DB } from "../db/index.js";
 import { getWebhookSecretKey } from "./crypto/key.js";
 import { decryptSecret } from "./crypto/secrets-cipher.js";
 import { webhookEgressConfig, webhookFetch } from "./egress.js";
-import { AUTO_DISABLE_AFTER_MS, LEASE_MS, retryScheduleMs } from "./events.js";
+import {
+  AUTO_DISABLE_AFTER_MS,
+  DELIVERY_RETENTION_MS,
+  LEASE_MS,
+  PRUNE_INTERVAL_MS,
+  retryScheduleMs,
+} from "./events.js";
 import { onWebhooksEnqueued } from "./outbox.js";
 import { sendWebhook, type SendWebhookResult } from "./sender.js";
 import { disableSubscription } from "./subscriptions.js";
@@ -370,9 +376,27 @@ export async function processDueWebhooks(db: DB, opts: WebhookTickOptions = {}):
   return summary;
 }
 
+// IN rather than `!= 'pending'` (the same set, by the status CHECK): the
+// planner can only search idx_webhook_deliveries_prune with an IN.
+export const PRUNE_DELIVERIES_SQL =
+  "DELETE FROM webhook_deliveries WHERE status IN ('delivered', 'failed') AND created_at < $cutoff";
+
+/**
+ * Delete delivered and failed rows created more than 30 days before `now`.
+ * Pending rows are kept whatever their age: they are still owed a send.
+ * Returns the number of rows deleted.
+ */
+export function pruneWebhookDeliveries(db: DB, opts: { now?: number } = {}): number {
+  const cutoff = (opts.now ?? Date.now()) - DELIVERY_RETENTION_MS;
+  return rawOf(db)
+    .query(PRUNE_DELIVERIES_SQL)
+    .run({ $cutoff: cutoff }).changes;
+}
+
 // --- Loop -------------------------------------------------------------------
 
 let interval: ReturnType<typeof setInterval> | undefined;
+let pruneInterval: ReturnType<typeof setInterval> | undefined;
 let earlyTick: ReturnType<typeof setTimeout> | undefined;
 let processing: Promise<void> | undefined;
 let stopController: AbortController | undefined;
@@ -402,6 +426,16 @@ async function tick(): Promise<void> {
   if (full) scheduleEarlyTick();
 }
 
+function prune(): void {
+  if (!workerDb) return;
+  try {
+    const deleted = pruneWebhookDeliveries(workerDb, { now: (workerOpts.now ?? Date.now)() });
+    if (deleted > 0) console.log(`[webhooks] pruned ${deleted} deliveries older than 30 days`);
+  } catch (err) {
+    console.error("[webhooks] delivery prune failed:", err);
+  }
+}
+
 function scheduleEarlyTick(): void {
   if (!interval || earlyTick) return;
   earlyTick = setTimeout(() => {
@@ -414,6 +448,7 @@ function scheduleEarlyTick(): void {
  * Start delivering. Idempotent. Throws on an invalid
  * `AGENT_FS_WEBHOOK_ALLOWED_HOSTS`, so a misconfigured server fails at boot
  * rather than silently delivering nothing. An enqueue triggers an early tick.
+ * Prunes the delivery log at start and then once an hour.
  */
 export function startWebhookWorker(db: DB, opts: WebhookWorkerOptions = {}): void {
   if (interval) return;
@@ -425,6 +460,9 @@ export function startWebhookWorker(db: DB, opts: WebhookWorkerOptions = {}): voi
   unregisterEnqueued = onWebhooksEnqueued(scheduleEarlyTick);
   interval = setInterval(() => void tick(), opts.pollMs ?? pollMsFromEnv(env));
   interval.unref?.();
+  pruneInterval = setInterval(prune, PRUNE_INTERVAL_MS);
+  pruneInterval.unref?.();
+  prune();
   void tick();
 }
 
@@ -438,6 +476,8 @@ export async function stopWebhookWorker(): Promise<void> {
   stopController?.abort();
   if (interval) clearInterval(interval);
   interval = undefined;
+  if (pruneInterval) clearInterval(pruneInterval);
+  pruneInterval = undefined;
   if (earlyTick) clearTimeout(earlyTick);
   earlyTick = undefined;
   unregisterEnqueued?.();

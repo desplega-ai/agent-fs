@@ -3,7 +3,7 @@ import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { CREATE_TABLES_SQL, WEBHOOKS_SQL } from "../raw.js";
+import { CREATE_TABLES_SQL, WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL, WEBHOOKS_SQL } from "../raw.js";
 import { runMigrations } from "../migrate.js";
 import { createDatabase } from "../index.js";
 import { createTestContext } from "../../test-utils.js";
@@ -13,6 +13,7 @@ const WEBHOOK_OBJECTS_SQL =
 
 const EXPECTED_OBJECTS = [
   { type: "index", name: "idx_webhook_deliveries_due" },
+  { type: "index", name: "idx_webhook_deliveries_prune" },
   { type: "index", name: "idx_webhook_deliveries_sub" },
   { type: "index", name: "idx_webhook_subs_drive" },
   { type: "index", name: "idx_webhook_subs_org" },
@@ -21,10 +22,29 @@ const EXPECTED_OBJECTS = [
 ];
 
 function oldSchemaSql(): string {
-  const oldSql = CREATE_TABLES_SQL.replace(WEBHOOKS_SQL, "");
+  const oldSql = CREATE_TABLES_SQL.replace(WEBHOOKS_SQL, "").replace(WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL, "");
   expect(oldSql).not.toContain("webhook");
   return oldSql;
 }
+
+test("a DB with the webhook tables but no prune index gains it, and a re-run is a no-op", () => {
+  const raw = new Database(":memory:");
+  try {
+    raw.exec(CREATE_TABLES_SQL.replace(WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL, ""));
+    const pruneIndex = () =>
+      raw.prepare("SELECT sql FROM sqlite_master WHERE name = 'idx_webhook_deliveries_prune'").get() as
+        | { sql: string }
+        | null;
+    expect(pruneIndex()).toBeNull();
+
+    runMigrations(raw);
+    expect(pruneIndex()?.sql).toContain("webhook_deliveries(status, created_at)");
+    runMigrations(raw);
+    expect(raw.prepare(WEBHOOK_OBJECTS_SQL).all()).toEqual(EXPECTED_OBJECTS);
+  } finally {
+    raw.close();
+  }
+});
 
 test("an existing DB without the webhook tables gains them, and a re-run is a no-op", () => {
   const raw = new Database(":memory:");

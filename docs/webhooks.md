@@ -16,7 +16,7 @@ agent-fs webhook create https://hooks.example.com/agent-fs \
 agent-fs webhook test <webhook-id>
 ```
 
-The same actions are ops on `POST /orgs/{orgId}/ops` and MCP tools: `webhook-create`, `webhook-list`, `webhook-update`, `webhook-delete` and `webhook-test`. See the [OpenAPI spec](./openapi.json) for their params.
+The same actions are ops on `POST /orgs/{orgId}/ops` and MCP tools: `webhook-create`, `webhook-list`, `webhook-update`, `webhook-delete`, `webhook-test`, `webhook-deliveries` and `webhook-redeliver`. See the [OpenAPI spec](./openapi.json) for their params.
 
 | Command | What it does |
 |---------|--------------|
@@ -25,6 +25,8 @@ The same actions are ops on `POST /orgs/{orgId}/ops` and MCP tools: `webhook-cre
 | `agent-fs webhook update <id> [--url <url>] [--event <type>]... [--description <text>] [--enable\|--disable] [--rotate-secret]` | Change a webhook. `--event` replaces the whole list. |
 | `agent-fs webhook delete <id>` | Delete a webhook and all its deliveries. |
 | `agent-fs webhook test <id>` | Send a signed `ping` now. Exits 1 unless the receiver answers 2xx. |
+| `agent-fs webhook deliveries <id> [--status pending\|delivered\|failed] [--limit <n>] [--cursor <cursor>] [--payload]` | List the webhook's deliveries, newest first. |
+| `agent-fs webhook redeliver <delivery-id>` | Send one delivery again now. |
 
 ## Drive and org webhooks
 
@@ -185,13 +187,42 @@ A failure is any answer other than 2xx, a timeout, a network error, or a URL the
 - **410 Gone.** A `410` answer disables the webhook at once (`disabledReason: "gone"`). Answer `410` when your receiver no longer wants events.
 - **5 days of failures.** A webhook whose deliveries keep failing for 5 days with no success in between is disabled (`disabledReason: "failing"`).
 
-When a webhook is disabled, for any reason, its queued deliveries are marked failed, and new events are not queued for it. `agent-fs webhook update <id> --enable` turns it back on and resets its failure state. Events from the time it was disabled are not sent.
+When a webhook is disabled, for any reason, its queued deliveries are marked failed, and new events are not queued for it. `agent-fs webhook update <id> --enable` turns it back on and resets its failure state. Events from the time it was disabled are not sent. Deliveries it failed can be sent again with [`webhook redeliver`](#delivery-log).
 
 `webhook list` shows the state of each webhook: `enabled`, `disabledReason`, `disabledAt`, `consecutiveFailures`, `lastSuccessAt` and `lastFailureAt`.
 
 ### Restarts
 
 Deliveries are stored in the database, so a restart loses none. Stopping the server cuts the sends in progress, and the next start sends them again at once, with the same `webhook-id`. If the process crashes during a send, the delivery is sent again about a minute later. A cut or crashed attempt still counts toward the 8.
+
+### Delivery log
+
+`agent-fs webhook deliveries <id>` lists a webhook's deliveries, newest first, 50 per page (`--limit` up to 200):
+
+```json
+{
+  "deliveries": [
+    {
+      "id": "…", "subscriptionId": "…", "eventId": "…", "eventType": "comment.mentioned",
+      "status": "failed", "attempts": 8, "nextAttemptAt": null,
+      "lastAttemptAt": "…", "lastStatusCode": 503, "lastError": "HTTP 503: …",
+      "deliveredAt": null, "createdAt": "…"
+    }
+  ],
+  "nextCursor": "…"
+}
+```
+
+- `status` is `pending` (queued or waiting for a retry, due at `nextAttemptAt`), `delivered` or `failed`. `--status` filters on it.
+- `eventId` is the `webhook-id` the receiver got.
+- `--payload` adds `payload`, the exact JSON body that was signed and sent.
+- When `nextCursor` is not `null`, pass it as `--cursor` for the next page.
+
+`agent-fs webhook redeliver <delivery-id>` queues one delivery to be sent again now, with the same `webhook-id` and body. It works on a delivered, failed or pending delivery. The attempt count is kept, so a delivery that already used its 8 attempts gets one more try and no further retries. Redelivery is refused while the webhook is disabled (enable it first) and while the delivery is being sent. The delivery worker sends it.
+
+Delivered and failed deliveries are deleted 30 days after they were created. Pending ones are kept until they are sent or fail. The delivery worker prunes once an hour.
+
+Both ops need the same role as the webhook: drive or org admin for a drive webhook, org admin for an org webhook.
 
 ## Test a webhook
 
@@ -209,7 +240,7 @@ The server checks the URL when you create or update a webhook, and again before 
 
 - The URL must be `https://`. Plain `http://` works only for an allowed host, or with `AGENT_FS_WEBHOOK_ALLOW_PRIVATE=true` (below).
 - It must not contain a username or password, and must be at most 2,048 characters.
-- The server resolves the host name. It refuses the URL if any address is private, loopback, link-local (this includes cloud metadata addresses such as `169.254.169.254`) or otherwise not public. The request then connects to the address that was checked.
+- The server resolves the host name. It refuses the URL if any address is private, loopback, link-local (this includes cloud metadata addresses such as `169.254.169.254`) or otherwise not public. IPv6 addresses that carry an IPv4 address (IPv4-mapped, NAT64 and 6to4) are checked by that IPv4 address. Teredo (`2001::/32`) and SIIT (`::ffff:0:a.b.c.d`) addresses are always refused. The request then connects to the address that was checked.
 
 To reach a receiver on a private network, such as a service in the same Docker Compose project, list it on the server:
 

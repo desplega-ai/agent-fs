@@ -1,5 +1,10 @@
 import { Database } from "bun:sqlite";
-import { ORG_INVITES_SQL, USER_API_KEYS_SQL, WEBHOOKS_SQL } from "./raw.js";
+import {
+  ORG_INVITES_SQL,
+  USER_API_KEYS_SQL,
+  WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL,
+  WEBHOOKS_SQL,
+} from "./raw.js";
 
 /**
  * Idempotent, additive migrations for existing databases.
@@ -97,6 +102,10 @@ export function runMigrations(sqlite: Database): void {
   // Migration 3g: outbound webhooks (subscriptions + delivery outbox). Same
   // statements as CREATE_TABLES_SQL, all IF NOT EXISTS.
   sqlite.exec(WEBHOOKS_SQL);
+
+  // Migration 3h: index for the hourly delivery-log prune (status,
+  // created_at). IF NOT EXISTS, so it is a no-op once present.
+  sqlite.exec(WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL);
 
   // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //
