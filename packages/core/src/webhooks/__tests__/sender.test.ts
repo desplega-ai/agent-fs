@@ -53,6 +53,8 @@ beforeAll(() => {
           return new Response(null, { status: 307, headers: { location: "http://169.254.169.254/latest/meta-data" } });
         case "/to-ok":
           return new Response(null, { status: 307, headers: { location: "/ok" } });
+        case "/to-public":
+          return new Response(null, { status: 302, headers: { location: "https://hooks.example.com/final" } });
         default:
           return new Response("not found", { status: 404 });
       }
@@ -167,21 +169,33 @@ describe("sendWebhook", () => {
     expect(result.durationMs).toBeLessThan(1_500);
   });
 
-  test("a redirect to the metadata address is refused by the egress guard", async () => {
+  test("a redirect to the metadata address is not followed", async () => {
     const result = await sendWebhook({ url: `${base}/to-metadata`, secret, webhookId: "evt_redirect", body });
     expect(result.ok).toBe(false);
-    expect(result.statusCode).toBeUndefined();
-    expect(result.error).toContain("Webhook egress refused");
+    expect(result.statusCode).toBe(307);
+    expect(result.error).toContain("redirect not followed");
     expect(result.error).toContain("169.254.169.254");
     // Only the first hop reached a server.
     expect(received.map((r) => r.path)).toEqual(["/to-metadata"]);
   });
 
-  test("a same-host 307 redirect is followed with the same signed body", async () => {
+  test("a 302 to a public host is a failure, not a delivery", async () => {
+    // Following a 302 after POST would send a body-less GET and could record
+    // a delivery the receiver never saw.
+    const result = await sendWebhook({ url: `${base}/to-public`, secret, webhookId: "evt_302", body });
+    expect(result.ok).toBe(false);
+    expect(result.statusCode).toBe(302);
+    expect(result.error).toBe(
+      "HTTP 302: redirect not followed (Location host hooks.example.com); point the webhook at the final URL"
+    );
+    expect(received.map((r) => r.path)).toEqual(["/to-public"]);
+  });
+
+  test("a same-host 307 redirect is not followed either", async () => {
     const result = await sendWebhook({ url: `${base}/to-ok`, secret, webhookId: "evt_307", body });
-    expect(result).toMatchObject({ ok: true, statusCode: 200 });
-    expect(received.map((r) => r.path)).toEqual(["/to-ok", "/ok"]);
-    expect(new Webhook(secret).verify(received[1].body, received[1].headers)).toEqual(JSON.parse(body));
+    expect(result).toMatchObject({ ok: false, statusCode: 307 });
+    expect(result.error).toContain(`Location host 127.0.0.1:${server.port}`);
+    expect(received.map((r) => r.path)).toEqual(["/to-ok"]);
   });
 
   test("a non-allowlisted private target is refused without a request", async () => {

@@ -66,3 +66,23 @@ export type {
   WebhookSubscriptionRow,
   PublicWebhook,
 } from "./subscriptions.js";
+export {
+  WEBHOOK_POLL_MS_ENV,
+  WEBHOOK_AUTO_DISABLE_MS_ENV,
+  DEFAULT_WEBHOOK_POLL_MS,
+  DEFAULT_WEBHOOK_BATCH,
+  startWebhookWorker,
+  stopWebhookWorker,
+  isWebhookWorkerRunning,
+  processDueWebhooks,
+  claimDueDeliveries,
+  countEnabledWebhookSubscriptions,
+  webhookRetryJitter,
+  runWebhookTickForTests,
+} from "./worker.js";
+export type {
+  WebhookTickOptions,
+  WebhookWorkerOptions,
+  WebhookTickSummary,
+  ClaimedDelivery,
+} from "./worker.js";

@@ -83,12 +83,27 @@ function describeError(err: unknown, timeoutMs: number): string {
   return String(err);
 }
 
+function describeRedirect(statusCode: number, response: Response, requestUrl: string): string {
+  const location = response.headers.get("location");
+  let target = "no Location header";
+  if (location) {
+    try {
+      target = `Location host ${new URL(location, requestUrl).host}`;
+    } catch {
+      target = "an invalid Location header";
+    }
+  }
+  return `HTTP ${statusCode}: redirect not followed (${target}); point the webhook at the final URL`;
+}
+
 /**
  * POST `body` to `url` with Standard Webhooks headers, a fresh
- * `webhook-timestamp` and a signature over it. Redirects are followed through
- * the egress guard, so a hop to a private address is refused. Reads at most
- * 1 KB of a non-2xx body for the error text. Egress refusals, timeouts and
- * network errors become `{ ok: false, error }`; this function never throws.
+ * `webhook-timestamp` and a signature over it. Redirects are not followed: a
+ * 301/302 after a POST turns into a body-less GET, so following one could
+ * record a delivery the receiver never saw. Any 3xx is a failure naming the
+ * redirect target's host. Reads at most 1 KB of a non-2xx body for the error
+ * text. Egress refusals, timeouts and network errors become
+ * `{ ok: false, error }`; this function never throws.
  */
 export async function sendWebhook(input: SendWebhookInput): Promise<SendWebhookResult> {
   const started = performance.now();
@@ -106,6 +121,7 @@ export async function sendWebhook(input: SendWebhookInput): Promise<SendWebhookR
       headers: webhookHeaders({ ...input, timestampSec }),
       body: input.body,
       signal,
+      redirect: "manual",
     });
   } catch (err) {
     return { ok: false, error: describeError(err, timeoutMs), durationMs: elapsed() };
@@ -115,6 +131,11 @@ export async function sendWebhook(input: SendWebhookInput): Promise<SendWebhookR
   if (statusCode >= 200 && statusCode < 300) {
     await response.body?.cancel().catch(() => {});
     return { ok: true, statusCode, durationMs: elapsed() };
+  }
+
+  if (statusCode >= 300 && statusCode < 400) {
+    await response.body?.cancel().catch(() => {});
+    return { ok: false, statusCode, error: describeRedirect(statusCode, response, input.url), durationMs: elapsed() };
   }
 
   let snippet = "";
