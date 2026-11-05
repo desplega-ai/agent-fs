@@ -11,6 +11,7 @@ import {
   resetApiKey,
   resetApiKeyOrgless,
 } from "../users.js";
+import { createUserApiKey, resetOrgScopedKey } from "../api-keys.js";
 import { createOrg, listUserOrgs, getOrg, inviteToOrg, addDriveMember, removeOrgMember } from "../orgs.js";
 import {
   createDrive,
@@ -138,49 +139,59 @@ describe("resetApiKey", () => {
     expect(JSON.parse(eventRows[0].metadata!)).toEqual({ method: "self" });
   });
 
-  test("admin reset records actor distinct from target", () => {
+  test("refuses to rotate someone else's primary key", () => {
     const admin = createUser(db, { email: "reset-admin@example.com" });
     const orgId = listUserOrgs(db, admin.user.id).find((o) => o.isPersonal)!
       .id;
-    const target = createUser(db, { email: "reset-target@example.com" }).user;
-    inviteToOrg(db, {
-      orgId,
-      email: "reset-target@example.com",
-      role: "viewer",
-    });
+    const target = createUser(db, { email: "reset-target@example.com" });
 
-    const result = resetApiKey(db, {
-      userId: target.id,
-      actorId: admin.user.id,
-      orgId,
-    });
-
-    expect(result.user.email).toBe("reset-target@example.com");
-
-    const eventRows = db
-      .select()
-      .from(schema.events)
-      .where(require("drizzle-orm").eq(schema.events.resourceId, target.id))
-      .all()
-      .filter((e) => e.type === "api_key_reset");
-    expect(eventRows.length).toBe(1);
-    expect(eventRows[0].actor).toBe(admin.user.id);
-    expect(eventRows[0].target).toBe(target.id);
-    expect(JSON.parse(eventRows[0].metadata!)).toEqual({ method: "admin" });
+    expect(() =>
+      resetApiKey(db, { userId: target.user.id, actorId: admin.user.id, orgId })
+    ).toThrow(PermissionDeniedError);
+    expect(getUserByApiKey(db, target.apiKey)?.id).toBe(target.user.id);
   });
 
   test("throws NotFoundError for an unknown userId", () => {
     const admin = createUser(db, { email: "reset-unknown@example.com" });
     const orgId = listUserOrgs(db, admin.user.id).find((o) => o.isPersonal)!
       .id;
+    const unknown = "00000000-0000-4000-8000-000000000000";
 
     expect(() =>
-      resetApiKey(db, {
-        userId: "00000000-0000-4000-8000-000000000000",
-        actorId: admin.user.id,
-        orgId,
-      })
+      resetApiKey(db, { userId: unknown, actorId: unknown, orgId })
     ).toThrow(NotFoundError);
+  });
+});
+
+describe("resetOrgScopedKey", () => {
+  test("mints an org-scoped key, replaces the member's scoped keys there, keeps the primary, records an event", () => {
+    const admin = createUser(db, { email: "scoped-reset-admin@example.com" });
+    const orgId = createOrg(db, { name: "scoped-reset-org", userId: admin.user.id }).id;
+    const otherOrgId = createOrg(db, { name: "scoped-reset-other", userId: admin.user.id }).id;
+    const target = createUser(db, { email: "scoped-reset-target@example.com" });
+    inviteToOrg(db, { orgId, email: target.user.email, role: "viewer" });
+    inviteToOrg(db, { orgId: otherOrgId, email: target.user.email, role: "viewer" });
+    const before = createUserApiKey(db, { userId: target.user.id, label: "old", actorId: admin.user.id, scopeOrgId: orgId });
+    const elsewhere = createUserApiKey(db, { userId: target.user.id, label: "other", actorId: admin.user.id, scopeOrgId: otherOrgId });
+
+    const result = resetOrgScopedKey(db, { userId: target.user.id, actorId: admin.user.id, orgId });
+
+    expect(result.orgId).toBe(orgId);
+    expect(getUserByApiKey(db, result.apiKey)).toMatchObject({ id: target.user.id, scopeOrgId: orgId });
+    expect(getUserByApiKey(db, before.apiKey)).toBeNull();
+    expect(getUserByApiKey(db, elsewhere.apiKey)?.scopeOrgId).toBe(otherOrgId);
+    expect(getUserByApiKey(db, target.apiKey)).toMatchObject({ id: target.user.id, scopeOrgId: null });
+
+    const eventRows = db
+      .select()
+      .from(schema.events)
+      .where(require("drizzle-orm").eq(schema.events.resourceId, target.user.id))
+      .all()
+      .filter((e) => e.type === "api_key_reset");
+    expect(eventRows.length).toBe(1);
+    expect(eventRows[0].actor).toBe(admin.user.id);
+    expect(eventRows[0].orgId).toBe(orgId);
+    expect(JSON.parse(eventRows[0].metadata!)).toEqual({ method: "admin", keyId: result.keyId, scopeOrgId: orgId });
   });
 });
 

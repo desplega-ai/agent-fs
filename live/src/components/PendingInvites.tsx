@@ -64,7 +64,7 @@ export function PendingInvites({ orgId, drives }: { orgId: string; drives: Manag
       const grants = row.drives.filter((g) => known.has(g.driveId))
       const result = await invite.mutateAsync({ email: row.email, role: row.orgRole, drives: grants })
       if (result.status === "added") {
-        toast.success(`${result.email} has an account now and was added`)
+        toast.success(`${result.email} is in the org now`)
         return
       }
       const link = buildAcceptLink({ token: result.token, endpoint: credential.endpoint, acceptUrl: result.acceptUrl })

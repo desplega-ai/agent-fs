@@ -177,6 +177,7 @@ export {
   resolveContext,
   ensureLocalUser,
   createUserApiKey,
+  resetOrgScopedKey,
   listUserApiKeys,
   revokeUserApiKey,
   PRIMARY_API_KEY_ID,
