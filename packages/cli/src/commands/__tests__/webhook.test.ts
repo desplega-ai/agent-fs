@@ -66,6 +66,13 @@ describe("webhookParamsFromOpts", () => {
     expect(webhookParamsFromOpts("update", { description: "" }, "wh1")).toEqual({ id: "wh1", description: "" });
   });
 
+  test("--path-prefix passes through on create and update; an empty value clears it", () => {
+    expect(
+      webhookParamsFromOpts("create", { event: ["file.changed"], pathPrefix: "/docs/" }, "https://h.example/x")
+    ).toEqual({ scope: "drive", url: "https://h.example/x", eventTypes: ["file.changed"], pathPrefix: "/docs/" });
+    expect(webhookParamsFromOpts("update", { pathPrefix: "" }, "wh1")).toEqual({ id: "wh1", pathPrefix: "" });
+  });
+
   test("deliveries maps --status, --limit, --cursor and --payload", () => {
     expect(webhookParamsFromOpts("deliveries", {}, "wh1")).toEqual({ id: "wh1" });
     expect(

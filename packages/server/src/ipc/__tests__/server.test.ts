@@ -256,6 +256,49 @@ describe("IPC server — round-trip", () => {
     expect(resp.error.code).toBe("EDIT_CONFLICT");
   });
 
+  test("each IPC write handler enqueues one file.changed per version; a deduped write enqueues none", async () => {
+    const raw = harness.db.$client;
+    const orgId = (raw.prepare("SELECT org_id FROM drives WHERE id = ?").get(harness.driveId) as { org_id: string }).org_id;
+    const now = Date.now();
+    raw
+      .prepare(
+        "INSERT INTO webhook_subscriptions (id, org_id, drive_id, url, event_types, secret_ciphertext, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)"
+      )
+      .run("ipc-hook", orgId, harness.driveId, "https://hooks.example.com/ipc", '["file.changed"]', "ct", harness.userId, now, now);
+    const send = async (body: Record<string, unknown>) => {
+      const resp: any = await roundTrip(harness.socketPath, { drive: harness.driveSlug, ...body });
+      expect(resp?.error).toBeUndefined();
+      return resp;
+    };
+    const bytes = new TextEncoder().encode("hello ipc\n");
+
+    await send({ op: "create_file", path: "/ipc.md" });
+    await send({ op: "open_write", path: "/ipc.md", base_version: 1, content_hash: "", bytes });
+    const dedup = await send({ op: "open_write", path: "/ipc.md", base_version: 2, content_hash: "", bytes });
+    expect(dedup.open_write.deduped).toBe(true);
+    await send({ op: "truncate", path: "/ipc.md", size: 5 });
+    await send({ op: "rename", from_path: "/ipc.md", to_path: "/ipc-moved.md" });
+    await send({ op: "unlink", path: "/ipc-moved.md" });
+
+    const got = (
+      raw.prepare("SELECT event_type, payload FROM webhook_deliveries ORDER BY rowid").all() as Array<{
+        event_type: string;
+        payload: string;
+      }>
+    ).map((r) => {
+      const { data } = JSON.parse(r.payload);
+      return [r.event_type, data.path, data.version, data.operation, data.size];
+    });
+    expect(got).toEqual([
+      ["file.changed", "/ipc.md", 1, "write", 0],
+      ["file.changed", "/ipc.md", 2, "write", bytes.length],
+      ["file.changed", "/ipc.md", 3, "write", 5],
+      ["file.changed", "/ipc-moved.md", 1, "write", 5],
+      ["file.changed", "/ipc.md", 4, "delete", null],
+      ["file.changed", "/ipc-moved.md", 2, "delete", null],
+    ]);
+  });
+
   test("unknown op returns a structured validation error", async () => {
     const resp: any = await roundTrip(harness.socketPath, { op: "nope" });
     expect(resp.error).toBeDefined();

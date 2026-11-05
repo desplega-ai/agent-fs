@@ -16,7 +16,11 @@ import { dispatchOp } from "../index.js";
 import type { OpContext } from "../types.js";
 import { __resetEncryptionKeyForTests, getWebhookSecretKey } from "../../webhooks/crypto/key.js";
 import { decryptSecret } from "../../webhooks/crypto/secrets-cipher.js";
-import { MAX_SUBSCRIPTIONS_PER_ORG } from "../../webhooks/events.js";
+import {
+  COMMENT_WEBHOOK_EVENT_TYPES,
+  MAX_SUBSCRIPTIONS_PER_ORG,
+  WEBHOOK_EVENT_TYPES,
+} from "../../webhooks/events.js";
 import type { PublicWebhook } from "../../webhooks/subscriptions.js";
 import type { PublicDelivery } from "../../webhooks/deliveries.js";
 import { runWebhookTickForTests } from "../../webhooks/worker.js";
@@ -287,11 +291,55 @@ describe("webhook ops", () => {
       })
     ).rejects.toBeInstanceOf(ValidationError);
 
-    for (const eventTypes of [["ping"], ["file.changed"], [], ["comment.created", "nope"]]) {
+    for (const eventTypes of [["ping"], ["file.*"], [], ["comment.created", "nope"]]) {
       await expect(op(ctx, "webhook-create", { url: URL_A, eventTypes })).rejects.toBeInstanceOf(ZodError);
     }
     await expect(op(ctx, "webhook-create", { url: "not a url", eventTypes: ["comment.created"] })).rejects.toBeInstanceOf(ZodError);
     await expect(op(ctx, "webhook-create", { url: URL_A, eventTypes: ["comment.created"], scope: "all" })).rejects.toBeInstanceOf(ZodError);
+  });
+
+  test("eventTypes is required, so no hook gets file.changed unless it lists it", async () => {
+    const { ctx } = fixture();
+    await expect(op(ctx, "webhook-create", { url: URL_A })).rejects.toBeInstanceOf(ZodError);
+    const all = await op<Created>(ctx, "webhook-create", { url: URL_A, eventTypes: [...WEBHOOK_EVENT_TYPES] });
+    expect(all.eventTypes).toEqual([...WEBHOOK_EVENT_TYPES]);
+    expect(all.eventTypes).toContain("file.changed");
+    const comments = await op<Created>(ctx, "webhook-create", { url: URL_A, eventTypes: [...COMMENT_WEBHOOK_EVENT_TYPES] });
+    expect(comments.eventTypes).not.toContain("file.changed");
+    // An update that leaves eventTypes out keeps the stored set.
+    const updated = await op<PublicWebhook>(ctx, "webhook-update", { id: comments.id, description: "x" });
+    expect(updated.eventTypes).toEqual([...COMMENT_WEBHOOK_EVENT_TYPES]);
+  });
+
+  test("pathPrefix is stored as a normalized /dir/, cleared by '' or '/', and refuses dot segments", async () => {
+    const { ctx, db } = fixture();
+    const created = await op<Created>(ctx, "webhook-create", {
+      url: URL_A,
+      eventTypes: ["file.changed"],
+      pathPrefix: " docs/specs ",
+    });
+    expect(created.pathPrefix).toBe("/docs/specs/");
+    expect(storedRow(db, created.id)?.pathPrefix).toBe("/docs/specs/");
+    expect((await op<{ webhooks: PublicWebhook[] }>(ctx, "webhook-list", {})).webhooks[0].pathPrefix).toBe("/docs/specs/");
+
+    expect((await op<PublicWebhook>(ctx, "webhook-update", { id: created.id, pathPrefix: "/a/" })).pathPrefix).toBe("/a/");
+    expect((await op<PublicWebhook>(ctx, "webhook-update", { id: created.id, description: "x" })).pathPrefix).toBe("/a/");
+    expect((await op<PublicWebhook>(ctx, "webhook-update", { id: created.id, pathPrefix: "/" })).pathPrefix).toBeNull();
+    await op(ctx, "webhook-update", { id: created.id, pathPrefix: "/a" });
+    expect((await op<PublicWebhook>(ctx, "webhook-update", { id: created.id, pathPrefix: "" })).pathPrefix).toBeNull();
+
+    const root = await op<Created>(ctx, "webhook-create", { url: URL_A, eventTypes: ["file.changed"], pathPrefix: "/" });
+    expect(root.pathPrefix).toBeNull();
+    const plain = await op<Created>(ctx, "webhook-create", { url: URL_A, eventTypes: ["file.changed"] });
+    expect(plain.pathPrefix).toBeNull();
+
+    for (const pathPrefix of ["/a/../b", "..", "/a/./", "a\\..\\b", "/a\u0000"]) {
+      const err = await op(ctx, "webhook-create", { url: URL_A, eventTypes: ["file.changed"], pathPrefix }).catch((e) => e);
+      expect(err).toBeInstanceOf(ValidationError);
+      expect(err.field).toBe("pathPrefix");
+    }
+    const err = await op(ctx, "webhook-update", { id: created.id, pathPrefix: "/x/../y" }).catch((e) => e);
+    expect(err).toBeInstanceOf(ValidationError);
   });
 
   test(`caps webhooks at ${MAX_SUBSCRIPTIONS_PER_ORG} per org, drive and org scope combined`, async () => {

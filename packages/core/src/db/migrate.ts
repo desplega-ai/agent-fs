@@ -107,6 +107,16 @@ export function runMigrations(sqlite: Database): void {
   // created_at). IF NOT EXISTS, so it is a no-op once present.
   sqlite.exec(WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL);
 
+  // Migration 3i: webhook_subscriptions.path_prefix (file.changed filter).
+  // CREATE_TABLES_SQL declares it on fresh DBs; NULL keeps every existing
+  // hook unfiltered.
+  const webhookSubCols = sqlite
+    .prepare("PRAGMA table_info(webhook_subscriptions)")
+    .all() as Array<{ name: string }>;
+  if (!webhookSubCols.some((c) => c.name === "path_prefix")) {
+    sqlite.exec("ALTER TABLE webhook_subscriptions ADD COLUMN path_prefix TEXT");
+  }
+
   // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //
   // Drive visibility is strict explicit membership: drives with zero

@@ -12,6 +12,7 @@ import type { DB } from "../db/index.js";
 import { EditConflictError, ValidationError } from "../errors.js";
 import { getUserOrgRole, requireDriveAdmin } from "../identity/rbac.js";
 import type { OpContext } from "./types.js";
+import { assertPathInsideDrive, normalizePrefix } from "./paths.js";
 import { decryptSecret, encryptSecret } from "../webhooks/crypto/secrets-cipher.js";
 import { getWebhookSecretKey } from "../webhooks/crypto/key.js";
 import {
@@ -43,6 +44,8 @@ export interface WebhookCreateParams {
   url: string;
   eventTypes: WebhookEventType[];
   description?: string;
+  /** Limit `file.changed` to paths under this directory. "/" means all. */
+  pathPrefix?: string;
 }
 
 export interface WebhookListParams {
@@ -55,6 +58,8 @@ export interface WebhookUpdateParams {
   eventTypes?: WebhookEventType[];
   /** An empty string clears the description. */
   description?: string;
+  /** An empty string or "/" clears the prefix. */
+  pathPrefix?: string;
   enabled?: boolean;
   rotateSecret?: boolean;
 }
@@ -101,6 +106,28 @@ function normalizeDescription(description: string | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
+/**
+ * Store a path prefix as a normalized "/dir/" or null. "/" and "" mean every
+ * path. A "." or ".." segment is refused, since no stored path matches it.
+ */
+function normalizeWebhookPathPrefix(pathPrefix: string | undefined): string | null {
+  const trimmed = pathPrefix?.trim();
+  if (!trimmed) return null;
+  try {
+    assertPathInsideDrive(trimmed);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      throw new ValidationError(err.message.replace(/^Path/, "pathPrefix"), {
+        field: "pathPrefix",
+        suggestion: "Give a directory inside the drive, e.g. /docs/",
+      });
+    }
+    throw err;
+  }
+  const prefix = normalizePrefix(trimmed);
+  return prefix === "/" ? null : prefix;
+}
+
 function encodeEventTypes(eventTypes: WebhookEventType[]): string {
   return JSON.stringify([...new Set(eventTypes)]);
 }
@@ -112,6 +139,7 @@ export async function webhookCreate(
   const scope = params.scope ?? "drive";
   authorizeWebhookScope(ctx, scope);
   await assertWebhookUrl(params.url);
+  const pathPrefix = normalizeWebhookPathPrefix(params.pathPrefix);
 
   const secret = generateWebhookSecret();
   // Resolve the key before inserting: with no rows yet it may auto-generate.
@@ -135,6 +163,7 @@ export async function webhookCreate(
         url: params.url,
         description: normalizeDescription(params.description),
         eventTypes: encodeEventTypes(params.eventTypes),
+        pathPrefix,
         secretCiphertext,
         enabled: true,
         createdBy: ctx.userId,
@@ -192,6 +221,8 @@ export async function webhookUpdate(
 ): Promise<PublicWebhook & { secret?: string }> {
   const row = getScopedSubscription(ctx, params.id);
   if (params.url !== undefined) await assertWebhookUrl(params.url);
+  const pathPrefix =
+    params.pathPrefix !== undefined ? normalizeWebhookPathPrefix(params.pathPrefix) : undefined;
 
   let secret: string | undefined;
   let secretCiphertext: string | undefined;
@@ -206,6 +237,7 @@ export async function webhookUpdate(
     if (params.url !== undefined) set.url = params.url;
     if (params.eventTypes !== undefined) set.eventTypes = encodeEventTypes(params.eventTypes);
     if (params.description !== undefined) set.description = normalizeDescription(params.description);
+    if (pathPrefix !== undefined) set.pathPrefix = pathPrefix;
     if (secretCiphertext !== undefined) set.secretCiphertext = secretCiphertext;
     if (params.enabled === true) {
       Object.assign(set, {

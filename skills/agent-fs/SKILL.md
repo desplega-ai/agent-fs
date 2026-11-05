@@ -11,7 +11,8 @@ description: >-
   "watch drive changes", "stream file changes", "star this file",
   "add to favorites", "my favorites", "webhook", "notify me when mentioned",
   "webhook deliveries", "redeliver a webhook", "why did my webhook fail",
-  "notify on comments", "send comment events to slack", "verify webhook signature", file
+  "notify on comments", "send comment events to slack", "verify webhook signature",
+  "webhook on file change", "notify when a file is written", file
   persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
   manage org/drive members, generate presigned URLs, check recent activity, or use
@@ -271,13 +272,13 @@ Comments work on any file, HTML included. People can select text on a rendered `
 
 ### Webhooks
 
-A webhook sends a signed HTTP POST (Standard Webhooks headers) to a URL when a comment is created, mentions someone, is edited, resolved, reopened or deleted. Event types: `comment.created`, `comment.mentioned`, `comment.updated`, `comment.resolved`, `comment.reopened`, `comment.deleted`. Full receiver guide: `docs/webhooks.md` (https://agent-fs.dev/docs/webhooks).
+A webhook sends a signed HTTP POST (Standard Webhooks headers) to a URL when a comment is created, mentions someone, is edited, resolved, reopened or deleted, or when a file gets a new version. Event types: `comment.created`, `comment.mentioned`, `comment.updated`, `comment.resolved`, `comment.reopened`, `comment.deleted`, `file.changed`. A hook gets only the types it lists: `file.changed` must be named explicitly. Full receiver guide: `docs/webhooks.md` (https://agent-fs.dev/docs/webhooks).
 
 | Command | Usage | Who may run it | Description |
 |---------|-------|----------------|-------------|
-| `webhook create` | `agent-fs webhook create <url> --event <type>... [--org-wide] [--description <text>]` | Drive admin or org admin; `--org-wide` needs org admin | Create a hook for the active drive, or with `--org-wide` for every drive in the org. Prints the `whsec_` signing secret **once**. |
+| `webhook create` | `agent-fs webhook create <url> --event <type>... [--org-wide] [--description <text>] [--path-prefix <dir>]` | Drive admin or org admin; `--org-wide` needs org admin | Create a hook for the active drive, or with `--org-wide` for every drive in the org. `--path-prefix /docs/` limits `file.changed` to that directory (comment events are not filtered). Prints the `whsec_` signing secret **once**. |
 | `webhook list` | `agent-fs webhook list [--scope drive\|org\|all]` | Drive admin (drive hooks), org admin (org hooks) | List hooks with their state (`enabled`, `disabledReason`, `consecutiveFailures`, `workerEnabled`). Never shows secrets. |
-| `webhook update` | `agent-fs webhook update <id> [--url <url>] [--event <type>]... [--description <text>] [--enable\|--disable] [--rotate-secret]` | Drive hook: drive admin or org admin. Org hook: org admin | Change a hook. `--event` replaces the list. `--enable` resets the failure state. `--rotate-secret` prints a new secret once; the old one stops working at once. |
+| `webhook update` | `agent-fs webhook update <id> [--url <url>] [--event <type>]... [--description <text>] [--path-prefix <dir>] [--enable\|--disable] [--rotate-secret]` | Drive hook: drive admin or org admin. Org hook: org admin | Change a hook. `--event` replaces the list. An empty `--path-prefix` clears it. `--enable` resets the failure state. `--rotate-secret` prints a new secret once; the old one stops working at once. |
 | `webhook delete` | `agent-fs webhook delete <id>` | Drive hook: drive admin or org admin. Org hook: org admin | Delete a hook and its deliveries. |
 | `webhook test` | `agent-fs webhook test <id>` | Drive hook: drive admin or org admin. Org hook: org admin | Send a signed `ping` now and print `{ ok, statusCode, error, durationMs }`. Exits 1 unless the receiver answers 2xx. Works with the worker off. |
 | `webhook deliveries` | `agent-fs webhook deliveries <id> [--status pending\|delivered\|failed] [--limit <n>] [--cursor <cursor>] [--payload]` | Same as the hook | List the hook's deliveries newest first: `status`, `attempts`, `nextAttemptAt`, `lastStatusCode`, `lastError`. `--payload` adds the exact JSON body sent. Page with `nextCursor`. |
@@ -287,7 +288,8 @@ A webhook sends a signed HTTP POST (Standard Webhooks headers) to a URL when a c
 - Nothing is sent unless the server runs with `AGENT_FS_WEBHOOK_WORKER=true`; `workerEnabled: false` in a response means events only queue.
 - Delivery is at least once: dedupe on the `webhook-id` header. Failures retry for about 28 hours. A `410` answer, or 5 days of failures, disables the hook.
 - Delivered and failed deliveries are pruned 30 days after creation; pending ones are kept.
-- An org hook sees comments in every drive of the org. A drive hook is managed from its own drive (`--drive <id>`).
+- `file.changed` fires once per new file version (write, edit, append, revert, cp, rm, FUSE writes; `mv` sends a `write` for the new path and a `delete` for the old). Its payload is `path`, `version`, `operation`, `author`, `size`, `etag`, never the content: `cat` the path to read it. A write with unchanged bytes sends nothing.
+- An org hook sees events in every drive of the org. A drive hook is managed from its own drive (`--drive <id>`).
 
 ### Favorites
 
@@ -509,6 +511,12 @@ agent-fs webhook update <webhook-id> --enable
 # See why deliveries failed, then send a failed one again
 agent-fs webhook deliveries <webhook-id> --status failed
 agent-fs webhook redeliver <delivery-id>
+```
+
+To react to file writes under one directory instead:
+
+```bash
+agent-fs webhook create https://hooks.example.com/build --event file.changed --path-prefix /site/
 ```
 
 Verify each request in the receiver with the `standardwebhooks` npm package:

@@ -409,13 +409,14 @@ const opRegistry: Record<string, OpDefinition> = {
     schema: z.object({}),
   },
   "webhook-create": {
-    description: "Create an outbound webhook that POSTs signed Standard Webhooks events (comment.created, comment.mentioned, comment.updated, comment.resolved, comment.reopened, comment.deleted) to url. scope 'drive' (default) covers the active drive and needs drive admin or org admin; scope 'org' covers every drive in the org and needs org admin. The url must be public https (private/loopback targets only via the server's AGENT_FS_WEBHOOK_ALLOWED_HOSTS). Returns the webhook plus its whsec_ signing secret, shown only this once. Delivery needs AGENT_FS_WEBHOOK_WORKER on the server (see workerEnabled).",
+    description: "Create an outbound webhook that POSTs signed Standard Webhooks events (comment.created, comment.mentioned, comment.updated, comment.resolved, comment.reopened, comment.deleted, file.changed) to url. Only the listed eventTypes are sent; file.changed (one per new file version: path, version, operation, author, size, etag, never content) must be listed explicitly, and pathPrefix limits it to one directory. scope 'drive' (default) covers the active drive and needs drive admin or org admin; scope 'org' covers every drive in the org and needs org admin. The url must be public https (private/loopback targets only via the server's AGENT_FS_WEBHOOK_ALLOWED_HOSTS). Returns the webhook plus its whsec_ signing secret, shown only this once. Delivery needs AGENT_FS_WEBHOOK_WORKER on the server (see workerEnabled).",
     handler: webhookCreate,
     schema: z.object({
       scope: z.enum(["drive", "org"]).optional().describe("drive (default): the active drive only. org: every drive in the org (org admin only)."),
       url: z.string().url().max(2048),
-      eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).max(6),
+      eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).max(WEBHOOK_EVENT_TYPES.length),
       description: z.string().max(500).optional(),
+      pathPrefix: z.string().max(1024).optional().describe("Send file.changed only for paths under this directory, e.g. /docs/ (it does not filter comment events). Omit or '/' for every path."),
     }),
   },
   "webhook-list": {
@@ -426,13 +427,14 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "webhook-update": {
-    description: "Update a webhook's url, eventTypes or description, enable or disable it, or rotate its signing secret. Needs drive admin or org admin for a drive hook, org admin for an org hook. enabled=true clears the disabled state and failure counters; enabled=false fails its pending deliveries. rotateSecret=true returns the new whsec_ secret once; the old secret stops working at once (no grace period). Returns the webhook.",
+    description: "Update a webhook's url, eventTypes, description or pathPrefix, enable or disable it, or rotate its signing secret. Needs drive admin or org admin for a drive hook, org admin for an org hook. enabled=true clears the disabled state and failure counters; enabled=false fails its pending deliveries. rotateSecret=true returns the new whsec_ secret once; the old secret stops working at once (no grace period). Returns the webhook.",
     handler: webhookUpdate,
     schema: z.object({
       id: z.string(),
       url: z.string().url().max(2048).optional(),
-      eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).max(6).optional(),
+      eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).max(WEBHOOK_EVENT_TYPES.length).optional(),
       description: z.string().max(500).optional().describe("An empty string clears it."),
+      pathPrefix: z.string().max(1024).optional().describe("Directory that limits file.changed, e.g. /docs/. An empty string or '/' clears it."),
       enabled: z.boolean().optional(),
       rotateSecret: z.boolean().optional(),
     }),

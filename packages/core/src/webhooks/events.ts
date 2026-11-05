@@ -1,7 +1,7 @@
 // Outbound webhook event types and delivery constants.
 
-/** The event types a subscription may list. `ping` (webhook-test only) is not one. */
-export const WEBHOOK_EVENT_TYPES = [
+/** The comment event types, in the order docs and the CLI list them. */
+export const COMMENT_WEBHOOK_EVENT_TYPES = [
   "comment.created",
   "comment.mentioned",
   "comment.updated",
@@ -9,6 +9,13 @@ export const WEBHOOK_EVENT_TYPES = [
   "comment.reopened",
   "comment.deleted",
 ] as const;
+
+/**
+ * The event types a subscription may list. `ping` (webhook-test only) is not
+ * one. `file.changed` is opt-in: a hook gets it only when its `event_types`
+ * names it, so hooks made before it existed never start receiving writes.
+ */
+export const WEBHOOK_EVENT_TYPES = [...COMMENT_WEBHOOK_EVENT_TYPES, "file.changed"] as const;
 
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
 

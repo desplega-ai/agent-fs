@@ -4906,6 +4906,56 @@ async function webhookSuite() {
       assert(hitsFor("/mention", r1.id).length + hitsFor("/mention", r2.id).length, 0, "the mentioned-only hook got a reply");
     });
 
+    await test("[webhooks] file.changed: one signed metadata-only event per version under --path-prefix; comment hooks get none", async () => {
+      const files = await createHook("/files", ["file.changed"]);
+      const updated = await wh(`webhook update ${files.id} --path-prefix site`);
+      assert(updated.pathPrefix, "/site/", "pathPrefix is stored normalized");
+      const secretText = "E2E-FILE-CONTENT-do-not-send";
+      await wh(`write /site/index.html --content ${shQuote(secretText)}`);
+      await wh(`write /sitemap.md --content ${shQuote(secretText)}`);
+      await wh(`write /site/a.md --content ${shQuote(secretText)}`);
+      await wh(`append /site/a.md --content ${shQuote(" more")}`);
+      await wh("mv /site/a.md /site/b.md");
+      await wh("rm /site/index.html");
+
+      const fileRows = await waitFor(() => {
+        const rows = query(
+          "SELECT d.*, s.url AS sub_url FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id = d.subscription_id WHERE d.event_type = 'file.changed' ORDER BY d.rowid",
+        );
+        return rows.length >= 6 && rows.every((r) => r.status !== "pending") ? rows : null;
+      }, "6 settled file.changed deliveries");
+      assert(fileRows.length, 6, `Expected 6 file.changed rows, got ${fileRows.length}`);
+      assert(fileRows.every((r) => r.sub_url === `${receiverBase}/files` && r.status === "delivered"), true,
+        `file.changed rows: ${JSON.stringify(fileRows.map((r) => [r.sub_url, r.status]))}`);
+
+      const got = hits.filter((h) => h.path === "/files" && h.json?.type === "file.changed");
+      sameList(
+        got.map((h) => [h.json.data.path, h.json.data.version, h.json.data.operation]),
+        [
+          ["/site/index.html", 1, "write"],
+          ["/site/a.md", 1, "write"],
+          ["/site/a.md", 2, "append"],
+          ["/site/b.md", 1, "write"],
+          ["/site/a.md", 3, "delete"],
+          ["/site/index.html", 2, "delete"],
+        ],
+        "file.changed path, version, operation",
+      );
+      for (const h of got) {
+        assert(h.valid, true, `invalid signature on ${h.id}: ${h.error}`);
+        assert(h.body.includes("E2E-FILE-CONTENT"), false, "file.changed payload carried file content");
+        assert(h.id, h.json.data.eventId, "webhook-id is the event id");
+        assert(h.json.data.driveId, driveId);
+        assert(h.json.data.author.email, OWNER);
+      }
+      assert(got[0].json.data.size, secretText.length);
+      assert(typeof got[0].json.data.etag === "string", true, `Expected an etag, got ${got[0].json.data.etag}`);
+      assert(got[5].json.data.size, null);
+      assert(hitsFor("/all").some((h) => h.json?.type === "file.changed"), false, "a comment-only hook got file.changed");
+      assert(hitsFor("/mention").some((h) => h.json?.type === "file.changed"), false, "a comment-only hook got file.changed");
+      await wh(`webhook delete ${files.id}`);
+    });
+
     await test("[webhooks] webhook update --disable pauses a hook (reason manual)", async () => {
       for (const hook of [all, mention]) {
         const res = await wh(`webhook update ${hook.id} --disable`);

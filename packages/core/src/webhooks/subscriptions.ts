@@ -24,6 +24,8 @@ export interface PublicWebhook {
   url: string;
   description: string | null;
   eventTypes: WebhookEventType[];
+  /** `file.changed` covers only paths under this "/dir/" prefix; null = all. */
+  pathPrefix: string | null;
   enabled: boolean;
   disabledReason: WebhookDisabledReason | null;
   disabledAt: string | null;
@@ -107,6 +109,7 @@ export function toPublic(
     url: row.url,
     description: row.description ?? null,
     eventTypes: parseStoredEventTypes(row.eventTypes),
+    pathPrefix: row.pathPrefix ?? null,
     enabled: row.enabled,
     disabledReason: row.disabledReason ?? null,
     disabledAt: iso(row.disabledAt),

@@ -1,6 +1,7 @@
 // Transactional webhook outbox. The comment ops call enqueueCommentWebhooks()
-// inside the same SQLite transaction that writes their `events` rows, so a
-// delivery row exists exactly when the event does. Everything here is
+// inside the same SQLite transaction that writes their `events` rows, and
+// createVersion() calls enqueueFileWebhooks() inside the one that writes the
+// version row, so a delivery row exists exactly when the change does. Everything here is
 // synchronous (the bun-sqlite transaction callback is sync): SQL and JSON
 // only, no crypto and no network.
 
@@ -8,6 +9,7 @@ import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { CommentEntry, OpContext } from "../ops/types.js";
 import { addMentions } from "../ops/comment-mentions.js";
+import { normalizePath } from "../ops/paths.js";
 import { buildAppUrl } from "../ops/urls.js";
 import { BODY_MAX_CHARS, INTERNAL_TO_WEBHOOK, type WebhookEventType } from "./events.js";
 
@@ -57,6 +59,24 @@ export interface CommentWebhookData {
   /** Only when the comment is a reply. */
   thread?: { rootId: string; participants: WebhookUserRef[] };
 }
+
+/** `data` of a `file.changed` event. Metadata only, never file content. */
+export interface FileChangedWebhookData {
+  eventId: string;
+  orgId: string;
+  driveId: string;
+  path: string;
+  /** Omitted when the server has no app URL configured. */
+  url?: string;
+  version: number;
+  operation: FileChangeOperation;
+  author: WebhookUserRef;
+  /** Bytes; null for a delete. */
+  size: number | null;
+  etag: string | null;
+}
+
+export type FileChangeOperation = "write" | "edit" | "append" | "delete" | "revert";
 
 export interface WebhookEnvelope<T = CommentWebhookData> {
   type: WebhookEventType | "ping";
@@ -256,13 +276,106 @@ export function enqueueCommentWebhooks(
     .all().length;
 }
 
+/**
+ * Write one `file.changed` delivery per enabled subscription that lists
+ * `file.changed` and whose `path_prefix` (if set) contains `path`. Same
+ * scoping as comments: this drive's hooks plus the org's. Must run inside
+ * createVersion's transaction (`ctx.db` is the tx); an error rolls the
+ * version back. Returns the number of rows inserted.
+ */
+export function enqueueFileWebhooks(
+  ctx: OpContext,
+  input: {
+    path: string;
+    version: number;
+    operation: FileChangeOperation;
+    size: number | null;
+    etag: string | null;
+    at: Date;
+  }
+): number {
+  const s = schema.webhookSubscriptions;
+  // Stored file paths are usually absolute, but some writers store them
+  // without the leading "/". A prefix is stored as "/dir/"; match the path
+  // against it and its relative form. "0" follows "/" in BINARY collation, so
+  // [prefix, prefix-without-slash + "0") holds exactly the paths under it.
+  const subs = ctx.db
+    .select({ id: s.id, eventTypes: s.eventTypes })
+    .from(s)
+    .where(
+      and(
+        eq(s.orgId, ctx.orgId),
+        eq(s.enabled, true),
+        or(isNull(s.driveId), eq(s.driveId, ctx.driveId)),
+        sql`(
+          ${s.pathPrefix} IS NULL
+          OR (${input.path} >= ${s.pathPrefix}
+            AND ${input.path} < substr(${s.pathPrefix}, 1, length(${s.pathPrefix}) - 1) || '0')
+          OR (${input.path} >= substr(${s.pathPrefix}, 2)
+            AND ${input.path} < substr(${s.pathPrefix}, 2, length(${s.pathPrefix}) - 2) || '0')
+        )`
+      )
+    )
+    .all();
+  if (subs.length === 0) return 0;
+
+  const subIds = subs
+    .filter((sub) => parseEventTypes(sub.eventTypes, sub.id)?.includes("file.changed"))
+    .map((sub) => sub.id);
+  if (subIds.length === 0) return 0;
+
+  const user = ctx.db
+    .select({ id: schema.users.id, email: schema.users.email, displayName: schema.users.displayName })
+    .from(schema.users)
+    .where(eq(schema.users.id, ctx.userId))
+    .get();
+  const path = normalizePath(input.path);
+  const eventId = crypto.randomUUID();
+  const data: FileChangedWebhookData = {
+    eventId,
+    orgId: ctx.orgId,
+    driveId: ctx.driveId,
+    path,
+    ...(ctx.appUrl ? { url: buildAppUrl(ctx.appUrl, ctx.orgId, ctx.driveId, path) } : {}),
+    version: input.version,
+    operation: input.operation,
+    author: { id: ctx.userId, email: user?.email ?? null, displayName: user?.displayName ?? null },
+    size: input.size,
+    etag: input.etag,
+  };
+  const envelope: WebhookEnvelope<FileChangedWebhookData> = {
+    type: "file.changed",
+    timestamp: input.at.toISOString(),
+    data,
+  };
+  const payload = JSON.stringify(envelope);
+
+  return ctx.db
+    .insert(schema.webhookDeliveries)
+    .values(
+      subIds.map((subscriptionId) => ({
+        id: crypto.randomUUID(),
+        subscriptionId,
+        eventId,
+        eventType: "file.changed" as const,
+        payload,
+        status: "pending" as const,
+        attempts: 0,
+        nextAttemptAt: input.at,
+        createdAt: input.at,
+      }))
+    )
+    .returning({ id: schema.webhookDeliveries.id })
+    .all().length;
+}
+
 // --- Early-tick signal -------------------------------------------------------
 
 type EnqueueListener = () => void;
 const listeners = new Set<EnqueueListener>();
 
 /**
- * Register a callback fired after a comment op commits new deliveries (the
+ * Register a callback fired after an op commits new deliveries (the
  * worker uses it for an early tick). Returns an unregister function.
  */
 export function onWebhooksEnqueued(cb: EnqueueListener): () => void {

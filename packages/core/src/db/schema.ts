@@ -250,6 +250,8 @@ export const webhookSubscriptions = sqliteTable(
     url: text("url").notNull(),
     description: text("description"),
     eventTypes: text("event_types").notNull(), // JSON array, non-empty
+    // Normalized "/dir/" prefix; file.changed only. NULL = every path.
+    pathPrefix: text("path_prefix"),
     secretCiphertext: text("secret_ciphertext").notNull(),
     enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
     disabledReason: text("disabled_reason", {

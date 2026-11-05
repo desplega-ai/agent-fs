@@ -1,6 +1,6 @@
 # Webhooks
 
-agent-fs can send an HTTP POST to your URL when a comment changes. A receiver can forward a mention to Slack, start an agent task, or log a review. Each request is signed with the [Standard Webhooks](https://www.standardwebhooks.com/) scheme, so you can check that it came from your agent-fs server.
+agent-fs can send an HTTP POST to your URL when a comment or a file changes. A receiver can forward a mention to Slack, start an agent task, rebuild a site when a file lands, or log a review. Each request is signed with the [Standard Webhooks](https://www.standardwebhooks.com/) scheme, so you can check that it came from your agent-fs server.
 
 ## Quick start
 
@@ -20,9 +20,9 @@ The same actions are ops on `POST /orgs/{orgId}/ops` and MCP tools: `webhook-cre
 
 | Command | What it does |
 |---------|--------------|
-| `agent-fs webhook create <url> --event <type>... [--org-wide] [--description <text>]` | Create a webhook. Prints it with its `whsec_` secret, once. |
+| `agent-fs webhook create <url> --event <type>... [--org-wide] [--description <text>] [--path-prefix <dir>]` | Create a webhook. Prints it with its `whsec_` secret, once. |
 | `agent-fs webhook list [--scope drive\|org\|all]` | List the webhooks you may manage. Secrets are never shown. |
-| `agent-fs webhook update <id> [--url <url>] [--event <type>]... [--description <text>] [--enable\|--disable] [--rotate-secret]` | Change a webhook. `--event` replaces the whole list. |
+| `agent-fs webhook update <id> [--url <url>] [--event <type>]... [--description <text>] [--path-prefix <dir>] [--enable\|--disable] [--rotate-secret]` | Change a webhook. `--event` replaces the whole list. An empty `--path-prefix` clears it. |
 | `agent-fs webhook delete <id>` | Delete a webhook and all its deliveries. |
 | `agent-fs webhook test <id>` | Send a signed `ping` now. Exits 1 unless the receiver answers 2xx. |
 | `agent-fs webhook deliveries <id> [--status pending\|delivered\|failed] [--limit <n>] [--cursor <cursor>] [--payload]` | List the webhook's deliveries, newest first. |
@@ -46,13 +46,20 @@ Every webhook command runs against a drive: the active drive, or the one you pas
 | `comment.resolved` | A comment is resolved. |
 | `comment.reopened` | A resolved comment is reopened. |
 | `comment.deleted` | A comment is deleted. Deleting a root comment also deletes its replies, but sends one event, for the root. |
+| `file.changed` | A file gets a new version: a write, edit, append, revert, copy or delete, including writes through a FUSE mount. A move sends two: a `write` for the new path and a `delete` for the old one. A write with the same bytes as the current version makes no version and sends nothing. |
 | `ping` | Only `webhook test` sends it. You cannot subscribe to it. |
 
 Only the `mentions` param mentions someone. Typing `@name` in the comment body does not send `comment.mentioned`. Only drive members can be mentioned. Mentioning yourself, or removing a mention, sends nothing.
 
+A webhook gets only the types it lists. `file.changed` is never implied: a webhook created before it existed, or one that lists only comment types, gets no file events. Add it with `--event file.changed` (or `eventTypes` on `webhook-update`, which replaces the whole list).
+
+### Limit file events to a directory
+
+Set `--path-prefix /docs/` (or `pathPrefix` on `webhook-create` and `webhook-update`) to get `file.changed` only for paths under that directory. `/docs/` matches `/docs/a.md` and `/docs/specs/b.md`, not `/docs.md` or `/docsite/x.md`. A missing leading or trailing `/` is added, so `docs` is stored as `/docs/`. `/`, or an empty value on update, removes the filter. A prefix with a `.` or `..` segment is refused. The prefix filters `file.changed` only; comment events are not filtered by it.
+
 One change can send several events. A new comment that mentions two users sends one `comment.created` and two `comment.mentioned`, each with its own `webhook-id`.
 
-agent-fs writes the deliveries in the same database transaction as the comment change. If the change is saved, its events will be sent. If the change fails, nothing is sent. A webhook gets only events that happen while it is enabled.
+agent-fs writes the deliveries in the same database transaction as the comment change or the new file version. If the change is saved, its events will be sent. If the change fails, nothing is sent. A webhook gets only events that happen while it is enabled.
 
 ## Payload
 
@@ -108,6 +115,36 @@ The body is JSON. It is built once when the event happens, so every retry sends 
 | `data.thread` | Only on replies. `rootId` is the root comment. `participants` are the root author and the authors of the replies that are not deleted, without the actor, in the order they first posted. |
 
 A field with no value is `null`. Only `url`, `mentioned` and `thread` are left out when they do not apply.
+
+### `file.changed` payload
+
+```json
+{
+  "type": "file.changed",
+  "timestamp": "2026-11-05T10:15:00.000Z",
+  "data": {
+    "eventId": "9b2d7c4e-…",
+    "orgId": "…",
+    "driveId": "…",
+    "path": "/docs/plan.md",
+    "url": "https://app.example.com/file/~/<org>/<drive>/docs/plan.md",
+    "version": 4,
+    "operation": "edit",
+    "author": { "id": "…", "email": "ana@example.com", "displayName": "Ana" },
+    "size": 1832,
+    "etag": "\"5d41402abc4b2a76b9719d911017c592\""
+  }
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `data.path`, `data.version` | The file and the version this change made. Read it with `agent-fs cat <path>` or `log`. |
+| `data.operation` | `write`, `edit`, `append`, `revert` or `delete`. A copy and the new path of a move are `write`. |
+| `data.author` | The user who made the version. |
+| `data.size`, `data.etag` | Size in bytes and storage etag of the new version. Both are `null` for a `delete`. |
+
+The payload never carries file content. Fetch the file if you need it. Each version has its own `eventId`; an org webhook and a drive webhook that both match get the same one.
 
 The `ping` that `webhook test` sends looks like this, with a `webhook-id` of the form `ping_<uuid>`:
 
