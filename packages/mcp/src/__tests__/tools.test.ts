@@ -50,6 +50,10 @@ describe("registerTools", () => {
     }
     expect(registeredTools.find((tool) => tool.name === "comment-list")?.schema)
       .toHaveProperty("pathPrefix");
+    const shareList = registeredTools.find((tool) => tool.name === "share-list")?.schema;
+    for (const key of ["scope", "path", "includeInactive", "limit", "offset"]) {
+      expect(shareList).toHaveProperty(key);
+    }
   });
 
   test("tool descriptions are rich descriptions from the registry", () => {

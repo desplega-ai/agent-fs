@@ -571,7 +571,7 @@ export async function shareRevoke(
     // Re-check `revoked_at IS NULL` so a concurrent revoke is not counted twice.
     const updated = ctx.db
       .update(schema.shares)
-      .set({ revokedAt: now })
+      .set({ revokedAt: now, revokedBy: ctx.userId })
       .where(and(eq(schema.shares.id, row.id), isNull(schema.shares.revokedAt)))
       .returning({ id: schema.shares.id })
       .get();

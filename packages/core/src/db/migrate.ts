@@ -74,6 +74,11 @@ export function runMigrations(sqlite: Database): void {
   if (!shareCols.some((c) => c.name === "never_expires")) {
     sqlite.exec("ALTER TABLE shares ADD COLUMN never_expires INTEGER NOT NULL DEFAULT 0");
   }
+  // Migration 3c3: add shares.revoked_by. Links revoked before it existed keep
+  // a null revoker; nobody recorded who revoked them.
+  if (!shareCols.some((c) => c.name === "revoked_by")) {
+    sqlite.exec("ALTER TABLE shares ADD COLUMN revoked_by TEXT");
+  }
 
   // Migration 3d: add content_chunks.page for PDF text chunks.
   const chunkCols = sqlite

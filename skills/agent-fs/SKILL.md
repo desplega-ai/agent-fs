@@ -5,7 +5,7 @@ description: >-
   an agent-first filesystem backed by S3. Triggers on: "save this to agent-fs",
   "find that file", "find a file by name", "store this document", "search agent-fs", "list my files",
   "show version history", "revert file", "set up agent-fs", "get a signed url",
-  "share this file", "share link", "public link", "one-off link", "revoke a share link",
+  "share this file", "share link", "public link", "one-off link", "revoke a share link", "list my shared links", "manage shared links",
   "publish a site", "host this html", "share a folder", "manage members", "invite user", "invite to a drive", "add to drive", "give access to drive", "invite someone without an account", "accept an invite", "pending invites", "list members", "remove member",
   "update role", "reset api key", "rotate api key", "lost my api key",
   "watch drive changes", "stream file changes", "star this file",
@@ -148,6 +148,7 @@ symlinks are unsupported and throw `EPERM`.
 | `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>] [--inline]` | Generate a download URL. On S3/MinIO: a presigned URL (default 24h, max 7 days, `kind: "presigned"`). On local-FS: an authenticated in-app link (`kind: "app"`, requires sign-in, non-expiring). By default the URL forces a download; `--inline` makes the browser render the file instead (PDF, image). |
 | `share-create` | `agent-fs share-create <path> [--expires-in <seconds\|never>] [--max-views <n>] [--one-off]` | Create a public link for a file or folder. A file gets a `/share/<token>` page on the API host: a read-only preview (markdown, text/code, image, PDF, audio, video, and HTML rendered in a sandbox) and a Download button. A folder becomes an HTML site at `/site/<token>/` (`kind: "site"`, no view limits). Default 24h, max 7 days; `--expires-in never` (API: `expiresIn: null`) makes a link with no time limit (a revoke or a view limit still ends it); `--one-off` (= `--max-views 1`) makes a file link single-use. Returns `{ id, kind, url, urlSource, sharePath, expiresIn, expiresAt, maxViews }` (both expiry fields `null` for a link that never expires); `urlSource` is `configured` when `url` is built on `AGENT_FS_PUBLIC_URL`. |
 | `share-revoke` | `agent-fs share-revoke [<id>] [--token <token-or-url>] [--path <path>]` | Kill share links immediately. Exactly one selector: the `id` from `share-create`, the token/URL, or a file or folder path (every link to it). Creator or drive admin only. |
+| `share-list` | `agent-fs share-list [<path>] [--mine] [--include-inactive] [--limit <n>] [--offset <n>]` | List share links with `id`, `drive`, `path`, `kind`, `status` (`active`, `expired`, `exhausted`, `revoked`), `expiresAt` (`null` = never), `views`/`maxViews`, creator, `revokedAt`/`revokedBy` (who revoked it; `null` for links revoked before that was recorded) and `canRevoke`. Default: active links in the current drive; drive admins see every member's links, others only their own (`visibility`). With a path: that file or folder's links plus folder links that also publish it (`relation: "covering"`). `--mine`: your links in every drive of the current org. Never returns the URL or token (a link is shown only once, by `share-create`); revoke a row with `share-revoke <id>` on its drive. |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
 | `watch` | `agent-fs watch [--json]` | Stream active-drive changes until Ctrl+C. Bearer endpoint: `GET /orgs/:orgId/drives/:driveId/events` emits `ready`, `file.changed`, and `comment.changed`. |
 
@@ -616,6 +617,11 @@ agent-fs share-create docs/report.pdf --max-views 5 --expires-in 3600
 # Kill a link (id from share-create), or every link to a file
 agent-fs share-revoke <id>
 agent-fs share-revoke --path docs/report.pdf
+
+# Which links publish this file (its own, plus folder sites that cover it)?
+agent-fs share-list docs/report.md
+# Every link you made in this org, revoked and expired ones too
+agent-fs share-list --mine --include-inactive
 ```
 
 `share-create` returns a URL on the **API host** (`https://<server>/share/<token>`), not the web app, so it works for anyone without signing in. Unlike `signed-url` the recipient gets a rendered page: markdown becomes sanitized HTML (frontmatter card, table of contents, callouts, task lists, footnotes, math, mermaid diagrams, highlighted code, light/dark/system theme, view-source and copy), text and code are shown escaped, images, PDF, audio and video are embedded, HTML pages render in a sandboxed frame (with an "Open full page" link), and every other type shows a no-preview card. Each page has the filename, size, expiry and a Download button. SVG files are never rendered, only downloaded.

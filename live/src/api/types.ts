@@ -567,6 +567,52 @@ export interface CreatedApiKey {
   apiKey: string
 }
 
+export type ShareListStatus = "active" | "expired" | "exhausted" | "revoked"
+
+/** One link from the core `share-list` op. Never carries the token or anything that rebuilds the URL. */
+export interface ShareListItem {
+  id: string
+  /** `name` is null for a drive that no longer exists. */
+  drive: { id: string; name: string | null }
+  /** The folder path for a `site` link. */
+  path: string
+  kind: "file" | "site"
+  /** Set only when the list was asked for one path: `covering` is a link on a parent folder. */
+  relation?: "exact" | "covering"
+  status: ShareListStatus
+  createdAt: string
+  createdBy: { userId: string; email: string | null; displayName: string | null }
+  /** Null for a link that never expires. */
+  expiresAt: string | null
+  views: number
+  maxViews: number | null
+  lastViewedAt: string | null
+  revokedAt: string | null
+  /** Null while active, and for links revoked before revokers were recorded. */
+  revokedBy: { userId: string; email: string | null; displayName: string | null } | null
+  /** The creator, or an admin of the link's drive. */
+  canRevoke: boolean
+  appUrl?: string
+}
+
+export interface ShareListResult {
+  shares: ShareListItem[]
+  total: number
+  limit: number
+  offset: number
+  scope: "drive" | "mine"
+  /** `all`: every member's links (drive admins). `own`: only the caller's links. */
+  visibility: "all" | "own"
+}
+
+export interface ShareListParams {
+  scope?: "drive" | "mine"
+  path?: string
+  includeInactive?: boolean
+  limit?: number
+  offset?: number
+}
+
 /** Event types a webhook may subscribe to; mirrors `WEBHOOK_EVENT_TYPES` in core. */
 export type WebhookEventType =
   | "comment.created"

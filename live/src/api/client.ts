@@ -21,6 +21,8 @@ import type {
   PresenceSession,
   PresenceSnapshot,
   PresenceState,
+  ShareListParams,
+  ShareListResult,
   SqlResult,
   SqlTableBinding,
   Webhook,
@@ -552,5 +554,20 @@ export class AgentFsClient {
     if (result.kind !== "app") return { url: result.url, expiresAt: result.expiresAt, objectUrl: false }
     const blob = await this.fetchRaw(orgId, driveId, path, { signal: options?.signal })
     return { url: URL.createObjectURL(blob), expiresAt: "", objectUrl: true }
+  }
+
+  /** Share links in `driveId` (or, with `scope: "mine"`, the caller's links across the org). */
+  async listShares(
+    orgId: string,
+    driveId: string,
+    params: ShareListParams,
+    opts?: { signal?: AbortSignal },
+  ): Promise<ShareListResult> {
+    return this.callOp<ShareListResult>(orgId, "share-list", { ...params }, driveId, opts)
+  }
+
+  /** Revoke one link by id. `driveId` must be the link's own drive. */
+  async revokeShare(orgId: string, driveId: string, id: string): Promise<{ revoked: number; ids: string[] }> {
+    return this.callOp(orgId, "share-revoke", { id }, driveId)
   }
 }
