@@ -111,6 +111,8 @@ export type {
   ShareViewGrant,
   OpenedShareView,
 } from "./ops/share.js";
+export { shareList, SHARE_LIST_DEFAULT_LIMIT, SHARE_LIST_MAX_LIMIT } from "./ops/share-list.js";
+export type { ShareListParams, ShareListItem, ShareListResult } from "./ops/share-list.js";
 export type { OpContext, OpDefinition } from "./ops/index.js";
 export type { WriteParams, WriteRawParams, WriteResult } from "./ops/types.js";
 export type {
