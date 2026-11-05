@@ -339,6 +339,11 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `AGENT_FS_EMBEDDING_EXCLUDE_DRIVES` | _(env only)_ | No exclusion | Comma-separated drive IDs. The parser trims IDs and ignores empty entries. Excluded drives keep FTS and lose text and image vectors. Text reports `skipped`. Restart after changes. |
 | `AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE` | _(env only)_ | `0.25` | Share of CPU time the text migration and image job may use, above 0 and at most 1. Text pauses after each file. Images pause after each part. `1` runs without pauses. Invalid values use the default. See [Upgrading to 0.16.5](#upgrading-to-0165-embeddings-re-embedded). |
 | `AGENT_FS_CLOUD` | _(env only)_ | _(unset)_ | Set to `true` only on servers the agent-fs team hosts. Marks telemetry events with `is_cloud`. |
+| `AGENT_FS_WEBHOOK_WORKER` | _(env only)_ | off | `true` or `1` runs the webhook delivery worker. Set it on exactly one process per database. Without it, webhooks can be created and tested and events queue, but nothing is sent. See [docs/webhooks.md](./docs/webhooks.md). |
+| `AGENT_FS_WEBHOOK_ALLOWED_HOSTS` | _(env only)_ | _(none)_ | Comma-separated `host[:port]` patterns (a leading `*.` matches subdomains) that webhooks may reach even when private, and over plain `http://`. Public hosts stay reachable. Use it for a receiver on the same private network, e.g. a Compose service. An invalid value makes `webhook-create` fail and stops a server with the worker on from starting. |
+| `AGENT_FS_WEBHOOK_ALLOW_PRIVATE` | _(env only)_ | `false` | `true` lets webhooks reach every private, loopback and link-local address and use plain `http://`. Only for networks where every reachable service is trusted. |
+| `AGENT_FS_SECRETS_KEY` / `AGENT_FS_SECRETS_KEY_FILE` | _(env only)_ | `$AGENT_FS_HOME/.secrets-key` | Key (base64, 32 bytes; `openssl rand -base64 32`) or a file holding it, used to encrypt webhook signing secrets. Without either, the first `webhook-create` writes `$AGENT_FS_HOME/.secrets-key` (mode `0600`). Back it up with the database: losing it means rotating every webhook secret, and the server will not create a new key while webhooks exist. |
+| `AGENT_FS_WEBHOOK_POLL_MS` / `AGENT_FS_WEBHOOK_RETRY_SCHEDULE_MS` / `AGENT_FS_WEBHOOK_AUTO_DISABLE_MS` | _(env only)_ | `2000` / `5s,5m,30m,2h,5h,10h,10h` / 5 days | Testing only. Worker poll interval, retry delays (comma-separated ms) and the failure window before a webhook is disabled. |
 
 When both `AWS_*` and `S3_*` variants are set, the `AWS_*` variant takes precedence (Tigris injects `AWS_*` automatically).
 
@@ -362,3 +367,5 @@ limit and concurrent uploads, and align any reverse-proxy request limits.
 For users who need SQLite replication across multiple Fly.io instances, a reference `litefs.yml` configuration is included in the repository root. LiteFS is **not active by default** — the standard deployment uses a single-node volume mount.
 
 To enable LiteFS, you would need to switch the Dockerfile base image to include the LiteFS binary and update the `CMD` to run via `litefs mount`. See `litefs.yml` for the static lease (single-node) and commented-out Consul (multi-node) configurations.
+
+Set `AGENT_FS_WEBHOOK_WORKER` only on the primary. agent-fs does not detect the LiteFS primary, and a worker on a replica cannot write delivery results.

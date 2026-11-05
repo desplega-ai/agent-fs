@@ -43,6 +43,13 @@ export const DOC_METADATA: DocMetadata[] = [
     sourcePath: "docs/telemetry.md",
   },
   {
+    slug: "webhooks",
+    title: "Webhooks",
+    summary: "Signed HTTP callbacks for comment events: payloads, verification, and retries.",
+    section: "Reference",
+    sourcePath: "docs/webhooks.md",
+  },
+  {
     slug: "fuse-mount",
     title: "FUSE Mount",
     summary: "Mount an agent-fs drive as a Linux filesystem with open-to-close consistency.",

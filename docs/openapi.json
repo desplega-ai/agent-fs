@@ -3276,6 +3276,188 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-create",
+                    "description": "Create an outbound webhook that POSTs signed Standard Webhooks events (comment.created, comment.mentioned, comment.updated, comment.resolved, comment.reopened, comment.deleted) to url. scope 'drive' (default) covers the active drive and needs drive admin or org admin; scope 'org' covers every drive in the org and needs org admin. The url must be public https (private/loopback targets only via the server's AGENT_FS_WEBHOOK_ALLOWED_HOSTS). Returns the webhook plus its whsec_ signing secret, shown only this once. Delivery needs AGENT_FS_WEBHOOK_WORKER on the server (see workerEnabled).",
+                    "required": [
+                      "op",
+                      "url",
+                      "eventTypes"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-create"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": [
+                          "drive",
+                          "org"
+                        ],
+                        "description": "drive (default): the active drive only. org: every drive in the org (org admin only)."
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                      },
+                      "eventTypes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "comment.created",
+                            "comment.mentioned",
+                            "comment.updated",
+                            "comment.resolved",
+                            "comment.reopened",
+                            "comment.deleted"
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 6
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 500
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-list",
+                    "description": "List outbound webhooks. scope 'drive' needs drive admin or org admin, 'org' needs org admin, and 'all' (default) returns this drive's hooks for a drive admin plus the org's hooks for an org admin. Never returns signing secrets. Returns { webhooks }.",
+                    "required": [
+                      "op"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-list"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": [
+                          "drive",
+                          "org",
+                          "all"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-update",
+                    "description": "Update a webhook's url, eventTypes or description, enable or disable it, or rotate its signing secret. Needs drive admin or org admin for a drive hook, org admin for an org hook. enabled=true clears the disabled state and failure counters; enabled=false fails its pending deliveries. rotateSecret=true returns the new whsec_ secret once; the old secret stops working at once (no grace period). Returns the webhook.",
+                    "required": [
+                      "op",
+                      "id"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-update"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                      },
+                      "eventTypes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "comment.created",
+                            "comment.mentioned",
+                            "comment.updated",
+                            "comment.resolved",
+                            "comment.reopened",
+                            "comment.deleted"
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 6
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "description": "An empty string clears it."
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "rotateSecret": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-delete",
+                    "description": "Delete a webhook and its delivery history. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { deleted }.",
+                    "required": [
+                      "op",
+                      "id"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-delete"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-test",
+                    "description": "Send a signed ping event to a webhook now, inline, and report the receiver's answer. Works with the delivery worker off and does not count toward failures. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { ok, statusCode, error, durationMs, webhookId }.",
+                    "required": [
+                      "op",
+                      "id"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-test"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 ],
                 "discriminator": {

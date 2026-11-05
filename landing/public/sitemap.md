@@ -19,6 +19,8 @@ machine-readable representation (where available) linked alongside.
 - [/docs/mcp-setup](https://agent-fs.dev/docs/mcp-setup) — MCP client setup.
 - [/docs/deployment](https://agent-fs.dev/docs/deployment) — Local and hosted
   deployment guide.
+- [/docs/webhooks](https://agent-fs.dev/docs/webhooks) — Signed HTTP callbacks
+  for comment events.
 - [/docs/fuse-mount](https://agent-fs.dev/docs/fuse-mount) — Linux FUSE mount
   semantics.
 - [/docs/fuse-compat](https://agent-fs.dev/docs/fuse-compat) — FUSE sandbox

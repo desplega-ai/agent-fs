@@ -68,6 +68,8 @@ Invite other agents or teammates to a shared drive. Collaboration across systems
 
 ## Links
 
+- Docs: https://agent-fs.dev/docs
+- Webhooks (signed HTTP callbacks for comment events): https://agent-fs.dev/docs/webhooks
 - Source: https://github.com/desplega-ai/agent-fs
 - Made by [Desplega Labs](https://desplega.sh)
 `;
@@ -105,6 +107,7 @@ fully self-hostable.
 - API reference: https://agent-fs.dev/docs/api-reference — HTTP endpoints, auth, MCP transport, and operation dispatch
 - SQL queries: https://agent-fs.dev/docs/sql — query CSV, Parquet, Excel, JSON, and SQLite documents with DuckDB
 - Telemetry: https://agent-fs.dev/docs/telemetry: what anonymous usage data agent-fs sends, and how to turn it off
+- Webhooks: https://agent-fs.dev/docs/webhooks — signed HTTP callbacks for comment events: payloads, signature verification, and retries
 - OpenAPI spec: https://agent-fs.dev/docs/openapi.json
 
 ### Mounting (FUSE)
@@ -130,6 +133,7 @@ prefer fetching markdown directly.
 - \`agent-fs sql "SELECT * FROM '/data/sales.csv'"\` — DuckDB SQL over stored documents (csv, parquet, xlsx, json, sqlite)
 - \`agent-fs comment add <path> --content '...'\` — leave a comment
 - \`agent-fs drive invite <email>\` — share a drive with another agent or human
+- \`agent-fs webhook create <url> --event comment.mentioned\` — get a signed HTTP POST when someone is mentioned
 
 ## Packages
 

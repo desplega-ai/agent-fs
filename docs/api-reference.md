@@ -145,7 +145,7 @@ The raw route preserves bytes exactly. Text indexing runs only for valid, indexa
 All routes authenticate via API key and authorize against explicit memberships:
 
 - **Strict drive membership** — a drive is only visible and accessible to users with an explicit drive membership row. Creating a drive grants the creator an admin membership automatically.
-- **Per-op role gates** — read ops (`ls`, `cat`, `search`, `signed-url`, ...) require `viewer`; write ops (`write`, `edit`, `append`, `rm`, `mv`, `cp`, `revert`, `comment-add`, ...) require `editor`; `reindex` requires `admin`.
+- **Per-op role gates** — read ops (`ls`, `cat`, `search`, `signed-url`, ...) require `viewer`; write ops (`write`, `edit`, `append`, `rm`, `mv`, `cp`, `revert`, `comment-add`, ...) require `editor`; `reindex` requires `admin`. The `webhook-*` ops need drive membership at dispatch, then the handler requires drive `admin` or org `admin` for a drive webhook and org `admin` for an org webhook.
 - **Member management is admin-only** — inviting, listing, updating, and removing org members requires org `admin`. Drive member routes require drive `admin` or admin of the owning org.
 - **No existence oracle** — requests that reference an org or drive you have no access to return `404`, identical to the response for IDs that don't exist.
 - **Scoped comment IDs** — comment IDs only resolve within the org/drive context they were created in; cross-tenant IDs return `404`.
@@ -166,7 +166,7 @@ The `signed-url` op is viewer-accessible and RBAC is checked **only at generatio
 
 ## Operations
 
-All 26 operations are dispatched through `POST /orgs/{orgId}/ops`. Each expects `{"op": "<name>", ...params}`.
+All operations are dispatched through `POST /orgs/{orgId}/ops`. Each expects `{"op": "<name>", ...params}`.
 
 | Category | Operations |
 |----------|-----------|
@@ -180,7 +180,10 @@ All 26 operations are dispatched through `POST /orgs/{orgId}/ops`. Each expects 
 | **Drive Members** | `drive-members` |
 | **Favorites** | `favorite-add`, `favorite-remove`, `favorite-list` (per user, see below) |
 | **Sharing** | `signed-url`, `share-create` (a file gets a `/share/{token}` page, a folder gets a `/site/{token}/` HTML site), `share-revoke` |
+| **Webhooks** | `webhook-create`, `webhook-list`, `webhook-update`, `webhook-delete`, `webhook-test` (signed comment events, see below) |
 
 **Favorites.** Each user stars files and folders for themselves: `favorite-add {path}`, `favorite-remove {path}` and `favorite-list {}`. The user is always the one the API key belongs to; the ops take no user id, and one user never sees another's favorites. Favorites are kept per drive and need viewer role. `favorite-add` returns `404` for a path that does not exist. Moving or renaming a file moves every user's star with it, deleting a file removes the stars on it, and a folder's star is removed once the folder is gone. Servers that support favorites list `favorites` in the `/health` `features` array.
+
+**Webhooks.** `webhook-create {url, eventTypes, scope?, description?}` registers a URL that receives a signed POST for each comment event (`comment.created`, `comment.mentioned`, `comment.updated`, `comment.resolved`, `comment.reopened`, `comment.deleted`). The response carries the `whsec_` signing secret once; `webhook-list` never returns it. `webhook-test {id}` sends a signed `ping` inline. Delivery needs `AGENT_FS_WEBHOOK_WORKER=true` on the server. Servers that support webhooks list `webhooks` in the `/health` `features` array. See [Webhooks](./webhooks.md) for payloads, signature checks, retries and URL rules.
 
 For parameter details, see the [OpenAPI spec](./openapi.json).
