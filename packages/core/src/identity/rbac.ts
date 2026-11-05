@@ -52,6 +52,14 @@ const OP_ROLES: Record<string, Role> = {
   "comment-update": "editor",
   "comment-delete": "editor",
   "comment-resolve": "editor",
+  // Webhook ops: "viewer" is only the membership floor. Each handler enforces
+  // drive admin (drive hooks) or org admin (org hooks) via
+  // authorizeWebhookScope in webhooks/subscriptions.ts.
+  "webhook-create": "viewer",
+  "webhook-list": "viewer",
+  "webhook-update": "viewer",
+  "webhook-delete": "viewer",
+  "webhook-test": "viewer",
 };
 
 export function getRequiredRole(opName: string): Role {

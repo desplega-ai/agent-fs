@@ -73,10 +73,30 @@ export function truncateWebhookBody(body: string): { body: string; truncated: bo
   return { body: body.slice(0, end), truncated: true };
 }
 
-function parseEventTypes(raw: string, subscriptionId: string): string[] {
-  const parsed: unknown = JSON.parse(raw);
+// Subscription ids already reported as unreadable, so a corrupt row logs once
+// per process instead of on every comment op.
+const warnedCorruptSubs = new Set<string>();
+
+/**
+ * A subscription's `event_types`, or null when the stored value is not a JSON
+ * array. A corrupt row is skipped (it gets no delivery) rather than failing
+ * the comment op: one bad row must not block every comment in its org.
+ */
+function parseEventTypes(raw: string, subscriptionId: string): string[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = undefined;
+  }
   if (!Array.isArray(parsed)) {
-    throw new Error(`webhook subscription ${subscriptionId}: event_types is not an array`);
+    if (!warnedCorruptSubs.has(subscriptionId)) {
+      warnedCorruptSubs.add(subscriptionId);
+      console.warn(
+        `[webhooks] skipping subscription ${subscriptionId}: event_types is not a JSON array`
+      );
+    }
+    return null;
   }
   return parsed.filter((t): t is string => typeof t === "string");
 }
@@ -85,8 +105,10 @@ function parseEventTypes(raw: string, subscriptionId: string): string[] {
  * Write one `webhook_deliveries` row per (enabled matching subscription ×
  * webhook event). Must run inside the op's transaction (`ctx.db` is the tx).
  * Returns the number of rows inserted; 0 with no subscriptions is the hot
- * path and costs one indexed query. Any error propagates and rolls the op
- * back, so a comment change never commits without its deliveries.
+ * path and costs one indexed query. A subscription whose stored
+ * `event_types` is unreadable is skipped with a warning. Any other error
+ * propagates and rolls the op back, so a comment change never commits
+ * without its deliveries.
  */
 export function enqueueCommentWebhooks(
   ctx: OpContext,
@@ -110,7 +132,11 @@ export function enqueueCommentWebhooks(
     .all();
   if (subs.length === 0) return 0;
 
-  const subTypes = subs.map((s) => ({ id: s.id, types: new Set(parseEventTypes(s.eventTypes, s.id)) }));
+  const subTypes: Array<{ id: string; types: Set<string> }> = [];
+  for (const s of subs) {
+    const types = parseEventTypes(s.eventTypes, s.id);
+    if (types) subTypes.push({ id: s.id, types: new Set(types) });
+  }
 
   // Pair each mapped event with the subscriptions that want it.
   const work: Array<{ event: CommentWebhookEvent; type: WebhookEventType; subIds: string[] }> = [];

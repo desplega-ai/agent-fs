@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { and, eq } from "drizzle-orm";
 import { createTestContext } from "../../test-utils.js";
@@ -395,19 +395,30 @@ describe("comment webhook outbox", () => {
       }
     });
 
-    test("an unreadable subscription row aborts the op instead of dropping the event", async () => {
+    test("an unreadable subscription row is skipped and does not block the op", async () => {
       const { ctx, db } = fixture();
       const root = await commentAdd(ctx, { path: "/y.md", body: "Root" });
-      addSub(db, { orgId: ctx.orgId, createdBy: ctx.userId, eventTypes: "not json" });
+      const corrupt = addSub(db, { orgId: ctx.orgId, createdBy: ctx.userId, eventTypes: "not json" });
+      const healthy = addSub(db, { orgId: ctx.orgId, driveId: ctx.driveId, createdBy: ctx.userId });
 
-      await expect(commentResolve(ctx, { id: root.id, resolved: true })).rejects.toThrow();
-      expect(commentState(db, root.id)!.resolved).toBe(false);
-      expect(eventRows(db, "comment_resolved")).toHaveLength(0);
+      const warn = spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await commentResolve(ctx, { id: root.id, resolved: true });
+        expect(commentState(db, root.id)!.resolved).toBe(true);
+        expect(eventRows(db, "comment_resolved")).toHaveLength(1);
 
-      await expect(commentDelete(ctx, { id: root.id })).rejects.toThrow();
-      expect(commentState(db, root.id)!.isDeleted).toBe(false);
-      expect(eventRows(db, "comment_deleted")).toHaveLength(0);
-      expect(deliveries(db)).toEqual([]);
+        await commentDelete(ctx, { id: root.id });
+        expect(commentState(db, root.id)!.isDeleted).toBe(true);
+        expect(eventRows(db, "comment_deleted")).toHaveLength(1);
+
+        expect(deliveries(db, corrupt)).toEqual([]);
+        expect(deliveries(db, healthy).map((d) => d.eventType)).toEqual(["comment.resolved", "comment.deleted"]);
+        // Logged once for the row, not once per op.
+        const corruptWarnings = warn.mock.calls.filter((args) => String(args[0]).includes(corrupt));
+        expect(corruptWarnings).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+      }
     });
   });
 

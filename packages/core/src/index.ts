@@ -66,6 +66,11 @@ export {
   favoriteAdd,
   favoriteRemove,
   favoriteList,
+  webhookCreate,
+  webhookList,
+  webhookUpdate,
+  webhookDelete,
+  webhookTest,
 } from "./ops/index.js";
 export {
   getS3Key,

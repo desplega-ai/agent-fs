@@ -33,3 +33,36 @@ export type {
   WebhookEnvelope,
   WebhookUserRef,
 } from "./outbox.js";
+export {
+  EgressDeniedError,
+  isPrivateAddress,
+  matchesAllowlist,
+  parseEgressAllowlist,
+  validateEgressAllowlist,
+} from "./egress-guard.js";
+export {
+  WEBHOOK_ALLOWED_HOSTS_ENV,
+  WEBHOOK_ALLOW_PRIVATE_ENV,
+  WEBHOOK_URL_MAX_CHARS,
+  webhookEgressConfig,
+  assertWebhookUrl,
+  webhookFetch,
+} from "./egress.js";
+export type { WebhookEgressConfig } from "./egress.js";
+export { sendWebhook, webhookHeaders, RESPONSE_SNIPPET_BYTES } from "./sender.js";
+export type { SendWebhookInput, SendWebhookResult } from "./sender.js";
+export {
+  isWebhookWorkerEnabled,
+  authorizeWebhookScope,
+  getScopedSubscription,
+  parseStoredEventTypes,
+  scopeOf,
+  toPublic as toPublicWebhook,
+  disableSubscription,
+} from "./subscriptions.js";
+export type {
+  WebhookScope,
+  WebhookDisabledReason,
+  WebhookSubscriptionRow,
+  PublicWebhook,
+} from "./subscriptions.js";
