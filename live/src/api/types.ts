@@ -588,6 +588,8 @@ export interface ShareListItem {
   maxViews: number | null
   lastViewedAt: string | null
   revokedAt: string | null
+  /** Null while active, and for links revoked before revokers were recorded. */
+  revokedBy: { userId: string; email: string | null; displayName: string | null } | null
   /** The creator, or an admin of the link's drive. */
   canRevoke: boolean
   appUrl?: string

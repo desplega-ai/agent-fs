@@ -1,5 +1,6 @@
 import { and, count, desc, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { schema } from "../db/index.js";
 import type { OpContext } from "./types.js";
 import { assertPathInsideDrive, normalizePath } from "./paths.js";
@@ -41,6 +42,8 @@ export interface ShareListItem {
   maxViews: number | null;
   lastViewedAt: string | null;
   revokedAt: string | null;
+  /** Who revoked the link. `null` while active, and for links revoked before revokers were recorded. */
+  revokedBy: { userId: string; email: string | null; displayName: string | null } | null;
   /** Whether share-revoke with this id (on `drive.id`) would succeed for the caller. */
   canRevoke: boolean;
   /** Live app link to the shared file or folder, when the server knows the app address. */
@@ -98,6 +101,7 @@ export async function shareList(
   const limit = params.limit ?? SHARE_LIST_DEFAULT_LIMIT;
   const offset = params.offset ?? 0;
   const s = schema.shares;
+  const revoker = alias(schema.users, "revoker");
 
   let path: string | undefined;
   if (params.path !== undefined) {
@@ -171,10 +175,14 @@ export async function shareList(
       creatorName: schema.users.displayName,
       createdAt: s.createdAt,
       revokedAt: s.revokedAt,
+      revokedBy: s.revokedBy,
+      revokerEmail: revoker.email,
+      revokerName: revoker.displayName,
     })
     .from(s)
     .leftJoin(schema.drives, eq(schema.drives.id, s.driveId))
     .leftJoin(schema.users, eq(schema.users.id, s.createdBy))
+    .leftJoin(revoker, eq(revoker.id, s.revokedBy))
     .where(where)
     .orderBy(desc(s.createdAt), desc(s.id))
     .limit(limit)
@@ -201,6 +209,9 @@ export async function shareList(
       maxViews: row.maxViews,
       lastViewedAt: row.lastViewedAt ? row.lastViewedAt.toISOString() : null,
       revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
+      revokedBy: row.revokedBy
+        ? { userId: row.revokedBy, email: row.revokerEmail ?? null, displayName: row.revokerName ?? null }
+        : null,
       // A revoked link has nothing left to revoke.
       canRevoke: status !== "revoked" && (row.createdBy === ctx.userId || admin),
     };

@@ -11,6 +11,8 @@ export interface ShareListOptions {
   scope: "drive" | "mine"
   /** Drive scope only: the file or folder whose links to list. */
   path?: string
+  /** Drive scope only: list this drive instead of the active one. */
+  driveId?: string
   includeInactive: boolean
   /** Lets a caller keep the query off, e.g. while its dialog is closed. */
   enabled?: boolean
@@ -20,8 +22,9 @@ export interface ShareListOptions {
  * Share links for one path or for the caller across the org, newest first,
  * one page of 100 at a time. Off on servers without `share-list`.
  */
-export function useShareList({ scope, path, includeInactive, enabled = true }: ShareListOptions) {
-  const { credential, client, orgId, driveId } = useAuth()
+export function useShareList({ scope, path, driveId: driveOverride, includeInactive, enabled = true }: ShareListOptions) {
+  const { credential, client, orgId, driveId: activeDriveId } = useAuth()
+  const driveId = driveOverride ?? activeDriveId
   const { data: health } = useHealth()
   const supported = !!orgId && !!driveId && supportsShareList(health)
   // The drive only matters for drive scope; the mine scope lists every drive

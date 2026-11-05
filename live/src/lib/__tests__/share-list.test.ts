@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import {
+  auditLines,
   coveringLabel,
-  creatorLabel,
   driveOptions,
   expiryLabel,
   formatWhen,
   lifetimeLabel,
   lifetimeTitle,
+  personLabel,
   shareListQueryPrefix,
   statusLabel,
   supportsShareList,
@@ -58,25 +59,19 @@ describe("expiryLabel", () => {
 describe("lifetimeLabel", () => {
   const now = Date.parse("2026-11-05T12:00:00.000Z")
   const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" })
-  test("revoked shows when, not the expiry it never reached", () => {
-    expect(lifetimeLabel({ status: "revoked", expiresAt: "2026-11-08T12:00:00.000Z", revokedAt: "2026-11-05T11:30:00.000Z" }, now))
-      .toBe(`Revoked ${rtf.format(-30, "minute")}`)
-  })
   test("never, expired and active", () => {
-    expect(lifetimeLabel({ status: "active", expiresAt: null, revokedAt: null }, now)).toBe("Never expires")
-    expect(lifetimeLabel({ status: "expired", expiresAt: "2026-11-05T10:00:00.000Z", revokedAt: null }, now))
+    expect(lifetimeLabel({ status: "active", expiresAt: null }, now)).toBe("Never expires")
+    expect(lifetimeLabel({ status: "expired", expiresAt: "2026-11-05T10:00:00.000Z" }, now))
       .toBe(`Expired ${rtf.format(-2, "hour")}`)
-    expect(lifetimeLabel({ status: "active", expiresAt: "2026-11-06T12:00:00.000Z", revokedAt: null }, now))
+    expect(lifetimeLabel({ status: "active", expiresAt: "2026-11-06T12:00:00.000Z" }, now))
       .toBe(`Expires ${rtf.format(24, "hour")}`)
   })
 })
 
 describe("lifetimeTitle", () => {
-  test("revoked points at revokedAt, never-expiring has none", () => {
-    expect(lifetimeTitle({ status: "revoked", expiresAt: "2026-11-08T12:00:00.000Z", revokedAt: "2026-11-05T11:30:00.000Z" }))
-      .toBe(formatWhen("2026-11-05T11:30:00.000Z"))
-    expect(lifetimeTitle({ status: "active", expiresAt: null, revokedAt: null })).toBeUndefined()
-    expect(lifetimeTitle({ status: "expired", expiresAt: "2026-11-05T10:00:00.000Z", revokedAt: null }))
+  test("the exact expiry, none for a link that never expires", () => {
+    expect(lifetimeTitle({ expiresAt: null })).toBeUndefined()
+    expect(lifetimeTitle({ expiresAt: "2026-11-05T10:00:00.000Z" }))
       .toBe(formatWhen("2026-11-05T10:00:00.000Z"))
   })
 })
@@ -99,11 +94,31 @@ describe("coveringLabel", () => {
   })
 })
 
-describe("creatorLabel", () => {
-  test("prefers the display name, then the email, then a deleted user", () => {
-    expect(creatorLabel({ createdBy: { userId: "u", email: "a@b.c", displayName: "Ana" } })).toBe("Ana")
-    expect(creatorLabel({ createdBy: { userId: "u", email: "a@b.c", displayName: null } })).toBe("a@b.c")
-    expect(creatorLabel({ createdBy: { userId: "u", email: null, displayName: null } })).toBe("a former member")
+describe("personLabel", () => {
+  test("the viewer is you, then the display name, then the email, then a deleted user", () => {
+    expect(personLabel({ userId: "u", email: "a@b.c", displayName: "Ana" }, "u")).toBe("you")
+    expect(personLabel({ userId: "u", email: "a@b.c", displayName: "Ana" }, "me")).toBe("Ana")
+    expect(personLabel({ userId: "u", email: "a@b.c", displayName: null })).toBe("a@b.c")
+    expect(personLabel({ userId: "u", email: null, displayName: null })).toBe("a former member")
+  })
+})
+
+describe("auditLines", () => {
+  const ana = { userId: "ana", email: "ana@x.y", displayName: "Ana" }
+  const bo = { userId: "bo", email: "bo@x.y", displayName: null }
+  const created = "2026-11-05T10:00:00.000Z"
+  const revoked = "2026-11-05T11:30:00.000Z"
+  test("an active link names its creator and local creation time", () => {
+    expect(auditLines({ createdAt: created, createdBy: ana, revokedAt: null, revokedBy: null }, "me"))
+      .toEqual([`Created ${formatWhen(created)} by Ana`])
+  })
+  test("a revoked link names who revoked it and when", () => {
+    expect(auditLines({ createdAt: created, createdBy: ana, revokedAt: revoked, revokedBy: bo }, "ana"))
+      .toEqual([`Created ${formatWhen(created)} by you`, `Revoked ${formatWhen(revoked)} by bo@x.y`])
+  })
+  test("a link revoked before revokers were recorded has no name", () => {
+    expect(auditLines({ createdAt: created, createdBy: ana, revokedAt: revoked, revokedBy: null }, "me")[1])
+      .toBe(`Revoked ${formatWhen(revoked)}`)
   })
 })
 

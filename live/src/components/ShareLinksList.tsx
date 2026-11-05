@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { useAuth } from "@/contexts/auth"
 import { useRevokeShare, useShareList } from "@/hooks/use-share-list"
 import type { ShareListItem } from "@/api/types"
-import { coveringLabel, creatorLabel, formatWhen, lifetimeLabel, lifetimeTitle, statusLabel, viewsLabel } from "@/lib/share-list"
+import { auditLines, coveringLabel, lifetimeLabel, lifetimeTitle, statusLabel, viewsLabel } from "@/lib/share-list"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
@@ -52,24 +52,22 @@ export function ShareLinksList({ path }: { path: string }) {
 function ShareLinkRow({ item }: { item: ShareListItem }) {
   const { user } = useAuth()
   const covering = coveringLabel(item)
-  const mine = user?.userId === item.createdBy.userId
   return (
     <li className="flex items-start gap-2 px-2 py-1.5 text-xs">
       <div className="min-w-0 flex-1 space-y-0.5">
         <div className="flex flex-wrap items-center gap-1">
           <Badge variant="outline">{item.kind === "site" ? "Site" : "File"}</Badge>
           <Badge variant={item.status === "active" ? "secondary" : "destructive"}>{statusLabel(item.status)}</Badge>
-          <span
-            className="text-muted-foreground"
-            title={lifetimeTitle(item)}
-          >
-            {lifetimeLabel(item)}
-          </span>
+          {item.status !== "revoked" && (
+            <span className="text-muted-foreground" title={lifetimeTitle(item)}>
+              {lifetimeLabel(item)}
+            </span>
+          )}
+          <span className="text-muted-foreground">· {viewsLabel(item.views, item.maxViews)}</span>
         </div>
-        <p className="truncate text-muted-foreground">
-          {viewsLabel(item.views, item.maxViews)} · created {formatWhen(item.createdAt)}
-          {!mine && ` by ${creatorLabel(item)}`}
-        </p>
+        {auditLines(item, user?.userId).map((line) => (
+          <p key={line} className="truncate text-muted-foreground">{line}</p>
+        ))}
         {covering && <p className="truncate text-muted-foreground">{covering}</p>}
       </div>
       {item.canRevoke && item.status !== "revoked" && <RevokeButton item={item} />}

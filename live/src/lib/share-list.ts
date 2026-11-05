@@ -42,24 +42,19 @@ export function expiryLabel(expiresAt: string | null, now: number = Date.now()):
   return RELATIVE.format(value, unit)
 }
 
-/** The one lifetime fact worth showing for a link: when it was revoked, or when it expires or expired. */
-export function lifetimeLabel(
-  item: Pick<ShareListItem, "status" | "expiresAt" | "revokedAt">,
-  now: number = Date.now(),
-): string {
-  if (item.status === "revoked" && item.revokedAt) return `Revoked ${expiryLabel(item.revokedAt, now)}`
+/** When a link expires or expired. Revoked rows show `auditLines` instead: the expiry they never reached says nothing. */
+export function lifetimeLabel(item: Pick<ShareListItem, "status" | "expiresAt">, now: number = Date.now()): string {
   if (item.expiresAt === null) return "Never expires"
   const when = expiryLabel(item.expiresAt, now)
   return item.status === "expired" ? `Expired ${when}` : `Expires ${when}`
 }
 
 /** Tooltip for `lifetimeLabel`: the exact time behind the relative one, if there is one. */
-export function lifetimeTitle(item: Pick<ShareListItem, "status" | "expiresAt" | "revokedAt">): string | undefined {
-  const iso = item.status === "revoked" && item.revokedAt ? item.revokedAt : item.expiresAt
-  return iso ? formatWhen(iso) : undefined
+export function lifetimeTitle(item: Pick<ShareListItem, "expiresAt">): string | undefined {
+  return item.expiresAt ? formatWhen(item.expiresAt) : undefined
 }
 
-/** Local date and time for a tooltip or a table cell. */
+/** Local date and time (the viewer's timezone) for a tooltip or an audit line. */
 export function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
 }
@@ -75,9 +70,28 @@ export function coveringLabel(item: Pick<ShareListItem, "relation" | "path">): s
   return `Shared via folder ${item.path === "/" ? "/ (whole drive)" : item.path}`
 }
 
-/** Who made the link, for rows that are not the caller's own. */
-export function creatorLabel(item: Pick<ShareListItem, "createdBy">): string {
-  return item.createdBy.displayName || item.createdBy.email || "a former member"
+type Person = ShareListItem["createdBy"]
+
+/** "you" for the viewer, otherwise their name or email. */
+export function personLabel(person: Person, viewerId?: string): string {
+  if (person.userId === viewerId) return "you"
+  return person.displayName || person.email || "a former member"
+}
+
+/**
+ * Audit trail of a link: who created it and when, and who revoked it and when.
+ * Links revoked before revokers were recorded read "Revoked <time>" with no name.
+ */
+export function auditLines(
+  item: Pick<ShareListItem, "createdAt" | "createdBy" | "revokedAt" | "revokedBy">,
+  viewerId?: string,
+): string[] {
+  const lines = [`Created ${formatWhen(item.createdAt)} by ${personLabel(item.createdBy, viewerId)}`]
+  if (item.revokedAt) {
+    const by = item.revokedBy ? ` by ${personLabel(item.revokedBy, viewerId)}` : ""
+    lines.push(`Revoked ${formatWhen(item.revokedAt)}${by}`)
+  }
+  return lines
 }
 
 /** Drive names of the loaded rows, for the drive filter on the global page. */

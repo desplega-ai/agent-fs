@@ -9,6 +9,8 @@ interface Link {
   status: Status
   createdBy: string
   expiresAt: string | null
+  /** Unset on a revoked link models one revoked before revokers were recorded. */
+  revokedBy?: string
 }
 
 const DRIVES: Record<string, string> = { drive: "QA", other: "Research" }
@@ -35,6 +37,8 @@ async function installFixture(page: Page, features = ["share-links", "share-no-e
     let json: unknown
     if (url.pathname === "/auth/me") json = { userId: ME, email: "qa@example.test", displayName: "QA", defaultOrgId: "org", defaultDriveId: "drive" }
     else if (url.pathname === "/orgs") json = { orgs: [{ id: "org", name: "QA" }] }
+    // The caller admins the "drive" drive only.
+    else if (url.pathname.endsWith("/drives") && url.searchParams.get("scope") === "manageable") json = { drives: [{ id: "drive", name: DRIVES.drive, isDefault: true, myRole: "admin" }] }
     else if (url.pathname.endsWith("/drives")) json = { drives: Object.entries(DRIVES).map(([id, name]) => ({ id, name, orgId: "org" })) }
     else if (url.pathname === "/health") json = { ok: true, version: "test", features }
     else if (url.pathname.endsWith("/ops")) {
@@ -77,6 +81,7 @@ async function installFixture(page: Page, features = ["share-links", "share-no-e
               maxViews: null,
               lastViewedAt: null,
               revokedAt: l.status === "revoked" ? "2026-11-05T11:00:00.000Z" : null,
+              revokedBy: l.revokedBy ? { userId: l.revokedBy, email: `${l.revokedBy}@example.test`, displayName: l.revokedBy === ME ? "QA" : "Bo" } : null,
               canRevoke: true,
             }))
           json = { shares: rows, total: rows.length, limit: 100, offset: 0, scope: body.scope ?? "drive", visibility: body.scope === "mine" ? "own" : "all" }
@@ -85,7 +90,7 @@ async function installFixture(page: Page, features = ["share-links", "share-no-e
         case "share-revoke": {
           calls.push(`revoke ${body.driveId} ${body.id}`)
           const link = links.find((l) => l.id === body.id && l.driveId === body.driveId && l.status === "active")
-          if (link) link.status = "revoked"
+          if (link) Object.assign(link, { status: "revoked", revokedBy: ME })
           json = { revoked: link ? 1 : 0, ids: link ? [link.id] : [] }
           break
         }
@@ -112,6 +117,9 @@ async function openShareDialog(page: Page) {
   return page.getByRole("dialog")
 }
 
+// Fixed locale and zone so the audit times are exact: 10:00Z renders as 11:00 AM in Madrid (CET).
+test.use({ locale: "en-US", timezoneId: "Europe/Madrid" })
+
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 844 })
 })
@@ -124,7 +132,8 @@ test("the share dialog lists exact and covering links and revokes one", async ({
   await expect(list.getByText("Existing links (3)")).toBeVisible()
   await expect(list.getByText("Shared via folder /docs")).toBeVisible()
   await expect(list.getByText("Never expires")).toBeVisible()
-  await expect(list.getByText(/by Bo/)).toBeVisible()
+  await expect(list.getByText("Created Nov 5, 2026, 11:00 AM by Bo")).toBeVisible()
+  await expect(list.getByText("Created Nov 5, 2026, 11:00 AM by you").first()).toBeVisible()
   expect(calls).toContain("list drive drive /docs/a.md")
 
   await list.getByRole("button", { name: "Revoke link" }).first().click()
@@ -135,8 +144,37 @@ test("the share dialog lists exact and covering links and revokes one", async ({
   // The revoked link is still there under "Show inactive".
   await list.getByRole("switch").click()
   await expect(list.getByText("Revoked", { exact: true })).toBeVisible()
-  // A revoked row says when it was revoked, not the expiry it never reached.
-  await expect(list.getByText(/^Revoked .+/)).toBeVisible()
+  // A revoked row says who revoked it and when, not the expiry it never reached.
+  await expect(list.getByText("Revoked Nov 5, 2026, 12:00 PM by you")).toBeVisible()
+  await expect(list.getByText(/^Expires /)).toHaveCount(1)
+})
+
+test("a drive admin lists every member's links with who created and who revoked each", async ({ page }) => {
+  const { links, calls } = await installFixture(page)
+  seed(links)
+  links.push(
+    { id: "bo-revoked", driveId: "drive", path: "/docs/b.md", kind: "file", status: "revoked", createdBy: "bo", expiresAt: null, revokedBy: ME },
+    { id: "legacy", driveId: "drive", path: "/docs/c.md", kind: "file", status: "revoked", createdBy: "bo", expiresAt: null },
+  )
+  await page.goto("/shares/~/org/drive")
+  const list = page.getByRole("list", { name: "Shared links" })
+  await expect(list.getByRole("listitem")).toHaveCount(3)
+  await expect(list.getByText(/by Bo/)).toHaveCount(0)
+
+  await page.getByRole("switch").click()
+  await expect(page.getByText("Links every member created in this drive.")).toBeVisible()
+  await expect(list.getByRole("listitem")).toHaveCount(3)
+  expect(calls).toContain("list drive drive")
+  await expect(list.getByRole("listitem").filter({ hasText: "/paper.md" })).toHaveCount(0)
+  await expect(list.getByText("Created Nov 5, 2026, 11:00 AM by Bo")).toBeVisible()
+
+  await page.getByRole("radio", { name: "All" }).or(page.getByRole("button", { name: "All", exact: true })).first().click()
+  await expect(list.getByRole("listitem")).toHaveCount(5)
+  const boRow = list.getByRole("listitem").filter({ hasText: "/docs/b.md" })
+  await expect(boRow.getByText("Created Nov 5, 2026, 11:00 AM by Bo")).toBeVisible()
+  await expect(boRow.getByText("Revoked Nov 5, 2026, 12:00 PM by you")).toBeVisible()
+  // Revoked before revokers were recorded: the time, no name.
+  await expect(list.getByRole("listitem").filter({ hasText: "/docs/c.md" }).getByText("Revoked Nov 5, 2026, 12:00 PM", { exact: true })).toBeVisible()
 })
 
 test("creating a link adds it to the dialog list", async ({ page }) => {

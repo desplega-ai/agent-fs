@@ -122,6 +122,15 @@ describe("share-list authorization", () => {
     expect(r.shares.every((s) => s.canRevoke)).toBe(true);
   });
 
+  test("names the drive admin who revoked someone else's link, not the creator", async () => {
+    const a = await share(as(users.creator), "/a/b.md");
+    await dispatchOp(as(users.driveAdmin), "share-revoke", { id: a.id });
+    const row = (await list(as(users.creator), { includeInactive: true })).shares[0];
+    expect(row.createdBy.userId).toBe(users.creator);
+    expect(row.revokedBy).toEqual({ userId: users.driveAdmin, email: "drive-admin@example.com", displayName: null });
+    expect(row.revokedAt).not.toBeNull();
+  });
+
   test("an org admin who is a drive member sees every link; without membership the call is refused", async () => {
     const a = await share(as(users.creator), "/a/b.md");
     const r = await list(as(users.orgAdmin));
@@ -262,7 +271,9 @@ describe("share-list status", () => {
     });
     const revokedRow = all.shares.find((x) => x.id === s.revoked.id)!;
     expect(revokedRow.revokedAt).not.toBeNull();
+    expect(revokedRow.revokedBy).toMatchObject({ userId: t.userId });
     expect(revokedRow.canRevoke).toBe(false);
+    expect(all.shares.find((x) => x.id === s.active.id)!.revokedBy).toBeNull();
     expect(all.shares.find((x) => x.id === s.exhausted.id)!).toMatchObject({ views: 2, maxViews: 2 });
   });
 
@@ -288,7 +299,7 @@ describe("share-list status", () => {
 describe("share-list never exposes the link", () => {
   const KEYS = [
     "canRevoke", "createdAt", "createdBy", "drive", "expiresAt", "id", "kind", "lastViewedAt",
-    "maxViews", "path", "revokedAt", "status", "views",
+    "maxViews", "path", "revokedAt", "revokedBy", "status", "views",
   ];
 
   test("returns exactly the documented fields and no token, hash or URL", async () => {

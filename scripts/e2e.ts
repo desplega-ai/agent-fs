@@ -1066,12 +1066,14 @@ async function runShareListTests(shareBase: string) {
     assert(runJson(`--drive ${otherDriveId} share-revoke ${created.other.id}`).revoked, 1);
   });
 
-  await test("a revoked link leaves the default list and shows as revoked with --include-inactive", () => {
+  await test("a revoked link leaves the default list and shows as revoked, and by whom, with --include-inactive", () => {
+    assert(byId(listed("/sl-e2e/a.md"), created.file.id)?.revokedBy, null);
     assert(runJson(`share-revoke ${created.file.id}`).revoked, 1);
     assert(byId(listed("/sl-e2e/a.md"), created.file.id), undefined);
     const row = byId(listed("/sl-e2e/a.md --include-inactive"), created.file.id);
     assert(row?.status, "revoked");
     assert(typeof row.revokedAt, "string");
+    assert(row.revokedBy?.userId, row.createdBy.userId);
   });
 
   await test("share-list rejects a path with --mine", () => {

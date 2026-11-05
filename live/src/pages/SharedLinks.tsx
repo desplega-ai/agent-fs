@@ -4,12 +4,14 @@ import { FileText, Folder, Link2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { useShareList } from "@/hooks/use-share-list"
+import { useManageableDrives } from "@/hooks/use-org-members"
 import type { ShareListItem } from "@/api/types"
-import { driveOptions, formatWhen, lifetimeLabel, lifetimeTitle, statusLabel, viewsLabel } from "@/lib/share-list"
+import { auditLines, driveOptions, lifetimeLabel, lifetimeTitle, statusLabel, viewsLabel } from "@/lib/share-list"
 import { RevokeButton } from "@/components/ShareLinksList"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 const ALL_DRIVES = "all"
@@ -18,15 +20,30 @@ const ALL_DRIVES = "all"
  * Every link the signed-in user created in this org's drives, with a revoke
  * on each. The drive in the URL only satisfies the server's membership check;
  * the list spans every drive of the org the user is on.
+ *
+ * Drive admins get a switch to list every member's links instead, one drive
+ * at a time (share-list scope "drive" on the picked drive).
  */
 export function SharedLinksPage() {
   useDocumentTitle("Shared links")
-  const { orgId } = useAuth()
+  const { orgId, driveId: activeDriveId, user } = useAuth()
   const [includeInactive, setIncludeInactive] = useState(false)
   const [drive, setDrive] = useState(ALL_DRIVES)
-  const list = useShareList({ scope: "mine", includeInactive })
-  const drives = useMemo(() => driveOptions(list.shares), [list.shares])
-  const rows = drive === ALL_DRIVES ? list.shares : list.shares.filter((s) => s.drive.id === drive)
+  const [everyMember, setEveryMember] = useState(false)
+  // Drives where share-list answers with every member's links: drive admin,
+  // or org admin who is also on the drive (myRole null means not on it).
+  const { data: manageable } = useManageableDrives(orgId)
+  const adminDrives = useMemo(() => (manageable?.drives ?? []).filter((d) => d.myRole !== null), [manageable])
+  const adminDriveId = adminDrives.some((d) => d.id === drive)
+    ? drive
+    : (adminDrives.find((d) => d.id === activeDriveId) ?? adminDrives[0])?.id
+  const allMembers = everyMember && adminDriveId !== undefined
+  const list = useShareList(
+    allMembers ? { scope: "drive", driveId: adminDriveId, includeInactive } : { scope: "mine", includeInactive },
+  )
+  const loadedDrives = useMemo(() => driveOptions(list.shares), [list.shares])
+  const drives = allMembers ? adminDrives : loadedDrives
+  const rows = allMembers || drive === ALL_DRIVES ? list.shares : list.shares.filter((s) => s.drive.id === drive)
 
   let body: React.ReactNode
   if (!list.supported) {
@@ -38,9 +55,11 @@ export function SharedLinksPage() {
   } else if (rows.length === 0) {
     body = (
       <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-        {includeInactive
-          ? "You have no shared links in this organization."
-          : "You have no active shared links in this organization."}
+        {allMembers
+          ? includeInactive ? "No member has shared links in this drive." : "No member has active shared links in this drive."
+          : includeInactive
+            ? "You have no shared links in this organization."
+            : "You have no active shared links in this organization."}
       </p>
     )
   } else {
@@ -48,7 +67,7 @@ export function SharedLinksPage() {
       <>
         <ul aria-label="Shared links" className="divide-y divide-border rounded-lg border border-border">
           {rows.map((item) => (
-            <SharedLinkRow key={item.id} item={item} orgId={orgId!} />
+            <SharedLinkRow key={item.id} item={item} orgId={orgId!} viewerId={user?.userId} />
           ))}
         </ul>
         {list.hasMore && (
@@ -71,7 +90,8 @@ export function SharedLinksPage() {
             <h1 className="text-lg font-semibold">Shared links</h1>
           </div>
           <p className="text-sm text-muted-foreground">
-            Links you created in this organization's drives. A link is shown only once, when you create it, so this list cannot copy it again.
+            {allMembers ? "Links every member created in this drive." : "Links you created in this organization's drives."}{" "}
+            A link is shown only once, when it is created, so this list cannot copy it again.
           </p>
         </header>
 
@@ -86,14 +106,20 @@ export function SharedLinksPage() {
               <ToggleGroupItem value="active" className="h-7 w-auto px-2.5 text-xs">Active</ToggleGroupItem>
               <ToggleGroupItem value="all" className="h-7 w-auto px-2.5 text-xs">All</ToggleGroupItem>
             </ToggleGroup>
-            {drives.length > 1 && (
+            {adminDrives.length > 0 && (
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Switch size="sm" checked={everyMember} onCheckedChange={setEveryMember} />
+                Every member's links
+              </label>
+            )}
+            {(allMembers || drives.length > 1) && (
               <select
                 aria-label="Drive"
-                value={drive}
+                value={allMembers ? adminDriveId : drive}
                 onChange={(e) => setDrive(e.target.value)}
                 className="h-7 rounded-md border border-border bg-background px-2 text-xs"
               >
-                <option value={ALL_DRIVES}>All drives</option>
+                {!allMembers && <option value={ALL_DRIVES}>All drives</option>}
                 {drives.map((d) => (
                   <option key={d.id} value={d.id}>{d.name}</option>
                 ))}
@@ -113,7 +139,7 @@ export function SharedLinksPage() {
   )
 }
 
-function SharedLinkRow({ item, orgId }: { item: ShareListItem; orgId: string }) {
+function SharedLinkRow({ item, orgId, viewerId }: { item: ShareListItem; orgId: string; viewerId?: string }) {
   const Icon = item.kind === "site" ? Folder : FileText
   const target = `/file/~/${orgId}/${item.drive.id}/${item.path.replace(/^\/+/, "")}`
   return (
@@ -129,15 +155,18 @@ function SharedLinkRow({ item, orgId }: { item: ShareListItem; orgId: string }) 
         </div>
         <p className="text-xs text-muted-foreground">
           <span>{item.drive.name ?? item.drive.id}</span>
-          {" · "}
-          <span title={lifetimeTitle(item)}>
-            {lifetimeLabel(item)}
-          </span>
+          {item.status !== "revoked" && (
+            <>
+              {" · "}
+              <span title={lifetimeTitle(item)}>{lifetimeLabel(item)}</span>
+            </>
+          )}
           {" · "}
           {viewsLabel(item.views, item.maxViews)}
-          {" · "}
-          created {formatWhen(item.createdAt)}
         </p>
+        {auditLines(item, viewerId).map((line) => (
+          <p key={line} className="text-xs text-muted-foreground">{line}</p>
+        ))}
       </div>
       {item.canRevoke && item.status !== "revoked" && (
         <RevokeButton item={item} label={`link to ${item.path}`} />
