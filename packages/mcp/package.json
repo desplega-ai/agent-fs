@@ -1,6 +1,6 @@
 {
   "name": "@desplega.ai/agent-fs-mcp",
-  "version": "0.18.19",
+  "version": "0.18.20",
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
