@@ -395,7 +395,7 @@ export function generateOpenAPISpec() {
         post: {
           summary: "Reset a member's API key (org admin only)",
           description:
-            "Org admins can rotate a member's API key on their behalf, e.g. to recover a locked-out user. The old key stops working immediately. Org-scoped keys get 403 here, because the new primary key reaches the whole account. Records an api_key_reset audit event with the admin as actor.",
+            "For another member, mints a new API key scoped to this org (it reaches only /orgs/{orgId}/...) and revokes the member's other keys scoped to it; their primary key and their own unscoped keys keep working. For the caller's own userId, rotates the caller's primary key like POST /auth/reset-key. Org-scoped keys get 403 here. Records an api_key_reset audit event with the admin as actor.",
           operationId: "resetMemberApiKey",
           tags: ["Auth"],
           parameters: [
@@ -425,6 +425,8 @@ export function generateOpenAPISpec() {
                       apiKey: { type: "string" },
                       userId: { type: "string" },
                       email: { type: "string" },
+                      keyId: { type: "string", description: "Id of the new org-scoped key (another member only)" },
+                      orgId: { type: "string", description: "Org the new key is limited to (another member only)" },
                     },
                     required: ["apiKey", "userId", "email"],
                   },

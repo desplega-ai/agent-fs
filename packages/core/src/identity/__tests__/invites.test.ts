@@ -11,6 +11,7 @@ import { createDrive, setDriveMember } from "../drives.js";
 import { getUserDriveRole, getUserOrgRole } from "../rbac.js";
 import {
   acceptInvite,
+  createPendingInvite,
   getInvitePreview,
   hashInviteToken,
   inviteAcceptUrl,
@@ -253,19 +254,52 @@ describe("pending invites", () => {
     expect(result.skippedDrives).toEqual([t.ledgerId]);
   });
 
-  test("a direct add after registering revokes the pending invite", () => {
+  test("an existing account gets a pending invite and joins only by accepting", () => {
+    const t = setup("pend-existing");
+    const userId = createUser(db, { email: "pend-existing-user@example.com" }).user.id;
+    const invite = invitePending(t, "pend-existing-user@example.com");
+    expect(getUserOrgRole(db, userId, t.orgId)).toBeNull();
+    expect(getUserDriveRole(db, userId, t.workId)).toBeNull();
+
+    acceptInvite(db, { token: invite.token, userId });
+    expect(getUserOrgRole(db, userId, t.orgId)).toBe("viewer");
+    expect(getUserDriveRole(db, userId, t.workId)).toBe("editor");
+  });
+
+  test("inviting after the person registers replaces the earlier link", () => {
     const t = setup("pend-direct");
-    const invite = invitePending(t, "pend-direct-new@example.com");
+    const first = invitePending(t, "pend-direct-new@example.com");
     createUser(db, { email: "pend-direct-new@example.com" });
+    const second = invitePending(t, "pend-direct-new@example.com");
+    expect(inviteRow(first.inviteId).revokedAt).not.toBeNull();
+    expect(inviteRow(second.inviteId).revokedAt).toBeNull();
+  });
+
+  test("inviting someone already in the org adds the grants at once and revokes an open link", () => {
+    const t = setup("pend-member");
+    const userId = createUser(db, { email: "pend-member-user@example.com" }).user.id;
+    const first = invitePending(t, "pend-member-user@example.com", []);
+    acceptInvite(db, { token: first.token, userId });
+    // An open link can still exist for a member, e.g. one created before they joined.
+    const open = createPendingInvite(db, {
+      orgId: t.orgId,
+      email: "pend-member-user@example.com",
+      role: "viewer",
+      drives: [],
+      invitedBy: t.adminId,
+    });
 
     const result = inviteToOrg(db, {
       orgId: t.orgId,
-      email: "pend-direct-new@example.com",
-      role: "viewer",
+      email: "pend-member-user@example.com",
+      role: "editor",
+      drives: [{ driveId: t.ledgerId, role: "editor" }],
       invitedBy: t.adminId,
     });
     expect(result.status).toBe("added");
-    expect(inviteRow(invite.inviteId).revokedAt).not.toBeNull();
+    expect(getUserOrgRole(db, userId, t.orgId)).toBe("editor");
+    expect(getUserDriveRole(db, userId, t.ledgerId)).toBe("editor");
+    expect(inviteRow(open.inviteId).revokedAt).not.toBeNull();
   });
 });
 

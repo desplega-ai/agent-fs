@@ -62,6 +62,9 @@ describe("Favorites API", () => {
       body: JSON.stringify({ email: "fav-bob@example.com", role: "viewer" }),
     });
     expect(invite.status).toBe(200);
+    const { token } = await invite.json();
+    const accept = await keyReq(bobKey, `/invites/${token}/accept`, { method: "POST" });
+    expect(accept.status).toBe(200);
     const drives = await keyReq(aliceKey, `/orgs/${orgId}/drives`);
     driveId = (await drives.json()).drives.find((d: any) => d.isDefault).id;
 

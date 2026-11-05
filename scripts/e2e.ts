@@ -3020,9 +3020,21 @@ async function runStandardTests(daemonUrl: string) {
   // Switch to second org (non-personal) for invite/remove tests
   run(`org switch ${secondOrgId}`);
 
-  await test("member invite to second org", () => {
+  // Inviting an existing account is pending until they accept: accept as them.
+  const acceptAs = (inviteOut: string, apiKey: string) => {
+    const link = inviteOut.split("Send them: ")[1].split("\n")[0].trim();
+    return runWithEnv(`invite accept ${link}`, { AGENT_FS_API_KEY: apiKey });
+  };
+
+  await test("member invite to second org: an existing account joins only by accepting", () => {
     const out = run("member invite user2@e2e.local --role editor");
-    assertIncludes(out, "Invited user2@e2e.local as editor");
+    assertIncludes(out, "Pending: user2@e2e.local joins once they accept. Send them: ");
+    assert(
+      runJson("member list").some((m: any) => m.email === "user2@e2e.local"),
+      false,
+      "An existing account must not join before accepting"
+    );
+    assertIncludes(acceptAs(out, user2ApiKey), "as editor");
   });
 
   await test("member list shows invited user", () => {
@@ -3098,8 +3110,9 @@ async function runStandardTests(daemonUrl: string) {
     workDriveId = JSON.parse(run("drive create e2e-work")).id;
     ledgerDriveId = JSON.parse(run("drive create e2e-ledger")).id;
     const out = run("member invite USER2@e2e.local --role viewer --to e2e-work:editor");
-    assertIncludes(out, "Invited USER2@e2e.local as viewer");
+    assertIncludes(out, "Pending: USER2@e2e.local joins once they accept");
     assertIncludes(out, `drive e2e-work (${workDriveId})  [editor]`);
+    acceptAs(out, user2ApiKey);
     const work = runJson(`--drive ${workDriveId} member list`);
     assert(work.find((m: any) => m.email === "user2@e2e.local")?.role, "editor");
     const def = runJson(`--drive ${secondDriveId} member list`);
@@ -3154,12 +3167,14 @@ async function runStandardTests(daemonUrl: string) {
     run("member remove user2@e2e.local");
     const out = run("--drive e2e-ledger drive invite user2@e2e.local --role viewer");
     assertIncludes(out, `drive e2e-ledger (${ledgerDriveId})  [viewer]`);
+    acceptAs(out, user2ApiKey);
     const drives = runJsonWithEnv(`--org ${secondOrgId} drive list`, user2Env()).drives;
     assert(drives.map((d: any) => d.name).join(","), "e2e-ledger");
     run("member remove user2@e2e.local");
   });
 
   await test("case-variant accounts: exact email wins, an ambiguous casing is rejected", async () => {
+    const keys: Record<string, string> = {};
     for (const email of ["Twin@e2e.local", "twin@e2e.local"]) {
       const res = await fetch(`${daemonUrl}/auth/register`, {
         method: "POST",
@@ -3167,18 +3182,20 @@ async function runStandardTests(daemonUrl: string) {
         body: JSON.stringify({ email }),
       });
       assert(res.ok, true, `Expected 200 registering ${email}, got ${res.status}`);
+      keys[email] = ((await res.json()) as any).apiKey;
     }
     const twins = () => runJson("member list").filter((m: any) => m.email.toLowerCase() === "twin@e2e.local");
     expectCliError(() => run("member invite TWIN@e2e.local --role admin"), "accounts match");
     assert(twins().length, 0, "Ambiguous invite must write nothing");
-    run("member invite twin@e2e.local --role viewer --to e2e-work:viewer");
+    const out = run("member invite twin@e2e.local --role viewer --to e2e-work:viewer");
+    // The exact-match twin accepts; the other twin's key is refused.
+    expectCliError(
+      () => runWithEnv(`invite accept ${out.split("Send them: ")[1].split("\n")[0].trim()}`, { AGENT_FS_API_KEY: keys["Twin@e2e.local"] }),
+      "This invite is for twin@e2e.local"
+    );
+    acceptAs(out, keys["twin@e2e.local"]);
     assert(twins().map((m: any) => m.email).join(","), "twin@e2e.local");
-    run("member invite Twin@e2e.local --role viewer --to e2e-work:viewer");
-    expectCliError(() => run(`--drive ${ledgerDriveId} member add TWIN@e2e.local --role admin`), "accounts match");
-    const ledger = runJson(`--drive ${ledgerDriveId} member list`);
-    assert(ledger.some((m: any) => m.email.toLowerCase() === "twin@e2e.local"), false, "Ambiguous add must write nothing");
     run("member remove twin@e2e.local");
-    run("member remove Twin@e2e.local");
   });
 
   // -- Pending invites: emails without an account --
@@ -3196,7 +3213,7 @@ async function runStandardTests(daemonUrl: string) {
 
   await test("member invite to an unknown email prints an accept link", () => {
     const out = run("member invite Pending@e2e.local --role viewer --to e2e-work:editor --to e2e-ledger:viewer");
-    assertIncludes(out, "Pending: Pending@e2e.local has no account yet. Send them: ");
+    assertIncludes(out, "Pending: Pending@e2e.local joins once they accept. Send them: ");
     assertIncludes(out, `drive e2e-work (${workDriveId})  [editor]`);
     pendingLink = out.split("Send them: ")[1].split("\n")[0].trim();
     // The token rides in the fragment: it never reaches the live host in an HTTP request.
@@ -3263,9 +3280,12 @@ async function runStandardTests(daemonUrl: string) {
       false,
       "Revoked and expired invites must not join the org"
     );
-    // A direct invite now that the account exists supersedes the stale invite.
-    run("member invite expired@e2e.local --role viewer --to e2e-work:viewer");
-    assert(runJson("member invites").length, 0, "Direct add revokes the open invite");
+    // Inviting again now that the account exists replaces the stale invite with a fresh link.
+    const again = run("member invite expired@e2e.local --role viewer --to e2e-work:viewer");
+    assertIncludes(again, "Pending: expired@e2e.local joins once they accept");
+    assert(runJson("member invites").length, 1, "The new invite replaces the expired one");
+    acceptAs(again, expiredKey);
+    assert(runJson("member invites").length, 0, "Accepting clears the pending list");
     run("member remove expired@e2e.local");
   });
 
@@ -3319,7 +3339,7 @@ async function runStandardTests(daemonUrl: string) {
     assert(newRes.status, 200, `Expected new key to work (200), got ${newRes.status}`);
   });
 
-  await test("admin reset: member reset-key rotates an invited member's key", async () => {
+  await test("admin reset: member reset-key gives an org-scoped key and keeps the member's own key", async () => {
     // Personal orgs disallow member removal entirely, so this runs against
     // the second (shared) org used by the invite/remove tests above.
     run(`org switch ${secondOrgId}`);
@@ -3333,11 +3353,11 @@ async function runStandardTests(daemonUrl: string) {
     const memberData = (await regRes.json()) as any;
     const oldMemberKey = memberData.apiKey;
 
-    run("member invite reset-member@e2e.local --role viewer");
+    acceptAs(run("member invite reset-member@e2e.local --role viewer"), oldMemberKey);
 
     const out = run("member reset-key reset-member@e2e.local");
     assertIncludes(out, "New API key for reset-member@e2e.local:");
-    assertIncludes(out, "old key is now invalid");
+    assertIncludes(out, "It reaches only this org");
     const match = out.match(/New API key for reset-member@e2e\.local: (af_[0-9a-f]{64})/);
     assert(!!match, true, `Expected printed key to match af_[0-9a-f]{64}, got: ${out}`);
     const newMemberKey = match![1];
@@ -3345,12 +3365,16 @@ async function runStandardTests(daemonUrl: string) {
     const oldRes = await fetch(`${daemonUrl}/auth/me`, {
       headers: { Authorization: `Bearer ${oldMemberKey}` },
     });
-    assert(oldRes.status, 401, `Expected old member key to be invalidated (401), got ${oldRes.status}`);
+    assert(oldRes.status, 200, `Expected the member's own key to keep working (200), got ${oldRes.status}`);
 
-    const newRes = await fetch(`${daemonUrl}/auth/me`, {
+    const newRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/drives`, {
       headers: { Authorization: `Bearer ${newMemberKey}` },
     });
-    assert(newRes.status, 200, `Expected new member key to work (200), got ${newRes.status}`);
+    assert(newRes.status, 200, `Expected new member key to work in the org (200), got ${newRes.status}`);
+    const personalRes = await fetch(`${daemonUrl}/orgs/${memberData.orgId}/drives`, {
+      headers: { Authorization: `Bearer ${newMemberKey}` },
+    });
+    assert(personalRes.status, 403, `Expected new key to stop at the org (403), got ${personalRes.status}`);
 
     // Clean up, then switch back to the personal org for the tests that follow.
     run("member remove reset-member@e2e.local");
@@ -3713,6 +3737,10 @@ async function runStandardTests(daemonUrl: string) {
       body: JSON.stringify({ email: "user3@e2e.local", role: "viewer" }),
     });
     assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const { status, token } = (await res.json()) as any;
+    assert(status, "pending", "An existing account joins only by accepting");
+    const accept = await fetch(`${daemonUrl}/invites/${token}/accept`, { method: "POST", headers: authed(user3ApiKey) });
+    assert(accept.status, 200, `Expected accept 200, got ${accept.status}`);
   });
 
   await test("drive-members works for viewers over HTTP and CLI without roles", async () => {

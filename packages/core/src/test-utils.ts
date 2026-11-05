@@ -8,9 +8,10 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import * as sqliteVec from "sqlite-vec";
 import * as schema from "./db/schema.js";
 import { CREATE_TABLES_SQL, VIRTUAL_TABLE_SQL } from "./db/raw.js";
-import { createUser } from "./identity/users.js";
+import { createUser, resolveUserByEmail } from "./identity/users.js";
 import { listUserOrgs } from "./identity/orgs.js";
 import { listDrives } from "./identity/drives.js";
+import { acceptInvite, getInviteByToken } from "./identity/invites.js";
 import type { DB } from "./db/index.js";
 import type { OpContext } from "./ops/types.js";
 import type {
@@ -316,4 +317,17 @@ export function createTestConfigDir(): { dir: string; cleanup: () => void } {
   };
 
   return { dir, cleanup };
+}
+
+/**
+ * Accept a pending invite as the account its email resolves to, as the
+ * invitee would with their own key. For tests whose subject is not the invite
+ * flow itself but that need the invitee in the org.
+ */
+export function acceptInviteAsInvitee(db: DB, token: string) {
+  const invite = getInviteByToken(db, token);
+  if (!invite) throw new Error("acceptInviteAsInvitee: no open invite for this token");
+  const lookup = resolveUserByEmail(db, invite.email);
+  if (lookup.kind !== "found") throw new Error(`acceptInviteAsInvitee: no single account for ${invite.email}`);
+  return acceptInvite(db, { token, userId: lookup.user.id });
 }

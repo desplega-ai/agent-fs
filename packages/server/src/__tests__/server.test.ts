@@ -1,16 +1,30 @@
 import { describe, test, expect, beforeAll } from "bun:test";
-import { createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
+import { acceptInviteAsInvitee, createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
+import { inviteToOrg } from "@/core";
+import type { DB } from "@/core";
 import { createApp } from "../app.js";
 
+let db: DB;
 let app: ReturnType<typeof createApp>;
 let apiKey: string;
 let orgId: string;
 
 beforeAll(() => {
-  const db = createTestDb();
+  db = createTestDb();
   const s3 = new MockS3Client();
   app = createApp(db, s3 as any);
 });
+
+/**
+ * Inviting an existing account creates a pending invite. For tests that need
+ * the invitee in the org, accept it as them and hand back the invite response.
+ */
+async function withAccept(res: Response | Promise<Response>): Promise<Response> {
+  const response = await res;
+  const body = await response.clone().json();
+  if (body.status === "pending" && body.token) acceptInviteAsInvitee(db, body.token);
+  return response;
+}
 
 function req(path: string, opts?: RequestInit) {
   return app.request(path, opts);
@@ -235,10 +249,10 @@ describe("Error handling", () => {
     });
 
     // Invite viewer to org
-    await authJsonPost(`/orgs/${orgId}/members/invite`, {
+    await withAccept(authJsonPost(`/orgs/${orgId}/members/invite`, {
       email: "viewer@example.com",
       role: "viewer",
-    });
+    }));
 
     // Viewer tries to write
     const writeRes = await app.request(`/orgs/${orgId}/ops`, {
@@ -323,10 +337,10 @@ describe("Multi-tenant RBAC", () => {
       ["rbac-editor@example.com", "editor"],
       ["rbac-removable@example.com", "viewer"],
     ] as const) {
-      const res = await keyReq(ownerKey, `/orgs/${tenantOrgId}/members/invite`, {
+      const res = await withAccept(keyReq(ownerKey, `/orgs/${tenantOrgId}/members/invite`, {
         method: "POST",
         body: JSON.stringify({ email, role }),
-      });
+      }));
       expect(res.status).toBe(200);
     }
 
@@ -576,11 +590,11 @@ describe("Multi-tenant RBAC", () => {
     expect(orgMembers.some((m: any) => m.userId === invitee.userId)).toBe(false);
 
     // Case-insensitive email, grants only the listed drive.
-    const inviteRes = await post(ownerKey, `/orgs/${tenantOrgId}/members/invite`, {
+    const inviteRes = await withAccept(post(ownerKey, `/orgs/${tenantOrgId}/members/invite`, {
       email: " RBAC-Drive-Invitee@example.com ",
       role: "viewer",
       drives: [{ driveId: ledgerId, role: "editor" }],
-    });
+    }));
     expect(inviteRes.status).toBe(200);
     expect((await inviteRes.json()).drives).toEqual([{ driveId: ledgerId, role: "editor" }]);
     const visible = (await (await keyReq(invitee.apiKey, `/orgs/${tenantOrgId}/drives`)).json()).drives;
@@ -658,8 +672,9 @@ describe("Multi-tenant RBAC", () => {
     expect(await orgMemberIds()).not.toEqual(expect.arrayContaining([upper.userId]));
     expect(await orgMemberIds()).not.toEqual(expect.arrayContaining([lower.userId]));
 
-    const exactInvite = await post(ownerKey, invitePath, { email: "rbac-twin@example.com", role: "viewer", drives: [] });
-    expect((await exactInvite.json()).userId).toBe(lower.userId);
+    const exactInvite = await withAccept(post(ownerKey, invitePath, { email: "rbac-twin@example.com", role: "viewer", drives: [] }));
+    expect((await exactInvite.json()).status).toBe("pending");
+    expect(await orgMemberIds()).toEqual(expect.arrayContaining([lower.userId]));
     expect(await orgMemberIds()).not.toEqual(expect.arrayContaining([upper.userId]));
 
     // One twin in the org: the ambiguous casing is the uniform 404.
@@ -667,7 +682,9 @@ describe("Multi-tenant RBAC", () => {
     expect(hidden.status).toBe(404);
     expect((await hidden.json()).message).toBe("Not a member of this org");
 
-    expect((await post(ownerKey, invitePath, { email: "RBAC-Twin@example.com", role: "viewer", drives: [] })).status).toBe(200);
+    // Invites are stored by lowercased email, so the other twin joins through
+    // the trusted in-process path.
+    inviteToOrg(db, { orgId: tenantOrgId, email: "RBAC-Twin@example.com", role: "viewer", drives: [] });
     const before = await driveMemberIds();
     expect((await post(ownerKey, addPath, { email: "Rbac-Twin@example.com", role: "admin" })).status).toBe(400);
     expect(await driveMemberIds()).toEqual(before);
@@ -731,7 +748,7 @@ describe("Pending invite routes", () => {
     const orgId = (await (await post(admin.apiKey, "/orgs", { name: "pend-org" })).json()).id;
     const workId = (await (await post(admin.apiKey, `/orgs/${orgId}/drives`, { name: "work" })).json()).id;
     const ledgerId = (await (await post(admin.apiKey, `/orgs/${orgId}/drives`, { name: "ledger" })).json()).id;
-    await post(admin.apiKey, `/orgs/${orgId}/members/invite`, { email: "pend-viewer@example.com", role: "viewer" });
+    await withAccept(post(admin.apiKey, `/orgs/${orgId}/members/invite`, { email: "pend-viewer@example.com", role: "viewer" }));
     const invitePath = `/orgs/${orgId}/members/invite`;
     const body = {
       email: "Pend-New@example.com",
@@ -837,11 +854,11 @@ describe("Last drive admin guard", () => {
     const other = await register(`lda-${tag}-other@example.com`);
     const orgId = (await (await post(admin.apiKey, "/orgs", { name: `lda-${tag}` })).json()).id;
     const driveId = (await (await post(admin.apiKey, `/orgs/${orgId}/drives`, { name: "docs" })).json()).id;
-    await post(admin.apiKey, `/orgs/${orgId}/members/invite`, {
+    await withAccept(post(admin.apiKey, `/orgs/${orgId}/members/invite`, {
       email: `lda-${tag}-other@example.com`,
       role: "editor",
       drives: [{ driveId, role: "editor" }],
-    });
+    }));
     const members = async () =>
       (await (await keyReq(admin.apiKey, `/orgs/${orgId}/drives/${driveId}/members`)).json()).members as Array<{
         userId: string;
@@ -945,7 +962,7 @@ describe("API key reset routes", () => {
     expect((await newKeyRes.json()).email).toBe("reset-self@example.com");
   });
 
-  test("admin reset by an org admin returns 200 and invalidates the member's old key", async () => {
+  test("admin reset by an org admin returns an org-scoped key and leaves the member's key working", async () => {
     const admin = await register("reset-admin@example.com");
     const member = await register("reset-member@example.com");
 
@@ -956,10 +973,10 @@ describe("API key reset routes", () => {
     expect(orgRes.status).toBe(201);
     const orgId = (await orgRes.json()).id;
 
-    const inviteRes = await keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
+    const inviteRes = await withAccept(keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
       method: "POST",
       body: JSON.stringify({ email: "reset-member@example.com", role: "viewer" }),
-    });
+    }));
     expect(inviteRes.status).toBe(200);
 
     const resetRes = await keyReq(
@@ -973,8 +990,12 @@ describe("API key reset routes", () => {
     expect(body.userId).toBe(member.userId);
     expect(body.email).toBe("reset-member@example.com");
 
-    expect((await keyReq(member.apiKey, "/auth/me")).status).toBe(401);
-    expect((await keyReq(body.apiKey, "/auth/me")).status).toBe(200);
+    expect(body.orgId).toBe(orgId);
+
+    // The new key is scoped to the org; the member's own key keeps working.
+    expect((await keyReq(member.apiKey, "/auth/me")).status).toBe(200);
+    expect((await keyReq(body.apiKey, `/orgs/${orgId}`)).status).toBe(200);
+    expect((await keyReq(body.apiKey, "/orgs")).status).toBe(403);
   });
 
   test("a non-admin member gets 403 resetting another member's key", async () => {
@@ -989,10 +1010,10 @@ describe("API key reset routes", () => {
     const orgId = (await orgRes.json()).id;
 
     for (const email of ["reset-nonadmin-viewer@example.com", "reset-nonadmin-target@example.com"]) {
-      const res = await keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
+      const res = await withAccept(keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
         method: "POST",
         body: JSON.stringify({ email, role: "viewer" }),
-      });
+      }));
       expect(res.status).toBe(200);
     }
 
@@ -1014,10 +1035,10 @@ describe("API key reset routes", () => {
       body: JSON.stringify({ name: "reset-outside-org" }),
     });
     const orgId = (await orgRes.json()).id;
-    await keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
+    await withAccept(keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
       method: "POST",
       body: JSON.stringify({ email: "reset-outside-target@example.com", role: "viewer" }),
-    });
+    }));
 
     const resetRes = await keyReq(
       outsider.apiKey,

@@ -53,8 +53,9 @@ export function memberCommands(
       "after",
       "\nWithout --to, the user gets the org's default drive with --role." +
         "\nWith --to, the user gets exactly the listed drives and nothing else." +
-        "\nAn email with an account is added at once. An email without one gets a pending invite:" +
-        "\nsend them the printed accept link (valid 7 days). See 'member invites' to list or revoke." +
+        "\nAnyone not yet in the org gets a pending invite, with or without an account: send them the" +
+        "\nprinted accept link (valid 7 days); they join when they accept it. Someone already in the org" +
+        "\nhas the grants applied at once. See 'member invites' to list or revoke." +
         "\n\nExample:\n  agent-fs member invite ana@example.com --role viewer --to context:editor --to ledger"
     )
     .action(async (email: string, opts: { role: string; to?: string[] }) => {
@@ -200,7 +201,13 @@ export function memberCommands(
   cmd
     .command("reset-key")
     .argument("<email>", "User email whose key to reset")
-    .description("Reset a member's API key (org admin only)")
+    .description("Reset a member's API key for this org (org admin only)")
+    .addHelpText(
+      "after",
+      "\nFor another member, the new key is scoped to this org: it reaches only this org and replaces" +
+        "\nthe member's other keys scoped to it. Their own keys keep working. For your own email, the" +
+        "\nprimary key is rotated, as 'auth reset-key' does."
+    )
     .action(async (email: string) => {
       const json = cmd.parent?.opts().json;
       try {
@@ -229,7 +236,12 @@ export function memberCommands(
         if (json) {
           console.log(
             JSON.stringify(
-              { apiKey: result.apiKey, userId: result.userId, email: result.email },
+              {
+                apiKey: result.apiKey,
+                userId: result.userId,
+                email: result.email,
+                ...(result.orgId ? { keyId: result.keyId, orgId: result.orgId } : {}),
+              },
               null,
               2
             )
@@ -237,10 +249,16 @@ export function memberCommands(
           return;
         }
         console.log(`New API key for ${email}: ${result.apiKey}`);
-        console.log("Give this key to the user on a secure channel. The old key is now invalid.");
-        console.log("This key is shown only once and grants full access to the user's account.");
+        console.log("This key is shown only once. Give it to the user on a secure channel.");
         if (isSelf) {
-          console.log("This is your own account — the new key has been saved to your local config.");
+          console.log("Your old key is now invalid. The new key has been saved to your local config.");
+        } else if (result.orgId) {
+          console.log(
+            "It reaches only this org and replaces their earlier keys for it. Their own keys keep working."
+          );
+        } else {
+          // A server older than org-scoped resets rotated the primary key.
+          console.log("The old key is now invalid. This key grants full access to the user's account.");
         }
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
@@ -385,8 +403,8 @@ export function printInviteResult(
   const names = new Map(drives.map((d) => [d.id, d.name]));
   if (result.status === "pending") {
     const link = result.acceptUrl ?? result.token;
-    console.log(`Pending: ${email} has no account yet. Send them: ${link}`);
-    console.log(`  They accept with: agent-fs invite accept ${link}`);
+    console.log(`Pending: ${email} joins once they accept. Send them: ${link}`);
+    console.log(`  They sign in as ${email} (or register it), then run: agent-fs invite accept ${link}`);
     if (result.expiresAt) console.log(`  Expires: ${new Date(result.expiresAt).toISOString()}`);
     console.log(`  Grants once accepted, org role ${role}:`);
   } else {

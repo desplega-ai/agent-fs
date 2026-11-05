@@ -117,6 +117,73 @@ export function createUserApiKey(
   return { id, label, createdAt, apiKey, orgId: params.scopeOrgId ?? null };
 }
 
+export interface OrgKeyResetResult {
+  user: { id: string; email: string };
+  /** Plaintext. Returned once, never stored. */
+  apiKey: string;
+  keyId: string;
+  /** The org the new key is limited to. */
+  orgId: string;
+}
+
+/**
+ * An org admin's reset-key of another member. It revokes the member's keys
+ * scoped to `orgId` and mints one new key scoped to it, created by the admin,
+ * so it lives only as long as the admin's grant (see `revokeGrantedKeys`). The
+ * primary key and every unscoped key stay as they are: an org admin's reach
+ * over a member ends at the org. Records `api_key_reset` (method `admin`).
+ */
+export function resetOrgScopedKey(
+  db: DB,
+  params: { userId: string; actorId: string; orgId: string }
+): OrgKeyResetResult {
+  const user = db
+    .select({ id: schema.users.id, email: schema.users.email })
+    .from(schema.users)
+    .where(eq(schema.users.id, params.userId))
+    .get();
+  if (!user) throw new NotFoundError("User not found", { suggestion: "Check the user id" });
+
+  const id = crypto.randomUUID();
+  const apiKey = generateApiKey();
+  const now = new Date(Math.floor(Date.now() / 1000) * 1000);
+  const k = schema.userApiKeys;
+
+  db.transaction((tx) => {
+    tx.update(k)
+      .set({ revokedAt: now })
+      .where(and(eq(k.userId, params.userId), eq(k.orgId, params.orgId), isNull(k.revokedAt)))
+      .run();
+    tx.insert(k)
+      .values({
+        id,
+        userId: params.userId,
+        keyHash: hashApiKey(apiKey),
+        label: "Reset by an org admin",
+        createdAt: now,
+        createdByUserId: params.actorId,
+        orgId: params.orgId,
+      })
+      .run();
+    tx.insert(schema.events)
+      .values({
+        id: crypto.randomUUID(),
+        orgId: params.orgId,
+        type: "api_key_reset",
+        resourceType: "user",
+        resourceId: params.userId,
+        actor: params.actorId,
+        target: params.userId,
+        status: "created",
+        metadata: JSON.stringify({ method: "admin", keyId: id, scopeOrgId: params.orgId }),
+        createdAt: now,
+      })
+      .run();
+  });
+
+  return { user, apiKey, keyId: id, orgId: params.orgId };
+}
+
 /** Active keys of `userId`, primary first. Never returns hashes or plaintext. */
 export function listUserApiKeys(db: DB, userId: string): ApiKeyInfo[] {
   const user = db
