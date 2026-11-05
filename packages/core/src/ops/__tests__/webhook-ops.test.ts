@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { Server } from "bun";
 import { eq } from "drizzle-orm";
 import { ZodError } from "zod";
@@ -140,6 +140,22 @@ function deliveryRows(db: DB, subscriptionId?: string) {
 }
 
 describe("webhook ops", () => {
+  test("webhook-list keeps creation order when hooks share a createdAt millisecond", async () => {
+    const { ctx } = fixture();
+    // Freeze the clock so every hook gets the same createdAt; ids are random UUIDs.
+    setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    try {
+      const ids: string[] = [];
+      for (let i = 0; i < 8; i++) {
+        ids.push((await op<Created>(ctx, "webhook-create", { url: URL_A, eventTypes: ["comment.created"] })).id);
+      }
+      const { webhooks } = await op<{ webhooks: PublicWebhook[] }>(ctx, "webhook-list", {});
+      expect(webhooks.map((w) => w.id)).toEqual(ids);
+    } finally {
+      setSystemTime();
+    }
+  });
+
   test("create, list, update, test and delete round-trip", async () => {
     const { ctx, db, driveId } = fixture();
 

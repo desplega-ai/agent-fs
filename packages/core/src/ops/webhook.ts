@@ -6,7 +6,7 @@
 // org admin (org hooks) through authorizeWebhookScope / getScopedSubscription
 // (getScopedDelivery for a delivery, on its hook's scope).
 
-import { and, asc, count, desc, eq, isNull, lt, lte, ne, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { EditConflictError, ValidationError } from "../errors.js";
@@ -195,12 +195,15 @@ export async function webhookList(
     includeOrg = getUserOrgRole(ctx.db, ctx.userId, ctx.orgId) === "admin";
   }
 
+  // Ids are random UUIDs, so hooks created in the same millisecond would list in
+  // random order; rowid breaks the tie in insertion order.
+  const order = [asc(subs.createdAt), asc(sql`rowid`)] as const;
   const rows: WebhookSubscriptionRow[] = [];
   if (includeOrg) {
     rows.push(
       ...ctx.db.select().from(subs)
         .where(and(eq(subs.orgId, ctx.orgId), isNull(subs.driveId)))
-        .orderBy(asc(subs.createdAt), asc(subs.id))
+        .orderBy(...order)
         .all()
     );
   }
@@ -208,7 +211,7 @@ export async function webhookList(
     rows.push(
       ...ctx.db.select().from(subs)
         .where(and(eq(subs.orgId, ctx.orgId), eq(subs.driveId, ctx.driveId)))
-        .orderBy(asc(subs.createdAt), asc(subs.id))
+        .orderBy(...order)
         .all()
     );
   }
