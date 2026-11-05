@@ -61,6 +61,8 @@ const OP_ROLES: Record<string, Role> = {
   "webhook-update": "viewer",
   "webhook-delete": "viewer",
   "webhook-test": "viewer",
+  "webhook-deliveries": "viewer",
+  "webhook-redeliver": "viewer",
 };
 
 export function getRequiredRole(opName: string): Role {

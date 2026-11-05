@@ -1,7 +1,9 @@
 // Copied from desplega-ai/agent-swarm src/utils/egress-guard.ts @ 2858e0940.
-// Changes: matchesAllowlist is exported, and the error messages say
+// Changes: matchesAllowlist is exported, the error messages say
 // "Webhook egress refused" and name the AGENT_FS_WEBHOOK_* env vars instead of
-// the script-egress ones. No logic change. agent-fs policy lives in egress.ts.
+// the script-egress ones, and isBlockedIPv6Bytes also refuses Teredo
+// (2001::/32) and SIIT IPv4-translated (::ffff:0:0:0/96) addresses. agent-fs
+// policy lives in egress.ts.
 
 import { lookup } from "node:dns/promises";
 
@@ -126,6 +128,15 @@ function isBlockedIPv6Bytes(bytes: Uint8Array): boolean {
     if (bytes[4] === 0 && bytes[5] === 1) return true;
     return isBlockedIPv4Number(embeddedIPv4(bytes, 12));
   }
+  // ::ffff:0:0:0/96 SIIT IPv4-translated (RFC 2765). Bytes 8-9 are 0xffff, so
+  // the ::/96 rule above misses it. A translator in the path would map it to
+  // any IPv4, so the whole range is refused.
+  if (zeroUntil(8) && bytes[8] === 0xff && bytes[9] === 0xff && bytes[10] === 0 && bytes[11] === 0) {
+    return true;
+  }
+  // 2001::/32 Teredo tunnels to an IPv4 client hidden (XORed) in bytes 12-15
+  // through any relay, so the whole range is refused.
+  if (b0 === 0x20 && b1 === 0x01 && bytes[2] === 0 && bytes[3] === 0) return true;
   // 2002::/16 6to4 embeds an IPv4 in bytes 2-5.
   if (b0 === 0x20 && b1 === 0x02) return isBlockedIPv4Number(embeddedIPv4(bytes, 2));
   // 100::/64 discard-only.

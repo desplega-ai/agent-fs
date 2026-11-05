@@ -48,6 +48,10 @@ export const LEASE_MS = 60_000;
 export const BODY_MAX_CHARS = 8_000;
 /** Webhook subscriptions per org, drive and org scope combined. */
 export const MAX_SUBSCRIPTIONS_PER_ORG = 25;
+/** Delivered and failed rows older than this are pruned; pending rows never are. */
+export const DELIVERY_RETENTION_MS = 30 * 86_400_000;
+/** How often the worker prunes the delivery log. */
+export const PRUNE_INTERVAL_MS = 3_600_000;
 
 /**
  * The retry schedule in effect. `AGENT_FS_WEBHOOK_RETRY_SCHEDULE_MS` (a comma

@@ -1,20 +1,31 @@
-// webhook-create / -list / -update / -delete / -test.
+// webhook-create / -list / -update / -delete / -test / -deliveries /
+// -redeliver.
 //
 // RBAC: the dispatcher maps these ops to "viewer" (drive membership). Each
 // handler then enforces drive admin (drive hooks; an org admin passes too) or
-// org admin (org hooks) through authorizeWebhookScope / getScopedSubscription.
+// org admin (org hooks) through authorizeWebhookScope / getScopedSubscription
+// (getScopedDelivery for a delivery, on its hook's scope).
 
-import { and, asc, count, eq, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, lt, lte, ne, or } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
-import { ValidationError } from "../errors.js";
+import { EditConflictError, ValidationError } from "../errors.js";
 import { getUserOrgRole, requireDriveAdmin } from "../identity/rbac.js";
 import type { OpContext } from "./types.js";
 import { decryptSecret, encryptSecret } from "../webhooks/crypto/secrets-cipher.js";
 import { getWebhookSecretKey } from "../webhooks/crypto/key.js";
+import {
+  DEFAULT_DELIVERIES_LIMIT,
+  decodeDeliveriesCursor,
+  encodeDeliveriesCursor,
+  getScopedDelivery,
+  toPublicDelivery,
+  type PublicDelivery,
+  type WebhookDeliveryStatus,
+} from "../webhooks/deliveries.js";
 import { assertWebhookUrl } from "../webhooks/egress.js";
 import { MAX_SUBSCRIPTIONS_PER_ORG, type WebhookEventType } from "../webhooks/events.js";
-import type { WebhookEnvelope } from "../webhooks/outbox.js";
+import { notifyWebhooksEnqueued, type WebhookEnvelope } from "../webhooks/outbox.js";
 import { sendWebhook, type SendWebhookInput } from "../webhooks/sender.js";
 import { generateWebhookSecret } from "../webhooks/signature.js";
 import {
@@ -50,6 +61,18 @@ export interface WebhookUpdateParams {
 
 export interface WebhookIdParams {
   id: string;
+}
+
+export interface WebhookDeliveriesParams {
+  id: string;
+  status?: WebhookDeliveryStatus;
+  limit?: number;
+  cursor?: string;
+  includePayload?: boolean;
+}
+
+export interface WebhookRedeliverParams {
+  deliveryId: string;
 }
 
 /** Data of the `ping` envelope `webhook-test` sends. */
@@ -241,4 +264,86 @@ export async function webhookTest(
     ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
   });
   return { ...result, webhookId };
+}
+
+/**
+ * A hook's deliveries, newest first, without the payload unless
+ * `includePayload` is set. Page with `nextCursor` (null on the last page).
+ */
+export async function webhookDeliveries(
+  ctx: OpContext,
+  params: WebhookDeliveriesParams
+): Promise<{ deliveries: PublicDelivery[]; nextCursor: string | null }> {
+  const sub = getScopedSubscription(ctx, params.id);
+  const d = schema.webhookDeliveries;
+  const limit = params.limit ?? DEFAULT_DELIVERIES_LIMIT;
+  const conditions = [eq(d.subscriptionId, sub.id)];
+  if (params.status) conditions.push(eq(d.status, params.status));
+  if (params.cursor !== undefined) {
+    const after = decodeDeliveriesCursor(params.cursor);
+    const at = new Date(after.createdAt);
+    conditions.push(or(lt(d.createdAt, at), and(eq(d.createdAt, at), lt(d.id, after.id)))!);
+  }
+  // One extra row tells whether another page exists.
+  const rows = ctx.db
+    .select()
+    .from(d)
+    .where(and(...conditions))
+    .orderBy(desc(d.createdAt), desc(d.id))
+    .limit(limit + 1)
+    .all();
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return {
+    deliveries: page.map((row) => toPublicDelivery(row, params.includePayload ?? false)),
+    nextCursor: rows.length > limit && last ? encodeDeliveriesCursor(last) : null,
+  };
+}
+
+/**
+ * Queue a delivery to be sent again now: status 'pending', next_attempt_at
+ * now, lease cleared. `attempts` is kept as history, so a row past the retry
+ * schedule gets this one attempt and no further retries. Refused while the
+ * hook is disabled (re-enable it first) and while the row is being sent.
+ */
+export async function webhookRedeliver(
+  ctx: OpContext,
+  params: WebhookRedeliverParams
+): Promise<PublicDelivery> {
+  const d = schema.webhookDeliveries;
+  // One transaction: a disable or a worker claim cannot land between the
+  // checks and the write.
+  const row = ctx.db.transaction(() => {
+    const { delivery, subscription } = getScopedDelivery(ctx, params.deliveryId);
+    if (!subscription.enabled) {
+      throw new ValidationError(
+        `Webhook ${subscription.id} is disabled (${subscription.disabledReason ?? "manual"}); its deliveries cannot be redelivered`,
+        {
+          field: "deliveryId",
+          suggestion: `Re-enable it first: webhook update ${subscription.id} --enable`,
+        }
+      );
+    }
+    const now = new Date();
+    const [updated] = ctx.db
+      .update(d)
+      .set({ status: "pending", nextAttemptAt: now, leaseUntil: null })
+      .where(
+        and(
+          eq(d.id, delivery.id),
+          // A pending row under a live lease is being sent right now.
+          or(ne(d.status, "pending"), isNull(d.leaseUntil), lte(d.leaseUntil, now))
+        )
+      )
+      .returning()
+      .all();
+    if (!updated) {
+      throw new EditConflictError(`Webhook delivery ${delivery.id} is being sent right now`, {
+        suggestion: "Wait for the attempt to finish, then check webhook-deliveries",
+      });
+    }
+    return updated;
+  });
+  notifyWebhooksEnqueued();
+  return toPublicDelivery(row);
 }

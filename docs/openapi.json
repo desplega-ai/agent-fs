@@ -3469,41 +3469,69 @@
                   },
                   {
                     "type": "object",
-                    "title": "share-list",
-                    "description": "List share links without revealing them: the link itself is shown only once, by share-create, and is never listed. scope \"drive\" (default) lists links in the active drive; drive admins see every member's links, everyone else only their own. With path, it returns the links on that file or folder plus folder (site) links on any parent folder that also publish it (relation \"exact\" or \"covering\"). scope \"mine\" lists your own links in every drive of this org you are a member of (one org, never across orgs; path not allowed). Active links only unless includeInactive is true. Newest first; limit (default 100, max 500) and offset page through total. Returns { shares, total, limit, offset, scope, visibility } where each share has id, drive { id, name }, path, kind (file/site), relation, status (active/expired/exhausted/revoked), createdAt, createdBy { userId, email, displayName }, expiresAt (null = never expires), views, maxViews, lastViewedAt, revokedAt, canRevoke, and appUrl when configured. Revoke a link with share-revoke and its id, on the drive in drive.id.",
+                    "title": "webhook-deliveries",
+                    "description": "List a webhook's delivery log, newest first: status (pending, delivered, failed), attempts, next attempt, last status code and error. Omits each delivery's payload unless includePayload is true (it is then the exact JSON body that was signed and sent). Delivered and failed rows are pruned after 30 days. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { deliveries, nextCursor }; pass nextCursor back as cursor for the next page (null on the last page).",
                     "required": [
-                      "op"
+                      "op",
+                      "id"
                     ],
                     "properties": {
                       "op": {
                         "type": "string",
-                        "const": "share-list"
+                        "const": "webhook-deliveries"
                       },
                       "driveId": {
                         "type": "string",
                         "description": "Target drive ID (optional, uses default drive)"
                       },
-                      "scope": {
+                      "id": {
+                        "type": "string",
+                        "description": "Webhook id."
+                      },
+                      "status": {
                         "type": "string",
                         "enum": [
-                          "drive",
-                          "mine"
+                          "pending",
+                          "delivered",
+                          "failed"
                         ]
-                      },
-                      "path": {
-                        "type": "string"
-                      },
-                      "includeInactive": {
-                        "type": "boolean"
                       },
                       "limit": {
                         "type": "integer",
                         "minimum": 1,
-                        "maximum": 500
+                        "maximum": 200,
+                        "description": "Page size, default 50."
                       },
-                      "offset": {
-                        "type": "integer",
-                        "minimum": 0
+                      "cursor": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "description": "nextCursor from the previous page."
+                      },
+                      "includePayload": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-redeliver",
+                    "description": "Queue one delivery to be sent again now with the same webhook-id and body: sets it pending, due now, and keeps its attempt count (a row past the retry schedule gets this one attempt, no further retries). Refused while the webhook is disabled (re-enable it with webhook-update enabled=true first) and while the delivery is being sent. Needs the same role as the webhook. Sent by the delivery worker (AGENT_FS_WEBHOOK_WORKER). Returns the delivery.",
+                    "required": [
+                      "op",
+                      "deliveryId"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-redeliver"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "deliveryId": {
+                        "type": "string"
                       }
                     },
                     "additionalProperties": false

@@ -13,6 +13,7 @@ describe("getRequiredRole", () => {
   // drive admin / org admin itself (see ops/__tests__/webhook-ops.test.ts).
   const handlerAuthorizedOps = [
     "webhook-create", "webhook-list", "webhook-update", "webhook-delete", "webhook-test",
+    "webhook-deliveries", "webhook-redeliver",
   ];
 
   test.each(viewerOps)("%s requires viewer", (op) => {

@@ -50,8 +50,11 @@ import {
   webhookUpdate,
   webhookDelete,
   webhookTest,
+  webhookDeliveries,
+  webhookRedeliver,
 } from "./webhook.js";
 import { WEBHOOK_EVENT_TYPES } from "../webhooks/events.js";
+import { MAX_DELIVERIES_LIMIT } from "../webhooks/deliveries.js";
 
 export interface OpDefinition {
   description: string;
@@ -460,6 +463,24 @@ const opRegistry: Record<string, OpDefinition> = {
       offset: z.number().int().min(0).optional(),
     }),
   },
+  "webhook-deliveries": {
+    description: "List a webhook's delivery log, newest first: status (pending, delivered, failed), attempts, next attempt, last status code and error. Omits each delivery's payload unless includePayload is true (it is then the exact JSON body that was signed and sent). Delivered and failed rows are pruned after 30 days. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { deliveries, nextCursor }; pass nextCursor back as cursor for the next page (null on the last page).",
+    handler: webhookDeliveries,
+    schema: z.object({
+      id: z.string().describe("Webhook id."),
+      status: z.enum(["pending", "delivered", "failed"]).optional(),
+      limit: z.number().int().min(1).max(MAX_DELIVERIES_LIMIT).optional().describe("Page size, default 50."),
+      cursor: z.string().max(512).optional().describe("nextCursor from the previous page."),
+      includePayload: z.boolean().optional(),
+    }),
+  },
+  "webhook-redeliver": {
+    description: "Queue one delivery to be sent again now with the same webhook-id and body: sets it pending, due now, and keeps its attempt count (a row past the retry schedule gets this one attempt, no further retries). Refused while the webhook is disabled (re-enable it with webhook-update enabled=true first) and while the delivery is being sent. Needs the same role as the webhook. Sent by the delivery worker (AGENT_FS_WEBHOOK_WORKER). Returns the delivery.",
+    handler: webhookRedeliver,
+    schema: z.object({
+      deliveryId: z.string(),
+    }),
+  },
 };
 
 export async function dispatchOp(
@@ -508,6 +529,6 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, find, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList, webhookCreate, webhookList, webhookUpdate, webhookDelete, webhookTest };
+export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, find, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList, webhookCreate, webhookList, webhookUpdate, webhookDelete, webhookTest, webhookDeliveries, webhookRedeliver };
 export { shareList };
 export type * from "./types.js";

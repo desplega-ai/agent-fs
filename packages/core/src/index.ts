@@ -71,6 +71,8 @@ export {
   webhookUpdate,
   webhookDelete,
   webhookTest,
+  webhookDeliveries,
+  webhookRedeliver,
 } from "./ops/index.js";
 export {
   getS3Key,

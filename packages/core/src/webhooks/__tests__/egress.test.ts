@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { ValidationError } from "../../errors.js";
 import { assertWebhookUrl, webhookEgressConfig, webhookFetch } from "../egress.js";
-import { EgressDeniedError } from "../egress-guard.js";
+import { EgressDeniedError, isPrivateAddress } from "../egress-guard.js";
 
 // DNS is injected: names resolve through this table, nothing leaves the box.
 const DNS: Record<string, string[]> = {
@@ -9,7 +9,16 @@ const DNS: Record<string, string[]> = {
   "rebind.example.com": ["10.1.2.3"],
   "mixed.example.com": ["93.184.216.34", "192.168.1.10"],
   receiver: ["172.18.0.2"],
+  "v6.example.com": ["2606:4700:4700::1111"],
+  "teredo.example.com": ["2001:0:4136:e378:8000:63bf:3fff:fdd2"],
+  "siit.example.com": ["::ffff:0:8.8.8.8"],
 };
+
+// Teredo (2001::/32) tunnels to an IPv4 client; SIIT (::ffff:0:a.b.c.d,
+// RFC 2765) is translated to an IPv4. Both are refused whatever they embed.
+const TEREDO = "2001:0:4136:e378:8000:63bf:3fff:fdd2";
+const SIIT_PUBLIC = "::ffff:0:8.8.8.8";
+const SIIT_LOOPBACK = "::ffff:0:127.0.0.1";
 const resolve = async (host: string): Promise<string[]> => {
   const answer = DNS[host];
   if (!answer) throw new Error(`ENOTFOUND ${host}`);
@@ -106,6 +115,55 @@ describe("assertWebhookUrl", () => {
     await refusal("file:///etc/passwd");
     await refusal("not a url");
     await refusal(`https://hooks.example.com/${"a".repeat(2048)}`);
+  });
+});
+
+describe("Teredo and SIIT targets", () => {
+  test.each([TEREDO, "2001::1", SIIT_PUBLIC, SIIT_LOOPBACK, "::ffff:0:808:808"])(
+    "isPrivateAddress(%s) is true",
+    (address) => {
+      expect(isPrivateAddress(address)).toBe(true);
+    }
+  );
+
+  // Controls: a public address next to each range stays reachable.
+  test.each(["2001:4860:4860::8888", "2001:1::1", "2606:4700:4700::1111", "::ffff:8.8.8.8", "::ffff:1:808:808"])(
+    "isPrivateAddress(%s) is false",
+    (address) => {
+      expect(isPrivateAddress(address)).toBe(false);
+    }
+  );
+
+  test("create time refuses a Teredo or SIIT literal and a name resolving to one", async () => {
+    await refusal(`https://[${TEREDO}]/hook`);
+    await refusal(`https://[${SIIT_PUBLIC}]/hook`);
+    await refusal(`https://[${SIIT_LOOPBACK}]/hook`);
+    await refusal("https://teredo.example.com/hook");
+    await refusal("https://siit.example.com/hook");
+    // Control: a name resolving to a public IPv6 is accepted.
+    await assertWebhookUrl("https://v6.example.com/hook", { env: {}, resolve });
+  });
+
+  test("send time refuses a Teredo or SIIT target before any request is made", async () => {
+    const calls: string[] = [];
+    const baseFetch = (async (input: string | URL | Request) => {
+      calls.push(input instanceof Request ? input.url : String(input));
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+    const guarded = webhookFetch({ env: {}, baseFetch, resolve });
+    for (const url of [
+      "https://teredo.example.com/af",
+      "https://siit.example.com/af",
+      `https://[${TEREDO}]/af`,
+      `https://[${SIIT_LOOPBACK}]/af`,
+    ]) {
+      await expect(guarded(url, { method: "POST", body: "{}" })).rejects.toBeInstanceOf(EgressDeniedError);
+    }
+    expect(calls).toEqual([]);
+    // Control: the same fetch reaches a public IPv6 target.
+    const res = await guarded("https://v6.example.com/af", { method: "POST", body: "{}" });
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
   });
 });
 

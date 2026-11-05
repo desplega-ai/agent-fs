@@ -5106,6 +5106,61 @@ async function webhookSuite() {
       assert(hitsFor("/gone").length, before, "a gone hook got a request");
     });
 
+    /** stderr of a CLI call that must fail (exit non-zero). */
+    const cliError = async (args: string, key = b.apiKey): Promise<string> => {
+      try {
+        await cliAs(key, args);
+      } catch (e: any) {
+        return String(e?.stderr ?? e?.message ?? e).trim();
+      }
+      throw new Error(`expected \`${args}\` to fail`);
+    };
+
+    await test("[webhooks] webhook deliveries shows the 410 row without its payload, and with --payload", async () => {
+      const { deliveries, nextCursor } = await wh(`webhook deliveries ${gone.id} --status failed`);
+      assert(deliveries.length, 1, `Expected the one failed 410 row: ${JSON.stringify(deliveries)}`);
+      assert(nextCursor, null);
+      const row = deliveries[0];
+      assert(row.lastStatusCode, 410);
+      assert(row.attempts, 1);
+      assert("payload" in row, false, "payload must be omitted by default");
+      const full = (await wh(`webhook deliveries ${gone.id} --status failed --payload`)).deliveries[0];
+      const first = hitsFor("/gone").find((h) => h.id === row.eventId)!;
+      assert(first.status, 410, "Expected the receiver's first hit for this event to be the 410");
+      assert(full.payload, first.body, "--payload must be the exact body that was sent");
+    });
+
+    await test("[webhooks] a non-admin gets the hook's own denial on deliveries and redeliver", async () => {
+      const row = (await wh(`webhook deliveries ${gone.id} --status failed`)).deliveries[0];
+      const onHook = await cliError(`webhook update ${gone.id} --description x`, keys[U2]);
+      assert(/permission|PERMISSION_DENIED|admin/i.test(onHook), true, `Expected a permission error, got: ${onHook}`);
+      assert(await cliError(`webhook deliveries ${gone.id}`, keys[U2]), onHook, "deliveries denial differs from the hook's");
+      assert(await cliError(`webhook redeliver ${row.id}`, keys[U2]), onHook, "redeliver denial differs from the hook's");
+    });
+
+    await test("[webhooks] webhook redeliver is refused while the hook is disabled, then resends the failed 410 row after --enable", async () => {
+      const row = (await wh(`webhook deliveries ${gone.id} --status failed`)).deliveries[0];
+      const refused = await cliError(`webhook redeliver ${row.id}`);
+      assert(refused.includes("disabled"), true, `Expected a disabled refusal, got: ${refused}`);
+      assert(query("SELECT status FROM webhook_deliveries WHERE id = ?", row.id)[0].status, "failed", "a refused redeliver changed the row");
+
+      assert((await wh(`webhook update ${gone.id} --enable`)).enabled, true);
+      const queued = await wh(`webhook redeliver ${row.id}`);
+      assert(queued.status, "pending");
+      assert(queued.attempts, 1, "redeliver must keep the attempt count");
+      const resent = await waitFor(
+        () => hitsFor("/gone").find((h) => h.id === row.eventId && h.status === 200),
+        "the redelivered request",
+      );
+      assert(resent.valid, true, resent.error);
+      assert(resent.body, hitsFor("/gone").find((h) => h.id === row.eventId)!.body, "redelivery must send the same body");
+      const after = await waitFor(() => {
+        const r = query("SELECT status, attempts FROM webhook_deliveries WHERE id = ?", row.id)[0];
+        return r?.status === "delivered" ? r : null;
+      }, "the redelivered row to be delivered");
+      assert(after.attempts, 2);
+    });
+
     await test("[webhooks] webhook update --enable and --rotate-secret, then delete removes the hooks", async () => {
       const enabled = await wh(`webhook update ${gone.id} --enable`);
       assert(enabled.enabled, true);

@@ -10,6 +10,7 @@ description: >-
   "update role", "reset api key", "rotate api key", "lost my api key",
   "watch drive changes", "stream file changes", "star this file",
   "add to favorites", "my favorites", "webhook", "notify me when mentioned",
+  "webhook deliveries", "redeliver a webhook", "why did my webhook fail",
   "notify on comments", "send comment events to slack", "verify webhook signature", file
   persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
@@ -280,10 +281,13 @@ A webhook sends a signed HTTP POST (Standard Webhooks headers) to a URL when a c
 | `webhook update` | `agent-fs webhook update <id> [--url <url>] [--event <type>]... [--description <text>] [--enable\|--disable] [--rotate-secret]` | Drive hook: drive admin or org admin. Org hook: org admin | Change a hook. `--event` replaces the list. `--enable` resets the failure state. `--rotate-secret` prints a new secret once; the old one stops working at once. |
 | `webhook delete` | `agent-fs webhook delete <id>` | Drive hook: drive admin or org admin. Org hook: org admin | Delete a hook and its deliveries. |
 | `webhook test` | `agent-fs webhook test <id>` | Drive hook: drive admin or org admin. Org hook: org admin | Send a signed `ping` now and print `{ ok, statusCode, error, durationMs }`. Exits 1 unless the receiver answers 2xx. Works with the worker off. |
+| `webhook deliveries` | `agent-fs webhook deliveries <id> [--status pending\|delivered\|failed] [--limit <n>] [--cursor <cursor>] [--payload]` | Same as the hook | List the hook's deliveries newest first: `status`, `attempts`, `nextAttemptAt`, `lastStatusCode`, `lastError`. `--payload` adds the exact JSON body sent. Page with `nextCursor`. |
+| `webhook redeliver` | `agent-fs webhook redeliver <delivery-id>` | Same as the hook | Send one delivery again now with the same `webhook-id` and body. Keeps the attempt count. Refused while the hook is disabled: run `webhook update <id> --enable` first. |
 
 - The URL must be public `https://`. Private, loopback and link-local targets are refused unless the server lists the host in `AGENT_FS_WEBHOOK_ALLOWED_HOSTS`. Redirects are not followed, so give the final URL.
 - Nothing is sent unless the server runs with `AGENT_FS_WEBHOOK_WORKER=true`; `workerEnabled: false` in a response means events only queue.
 - Delivery is at least once: dedupe on the `webhook-id` header. Failures retry for about 28 hours. A `410` answer, or 5 days of failures, disables the hook.
+- Delivered and failed deliveries are pruned 30 days after creation; pending ones are kept.
 - An org hook sees comments in every drive of the org. A drive hook is managed from its own drive (`--drive <id>`).
 
 ### Favorites
@@ -502,6 +506,10 @@ agent-fs comment add docs/spec.md --body "Can you check this?" --mention ben@exa
 # Check the hook's state; re-enable it after a 410 or a failing streak
 agent-fs webhook list
 agent-fs webhook update <webhook-id> --enable
+
+# See why deliveries failed, then send a failed one again
+agent-fs webhook deliveries <webhook-id> --status failed
+agent-fs webhook redeliver <delivery-id>
 ```
 
 Verify each request in the receiver with the `standardwebhooks` npm package:

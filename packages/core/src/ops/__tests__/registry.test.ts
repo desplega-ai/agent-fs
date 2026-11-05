@@ -11,11 +11,12 @@ describe("Op Registry", () => {
     "drive-members",
     "favorite-add", "favorite-remove", "favorite-list",
     "webhook-create", "webhook-list", "webhook-update", "webhook-delete", "webhook-test",
+    "webhook-deliveries", "webhook-redeliver",
   ];
 
-  test("getRegisteredOps returns all 45 ops", () => {
+  test("getRegisteredOps returns all 47 ops", () => {
     const ops = getRegisteredOps();
-    expect(ops.length).toBe(45);
+    expect(ops.length).toBe(47);
     for (const op of expectedOps) {
       expect(ops).toContain(op);
     }
