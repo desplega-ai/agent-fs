@@ -134,7 +134,9 @@ test("the share dialog lists exact and covering links and revokes one", async ({
 
   // The revoked link is still there under "Show inactive".
   await list.getByRole("switch").click()
-  await expect(list.getByText("Revoked")).toBeVisible()
+  await expect(list.getByText("Revoked", { exact: true })).toBeVisible()
+  // A revoked row says when it was revoked, not the expiry it never reached.
+  await expect(list.getByText(/^Revoked .+/)).toBeVisible()
 })
 
 test("creating a link adds it to the dialog list", async ({ page }) => {
@@ -169,7 +171,7 @@ test("the Shared links page lists links from every drive and revokes on the link
 
   await page.getByRole("radio", { name: "All" }).or(page.getByRole("button", { name: "All", exact: true })).first().click()
   await expect(list.getByRole("listitem")).toHaveCount(3)
-  await expect(list.getByRole("listitem").filter({ hasText: "/paper.md" }).getByText("Revoked")).toBeVisible()
+  await expect(list.getByRole("listitem").filter({ hasText: "/paper.md" }).getByText("Revoked", { exact: true })).toBeVisible()
 
   // Drive filter narrows the loaded rows.
   await page.getByRole("combobox", { name: "Drive" }).selectOption({ label: "Research" })
