@@ -17,6 +17,10 @@ import {
   migrationCpuShare,
   startVectorSearchWorker,
   startServerTelemetry,
+  isWebhookWorkerEnabled,
+  startWebhookWorker,
+  stopWebhookWorker,
+  countEnabledWebhookSubscriptions,
 } from "@/core";
 import type { Database } from "bun:sqlite";
 import type { EmbeddingProvider } from "@/core";
@@ -143,6 +147,27 @@ if (provider && embeddingMigration) {
 // Opt out with ANONYMIZED_TELEMETRY=false or DO_NOT_TRACK=1 (docs/telemetry.md).
 const stopTelemetry = startServerTelemetry(sqlite);
 
+// Outbound webhooks. The worker runs only where AGENT_FS_WEBHOOK_WORKER is
+// set (exactly one process per database). Deliveries wait in SQLite until it
+// runs, so a restart loses nothing. An invalid AGENT_FS_WEBHOOK_ALLOWED_HOSTS
+// stops the boot here rather than leaving hooks silently undelivered.
+if (isWebhookWorkerEnabled(process.env)) {
+  try {
+    startWebhookWorker(db);
+  } catch (err) {
+    console.error("webhook worker failed to start:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  }
+  console.log("webhook worker running");
+} else {
+  const subscriptions = countEnabledWebhookSubscriptions(db);
+  if (subscriptions > 0) {
+    console.warn(
+      `webhook worker disabled (AGENT_FS_WEBHOOK_WORKER unset): ${subscriptions} subscriptions will not deliver`,
+    );
+  }
+}
+
 // Event-loop lag watchdog. A synchronous operation that blocks the loop
 // (the prod wedge: /health dead for minutes while the process sits at
 // ~7% CPU) delays this timer along with everything else — when the loop
@@ -195,6 +220,8 @@ async function shutdown() {
   console.log("Shutting down...");
   server.stop();
   if (ipcServer) ipcServer.stop();
+  // A send cut short keeps its row pending, so the next start resends it.
+  await Promise.race([stopWebhookWorker().catch(() => {}), Bun.sleep(2000)]);
   await stopTelemetry().catch(() => {});
   process.exit(0);
 }

@@ -339,9 +339,9 @@ function ResultView({
       ) : (
         <div className="space-y-3">
           <div role="status" className="space-y-1">
-            <p className="text-sm font-medium">{outcome.email} has no account yet</p>
+            <p className="text-sm font-medium">Invite ready for {outcome.email}</p>
             <p className="text-sm text-muted-foreground">
-              Send them this link. It gives access to {granted} once they accept, and works once.
+              Send them this link. They join and get {granted} once they accept it, and it works once.
             </p>
           </div>
           <CopyLinkField link={outcome.link} label="Accept link" />

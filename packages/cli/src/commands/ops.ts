@@ -70,7 +70,7 @@ const OP_COMMANDS: OpCommandDef[] = [
     name: "share-create",
     args: [{ name: "path", required: true }],
     options: [
-      { flag: "--expires-in <seconds>", description: "Expiry in seconds (default: 86400 = 24h, max: 604800 = 7d)" },
+      { flag: "--expires-in <seconds|never>", description: "Expiry in seconds (default: 86400 = 24h, max: 604800 = 7d), or never: no time limit (share-revoke and --max-views still end the link)" },
       { flag: "--max-views <n>", description: "Limit how many times the page can be opened" },
       { flag: "--one-off", description: "Single-use link (same as --max-views 1)" },
     ],
@@ -86,6 +86,16 @@ const OP_COMMANDS: OpCommandDef[] = [
   { name: "favorite-add", args: [{ name: "path", required: true }], options: [] },
   { name: "favorite-remove", args: [{ name: "path", required: true }], options: [] },
   { name: "favorite-list", args: [], options: [] },
+  {
+    name: "share-list",
+    args: [{ name: "path", required: false }],
+    options: [
+      { flag: "--mine", description: "Your own links across every drive of this org you are a member of" },
+      { flag: "--include-inactive", description: "Also list revoked, expired and used-up links" },
+      { flag: "--limit <n>", description: "Max links to return (default 100, max 500)" },
+      { flag: "--offset <n>", description: "Skip this many links (for paging)" },
+    ],
+  },
 ];
 
 export function registerOpCommands(
@@ -178,13 +188,18 @@ export function registerOpCommands(
       }
 
       if (params["expires-in"] !== undefined) {
-        params.expiresIn = params["expires-in"];
+        params.expiresIn = def.name === "share-create" && params["expires-in"] === "never" ? null : params["expires-in"];
         delete params["expires-in"];
       }
       // `--one-off` is sugar for `--max-views 1` (commander camel-cases it).
       if (params.oneOff !== undefined) {
         if (params.oneOff) params.maxViews = 1;
         delete params.oneOff;
+      }
+      // `share-list --mine` selects the cross-drive scope.
+      if (def.name === "share-list" && params.mine !== undefined) {
+        if (params.mine) params.scope = "mine";
+        delete params.mine;
       }
       // `--inline` is a boolean flag; the op takes an explicit disposition.
       if (params.inline !== undefined) {
@@ -193,7 +208,7 @@ export function registerOpCommands(
       }
 
       for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth", "expiresIn", "maxViews"]) {
-        if (params[key] !== undefined) {
+        if (params[key] !== undefined && params[key] !== null) {
           params[key] = parseInt(params[key]);
         }
       }

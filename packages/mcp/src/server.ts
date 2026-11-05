@@ -209,7 +209,7 @@ export function registerIdentityTools(
 
   server.tool(
     "member-invite",
-    "Invite a user to the current org by email (requires org admin). An email with an account is added at once (status 'added'); grants only raise, so the returned role and drives are what they hold afterwards, never lower than before (use member-update-role to lower one). An email without one gets a pending invite (status 'pending') with an acceptUrl (or token) valid 7 days: give it to the person, who registers that email and accepts it; this tool sends nothing. Pass drives to grant exactly those drives, each with its own role; omit drives to grant only the org's default drive with the org role; pass [] for org membership without drive access.",
+    "Invite a user to the current org by email (requires org admin). Someone not yet in the org, with or without an account, gets a pending invite (status 'pending') with an acceptUrl (or token) valid 7 days: give it to the person, who signs in as (or registers) that email and accepts it; they join only then, and this tool sends nothing. Someone already in the org has the grants applied at once (status 'added'); grants only raise, so the returned role and drives are what they hold afterwards, never lower than before (use member-update-role to lower one). Pass drives to grant exactly those drives, each with its own role; omit drives to grant only the org's default drive with the org role; pass [] for org membership without drive access.",
     {
       email: z.string().describe("Email of the user to invite"),
       role: z.enum(["viewer", "editor", "admin"]).describe("Org role to assign"),

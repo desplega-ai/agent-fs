@@ -5,11 +5,14 @@ description: >-
   an agent-first filesystem backed by S3. Triggers on: "save this to agent-fs",
   "find that file", "find a file by name", "store this document", "search agent-fs", "list my files",
   "show version history", "revert file", "set up agent-fs", "get a signed url",
-  "share this file", "share link", "public link", "one-off link", "revoke a share link",
+  "share this file", "share link", "public link", "one-off link", "revoke a share link", "list my shared links", "manage shared links",
   "publish a site", "host this html", "share a folder", "manage members", "invite user", "invite to a drive", "add to drive", "give access to drive", "invite someone without an account", "accept an invite", "pending invites", "list members", "remove member",
   "update role", "reset api key", "rotate api key", "lost my api key",
   "watch drive changes", "stream file changes", "star this file",
-  "add to favorites", "my favorites", file
+  "add to favorites", "my favorites", "webhook", "notify me when mentioned",
+  "webhook deliveries", "redeliver a webhook", "why did my webhook fail",
+  "notify on comments", "send comment events to slack", "verify webhook signature",
+  "webhook on file change", "notify when a file is written", file
   persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
   manage org/drive members, generate presigned URLs, check recent activity, or use
@@ -144,8 +147,9 @@ symlinks are unsupported and throw `EPERM`.
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file |
 | `signed-url` | `agent-fs signed-url <path> [--expires-in <seconds>] [--inline]` | Generate a download URL. On S3/MinIO: a presigned URL (default 24h, max 7 days, `kind: "presigned"`). On local-FS: an authenticated in-app link (`kind: "app"`, requires sign-in, non-expiring). By default the URL forces a download; `--inline` makes the browser render the file instead (PDF, image). |
-| `share-create` | `agent-fs share-create <path> [--expires-in <seconds>] [--max-views <n>] [--one-off]` | Create a public link for a file or folder. A file gets a `/share/<token>` page on the API host: a read-only preview (markdown, text/code, image, PDF, audio, video, and HTML rendered in a sandbox) and a Download button. A folder becomes an HTML site at `/site/<token>/` (`kind: "site"`, no view limits). Default 24h, max 7 days; `--one-off` (= `--max-views 1`) makes a file link single-use. Returns `{ id, kind, url, urlSource, sharePath, expiresAt, maxViews }`; `urlSource` is `configured` when `url` is built on `AGENT_FS_PUBLIC_URL`. |
+| `share-create` | `agent-fs share-create <path> [--expires-in <seconds\|never>] [--max-views <n>] [--one-off]` | Create a public link for a file or folder. A file gets a `/share/<token>` page on the API host: a read-only preview (markdown, text/code, image, PDF, audio, video, and HTML rendered in a sandbox) and a Download button. A folder becomes an HTML site at `/site/<token>/` (`kind: "site"`, no view limits). Default 24h, max 7 days; `--expires-in never` (API: `expiresIn: null`) makes a link with no time limit (a revoke or a view limit still ends it); `--one-off` (= `--max-views 1`) makes a file link single-use. Returns `{ id, kind, url, urlSource, sharePath, expiresIn, expiresAt, maxViews }` (both expiry fields `null` for a link that never expires); `urlSource` is `configured` when `url` is built on `AGENT_FS_PUBLIC_URL`. |
 | `share-revoke` | `agent-fs share-revoke [<id>] [--token <token-or-url>] [--path <path>]` | Kill share links immediately. Exactly one selector: the `id` from `share-create`, the token/URL, or a file or folder path (every link to it). Creator or drive admin only. |
+| `share-list` | `agent-fs share-list [<path>] [--mine] [--include-inactive] [--limit <n>] [--offset <n>]` | List share links with `id`, `drive`, `path`, `kind`, `status` (`active`, `expired`, `exhausted`, `revoked`), `expiresAt` (`null` = never), `views`/`maxViews`, creator, `revokedAt`/`revokedBy` (who revoked it; `null` for links revoked before that was recorded) and `canRevoke`. Default: active links in the current drive; drive admins see every member's links, others only their own (`visibility`). With a path: that file or folder's links plus folder links that also publish it (`relation: "covering"`). `--mine`: your links in every drive of the current org. Never returns the URL or token (a link is shown only once, by `share-create`); revoke a row with `share-revoke <id>` on its drive. |
 | `download` | `agent-fs download <path> [-o <local-path>]` | Download raw bytes |
 | `watch` | `agent-fs watch [--json]` | Stream active-drive changes until Ctrl+C. Bearer endpoint: `GET /orgs/:orgId/drives/:driveId/events` emits `ready`, `file.changed`, and `comment.changed`. |
 
@@ -252,7 +256,7 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `comment add` | `agent-fs comment add <path> --body <text> [--mention <user-id-or-email>]... [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits; prefix/suffix pick the right occurrence when the text repeats. Repeat `--mention` to notify drive members. |
+| `comment add` | `agent-fs comment add <path> --body <text> [--mention <user-id-or-email>]... [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits; prefix/suffix pick the right occurrence when the text repeats. Repeat `--mention` to notify drive members; each one also fires a `comment.mentioned` webhook. |
 | `comment reply` | `agent-fs comment reply <comment-id> --body <text> [--mention <user-id-or-email>]...` | Reply to a comment and optionally mention drive members |
 | `comment list` | `agent-fs comment list [path] [--prefix <path>]` | List comments with inline replies. Use `--prefix` for all comments below a directory. Do not combine a positional path with `--prefix`. |
 | `comment get` | `agent-fs comment get <id>` | Get a comment with its replies |
@@ -263,7 +267,30 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 | `comment notifications` | `agent-fs comment notifications [--kind <comment\|mention>]... [--unread] [--limit <n>]` | List notifications for the current user. The default kind is `comment`. |
 | `comment read` | `agent-fs comment read [ids...] [--all [--kind <comment\|mention>]...]` | Mark selected notification event IDs, or all active-drive notification kinds, as read. `--all` defaults to `comment`. |
 
+**Only `--mention` (the `mentions` param) notifies someone and fires the `comment.mentioned` webhook. Typing `@name` in the body text does nothing.** `comment update` with `--mention` fires `comment.mentioned` only for users it newly adds.
+
 Comments work on any file, HTML included. People can select text on a rendered `.html` page in the web app and comment on it, as on a markdown preview. Those comments carry a `quote` and the source lines the text sits on, or no lines when a script added the text after the page loaded. Use `--quote` on HTML for the same reason: it anchors to the text people see on the page.
+
+### Webhooks
+
+A webhook sends a signed HTTP POST (Standard Webhooks headers) to a URL when a comment is created, mentions someone, is edited, resolved, reopened or deleted, or when a file gets a new version. Event types: `comment.created`, `comment.mentioned`, `comment.updated`, `comment.resolved`, `comment.reopened`, `comment.deleted`, `file.changed`. A hook gets only the types it lists: `file.changed` must be named explicitly. Full receiver guide: `docs/webhooks.md` (https://agent-fs.dev/docs/webhooks).
+
+| Command | Usage | Who may run it | Description |
+|---------|-------|----------------|-------------|
+| `webhook create` | `agent-fs webhook create <url> --event <type>... [--org-wide] [--description <text>] [--path-prefix <dir>]` | Drive admin or org admin; `--org-wide` needs org admin | Create a hook for the active drive, or with `--org-wide` for every drive in the org. `--path-prefix /docs/` limits `file.changed` to that directory (comment events are not filtered). Prints the `whsec_` signing secret **once**. |
+| `webhook list` | `agent-fs webhook list [--scope drive\|org\|all]` | Drive admin (drive hooks), org admin (org hooks) | List hooks with their state (`enabled`, `disabledReason`, `consecutiveFailures`, `workerEnabled`). Never shows secrets. |
+| `webhook update` | `agent-fs webhook update <id> [--url <url>] [--event <type>]... [--description <text>] [--path-prefix <dir>] [--enable\|--disable] [--rotate-secret]` | Drive hook: drive admin or org admin. Org hook: org admin | Change a hook. `--event` replaces the list. An empty `--path-prefix` clears it. `--enable` resets the failure state. `--rotate-secret` prints a new secret once; the old one stops working at once. |
+| `webhook delete` | `agent-fs webhook delete <id>` | Drive hook: drive admin or org admin. Org hook: org admin | Delete a hook and its deliveries. |
+| `webhook test` | `agent-fs webhook test <id>` | Drive hook: drive admin or org admin. Org hook: org admin | Send a signed `ping` now and print `{ ok, statusCode, error, durationMs }`. Exits 1 unless the receiver answers 2xx. Works with the worker off. |
+| `webhook deliveries` | `agent-fs webhook deliveries <id> [--status pending\|delivered\|failed] [--limit <n>] [--cursor <cursor>] [--payload]` | Same as the hook | List the hook's deliveries newest first: `status`, `attempts`, `nextAttemptAt`, `lastStatusCode`, `lastError`. `--payload` adds the exact JSON body sent. Page with `nextCursor`. |
+| `webhook redeliver` | `agent-fs webhook redeliver <delivery-id>` | Same as the hook | Send one delivery again now with the same `webhook-id` and body. Keeps the attempt count. Refused while the hook is disabled: run `webhook update <id> --enable` first. |
+
+- The URL must be public `https://`. Private, loopback and link-local targets are refused unless the server lists the host in `AGENT_FS_WEBHOOK_ALLOWED_HOSTS`. Redirects are not followed, so give the final URL.
+- Nothing is sent unless the server runs with `AGENT_FS_WEBHOOK_WORKER=true`; `workerEnabled: false` in a response means events only queue.
+- Delivery is at least once: dedupe on the `webhook-id` header. Failures retry for about 28 hours. A `410` answer, or 5 days of failures, disables the hook.
+- Delivered and failed deliveries are pruned 30 days after creation; pending ones are kept.
+- `file.changed` fires once per new file version (write, edit, append, revert, cp, rm, FUSE writes; `mv` sends a `write` for the new path and a `delete` for the old). Its payload is `path`, `version`, `operation`, `author`, `size`, `etag`, never the content: `cat` the path to read it. A write with unchanged bytes sends nothing.
+- An org hook sees events in every drive of the org. A drive hook is managed from its own drive (`--drive <id>`).
 
 ### Favorites
 
@@ -293,20 +320,20 @@ Stars follow files: `mv` moves every user's star on the file to the new path, `r
 |---------|-------|-------------|
 | `members` | `agent-fs members` | List the active drive's members with user ID, email, and display name. Available to every drive member. Roles are omitted. |
 | `member list` | `agent-fs member list` | List org members (use `--drive <id>` for drive members) |
-| `member invite` | `agent-fs member invite <email> --role <role> [--to <drive>[:<role>]]...` | Invite someone to the org. Without `--to`: the default drive with `--role`. With `--to`: exactly the listed drives (id or name), each with its own role (defaults to `--role`). An email with an account is added at once; one without gets a pending invite and the command prints an accept link to send them. |
+| `member invite` | `agent-fs member invite <email> --role <role> [--to <drive>[:<role>]]...` | Invite someone to the org. Without `--to`: the default drive with `--role`. With `--to`: exactly the listed drives (id or name), each with its own role (defaults to `--role`). Anyone not yet in the org, with or without an account, gets a pending invite: the command prints an accept link to send them, and they join when they accept it. Someone already in the org has the grants applied at once. |
 | `member invites` | `agent-fs member invites` | List pending invites (id, email, drives, expiry; org admin only) |
 | `member invite-revoke` | `agent-fs member invite-revoke <id>` | Revoke a pending invite so its link stops working (org admin only) |
 | `member add` | `agent-fs --drive <id-or-name> member add <email> --role <role>` | Give an existing org member access to a drive. Raise-only: a role they already hold is never lowered, and the command prints the role they end up with. To lower it, use `member update-role --drive <id>` |
 | `member update-role` | `agent-fs member update-role <email> --role <role>` | Update org role (use `--drive <id>` for drive role). The only admin of an org or a drive cannot be demoted: make someone else admin first |
 | `member remove` | `agent-fs member remove <email>` | Remove from org (use `--drive <id>` for drive only). The only admin of an org or a drive cannot be removed, and removing an org member is refused while they are the only admin of any of its drives |
-| `member reset-key` | `agent-fs member reset-key <email>` | Reset a member's API key (org admin only). The old key stops working immediately. |
+| `member reset-key` | `agent-fs member reset-key <email>` | Reset a member's API key for this org (org admin only). The new key reaches only this org and replaces their earlier keys for it; their own keys keep working. For your own email it rotates your primary key. |
 | `invite accept` | `agent-fs invite accept <link-or-token>` | Accept an org invite as the signed-in account (its email must match the invite: an exact match, or the only account whose email differs just in letter case) |
 
 The `--drive` flag is a global option — place it before the subcommand: `agent-fs --drive <id> member list`.
 
 `members` is viewer-accessible and returns no roles. The `member` management commands remain admin-gated. Org-scoped commands require org `admin`. Drive-scoped commands (`--drive <id>`) require drive `admin` or admin of the owning org, and the drive must belong to the current org. Non-admins get a permission error. Org or drive IDs outside your memberships return "not found". `member add` only works for people already in the org (otherwise "Not a member of this org"); bringing in someone new is `member invite`, which needs org admin.
 
-**Pending invites.** Inviting an email that has no account creates a pending invite instead of failing. The command prints `Pending: <email> has no account yet. Send them: <link>`; agent-fs sends no email, so pass the link on yourself. The link (`https://<app>/invite#<token>`; the token sits in the fragment so no server logs it) works once, expires in 7 days, and only for an account with the invited email. Older `/invite/<token>` links still work. Inviting the same email again replaces the old link; if the person registers and you invite them again, they are added directly and the old link stops working. The invitee registers that email (`agent-fs auth register <email>`), then runs `agent-fs invite accept <link-or-token>` and gets exactly the invited org role and drives. Drives deleted in the meantime are skipped. MCP: `member-invite` returns `status: "pending"` with `acceptUrl`/`token`, `member-invites` lists (or revokes with `revokeId`), `invite-accept` accepts.
+**Pending invites.** Inviting anyone who is not in the org yet creates a pending invite, whether or not the email has an account: nobody joins an org without accepting. The command prints `Pending: <email> joins once they accept. Send them: <link>`; agent-fs sends no email, so pass the link on yourself. The link (`https://<app>/invite#<token>`; the token sits in the fragment so no server logs it) works once, expires in 7 days, and only for an account with the invited email. Older `/invite/<token>` links still work. Inviting the same email again replaces the old link; once the person is in the org, inviting them again applies the grants at once and the old link stops working. The invitee signs in as that email (or registers it with `agent-fs auth register <email>`), then runs `agent-fs invite accept <link-or-token>` and gets exactly the invited org role and drives. Drives deleted in the meantime are skipped. MCP: `member-invite` returns `status: "pending"` with `acceptUrl`/`token`, `member-invites` lists (or revokes with `revokeId`), `invite-accept` accepts.
 
 ### Drive Management
 
@@ -466,6 +493,40 @@ agent-fs comment read --all --kind mention
 agent-fs comment resolve <comment-id>
 ```
 
+### Get notified about mentions with a webhook
+
+```bash
+# Create a hook (drive admin). Save the printed whsec_ secret: it is shown once.
+agent-fs webhook create https://hooks.example.com/agent-fs --event comment.mentioned --event comment.created
+
+# Check the receiver answers and verifies the signature
+agent-fs webhook test <webhook-id>
+
+# Mention someone: only --mention fires comment.mentioned (typing @name in the body does not)
+agent-fs comment add docs/spec.md --body "Can you check this?" --mention ben@example.com
+
+# Check the hook's state; re-enable it after a 410 or a failing streak
+agent-fs webhook list
+agent-fs webhook update <webhook-id> --enable
+
+# See why deliveries failed, then send a failed one again
+agent-fs webhook deliveries <webhook-id> --status failed
+agent-fs webhook redeliver <delivery-id>
+```
+
+To react to file writes under one directory instead:
+
+```bash
+agent-fs webhook create https://hooks.example.com/build --event file.changed --path-prefix /site/
+```
+
+Verify each request in the receiver with the `standardwebhooks` npm package:
+
+```ts
+import { Webhook } from "standardwebhooks";
+const event = new Webhook(process.env.AGENT_FS_WEBHOOK_SECRET!).verify(rawBody, headers); // throws if invalid
+```
+
 ### Set up a new drive and invite users
 
 ```bash
@@ -564,6 +625,11 @@ agent-fs share-create docs/report.pdf --max-views 5 --expires-in 3600
 # Kill a link (id from share-create), or every link to a file
 agent-fs share-revoke <id>
 agent-fs share-revoke --path docs/report.pdf
+
+# Which links publish this file (its own, plus folder sites that cover it)?
+agent-fs share-list docs/report.md
+# Every link you made in this org, revoked and expired ones too
+agent-fs share-list --mine --include-inactive
 ```
 
 `share-create` returns a URL on the **API host** (`https://<server>/share/<token>`), not the web app, so it works for anyone without signing in. Unlike `signed-url` the recipient gets a rendered page: markdown becomes sanitized HTML (frontmatter card, table of contents, callouts, task lists, footnotes, math, mermaid diagrams, highlighted code, light/dark/system theme, view-source and copy), text and code are shown escaped, images, PDF, audio and video are embedded, HTML pages render in a sandboxed frame (with an "Open full page" link), and every other type shows a no-preview card. Each page has the filename, size, expiry and a Download button. SVG files are never rendered, only downloaded.

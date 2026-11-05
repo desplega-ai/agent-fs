@@ -5,6 +5,7 @@ import { stripLeadingSlash } from "./paths.js";
 import { EditConflictError } from "../errors.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { publishDriveEvent } from "../events/bus.js";
+import { enqueueFileWebhooks, notifyWebhooksEnqueued } from "../webhooks/outbox.js";
 
 /**
  * Compute the S3 object key for a file.
@@ -166,6 +167,9 @@ export async function getHeadContentHash(
  * left open by the two separate `getNextVersion()` calls in callers
  * like `write.ts`.
  *
+ * The same transaction enqueues the `file.changed` webhook deliveries, so
+ * they commit or roll back with the version row.
+ *
  * A `SQLITE_CONSTRAINT_UNIQUE` violation on `file_versions` is mapped
  * to `EditConflictError` so concurrent writers see the same conflict
  * shape that the app-layer `expectedVersion` check produces.
@@ -193,8 +197,9 @@ export async function createVersion(
 
   // Wrap the version insert + files upsert in a single SQLite transaction.
   // drizzle's bun-sqlite `transaction` is sync — all queries inside are sync too.
+  let queued = 0;
   try {
-    ctx.db.transaction((tx) => {
+    queued = ctx.db.transaction((tx) => {
       // Insert version record
       tx.insert(schema.fileVersions)
         .values({
@@ -257,6 +262,18 @@ export async function createVersion(
           })
           .run();
       }
+
+      return enqueueFileWebhooks(
+        { ...ctx, db: tx as unknown as typeof ctx.db },
+        {
+          path: params.path,
+          version,
+          operation: params.operation,
+          size: params.size ?? null,
+          etag: params.etag ?? null,
+          at: now,
+        }
+      );
     });
   } catch (err: any) {
     // Map SQLite UNIQUE(path, drive_id, version) failures from concurrent
@@ -288,6 +305,7 @@ export async function createVersion(
     actor: ctx.userId,
     at: now.toISOString(),
   });
+  if (queued > 0) notifyWebhooksEnqueued();
 
   return version;
 }

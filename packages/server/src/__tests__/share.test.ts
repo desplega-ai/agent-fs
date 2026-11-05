@@ -55,7 +55,7 @@ async function share(h: Harness, path: string, extra: Record<string, unknown> = 
   expect(res.status).toBe(200);
   const body = await res.json();
   return { ...body, token: (body.sharePath as string).replace("/share/", "") } as {
-    id: string; url: string; sharePath: string; token: string; expiresAt: string; maxViews: number | null;
+    id: string; url: string; sharePath: string; token: string; expiresIn: number | null; expiresAt: string | null; maxViews: number | null;
   };
 }
 
@@ -162,6 +162,43 @@ describe("share-create over HTTP", () => {
     // existing fields untouched
     expect(body.ok).toBe(true);
     expect(typeof body.maxUploadBytes).toBe("number");
+  });
+});
+
+describe("share-list over HTTP", () => {
+  test("lists a member's links without the link itself", async () => {
+    const s = await share(h, "/notes/readme.md");
+    const res = await op(h, { op: "share-list", driveId: h.driveId, path: "/notes/readme.md" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.visibility).toBe("all");
+    const item = body.shares.find((x: any) => x.id === s.id);
+    expect(item).toMatchObject({ path: "/notes/readme.md", kind: "file", status: "active", relation: "exact" });
+    const text = JSON.stringify(body);
+    expect(text).not.toContain(s.token);
+    expect(text).not.toContain(hashShareToken(s.token));
+  });
+
+  test("a drive of another org, or one the caller is not on, looks missing", async () => {
+    const otherReg = await (await h.app.request("/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: `other-${Math.random().toString(36).slice(2)}@example.com` }),
+    })).json();
+    const other = { ...h, apiKey: otherReg.apiKey, orgId: otherReg.orgId };
+    const missing = await op(h, { op: "share-list", driveId: crypto.randomUUID() });
+    const crossOrg = await op(other, { op: "share-list", driveId: h.driveId });
+    expect(crossOrg.status).toBe(missing.status);
+    expect(crossOrg.status).toBe(404);
+    expect((await crossOrg.json()).error).toBe((await missing.json()).error);
+    const foreignOrg = await op(h, { op: "share-list", driveId: h.driveId }, otherReg.apiKey);
+    expect(foreignOrg.status).toBeGreaterThanOrEqual(403);
+    expect(foreignOrg.status).toBeLessThanOrEqual(404);
+  });
+
+  test("/health advertises share-list", async () => {
+    const body = await (await get(h, "/health")).json();
+    expect(body.features).toContain("share-list");
   });
 });
 
@@ -597,6 +634,32 @@ describe("byte routes are bound to the counted page view", () => {
   });
 });
 
+describe("links that never expire", () => {
+  afterAll(() => setSystemTime());
+
+  test("open long after the 7-day maximum and say so, with no countdown", async () => {
+    const forever = await share(h, "/notes/readme.md", { expiresIn: null });
+    expect(forever.expiresAt).toBeNull();
+    expect(forever.expiresIn).toBeNull();
+    const week = await share(h, "/notes/readme.md", { expiresIn: 604_800 });
+
+    setSystemTime(new Date(Date.now() + 8 * 86_400_000));
+    const res = await get(h, forever.sharePath);
+    expect(res.status).toBe(200);
+    const page = await res.text();
+    expect(page).toContain("Never expires");
+    expect(page).not.toContain("Expires <time");
+    expect((await get(h, week.sharePath)).status).toBe(410);
+    setSystemTime();
+  });
+
+  test("a revoke still ends it", async () => {
+    const forever = await share(h, "/notes/readme.md", { expiresIn: null });
+    expect((await op(h, { op: "share-revoke", id: forever.id })).status).toBe(200);
+    expect((await get(h, forever.sharePath)).status).toBe(410);
+  });
+});
+
 describe("time is read fresh at every authorization and presign point", () => {
   let t: Harness;
   beforeAll(async () => {
@@ -723,7 +786,7 @@ describe("time is read fresh at every authorization and presign point", () => {
     await write(local, "/notes.txt", "some text");
     const s = await share(local, "/pic.png");
     const n = await share(local, "/notes.txt");
-    const jump = new Date(Date.parse(s.expiresAt) + 1000);
+    const jump = new Date(Date.parse(s.expiresAt!) + 1000);
     const undo = slowStorage(local, "getObject", jumpClockTo(jump));
     try {
       const raw = await get(local, `${s.sharePath}/raw`);

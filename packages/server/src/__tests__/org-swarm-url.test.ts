@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Database } from "bun:sqlite";
-import { createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
+import { acceptInviteAsInvitee, createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
 import { runMigrations } from "../../../core/src/db/migrate.js";
 import { createApp } from "../app.js";
 import type { DB } from "@/core";
@@ -30,7 +30,13 @@ async function register(email: string) {
   return res.json() as Promise<{ apiKey: string; userId: string; orgId: string }>;
 }
 
-/** An org owned by `admin` with `memberEmail` invited at `role`. */
+/** Inviting an existing account is pending until they accept: accept as them. */
+async function acceptAsInvitee(res: Response) {
+  const body = await res.clone().json();
+  if (body.status === "pending") acceptInviteAsInvitee(db, body.token);
+}
+
+/** An org owned by `admin` with `memberEmail` invited at `role` (and accepted). */
 async function orgWith(admin: { apiKey: string }, memberEmail: string, role: string) {
   const orgRes = await keyReq(admin.apiKey, "/orgs", { method: "POST", body: JSON.stringify({ name: `org-${memberEmail}` }) });
   expect(orgRes.status).toBe(201);
@@ -40,6 +46,7 @@ async function orgWith(admin: { apiKey: string }, memberEmail: string, role: str
     body: JSON.stringify({ email: memberEmail, role }),
   });
   expect(inv.status).toBe(200);
+  await acceptAsInvitee(inv);
   return orgId;
 }
 
@@ -87,10 +94,10 @@ describe("PATCH /orgs/:orgId swarmUrl", () => {
     const viewer = await register("swarm-viewer@example.com");
     const editor = await register("swarm-editor@example.com");
     const orgId = await orgWith(admin, "swarm-viewer@example.com", "viewer");
-    await keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
+    await acceptAsInvitee(await keyReq(admin.apiKey, `/orgs/${orgId}/members/invite`, {
       method: "POST",
       body: JSON.stringify({ email: "swarm-editor@example.com", role: "editor" }),
-    });
+    }));
     expect((await patch(viewer.apiKey, orgId, { swarmUrl: "https://evil.test" })).status).toBe(403);
     expect((await patch(editor.apiKey, orgId, { swarmUrl: "https://evil.test" })).status).toBe(403);
     const outsider = await register("swarm-outsider@example.com");

@@ -1,5 +1,10 @@
 import { Database } from "bun:sqlite";
-import { ORG_INVITES_SQL, USER_API_KEYS_SQL } from "./raw.js";
+import {
+  ORG_INVITES_SQL,
+  USER_API_KEYS_SQL,
+  WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL,
+  WEBHOOKS_SQL,
+} from "./raw.js";
 
 /**
  * Idempotent, additive migrations for existing databases.
@@ -64,6 +69,16 @@ export function runMigrations(sqlite: Database): void {
   if (!shareCols.some((c) => c.name === "kind")) {
     sqlite.exec("ALTER TABLE shares ADD COLUMN kind TEXT NOT NULL DEFAULT 'file'");
   }
+  // Migration 3c2: add shares.never_expires. The default keeps every existing
+  // link's finite expiry.
+  if (!shareCols.some((c) => c.name === "never_expires")) {
+    sqlite.exec("ALTER TABLE shares ADD COLUMN never_expires INTEGER NOT NULL DEFAULT 0");
+  }
+  // Migration 3c3: add shares.revoked_by. Links revoked before it existed keep
+  // a null revoker; nobody recorded who revoked them.
+  if (!shareCols.some((c) => c.name === "revoked_by")) {
+    sqlite.exec("ALTER TABLE shares ADD COLUMN revoked_by TEXT");
+  }
 
   // Migration 3d: add content_chunks.page for PDF text chunks.
   const chunkCols = sqlite
@@ -89,7 +104,25 @@ export function runMigrations(sqlite: Database): void {
   // primary key, so no data moves.
   sqlite.exec(USER_API_KEYS_SQL);
 
-  // Migration 3g: add orgs.swarm_url, the agent-swarm dashboard the live UI
+  // Migration 3g: outbound webhooks (subscriptions + delivery outbox). Same
+  // statements as CREATE_TABLES_SQL, all IF NOT EXISTS.
+  sqlite.exec(WEBHOOKS_SQL);
+
+  // Migration 3h: index for the hourly delivery-log prune (status,
+  // created_at). IF NOT EXISTS, so it is a no-op once present.
+  sqlite.exec(WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL);
+
+  // Migration 3i: webhook_subscriptions.path_prefix (file.changed filter).
+  // CREATE_TABLES_SQL declares it on fresh DBs; NULL keeps every existing
+  // hook unfiltered.
+  const webhookSubCols = sqlite
+    .prepare("PRAGMA table_info(webhook_subscriptions)")
+    .all() as Array<{ name: string }>;
+  if (!webhookSubCols.some((c) => c.name === "path_prefix")) {
+    sqlite.exec("ALTER TABLE webhook_subscriptions ADD COLUMN path_prefix TEXT");
+  }
+
+  // Migration 3j: add orgs.swarm_url, the agent-swarm dashboard the live UI
   // offers for sign-in ("Continue with <swarm>"). Nullable, so no backfill.
   const orgCols = sqlite.prepare("PRAGMA table_info(orgs)").all() as Array<{ name: string }>;
   if (!orgCols.some((c) => c.name === "swarm_url")) {

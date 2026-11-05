@@ -2,8 +2,10 @@ import { useState } from "react"
 import { ProfileDialog } from "./ProfileDialog"
 import { UserConfigDialog } from "./UserConfigDialog"
 import { useNavigate } from "react-router"
-import { ChevronDown, Plus, Check, KeyRound, User, Settings } from "lucide-react"
+import { ChevronDown, Plus, Check, KeyRound, Link2, User, Settings } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
+import { useHealth } from "@/hooks/use-health"
+import { supportsShareList } from "@/lib/share-list"
 import { getCredentials } from "@/stores/credentials"
 import {
   DropdownMenu,
@@ -20,7 +22,9 @@ import { toast } from "@/stores/toast"
  * (the invite accept page) that must stay where they are.
  */
 export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}) {
-  const { credential, switchAccount, user } = useAuth()
+  const { credential, switchAccount, user, orgId, driveId } = useAuth()
+  const { data: health } = useHealth()
+  const showShares = !!orgId && !!driveId && supportsShareList(health)
   const [editingProfile, setEditingProfile] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
   const navigate = useNavigate()
@@ -53,6 +57,12 @@ export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}
               <span>API keys</span>
             </DropdownMenuItem>
           </>
+        )}
+        {showShares && (
+          <DropdownMenuItem onClick={() => navigate(`/shares/~/${orgId}/${driveId}`)}>
+            <Link2 className="size-3" />
+            <span>Shared links</span>
+          </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={() => setConfigOpen(true)}>
           <Settings className="size-3" />

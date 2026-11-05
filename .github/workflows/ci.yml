@@ -16,6 +16,10 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # checks: read lets the last step read the PR Body check.
+    permissions:
+      contents: read
+      checks: read
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -39,6 +43,11 @@ jobs:
         run: |
           bun run scripts/sync-openapi.ts
           git diff --exit-code docs/openapi.json
+      # `ci` is a required check, so a red PR Body (pr-body.yml) blocks the
+      # merge here. pr-body.yml re-runs this job after a description edit.
+      # Skips on push and merge_group.
+      - name: Require a green PR Body
+        uses: desplega-ai/.github/actions/require-pr-body@aa9436df8f0ef570f033e78dc68d1ef052add22c
 
   # Credential-free CLI/API/MCP coverage. The local filesystem adapter keeps
   # this job fork-safe and Docker-free; MinIO presigned URLs stay covered by

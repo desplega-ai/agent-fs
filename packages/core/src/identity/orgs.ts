@@ -315,10 +315,15 @@ export type InviteResult = AddedInviteResult | PendingInviteResult;
  * org role. `drives: []` adds org membership only. Every drive id must belong
  * to `orgId`; validation runs before any write.
  *
- * An existing account is added at once, in one transaction, and any pending
- * invite for that email is revoked. An email with no account gets a pending
- * invite (replacing any earlier one) whose accept token is returned once;
- * that needs `invitedBy`, and without it an unknown email is a NotFoundError.
+ * With `invitedBy` (every admin-facing route), anyone not yet in the org gets
+ * a pending invite (replacing any earlier one) whose accept token is returned
+ * once, whether or not the email has an account: joining an org is the
+ * invitee's choice, so nobody is added before they accept. Someone already in
+ * the org has the grants applied at once, raise-only, and any pending invite
+ * for that email is revoked.
+ *
+ * Without `invitedBy` (trusted in-process callers such as seeding and tests)
+ * an existing account is added at once and an unknown email is a NotFoundError.
  */
 export function inviteToOrg(
   db: DB,
@@ -344,7 +349,8 @@ export function inviteToOrg(
 
   const grants = resolveInviteGrants(db, params.orgId, params.role, params.drives);
 
-  if (!user) {
+  const isMember = user !== null && getUserOrgRole(db, user.id, params.orgId) !== null;
+  if (!user || (params.invitedBy && !isMember)) {
     return createPendingInvite(db, {
       orgId: params.orgId,
       email: params.email,

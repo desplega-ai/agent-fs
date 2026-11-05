@@ -14,6 +14,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { Database } from "bun:sqlite";
+import { Webhook } from "standardwebhooks";
 
 // ---------------------------------------------------------------------------
 // CLI args
@@ -313,6 +314,8 @@ function localEnv(
 async function setupLocalBackend(opts: {
   label: string;
   capabilityOverride?: string;
+  /** Extra daemon env (e.g. the webhook worker flags), reused on every restart. */
+  env?: Record<string, string>;
 }): Promise<Backend> {
   const home = join(tmpdir(), `${containerName}-${opts.label}`);
   const storageRoot = join(home, "storage");
@@ -340,12 +343,10 @@ async function setupLocalBackend(opts: {
     ),
   );
 
-  const env = localEnv(
-    home,
-    storageRoot,
-    appUrl,
-    opts.capabilityOverride ? { AGENT_FS_CAPABILITY_OVERRIDE: opts.capabilityOverride } : {},
-  );
+  const env = localEnv(home, storageRoot, appUrl, {
+    ...(opts.capabilityOverride ? { AGENT_FS_CAPABILITY_OVERRIDE: opts.capabilityOverride } : {}),
+    ...(opts.env ?? {}),
+  });
 
   // Start the daemon. The spawned `server` child inherits this env (startDaemon
   // calls spawn() without an explicit env), so the capability override reaches
@@ -991,8 +992,109 @@ async function runTests() {
 
     // Two tenants on one local storage root: `..` must not cross drives.
     await localContainmentSuite(localBackend);
+
+    // Outbound webhooks: real daemon + worker, local signed-request receiver.
+    await webhookSuite();
   }
   await runFuseTests();
+}
+
+/** share-list: both scopes, path coverage, status classification, and no secret in any row. */
+async function runShareListTests(shareBase: string) {
+  console.log("\n  -- share-list --");
+  runJson('write /sl-e2e/a.md --content "share-list e2e"');
+  runJson('write /sl-e2e/index.html --content "<p>sl-e2e</p>"');
+  runJson('write /sl-e2e-unshared.md --content "nobody shares this"');
+  const created: Record<string, any> = {};
+  const listed = (args: string) => runJson(`share-list ${args}`).shares as any[];
+  const byId = (rows: any[], id: string) => rows.find((s) => s.id === id);
+
+  await test("/health advertises share-list", async () => {
+    const health = await (await fetch(`${shareBase}/health`)).json() as any;
+    assert(health.features?.includes("share-list"), true, `Expected share-list in ${JSON.stringify(health)}`);
+  });
+
+  await test("share-list <file> lists its own links as exact, without the token or URL", () => {
+    created.file = runJson("share-create /sl-e2e/a.md");
+    const row = byId(listed("/sl-e2e/a.md"), created.file.id);
+    assert(row?.relation, "exact");
+    assert(row.status, "active");
+    assert(row.kind, "file");
+    assert(row.drive.id, personalDriveId);
+    assert(row.canRevoke, true);
+    for (const key of ["url", "sharePath", "token", "tokenHash"]) {
+      assert(key in row, false, `share-list row must not carry ${key}`);
+    }
+    const token = created.file.url.split("/share/")[1];
+    assert(JSON.stringify(row).includes(token), false, "share-list row must not contain the token");
+  });
+
+  await test("a folder link is listed as covering for a file inside it", () => {
+    created.site = runJson("share-create /sl-e2e");
+    assert(created.site.kind, "site");
+    const row = byId(listed("/sl-e2e/a.md"), created.site.id);
+    assert(row?.relation, "covering");
+    assert(row.kind, "site");
+    assert(row.path, "/sl-e2e");
+  });
+
+  await test("a never-expiring link lists expiresAt null", () => {
+    created.never = runJson("share-create /sl-e2e/a.md --expires-in never");
+    assert(byId(listed("/sl-e2e/a.md"), created.never.id)?.expiresAt, null);
+  });
+
+  await test("a spent one-off link is exhausted, and hidden unless --include-inactive", async () => {
+    created.oneOff = runJson("share-create /sl-e2e/a.md --one-off");
+    assert((await fetch(created.oneOff.url)).status, 200);
+    assert(byId(listed("/sl-e2e/a.md"), created.oneOff.id), undefined);
+    const row = byId(listed("/sl-e2e/a.md --include-inactive"), created.oneOff.id);
+    assert(row?.status, "exhausted");
+    assert(row.views, 1);
+  });
+
+  await test("share-list --mine spans the org's drives; drive scope does not", () => {
+    const otherDriveId = JSON.parse(run("drive create sl-e2e-other")).id;
+    runJson(`--drive ${otherDriveId} write /other.md --content "other drive"`);
+    created.other = runJson(`--drive ${otherDriveId} share-create /other.md`);
+    const mine = runJson(`--drive ${personalDriveId} share-list --mine`);
+    assert(mine.scope, "mine");
+    assert(mine.visibility, "own");
+    assert(byId(mine.shares, created.other.id)?.drive.id, otherDriveId);
+    assert(byId(mine.shares, created.file.id)?.drive.id, personalDriveId);
+    assert(byId(listed(`--drive ${personalDriveId}`), created.other.id), undefined);
+    assert(byId(listed(`--drive ${otherDriveId}`), created.other.id)?.path, "/other.md");
+    assert(runJson(`--drive ${otherDriveId} share-revoke ${created.other.id}`).revoked, 1);
+  });
+
+  await test("a revoked link leaves the default list and shows as revoked, and by whom, with --include-inactive", () => {
+    assert(byId(listed("/sl-e2e/a.md"), created.file.id)?.revokedBy, null);
+    assert(runJson(`share-revoke ${created.file.id}`).revoked, 1);
+    assert(byId(listed("/sl-e2e/a.md"), created.file.id), undefined);
+    const row = byId(listed("/sl-e2e/a.md --include-inactive"), created.file.id);
+    assert(row?.status, "revoked");
+    assert(typeof row.revokedAt, "string");
+    assert(row.revokedBy?.userId, row.createdBy.userId);
+  });
+
+  await test("share-list rejects a path with --mine", () => {
+    let failed = false;
+    try {
+      run("share-list /sl-e2e/a.md --mine");
+    } catch {
+      failed = true;
+    }
+    assert(failed, true, "Expected share-list --mine with a path to fail");
+  });
+
+  await test("share-list human output", () => {
+    assertIncludes(run("share-list /sl-e2e-unshared.md"), "(no share links)");
+    const out = run("share-list /sl-e2e/a.md");
+    assertIncludes(out, "(covers)");
+    assertIncludes(out, "share-revoke <id>");
+  });
+
+  runJson(`share-revoke --path /sl-e2e`);
+  runJson(`share-revoke --path /sl-e2e/a.md`);
 }
 
 async function runStandardTests(daemonUrl: string) {
@@ -2105,6 +2207,17 @@ async function runStandardTests(daemonUrl: string) {
     assertIncludes(r.appUrl ?? "", "/file/~/", "Expected the viewer link alongside the share link (local mode has an app URL)");
   });
 
+  await test("share-create --expires-in never mints a link that only a revoke ends", async () => {
+    const r = runJson("share-create /share-e2e.md --expires-in never");
+    assert(r.expiresIn, null);
+    assert(r.expiresAt, null);
+    const res = await fetch(r.url);
+    assert(res.status, 200);
+    assertIncludes(await res.text(), "Never expires");
+    assert(runJson(`share-revoke ${r.id}`).revoked, 1);
+    assert((await fetch(r.url)).status, 410);
+  });
+
   await test("share-create fails for a missing file", () => {
     try {
       run("share-create /no-such-file.md");
@@ -2573,6 +2686,8 @@ async function runStandardTests(daemonUrl: string) {
     });
   }
 
+  await runShareListTests(shareBase);
+
   // -- sql (DuckDB) --
 
   await test("sql fixtures: upload csv/tsv/ndjson/parquet/xlsx/sqlite", async () => {
@@ -3009,9 +3124,21 @@ async function runStandardTests(daemonUrl: string) {
   // Switch to second org (non-personal) for invite/remove tests
   run(`org switch ${secondOrgId}`);
 
-  await test("member invite to second org", () => {
+  // Inviting an existing account is pending until they accept: accept as them.
+  const acceptAs = (inviteOut: string, apiKey: string) => {
+    const link = inviteOut.split("Send them: ")[1].split("\n")[0].trim();
+    return runWithEnv(`invite accept ${link}`, { AGENT_FS_API_KEY: apiKey });
+  };
+
+  await test("member invite to second org: an existing account joins only by accepting", () => {
     const out = run("member invite user2@e2e.local --role editor");
-    assertIncludes(out, "Invited user2@e2e.local as editor");
+    assertIncludes(out, "Pending: user2@e2e.local joins once they accept. Send them: ");
+    assert(
+      runJson("member list").some((m: any) => m.email === "user2@e2e.local"),
+      false,
+      "An existing account must not join before accepting"
+    );
+    assertIncludes(acceptAs(out, user2ApiKey), "as editor");
   });
 
   await test("member list shows invited user", () => {
@@ -3087,8 +3214,9 @@ async function runStandardTests(daemonUrl: string) {
     workDriveId = JSON.parse(run("drive create e2e-work")).id;
     ledgerDriveId = JSON.parse(run("drive create e2e-ledger")).id;
     const out = run("member invite USER2@e2e.local --role viewer --to e2e-work:editor");
-    assertIncludes(out, "Invited USER2@e2e.local as viewer");
+    assertIncludes(out, "Pending: USER2@e2e.local joins once they accept");
     assertIncludes(out, `drive e2e-work (${workDriveId})  [editor]`);
+    acceptAs(out, user2ApiKey);
     const work = runJson(`--drive ${workDriveId} member list`);
     assert(work.find((m: any) => m.email === "user2@e2e.local")?.role, "editor");
     const def = runJson(`--drive ${secondDriveId} member list`);
@@ -3143,12 +3271,14 @@ async function runStandardTests(daemonUrl: string) {
     run("member remove user2@e2e.local");
     const out = run("--drive e2e-ledger drive invite user2@e2e.local --role viewer");
     assertIncludes(out, `drive e2e-ledger (${ledgerDriveId})  [viewer]`);
+    acceptAs(out, user2ApiKey);
     const drives = runJsonWithEnv(`--org ${secondOrgId} drive list`, user2Env()).drives;
     assert(drives.map((d: any) => d.name).join(","), "e2e-ledger");
     run("member remove user2@e2e.local");
   });
 
   await test("case-variant accounts: exact email wins, an ambiguous casing is rejected", async () => {
+    const keys: Record<string, string> = {};
     for (const email of ["Twin@e2e.local", "twin@e2e.local"]) {
       const res = await fetch(`${daemonUrl}/auth/register`, {
         method: "POST",
@@ -3156,18 +3286,20 @@ async function runStandardTests(daemonUrl: string) {
         body: JSON.stringify({ email }),
       });
       assert(res.ok, true, `Expected 200 registering ${email}, got ${res.status}`);
+      keys[email] = ((await res.json()) as any).apiKey;
     }
     const twins = () => runJson("member list").filter((m: any) => m.email.toLowerCase() === "twin@e2e.local");
     expectCliError(() => run("member invite TWIN@e2e.local --role admin"), "accounts match");
     assert(twins().length, 0, "Ambiguous invite must write nothing");
-    run("member invite twin@e2e.local --role viewer --to e2e-work:viewer");
+    const out = run("member invite twin@e2e.local --role viewer --to e2e-work:viewer");
+    // The exact-match twin accepts; the other twin's key is refused.
+    expectCliError(
+      () => runWithEnv(`invite accept ${out.split("Send them: ")[1].split("\n")[0].trim()}`, { AGENT_FS_API_KEY: keys["Twin@e2e.local"] }),
+      "This invite is for twin@e2e.local"
+    );
+    acceptAs(out, keys["twin@e2e.local"]);
     assert(twins().map((m: any) => m.email).join(","), "twin@e2e.local");
-    run("member invite Twin@e2e.local --role viewer --to e2e-work:viewer");
-    expectCliError(() => run(`--drive ${ledgerDriveId} member add TWIN@e2e.local --role admin`), "accounts match");
-    const ledger = runJson(`--drive ${ledgerDriveId} member list`);
-    assert(ledger.some((m: any) => m.email.toLowerCase() === "twin@e2e.local"), false, "Ambiguous add must write nothing");
     run("member remove twin@e2e.local");
-    run("member remove Twin@e2e.local");
   });
 
   // -- Pending invites: emails without an account --
@@ -3185,7 +3317,7 @@ async function runStandardTests(daemonUrl: string) {
 
   await test("member invite to an unknown email prints an accept link", () => {
     const out = run("member invite Pending@e2e.local --role viewer --to e2e-work:editor --to e2e-ledger:viewer");
-    assertIncludes(out, "Pending: Pending@e2e.local has no account yet. Send them: ");
+    assertIncludes(out, "Pending: Pending@e2e.local joins once they accept. Send them: ");
     assertIncludes(out, `drive e2e-work (${workDriveId})  [editor]`);
     pendingLink = out.split("Send them: ")[1].split("\n")[0].trim();
     // The token rides in the fragment: it never reaches the live host in an HTTP request.
@@ -3252,9 +3384,12 @@ async function runStandardTests(daemonUrl: string) {
       false,
       "Revoked and expired invites must not join the org"
     );
-    // A direct invite now that the account exists supersedes the stale invite.
-    run("member invite expired@e2e.local --role viewer --to e2e-work:viewer");
-    assert(runJson("member invites").length, 0, "Direct add revokes the open invite");
+    // Inviting again now that the account exists replaces the stale invite with a fresh link.
+    const again = run("member invite expired@e2e.local --role viewer --to e2e-work:viewer");
+    assertIncludes(again, "Pending: expired@e2e.local joins once they accept");
+    assert(runJson("member invites").length, 1, "The new invite replaces the expired one");
+    acceptAs(again, expiredKey);
+    assert(runJson("member invites").length, 0, "Accepting clears the pending list");
     run("member remove expired@e2e.local");
   });
 
@@ -3308,7 +3443,7 @@ async function runStandardTests(daemonUrl: string) {
     assert(newRes.status, 200, `Expected new key to work (200), got ${newRes.status}`);
   });
 
-  await test("admin reset: member reset-key rotates an invited member's key", async () => {
+  await test("admin reset: member reset-key gives an org-scoped key and keeps the member's own key", async () => {
     // Personal orgs disallow member removal entirely, so this runs against
     // the second (shared) org used by the invite/remove tests above.
     run(`org switch ${secondOrgId}`);
@@ -3322,11 +3457,11 @@ async function runStandardTests(daemonUrl: string) {
     const memberData = (await regRes.json()) as any;
     const oldMemberKey = memberData.apiKey;
 
-    run("member invite reset-member@e2e.local --role viewer");
+    acceptAs(run("member invite reset-member@e2e.local --role viewer"), oldMemberKey);
 
     const out = run("member reset-key reset-member@e2e.local");
     assertIncludes(out, "New API key for reset-member@e2e.local:");
-    assertIncludes(out, "old key is now invalid");
+    assertIncludes(out, "It reaches only this org");
     const match = out.match(/New API key for reset-member@e2e\.local: (af_[0-9a-f]{64})/);
     assert(!!match, true, `Expected printed key to match af_[0-9a-f]{64}, got: ${out}`);
     const newMemberKey = match![1];
@@ -3334,12 +3469,16 @@ async function runStandardTests(daemonUrl: string) {
     const oldRes = await fetch(`${daemonUrl}/auth/me`, {
       headers: { Authorization: `Bearer ${oldMemberKey}` },
     });
-    assert(oldRes.status, 401, `Expected old member key to be invalidated (401), got ${oldRes.status}`);
+    assert(oldRes.status, 200, `Expected the member's own key to keep working (200), got ${oldRes.status}`);
 
-    const newRes = await fetch(`${daemonUrl}/auth/me`, {
+    const newRes = await fetch(`${daemonUrl}/orgs/${secondOrgId}/drives`, {
       headers: { Authorization: `Bearer ${newMemberKey}` },
     });
-    assert(newRes.status, 200, `Expected new member key to work (200), got ${newRes.status}`);
+    assert(newRes.status, 200, `Expected new member key to work in the org (200), got ${newRes.status}`);
+    const personalRes = await fetch(`${daemonUrl}/orgs/${memberData.orgId}/drives`, {
+      headers: { Authorization: `Bearer ${newMemberKey}` },
+    });
+    assert(personalRes.status, 403, `Expected new key to stop at the org (403), got ${personalRes.status}`);
 
     // Clean up, then switch back to the personal org for the tests that follow.
     run("member remove reset-member@e2e.local");
@@ -3702,6 +3841,10 @@ async function runStandardTests(daemonUrl: string) {
       body: JSON.stringify({ email: "user3@e2e.local", role: "viewer" }),
     });
     assert(res.ok, true, `Expected 200, got ${res.status}`);
+    const { status, token } = (await res.json()) as any;
+    assert(status, "pending", "An existing account joins only by accepting");
+    const accept = await fetch(`${daemonUrl}/invites/${token}/accept`, { method: "POST", headers: authed(user3ApiKey) });
+    assert(accept.status, 200, `Expected accept 200, got ${accept.status}`);
   });
 
   await test("drive-members works for viewers over HTTP and CLI without roles", async () => {
@@ -4503,6 +4646,619 @@ async function localContainmentSuite(b: Backend) {
       assert(names.includes(n), true, `expected ${n} in ls /, got ${JSON.stringify(names)}`);
     }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Outbound webhooks
+//
+// A real daemon with the delivery worker on POSTs to a Bun.serve receiver in
+// this process. The receiver checks every request with the `standardwebhooks`
+// npm library (an oracle independent of our signer) and answers from a
+// per-path status queue, so one receiver serves several subscriptions.
+// ---------------------------------------------------------------------------
+
+interface WebhookHit {
+  path: string;
+  /** `webhook-id` header. */
+  id: string;
+  headers: Record<string, string>;
+  body: string;
+  json: any;
+  at: number;
+  /** Status the receiver answered. */
+  status: number;
+  valid: boolean;
+  error?: string;
+}
+
+/**
+ * Run a shell command without blocking the event loop (unlike execSync), so an
+ * in-process server keeps answering while it runs. Throws on a non-zero exit;
+ * the error carries `stdout` and `stderr` like execSync's.
+ */
+async function runAsync(command: string, env: NodeJS.ProcessEnv, timeoutMs = 30_000): Promise<string> {
+  const proc = Bun.spawn(["sh", "-c", command], { env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+  const timer = setTimeout(() => proc.kill(), timeoutMs);
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  clearTimeout(timer);
+  if (code !== 0) {
+    const err: any = new Error(`Command failed (exit ${code}): ${command}\n${stderr}`);
+    err.stdout = stdout;
+    err.stderr = stderr;
+    throw err;
+  }
+  return stdout.trim();
+}
+
+/** Poll `fn` until it returns a truthy value. Throws with `label` on timeout. */
+async function waitFor<T>(
+  fn: () => T | Promise<T>,
+  label: string,
+  timeoutMs = 10_000,
+  intervalMs = 50,
+): Promise<NonNullable<T>> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "";
+  while (true) {
+    try {
+      const value = await fn();
+      if (value) return value as NonNullable<T>;
+    } catch (e: any) {
+      lastError = e?.message ?? String(e);
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`timed out after ${timeoutMs} ms waiting for ${label}${lastError ? ` (last error: ${lastError})` : ""}`);
+    }
+    await Bun.sleep(intervalMs);
+  }
+}
+
+async function webhookSuite() {
+  console.log(`\n-- webhooks (worker on, signed local receiver) --`);
+
+  const hits: WebhookHit[] = [];
+  const secrets = new Map<string, string>(); // receiver path -> whsec_ secret
+  const queues = new Map<string, number[]>(); // receiver path -> statuses to answer first (then 200)
+  const receiver = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    async fetch(req) {
+      const path = new URL(req.url).pathname;
+      const body = await req.text();
+      const headers = Object.fromEntries(req.headers.entries());
+      const status = queues.get(path)?.shift() ?? 200;
+      let json: any = null;
+      let valid = false;
+      let error: string | undefined;
+      try {
+        const secret = secrets.get(path);
+        if (!secret) throw new Error(`no secret registered for ${path}`);
+        json = new Webhook(secret).verify(body, headers);
+        valid = true;
+      } catch (e: any) {
+        error = e?.message ?? String(e);
+      }
+      if (json === null) {
+        try { json = JSON.parse(body); } catch {}
+      }
+      hits.push({ path, id: headers["webhook-id"] ?? "", headers, body, json, at: Date.now(), status, valid, error });
+      return new Response(status < 300 ? "ok" : "no", { status });
+    },
+  });
+  const receiverBase = `http://127.0.0.1:${receiver.port}`;
+
+  try {
+    let b: Backend;
+    try {
+      b = await setupLocalBackend({
+        label: "webhooks",
+        env: {
+          AGENT_FS_WEBHOOK_WORKER: "true",
+          AGENT_FS_WEBHOOK_ALLOWED_HOSTS: `127.0.0.1:${receiver.port}`,
+          // Long enough that the restart test stops the daemon before the retry is due.
+          AGENT_FS_WEBHOOK_RETRY_SCHEDULE_MS: "3000,3000,3000",
+          AGENT_FS_WEBHOOK_POLL_MS: "250",
+        },
+      });
+    } catch (e: any) {
+      await test("[webhooks] daemon starts with the webhook worker on", () => { throw e; });
+      return;
+    }
+
+    const daemonUrl = `http://127.0.0.1:${b.daemonPort}`;
+    const OWNER = "webhooks@e2e.local";
+    const U2 = "wh-user2@e2e.local";
+    const U3 = "wh-user3@e2e.local";
+    const keys: Record<string, string> = { [OWNER]: b.apiKey };
+    let orgId = "";
+    let driveId = "";
+
+    const authed = (key: string): Record<string, string> => ({
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    });
+    /**
+     * CLI call as `key` on the team org/drive. Async on purpose: execSync would
+     * block this process, so the in-process receiver could not answer the
+     * daemon while the CLI waits (webhook test would time out).
+     */
+    const cliAs = (key: string, args: string) =>
+      runAsync(`${cmd} --json --org ${orgId} --drive ${driveId} ${args}`, {
+        ...b.env(),
+        AGENT_FS_API_URL: daemonUrl,
+        AGENT_FS_API_KEY: key,
+      });
+    const wh = async (args: string, key = b.apiKey): Promise<any> => JSON.parse(await cliAs(key, args));
+    const query = (sql: string, ...params: any[]): any[] => {
+      const db = new Database(join(b.home, "agent-fs.db"), { readonly: true });
+      try {
+        return db.query(sql).all(...params) as any[];
+      } finally {
+        db.close();
+      }
+    };
+    /** Delivery rows (with the receiver path) for one comment. */
+    const rowsFor = (commentId: string): any[] =>
+      query(
+        `SELECT d.*, s.url AS sub_url FROM webhook_deliveries d
+           JOIN webhook_subscriptions s ON s.id = d.subscription_id
+          WHERE json_extract(d.payload, '$.data.comment.id') = ?
+          ORDER BY d.created_at, d.rowid`,
+        commentId,
+      );
+    /** Wait until `n` rows exist for the comment and none is pending. */
+    const settled = (commentId: string, n: number) =>
+      waitFor(() => {
+        const rows = rowsFor(commentId);
+        return rows.length >= n && rows.every((r) => r.status !== "pending") ? rows : null;
+      }, `${n} settled deliveries for comment ${commentId}`);
+    const hitsFor = (path: string, commentId?: string) =>
+      hits.filter((h) => h.path === path && (!commentId || h.json?.data?.comment?.id === commentId));
+    const createHook = async (path: string, events: string[]): Promise<any> => {
+      const res = await wh(`webhook create ${receiverBase}${path} ${events.map((e) => `--event ${e}`).join(" ")} --description e2e${path.replace("/", "-")}`);
+      if (typeof res.secret === "string") secrets.set(path, res.secret);
+      return res;
+    };
+    const addComment = (body: string, extra = "", key = b.apiKey): Promise<any> =>
+      wh(`comment add /wh.md --body ${shQuote(body)} ${extra}`, key);
+    const emails = (users: any[] | undefined) => (users ?? []).map((u: any) => u.email);
+    const sameList = (actual: any[], expected: any[], what: string) =>
+      assert(JSON.stringify(actual), JSON.stringify(expected), `${what}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+
+    await test("[webhooks] daemon starts with the webhook worker on", async () => {
+      await waitFor(
+        () => readFileSync(join(b.home, "agent-fs.log"), "utf-8").includes("webhook worker running"),
+        "'webhook worker running' in the daemon log",
+      );
+    });
+
+    await test("[webhooks] team org with two invited editors", async () => {
+      const orgRes = await fetch(`${daemonUrl}/orgs`, {
+        method: "POST",
+        headers: authed(b.apiKey),
+        body: JSON.stringify({ name: "wh-team" }),
+      });
+      assert(orgRes.ok, true, `create org: ${orgRes.status} ${await orgRes.clone().text()}`);
+      orgId = ((await orgRes.json()) as any).id;
+      const drives = (await (await fetch(`${daemonUrl}/orgs/${orgId}/drives`, { headers: authed(b.apiKey) })).json()) as any;
+      driveId = drives.drives[0]?.id;
+      assert(!!driveId, true, "Expected the team org's default drive");
+      for (const email of [U2, U3]) {
+        const reg = await fetch(`${daemonUrl}/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        assert(reg.ok, true, `register ${email}: ${reg.status}`);
+        keys[email] = ((await reg.json()) as any).apiKey;
+        const inv = await fetch(`${daemonUrl}/orgs/${orgId}/members/invite`, {
+          method: "POST",
+          headers: authed(b.apiKey),
+          body: JSON.stringify({ email, role: "editor" }),
+        });
+        assert(inv.ok, true, `invite ${email}: ${inv.status} ${await inv.clone().text()}`);
+        // An existing account stays a pending invite until it accepts: accept as the invitee.
+        const { token } = (await inv.json()) as any;
+        assert(typeof token === "string", true, `invite ${email}: expected a pending-invite token`);
+        const acc = await fetch(`${daemonUrl}/invites/${token}/accept`, { method: "POST", headers: authed(keys[email]) });
+        assert(acc.ok, true, `accept ${email}: ${acc.status} ${await acc.clone().text()}`);
+      }
+      await wh(`write /wh.md --content ${shQuote("# webhook e2e\n")}`);
+    });
+
+    let all: any = {};
+    let mention: any = {};
+    let gone: any = {};
+
+    await test("[webhooks] webhook create prints a whsec_ secret once; list omits it; /health lists webhooks", async () => {
+      all = await createHook("/all", ["comment.created", "comment.mentioned"]);
+      assert(typeof all.secret === "string" && all.secret.startsWith("whsec_"), true, `Expected a whsec_ secret, got ${JSON.stringify(all.secret)}`);
+      assert(all.scope, "drive");
+      assert(all.driveId, driveId);
+      assert(all.enabled, true);
+      assert(all.workerEnabled, true);
+      sameList([...all.eventTypes].sort(), ["comment.created", "comment.mentioned"], "eventTypes");
+
+      const listOut = await cliAs(b.apiKey, "webhook list");
+      assert(listOut.includes(all.secret), false, "webhook list leaked the secret");
+      const listed = JSON.parse(listOut).webhooks.find((w: any) => w.id === all.id);
+      assert(!!listed, true, "Expected the new hook in webhook list");
+      assert("secret" in listed, false, "webhook list must not carry a secret field");
+      assert(listed.url, `${receiverBase}/all`);
+
+      const stored = query("SELECT secret_ciphertext FROM webhook_subscriptions WHERE id = ?", all.id)[0];
+      assert(stored.secret_ciphertext.includes(all.secret.slice("whsec_".length)), false, "secret stored in plaintext");
+
+      const health = (await (await fetch(`${daemonUrl}/health`)).json()) as any;
+      assert(health.features.includes("webhooks"), true, `Expected webhooks in /health features: ${JSON.stringify(health.features)}`);
+    });
+
+    await test("[webhooks] webhook create refuses the metadata address 169.254.169.254", async () => {
+      // Plain http to a non-allowlisted host is refused before DNS; https
+      // reaches the egress guard, which refuses the link-local address.
+      for (const [url, reason] of [
+        ["http://169.254.169.254/latest/meta-data", "must use https://"],
+        ["https://169.254.169.254/latest/meta-data", "egress refused: 169.254.169.254"],
+      ]) {
+        let threw = false;
+        let combined = "";
+        try {
+          await cliAs(b.apiKey, `webhook create ${url} --event comment.created`);
+        } catch (e: any) {
+          threw = true;
+          combined = `${e.stdout ?? ""}\n${e.stderr ?? ""}`;
+        }
+        assert(threw, true, `webhook create ${url} should exit non-zero`);
+        assertIncludes(combined, reason);
+      }
+      const listed = (await wh("webhook list")).webhooks;
+      assert(listed.some((w: any) => w.url.includes("169.254")), false, "a refused URL was stored");
+    });
+
+    await test("[webhooks] webhook test sends a signed ping", async () => {
+      const res = await wh(`webhook test ${all.id}`);
+      assert(res.ok, true, `webhook test: ${JSON.stringify(res)}`);
+      assert(res.statusCode, 200);
+      assert(String(res.webhookId).startsWith("ping_"), true, `Expected a ping_ id, got ${res.webhookId}`);
+      // Sent inline: the receiver has it once the command returns.
+      const hit = hitsFor("/all").find((h) => h.id === res.webhookId);
+      assert(!!hit, true, "receiver got no ping");
+      assert(hit!.valid, true, `invalid ping signature: ${hit!.error}`);
+      assert(hit!.json.type, "ping");
+      assert(hit!.json.data.subscriptionId, all.id);
+      assert(hit!.json.data.driveId, driveId);
+    });
+
+    let rootId = "";
+    await test("[webhooks] a comment with two mentions sends one signed comment.mentioned per user to each matching hook", async () => {
+      mention = await createHook("/mention", ["comment.mentioned"]);
+      const add = await addComment("hi both", `--mention ${U2} --mention ${U3}`);
+      rootId = add.id;
+
+      // Two mentions to /mention, created + two mentions to /all: exactly 5 rows, all delivered.
+      const rows = await settled(add.id, 5);
+      assert(rows.length, 5, `Expected 5 delivery rows, got ${rows.length}`);
+      assert(rows.every((r) => r.status === "delivered" && r.attempts === 1), true, `rows: ${JSON.stringify(rows.map((r) => [r.status, r.attempts]))}`);
+
+      const m = hitsFor("/mention", add.id);
+      const a = hitsFor("/all", add.id);
+      assert(m.length, 2, `Expected 2 requests to the mentioned-only hook, got ${m.length}`);
+      assert(a.length, 3, `Expected 3 requests to the created+mentioned hook, got ${a.length}`);
+      for (const h of [...m, ...a]) assert(h.valid, true, `invalid signature on ${h.path} ${h.id}: ${h.error}`);
+      sameList(m.map((h) => h.json.type), ["comment.mentioned", "comment.mentioned"], "mentioned-only hook types");
+      sameList(m.map((h) => h.json.data.mentioned.email).sort(), [U2, U3], "mentioned users");
+      sameList(a.map((h) => h.json.type).sort(), ["comment.created", "comment.mentioned", "comment.mentioned"], "created+mentioned hook types");
+
+      // webhook-id is the comment_mention events.id, which is the mention notification id in that user's inbox.
+      const mentionIds: string[] = [];
+      for (const user of [U2, U3]) {
+        const inbox = (await wh("comment notifications --kind mention", keys[user])).notifications;
+        const note = inbox.find((n: any) => n.commentId === add.id);
+        assert(!!note, true, `no mention notification for ${user}`);
+        const mHit = m.find((h) => h.json.data.mentioned.email === user)!;
+        const aHit = a.find((h) => h.json.type === "comment.mentioned" && h.json.data.mentioned.email === user)!;
+        assert(mHit.id, note.id, `webhook-id for ${user} should be the comment_mention event id`);
+        assert(aHit.id, note.id, "one event fans out to every hook with the same webhook-id");
+        mentionIds.push(note.id);
+      }
+
+      const created = a.find((h) => h.json.type === "comment.created")!;
+      assert(mentionIds.includes(created.id), false, "comment.created must have its own webhook-id");
+      const data = created.json.data;
+      assert(data.comment.id, add.id);
+      assert(data.comment.parentId, null);
+      assert(data.comment.body, "hi both");
+      assert(data.path, "/wh.md");
+      assert(data.orgId, orgId);
+      assert(data.driveId, driveId);
+      assert(data.actor.email, OWNER);
+      assert(data.comment.author.email, OWNER);
+      sameList(emails(data.comment.mentions).sort(), [U2, U3], "comment.mentions");
+      assert(!data.mentioned, true, "comment.created must not carry `mentioned`");
+      assert(!data.thread, true, "a root comment has no `thread`");
+      assert(typeof data.url === "string" && data.url.includes("/file/~/"), true, `Expected an app link, got ${data.url}`);
+    });
+
+    await test("[webhooks] a reply sends comment.created with thread.rootId and the other participants", async () => {
+      const r1 = await wh(`comment reply ${rootId} --body ${shQuote("reply from user2")}`, keys[U2]);
+      const rows1 = await settled(r1.id, 1);
+      assert(rows1.length, 1, `Expected 1 row (only /all takes comment.created), got ${rows1.length}`);
+      const h1 = hitsFor("/all", r1.id);
+      assert(h1.length, 1);
+      assert(h1[0].valid, true, h1[0].error);
+      assert(h1[0].json.type, "comment.created");
+      assert(h1[0].json.data.actor.email, U2);
+      assert(h1[0].json.data.comment.parentId, rootId);
+      assert(h1[0].json.data.thread.rootId, rootId);
+      sameList(emails(h1[0].json.data.thread.participants), [OWNER], "participants of user2's reply");
+
+      const r2 = await wh(`comment reply ${rootId} --body ${shQuote("owner answers")}`);
+      await settled(r2.id, 1);
+      const h2 = hitsFor("/all", r2.id);
+      assert(h2.length, 1);
+      assert(h2[0].valid, true, h2[0].error);
+      assert(h2[0].json.data.thread.rootId, rootId);
+      sameList(emails(h2[0].json.data.thread.participants), [U2], "participants of the owner's reply (actor excluded)");
+      assert(hitsFor("/mention", r1.id).length + hitsFor("/mention", r2.id).length, 0, "the mentioned-only hook got a reply");
+    });
+
+    await test("[webhooks] file.changed: one signed metadata-only event per version under --path-prefix; comment hooks get none", async () => {
+      const files = await createHook("/files", ["file.changed"]);
+      const updated = await wh(`webhook update ${files.id} --path-prefix site`);
+      assert(updated.pathPrefix, "/site/", "pathPrefix is stored normalized");
+      const secretText = "E2E-FILE-CONTENT-do-not-send";
+      await wh(`write /site/index.html --content ${shQuote(secretText)}`);
+      await wh(`write /sitemap.md --content ${shQuote(secretText)}`);
+      await wh(`write /site/a.md --content ${shQuote(secretText)}`);
+      await wh(`append /site/a.md --content ${shQuote(" more")}`);
+      await wh("mv /site/a.md /site/b.md");
+      await wh("rm /site/index.html");
+
+      const fileRows = await waitFor(() => {
+        const rows = query(
+          "SELECT d.*, s.url AS sub_url FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id = d.subscription_id WHERE d.event_type = 'file.changed' ORDER BY d.rowid",
+        );
+        return rows.length >= 6 && rows.every((r) => r.status !== "pending") ? rows : null;
+      }, "6 settled file.changed deliveries");
+      assert(fileRows.length, 6, `Expected 6 file.changed rows, got ${fileRows.length}`);
+      assert(fileRows.every((r) => r.sub_url === `${receiverBase}/files` && r.status === "delivered"), true,
+        `file.changed rows: ${JSON.stringify(fileRows.map((r) => [r.sub_url, r.status]))}`);
+
+      const got = hits.filter((h) => h.path === "/files" && h.json?.type === "file.changed");
+      sameList(
+        got.map((h) => [h.json.data.path, h.json.data.version, h.json.data.operation]),
+        [
+          ["/site/index.html", 1, "write"],
+          ["/site/a.md", 1, "write"],
+          ["/site/a.md", 2, "append"],
+          ["/site/b.md", 1, "write"],
+          ["/site/a.md", 3, "delete"],
+          ["/site/index.html", 2, "delete"],
+        ],
+        "file.changed path, version, operation",
+      );
+      for (const h of got) {
+        assert(h.valid, true, `invalid signature on ${h.id}: ${h.error}`);
+        assert(h.body.includes("E2E-FILE-CONTENT"), false, "file.changed payload carried file content");
+        assert(h.id, h.json.data.eventId, "webhook-id is the event id");
+        assert(h.json.data.driveId, driveId);
+        assert(h.json.data.author.email, OWNER);
+      }
+      assert(got[0].json.data.size, secretText.length);
+      assert(typeof got[0].json.data.etag === "string", true, `Expected an etag, got ${got[0].json.data.etag}`);
+      assert(got[5].json.data.size, null);
+      assert(hitsFor("/all").some((h) => h.json?.type === "file.changed"), false, "a comment-only hook got file.changed");
+      assert(hitsFor("/mention").some((h) => h.json?.type === "file.changed"), false, "a comment-only hook got file.changed");
+      await wh(`webhook delete ${files.id}`);
+    });
+
+    await test("[webhooks] webhook update --disable pauses a hook (reason manual)", async () => {
+      for (const hook of [all, mention]) {
+        const res = await wh(`webhook update ${hook.id} --disable`);
+        assert(res.enabled, false);
+        assert(res.disabledReason, "manual");
+      }
+      const add = await addComment("nobody listens");
+      assert(rowsFor(add.id).length, 0, "a disabled hook got a delivery row");
+    });
+
+    await test("[webhooks] a 500 is retried with the same webhook-id and identical body", async () => {
+      const hook = await createHook("/retry", ["comment.created"]);
+      queues.set("/retry", [500]);
+      const add = await addComment("retry me");
+      const got = await waitFor(() => {
+        const h = hitsFor("/retry", add.id);
+        return h.length >= 2 ? h : null;
+      }, "the retry", 15_000);
+      const rows = await settled(add.id, 1);
+      assert(hitsFor("/retry", add.id).length, 2, "Expected exactly 2 requests");
+      assert(got[0].status, 500);
+      assert(got[1].status, 200);
+      assert(got[1].id, got[0].id, "the retry must reuse the webhook-id");
+      assert(got[1].body, got[0].body, "the retry must send identical bytes");
+      for (const h of got) assert(h.valid, true, `invalid signature: ${h.error}`);
+      const gap = got[1].at - got[0].at;
+      assert(gap >= 2_400, true, `retry came ${gap} ms after the 500; the schedule is 3000 ms ±20%`);
+      assert(rows[0].status, "delivered");
+      assert(rows[0].attempts, 2);
+      await wh(`webhook delete ${hook.id}`);
+    });
+
+    await test("[webhooks] a daemon restart between attempts keeps the delivery and its webhook-id", async () => {
+      const hook = await createHook("/restart", ["comment.created"]);
+      queues.set("/restart", [500, 200]);
+      const add = await addComment("survive a restart");
+      const first = await waitFor(() => hitsFor("/restart", add.id)[0], "the first attempt");
+      // Wait until the 500 is recorded and the retry scheduled, so the stop
+      // below finds no send in flight.
+      const scheduled = await waitFor(() => {
+        const row = rowsFor(add.id)[0];
+        return row && row.status === "pending" && row.last_status_code === 500 && row.lease_until === null ? row : null;
+      }, "the 500 to be recorded");
+
+      const pidPath = join(b.home, "agent-fs.pid");
+      const oldPid = Number(readFileSync(pidPath, "utf-8").trim());
+      await runAsync(`${cmd} daemon stop`, b.env());
+      await waitFor(() => {
+        try {
+          process.kill(oldPid, 0);
+          return false;
+        } catch {
+          return true;
+        }
+      }, "the old daemon to exit");
+      const stoppedAt = Date.now();
+      assert(
+        hitsFor("/restart", add.id).length,
+        1,
+        `the retry fired before the stop completed (${stoppedAt - first.at} ms after the first attempt)`,
+      );
+
+      await runAsync(`${cmd} daemon start`, b.env());
+      await waitFor(async () => (await fetch(`${daemonUrl}/health`).catch(() => null))?.ok, "the restarted daemon", 15_000, 200);
+      const newPid = Number(readFileSync(pidPath, "utf-8").trim());
+      assert(newPid !== oldPid, true, "Expected a new daemon process");
+
+      const second = await waitFor(() => hitsFor("/restart", add.id)[1], "the retry from the restarted daemon", 15_000);
+      const rows = await settled(add.id, 1);
+      assert(hitsFor("/restart", add.id).length, 2, "Expected exactly 2 requests");
+      assert(second.id, first.id, "the restarted daemon must reuse the webhook-id");
+      assert(second.body, first.body, "the restarted daemon must send identical bytes");
+      assert(second.valid, true, `invalid signature: ${second.error}`);
+      assert(second.status, 200);
+      assert(rows[0].status, "delivered");
+      assert(rows[0].attempts, 2);
+      assert(rows[0].id, scheduled.id);
+      await wh(`webhook delete ${hook.id}`);
+    });
+
+    await test("[webhooks] HTTP 410 disables the hook (enabled:false, disabledReason gone); later comments send nothing", async () => {
+      gone = await createHook("/gone", ["comment.created"]);
+      queues.set("/gone", [410]);
+      const add = await addComment("gone soon");
+      await waitFor(() => hitsFor("/gone", add.id)[0], "the 410 attempt");
+      const listed = await waitFor(async () => {
+        const w = (await wh("webhook list")).webhooks.find((x: any) => x.id === gone.id);
+        return w && w.enabled === false ? w : null;
+      }, "webhook list to show the hook disabled", 10_000, 250);
+      assert(listed.disabledReason, "gone");
+      assert(!!listed.disabledAt, true, "Expected disabledAt");
+      const row = rowsFor(add.id)[0];
+      assert(row.status, "failed");
+      assert(row.last_status_code, 410);
+
+      const before = hitsFor("/gone").length;
+      const add2 = await addComment("after gone");
+      assert(rowsFor(add2.id).length, 0, "a gone hook got a delivery row");
+      await Bun.sleep(3_000); // negative check: nothing may arrive
+      assert(hitsFor("/gone").length, before, "a gone hook got a request");
+    });
+
+    /** stderr of a CLI call that must fail (exit non-zero). */
+    const cliError = async (args: string, key = b.apiKey): Promise<string> => {
+      try {
+        await cliAs(key, args);
+      } catch (e: any) {
+        return String(e?.stderr ?? e?.message ?? e).trim();
+      }
+      throw new Error(`expected \`${args}\` to fail`);
+    };
+
+    await test("[webhooks] webhook deliveries shows the 410 row without its payload, and with --payload", async () => {
+      const { deliveries, nextCursor } = await wh(`webhook deliveries ${gone.id} --status failed`);
+      assert(deliveries.length, 1, `Expected the one failed 410 row: ${JSON.stringify(deliveries)}`);
+      assert(nextCursor, null);
+      const row = deliveries[0];
+      assert(row.lastStatusCode, 410);
+      assert(row.attempts, 1);
+      assert("payload" in row, false, "payload must be omitted by default");
+      const full = (await wh(`webhook deliveries ${gone.id} --status failed --payload`)).deliveries[0];
+      const first = hitsFor("/gone").find((h) => h.id === row.eventId)!;
+      assert(first.status, 410, "Expected the receiver's first hit for this event to be the 410");
+      assert(full.payload, first.body, "--payload must be the exact body that was sent");
+    });
+
+    await test("[webhooks] a non-admin gets the hook's own denial on deliveries and redeliver", async () => {
+      const row = (await wh(`webhook deliveries ${gone.id} --status failed`)).deliveries[0];
+      const onHook = await cliError(`webhook update ${gone.id} --description x`, keys[U2]);
+      assert(/permission|PERMISSION_DENIED|admin/i.test(onHook), true, `Expected a permission error, got: ${onHook}`);
+      assert(await cliError(`webhook deliveries ${gone.id}`, keys[U2]), onHook, "deliveries denial differs from the hook's");
+      assert(await cliError(`webhook redeliver ${row.id}`, keys[U2]), onHook, "redeliver denial differs from the hook's");
+    });
+
+    await test("[webhooks] webhook redeliver is refused while the hook is disabled, then resends the failed 410 row after --enable", async () => {
+      const row = (await wh(`webhook deliveries ${gone.id} --status failed`)).deliveries[0];
+      const refused = await cliError(`webhook redeliver ${row.id}`);
+      assert(refused.includes("disabled"), true, `Expected a disabled refusal, got: ${refused}`);
+      assert(query("SELECT status FROM webhook_deliveries WHERE id = ?", row.id)[0].status, "failed", "a refused redeliver changed the row");
+
+      assert((await wh(`webhook update ${gone.id} --enable`)).enabled, true);
+      const queued = await wh(`webhook redeliver ${row.id}`);
+      assert(queued.status, "pending");
+      assert(queued.attempts, 1, "redeliver must keep the attempt count");
+      const resent = await waitFor(
+        () => hitsFor("/gone").find((h) => h.id === row.eventId && h.status === 200),
+        "the redelivered request",
+      );
+      assert(resent.valid, true, resent.error);
+      assert(resent.body, hitsFor("/gone").find((h) => h.id === row.eventId)!.body, "redelivery must send the same body");
+      const after = await waitFor(() => {
+        const r = query("SELECT status, attempts FROM webhook_deliveries WHERE id = ?", row.id)[0];
+        return r?.status === "delivered" ? r : null;
+      }, "the redelivered row to be delivered");
+      assert(after.attempts, 2);
+    });
+
+    await test("[webhooks] webhook update --enable and --rotate-secret, then delete removes the hooks", async () => {
+      const enabled = await wh(`webhook update ${gone.id} --enable`);
+      assert(enabled.enabled, true);
+      assert(enabled.disabledReason, null);
+      assert(enabled.consecutiveFailures, 0);
+      const add = await addComment("back again");
+      const back = await waitFor(() => hitsFor("/gone", add.id)[0], "a delivery after re-enable");
+      assert(back.valid, true, back.error);
+      assert(back.status, 200);
+
+      const rotated = await wh(`webhook update ${gone.id} --rotate-secret`);
+      assert(typeof rotated.secret === "string" && rotated.secret.startsWith("whsec_"), true, "Expected a new secret");
+      assert(rotated.secret !== gone.secret, true, "rotate must change the secret");
+      secrets.set("/gone", rotated.secret);
+      const ping = await wh(`webhook test ${gone.id}`);
+      assert(ping.ok, true);
+      const pingHit = hitsFor("/gone").find((h) => h.id === ping.webhookId)!;
+      assert(pingHit.valid, true, `new secret must verify: ${pingHit.error}`);
+      let oldVerifies = true;
+      try {
+        new Webhook(gone.secret).verify(pingHit.body, pingHit.headers);
+      } catch {
+        oldVerifies = false;
+      }
+      assert(oldVerifies, false, "the old secret still verifies after rotation");
+
+      for (const hook of [gone, all, mention]) assert((await wh(`webhook delete ${hook.id}`)).deleted, true);
+      assert((await wh("webhook list")).webhooks.length, 0, "Expected no hooks after delete");
+      assert(query("SELECT COUNT(*) AS n FROM webhook_deliveries")[0].n, 0, "deliveries must cascade on delete");
+      let threw = false;
+      try {
+        await cliAs(b.apiKey, `webhook test ${gone.id}`);
+      } catch {
+        threw = true;
+      }
+      assert(threw, true, "webhook test on a deleted hook should fail");
+    });
+
+    await test("[webhooks] every request carried a valid standardwebhooks signature", async () => {
+      assert(hits.length > 0, true, "receiver got nothing");
+      const bad = hits.filter((h) => !h.valid);
+      assert(bad.length, 0, `${bad.length} invalid: ${bad.map((h) => `${h.path} ${h.id}: ${h.error}`).join("; ")}`);
+    });
+  } finally {
+    receiver.stop(true);
+  }
 }
 
 // ---------------------------------------------------------------------------

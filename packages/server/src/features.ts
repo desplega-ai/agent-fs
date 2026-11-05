@@ -1,5 +1,7 @@
 export const SERVER_FEATURES = [
   "share-links",
+  "share-no-expiry",
+  "share-list",
   "comment-path-prefix",
   "drive-members",
   "drive-invites",
@@ -10,5 +12,6 @@ export const SERVER_FEATURES = [
   "html-comments",
   "favorites",
   "presence",
+  "webhooks",
   "org-swarm-url",
 ] as const;

@@ -64,6 +64,79 @@ CREATE INDEX IF NOT EXISTS idx_user_api_keys_user ON user_api_keys(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_api_keys_org ON user_api_keys(org_id) WHERE org_id IS NOT NULL;
 `;
 
+/**
+ * Outbound webhooks. `webhook_subscriptions` holds one endpoint per row:
+ * drive_id NULL means the hook covers every drive in the org. The signing
+ * secret is stored only as AES-256-GCM ciphertext (webhooks/crypto).
+ * `webhook_deliveries` is the transactional outbox: comment ops insert one
+ * row per (subscription, event) in the same transaction as their `events`
+ * rows, and the delivery worker claims due rows through `lease_until`.
+ * event_id is the `events.id` and is sent as `webhook-id`, so one event fans
+ * out to N hooks under the same id. payload is the exact JSON body, built
+ * once at enqueue so every retry sends identical bytes.
+ *
+ * Unlike most tables here, every timestamp column holds epoch MILLISECONDS:
+ * retry scheduling needs sub-second precision. Receivers only ever see ISO
+ * strings, so the unit never leaks. Shared with runMigrations, which adds the
+ * tables to older databases.
+ */
+export const WEBHOOKS_SQL = `
+CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL REFERENCES orgs(id),
+  drive_id TEXT REFERENCES drives(id),
+  url TEXT NOT NULL,
+  description TEXT,
+  event_types TEXT NOT NULL,
+  path_prefix TEXT,
+  secret_ciphertext TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  disabled_reason TEXT CHECK(disabled_reason IN ('gone', 'failing', 'manual')),
+  disabled_at INTEGER,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  failing_since INTEGER,
+  last_success_at INTEGER,
+  last_failure_at INTEGER,
+  created_by TEXT NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_subs_org ON webhook_subscriptions(org_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_webhook_subs_drive ON webhook_subscriptions(drive_id) WHERE drive_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id TEXT PRIMARY KEY,
+  subscription_id TEXT NOT NULL REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+  event_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'delivered', 'failed')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL,
+  lease_until INTEGER,
+  last_attempt_at INTEGER,
+  last_status_code INTEGER,
+  last_error TEXT,
+  delivered_at INTEGER,
+  created_at INTEGER NOT NULL,
+  UNIQUE(subscription_id, event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_due
+  ON webhook_deliveries(next_attempt_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_sub ON webhook_deliveries(subscription_id, created_at);
+`;
+
+/**
+ * Serves the delivery worker's hourly prune (`status != 'pending' AND
+ * created_at < now - 30 days`). Shared with runMigrations, which adds it to
+ * databases created before it existed.
+ */
+export const WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL = `
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_prune ON webhook_deliveries(status, created_at);
+`;
+
 export const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -207,12 +280,14 @@ CREATE TABLE IF NOT EXISTS shares (
   kind TEXT NOT NULL DEFAULT 'file',
   token_hash TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
+  never_expires INTEGER NOT NULL DEFAULT 0,
   max_views INTEGER,
   views INTEGER NOT NULL DEFAULT 0,
   last_viewed_at INTEGER,
   created_by TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  revoked_at INTEGER
+  revoked_at INTEGER,
+  revoked_by TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS shares_token_hash_uq ON shares(token_hash);
@@ -251,6 +326,10 @@ CREATE INDEX IF NOT EXISTS idx_favorites_drive_path ON favorites(drive_id, path)
 ${ORG_INVITES_SQL}
 
 ${USER_API_KEYS_SQL}
+
+${WEBHOOKS_SQL}
+
+${WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL}
 
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

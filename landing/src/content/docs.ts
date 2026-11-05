@@ -10,6 +10,7 @@ import mountingHetzner from "../../../docs/mounting/hetzner.md?raw"
 import mountingSprite from "../../../docs/mounting/sprite.md?raw"
 import sqlQueries from "../../../docs/sql.md?raw"
 import telemetry from "../../../docs/telemetry.md?raw"
+import webhooks from "../../../docs/webhooks.md?raw"
 import { DOC_METADATA, DOC_SECTIONS, getDocMetadataBySlug, type DocMetadata } from "./doc-metadata"
 
 export type DocEntry = DocMetadata & {
@@ -22,6 +23,7 @@ const MARKDOWN_BY_SLUG: Record<string, string> = {
   deployment,
   sql: sqlQueries,
   telemetry,
+  webhooks,
   "fuse-mount": fuseMount,
   "fuse-compat": fuseCompat,
   "fuse-troubleshooting": fuseTroubleshooting,

@@ -166,6 +166,22 @@ describe("resolveHtmlViewUrl", () => {
     expect(cache["https://api.example/org/drive/new"].expiresAt).toBe(clock.now + 900_000)
   })
 
+  test("a share answered without an expiry is cached for the TTL the viewer asked for, not forever", async () => {
+    const { client, deps, clock, storage } = setup()
+    const answering = (patch: { expiresIn: number | null; expiresAt: string | null }) => ({
+      ...client,
+      createShare: async (...args: Parameters<typeof client.createShare>) => ({ ...(await client.createShare(...args)), ...patch }),
+    })
+    await resolveHtmlViewUrl(answering({ expiresIn: null, expiresAt: null }), "org", "drive", "a/x.html", deps)
+    let cache = JSON.parse(storage.data.get(SITE_TOKENS_KEY)!)
+    expect(cache["https://api.example/org/drive/a"].expiresAt).toBe(clock.now + 900_000)
+
+    // No date but a duration: the duration wins.
+    await resolveHtmlViewUrl(answering({ expiresIn: 300, expiresAt: null }), "org", "drive", "b/x.html", deps)
+    cache = JSON.parse(storage.data.get(SITE_TOKENS_KEY)!)
+    expect(cache["https://api.example/org/drive/b"].expiresAt).toBe(clock.now + 300_000)
+  })
+
   for (const status of [404, 410]) {
     test(`a cached share that answers ${status} is dropped and minted again once`, async () => {
       const { client, minted, deps, heads, storage } = setup(status)

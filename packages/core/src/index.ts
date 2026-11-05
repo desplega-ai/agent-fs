@@ -66,6 +66,13 @@ export {
   favoriteAdd,
   favoriteRemove,
   favoriteList,
+  webhookCreate,
+  webhookList,
+  webhookUpdate,
+  webhookDelete,
+  webhookTest,
+  webhookDeliveries,
+  webhookRedeliver,
 } from "./ops/index.js";
 export {
   getS3Key,
@@ -106,6 +113,8 @@ export type {
   ShareViewGrant,
   OpenedShareView,
 } from "./ops/share.js";
+export { shareList, SHARE_LIST_DEFAULT_LIMIT, SHARE_LIST_MAX_LIMIT } from "./ops/share-list.js";
+export type { ShareListParams, ShareListItem, ShareListResult } from "./ops/share-list.js";
 export type { OpContext, OpDefinition } from "./ops/index.js";
 export type { WriteParams, WriteRawParams, WriteResult } from "./ops/types.js";
 export type {
@@ -174,6 +183,7 @@ export {
   resolveContext,
   ensureLocalUser,
   createUserApiKey,
+  resetOrgScopedKey,
   listUserApiKeys,
   revokeUserApiKey,
   PRIMARY_API_KEY_ID,
@@ -209,5 +219,6 @@ export { prepareImageEmbeddings, scheduleImageEmbeddings } from "./search/image-
 export { startVectorSearchWorker } from "./search/vector-worker.js";
 export type { EmbeddingProvider } from "./search/embeddings/index.js";
 export { generateOpenAPISpec } from "./openapi.js";
+export * from "./webhooks/index.js";
 
 export * from "./presence/index.js";

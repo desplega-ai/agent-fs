@@ -56,7 +56,7 @@ async function write(h: Harness, path: string, content: string) {
 }
 
 interface Created {
-  id: string; kind: string; url: string; sharePath: string; token: string; maxViews: number | null;
+  id: string; kind: string; url: string; sharePath: string; token: string; expiresIn: number | null; expiresAt: string | null; maxViews: number | null;
 }
 
 async function share(h: Harness, path: string, extra: Record<string, unknown> = {}): Promise<Created> {
@@ -150,6 +150,20 @@ for (const { label, make } of backends) {
         const res = await op(h, { op: "share-create", path: "/site", maxViews: 1 });
         expect(res.status).toBe(400);
         expect((await res.json()).error).toBe("VALIDATION_ERROR");
+      });
+
+      test("a site link that never expires serves long after the 7-day maximum, until revoked", async () => {
+        const forever = await share(h, "/site", { expiresIn: null });
+        expect(forever.expiresAt).toBeNull();
+        setSystemTime(new Date(Date.now() + 8 * 86_400_000));
+        try {
+          expect((await get(h, `/site/${forever.token}/`)).status).toBe(200);
+          expect((await get(h, `/site/${site.token}/`)).status).toBe(410);
+          expect((await op(h, { op: "share-revoke", id: forever.id })).status).toBe(200);
+          expect((await get(h, `/site/${forever.token}/`)).status).toBe(410);
+        } finally {
+          setSystemTime();
+        }
       });
     });
 

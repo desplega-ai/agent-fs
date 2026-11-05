@@ -21,8 +21,16 @@ import type {
   PresenceSession,
   PresenceSnapshot,
   PresenceState,
+  ShareListParams,
+  ShareListResult,
   SqlResult,
   SqlTableBinding,
+  Webhook,
+  WebhookDeliveriesPage,
+  WebhookDeliveryStatus,
+  WebhookEventType,
+  WebhookTestResult,
+  WebhookWithSecret,
   WriteParams,
   WriteResult,
 } from "./types"
@@ -45,8 +53,9 @@ export interface ShareCreateResult {
   /** Host-relative link: `/share/<token>` for a file, `/site/<token>/` for a folder. */
   sharePath: string
   path: string
-  expiresIn: number
-  expiresAt: string
+  /** Both `null` for a link that never expires (servers with `share-no-expiry`). */
+  expiresIn: number | null
+  expiresAt: string | null
   /** `null` = unlimited, `1` = one-off. */
   maxViews: number | null
 }
@@ -277,9 +286,10 @@ export class AgentFsClient {
   }
 
   /**
-   * Invite `email` to the org with a role per drive. Someone with an account is
-   * added at once; an unknown email gets a pending invite whose one-time token
-   * comes back in the response. Invite an existing org member again and their
+   * Invite `email` to the org with a role per drive. Someone not yet in the org
+   * (with or without an account) gets a pending invite whose one-time token
+   * comes back in the response; they join when they accept it. Someone already
+   * in the org has the grants applied at once. Invite an existing org member again and their
    * org role is overwritten, so add them to drives with `addDriveMember` instead.
    */
   async inviteToOrg(
@@ -328,7 +338,7 @@ export class AgentFsClient {
     orgId: string,
     driveId: string,
     path: string,
-    options?: { expiresIn?: number; maxViews?: number },
+    options?: { expiresIn?: number | null; maxViews?: number },
   ): Promise<ShareCreateResult> {
     return this.callOp<ShareCreateResult>(orgId, "share-create", { path, ...options }, driveId)
   }
@@ -340,6 +350,50 @@ export class AgentFsClient {
   /** Star or unstar `path` for the signed-in user. The server takes the user from the API key. */
   async setFavorite(orgId: string, driveId: string, path: string, favorite: boolean): Promise<void> {
     await this.callOp(orgId, favorite ? "favorite-add" : "favorite-remove", { path }, driveId)
+  }
+
+  /** This drive's webhooks for a drive admin, plus the org's for an org admin. 403 for anyone else. */
+  async listWebhooks(orgId: string, driveId: string, opts?: { signal?: AbortSignal }): Promise<{ webhooks: Webhook[] }> {
+    return this.callOp<{ webhooks: Webhook[] }>(orgId, "webhook-list", { scope: "all" }, driveId, opts)
+  }
+
+  /** The response carries the `whsec_` secret once. Never cache or log it. */
+  async createWebhook(
+    orgId: string,
+    driveId: string,
+    params: { scope: "drive" | "org"; url: string; eventTypes: WebhookEventType[]; description?: string },
+  ): Promise<WebhookWithSecret> {
+    return this.callOp<WebhookWithSecret>(orgId, "webhook-create", { ...params }, driveId)
+  }
+
+  async setWebhookEnabled(orgId: string, driveId: string, id: string, enabled: boolean): Promise<Webhook> {
+    return this.callOp<Webhook>(orgId, "webhook-update", { id, enabled }, driveId)
+  }
+
+  /** The old secret stops working at once. The response carries the new one once. Never cache or log it. */
+  async rotateWebhookSecret(orgId: string, driveId: string, id: string): Promise<WebhookWithSecret> {
+    return this.callOp<WebhookWithSecret>(orgId, "webhook-update", { id, rotateSecret: true }, driveId)
+  }
+
+  async deleteWebhook(orgId: string, driveId: string, id: string): Promise<void> {
+    await this.callOp(orgId, "webhook-delete", { id }, driveId)
+  }
+
+  async testWebhook(orgId: string, driveId: string, id: string): Promise<WebhookTestResult> {
+    return this.callOp<WebhookTestResult>(orgId, "webhook-test", { id }, driveId)
+  }
+
+  async listWebhookDeliveries(
+    orgId: string,
+    driveId: string,
+    params: { id: string; status?: WebhookDeliveryStatus; cursor?: string; limit?: number },
+    opts?: { signal?: AbortSignal },
+  ): Promise<WebhookDeliveriesPage> {
+    return this.callOp<WebhookDeliveriesPage>(orgId, "webhook-deliveries", { ...params }, driveId, opts)
+  }
+
+  async redeliverWebhook(orgId: string, driveId: string, deliveryId: string): Promise<void> {
+    await this.callOp(orgId, "webhook-redeliver", { deliveryId }, driveId)
   }
 
   /** Who is on the drive right now (presence fallback when the event stream is unavailable). */
@@ -522,5 +576,20 @@ export class AgentFsClient {
     if (result.kind !== "app") return { url: result.url, expiresAt: result.expiresAt, objectUrl: false }
     const blob = await this.fetchRaw(orgId, driveId, path, { signal: options?.signal })
     return { url: URL.createObjectURL(blob), expiresAt: "", objectUrl: true }
+  }
+
+  /** Share links in `driveId` (or, with `scope: "mine"`, the caller's links across the org). */
+  async listShares(
+    orgId: string,
+    driveId: string,
+    params: ShareListParams,
+    opts?: { signal?: AbortSignal },
+  ): Promise<ShareListResult> {
+    return this.callOp<ShareListResult>(orgId, "share-list", { ...params }, driveId, opts)
+  }
+
+  /** Revoke one link by id. `driveId` must be the link's own drive. */
+  async revokeShare(orgId: string, driveId: string, id: string): Promise<{ revoked: number; ids: string[] }> {
+    return this.callOp(orgId, "share-revoke", { id }, driveId)
   }
 }

@@ -27,6 +27,7 @@ import { find } from "./find.js";
 import { sql } from "./sql.js";
 import { signedUrl } from "./signed-url.js";
 import { shareCreate, shareRevoke } from "./share.js";
+import { shareList, SHARE_LIST_MAX_LIMIT } from "./share-list.js";
 import { buildAppUrl } from "./urls.js";
 import { recordOp } from "../telemetry.js";
 import {
@@ -43,6 +44,17 @@ import {
 } from "./comment-notification.js";
 import { driveMembers } from "./drive-members.js";
 import { favoriteAdd, favoriteRemove, favoriteList } from "./favorite.js";
+import {
+  webhookCreate,
+  webhookList,
+  webhookUpdate,
+  webhookDelete,
+  webhookTest,
+  webhookDeliveries,
+  webhookRedeliver,
+} from "./webhook.js";
+import { WEBHOOK_EVENT_TYPES } from "../webhooks/events.js";
+import { MAX_DELIVERIES_LIMIT } from "../webhooks/deliveries.js";
 
 export interface OpDefinition {
   description: string;
@@ -271,11 +283,11 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "share-create": {
-    description: "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. Default expiry is 24 hours (max 7 days); set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, urlSource, sharePath, path, expiresIn, expiresAt, maxViews }; urlSource (always present) is \"configured\" when url is built on AGENT_FS_PUBLIC_URL, \"request\" when it comes from the request's Host (resolve sharePath against the address you reached the API at). The link is shown only once; keep the id to revoke it.",
+    description: "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. Default expiry is 24 hours (max 7 days); expiresIn null makes a link with no time limit, which ends only with share-revoke or at maxViews. Set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, urlSource, sharePath, path, expiresIn, expiresAt, maxViews } (expiresIn and expiresAt are null for a link that never expires); urlSource (always present) is \"configured\" when url is built on AGENT_FS_PUBLIC_URL, \"request\" when it comes from the request's Host (resolve sharePath against the address you reached the API at). The link is shown only once; keep the id to revoke it.",
     handler: shareCreate,
     schema: z.object({
       path: z.string(),
-      expiresIn: z.number().int().min(60).max(604800).optional(),
+      expiresIn: z.number().int().min(60).max(604800).nullable().optional(),
       maxViews: z.number().int().min(1).max(1000000).optional(),
     }),
   },
@@ -397,6 +409,80 @@ const opRegistry: Record<string, OpDefinition> = {
     handler: favoriteList,
     schema: z.object({}),
   },
+  "webhook-create": {
+    description: "Create an outbound webhook that POSTs signed Standard Webhooks events (comment.created, comment.mentioned, comment.updated, comment.resolved, comment.reopened, comment.deleted, file.changed) to url. Only the listed eventTypes are sent; file.changed (one per new file version: path, version, operation, author, size, etag, never content) must be listed explicitly, and pathPrefix limits it to one directory. scope 'drive' (default) covers the active drive and needs drive admin or org admin; scope 'org' covers every drive in the org and needs org admin. The url must be public https (private/loopback targets only via the server's AGENT_FS_WEBHOOK_ALLOWED_HOSTS). Returns the webhook plus its whsec_ signing secret, shown only this once. Delivery needs AGENT_FS_WEBHOOK_WORKER on the server (see workerEnabled).",
+    handler: webhookCreate,
+    schema: z.object({
+      scope: z.enum(["drive", "org"]).optional().describe("drive (default): the active drive only. org: every drive in the org (org admin only)."),
+      url: z.string().url().max(2048),
+      eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).max(WEBHOOK_EVENT_TYPES.length),
+      description: z.string().max(500).optional(),
+      pathPrefix: z.string().max(1024).optional().describe("Send file.changed only for paths under this directory, e.g. /docs/ (it does not filter comment events). Omit or '/' for every path."),
+    }),
+  },
+  "webhook-list": {
+    description: "List outbound webhooks. scope 'drive' needs drive admin or org admin, 'org' needs org admin, and 'all' (default) returns this drive's hooks for a drive admin plus the org's hooks for an org admin. Never returns signing secrets. Returns { webhooks }.",
+    handler: webhookList,
+    schema: z.object({
+      scope: z.enum(["drive", "org", "all"]).optional(),
+    }),
+  },
+  "webhook-update": {
+    description: "Update a webhook's url, eventTypes, description or pathPrefix, enable or disable it, or rotate its signing secret. Needs drive admin or org admin for a drive hook, org admin for an org hook. enabled=true clears the disabled state and failure counters; enabled=false fails its pending deliveries. rotateSecret=true returns the new whsec_ secret once; the old secret stops working at once (no grace period). Returns the webhook.",
+    handler: webhookUpdate,
+    schema: z.object({
+      id: z.string(),
+      url: z.string().url().max(2048).optional(),
+      eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).max(WEBHOOK_EVENT_TYPES.length).optional(),
+      description: z.string().max(500).optional().describe("An empty string clears it."),
+      pathPrefix: z.string().max(1024).optional().describe("Directory that limits file.changed, e.g. /docs/. An empty string or '/' clears it."),
+      enabled: z.boolean().optional(),
+      rotateSecret: z.boolean().optional(),
+    }),
+  },
+  "webhook-delete": {
+    description: "Delete a webhook and its delivery history. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { deleted }.",
+    handler: webhookDelete,
+    schema: z.object({
+      id: z.string(),
+    }),
+  },
+  "webhook-test": {
+    description: "Send a signed ping event to a webhook now, inline, and report the receiver's answer. Works with the delivery worker off and does not count toward failures. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { ok, statusCode, error, durationMs, webhookId }.",
+    handler: webhookTest,
+    schema: z.object({
+      id: z.string(),
+    }),
+  },
+  "share-list": {
+    description: "List share links without revealing them: the link itself is shown only once, by share-create, and is never listed. scope \"drive\" (default) lists links in the active drive; drive admins see every member's links, everyone else only their own. With path, it returns the links on that file or folder plus folder (site) links on any parent folder that also publish it (relation \"exact\" or \"covering\"). scope \"mine\" lists your own links in every drive of this org you are a member of (one org, never across orgs; path not allowed). Active links only unless includeInactive is true. Newest first; limit (default 100, max 500) and offset page through total. Returns { shares, total, limit, offset, scope, visibility } where each share has id, drive { id, name }, path, kind (file/site), relation, status (active/expired/exhausted/revoked), createdAt, createdBy { userId, email, displayName }, expiresAt (null = never expires), views, maxViews, lastViewedAt, revokedAt, revokedBy { userId, email, displayName } (null when active or revoked before revokers were recorded), canRevoke, and appUrl when configured. Revoke a link with share-revoke and its id, on the drive in drive.id.",
+    handler: shareList,
+    schema: z.object({
+      scope: z.enum(["drive", "mine"]).optional(),
+      path: z.string().optional(),
+      includeInactive: z.boolean().optional(),
+      limit: z.number().int().min(1).max(SHARE_LIST_MAX_LIMIT).optional(),
+      offset: z.number().int().min(0).optional(),
+    }),
+  },
+  "webhook-deliveries": {
+    description: "List a webhook's delivery log, newest first: status (pending, delivered, failed), attempts, next attempt, last status code and error. Omits each delivery's payload unless includePayload is true (it is then the exact JSON body that was signed and sent). Delivered and failed rows are pruned after 30 days. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { deliveries, nextCursor }; pass nextCursor back as cursor for the next page (null on the last page).",
+    handler: webhookDeliveries,
+    schema: z.object({
+      id: z.string().describe("Webhook id."),
+      status: z.enum(["pending", "delivered", "failed"]).optional(),
+      limit: z.number().int().min(1).max(MAX_DELIVERIES_LIMIT).optional().describe("Page size, default 50."),
+      cursor: z.string().max(512).optional().describe("nextCursor from the previous page."),
+      includePayload: z.boolean().optional(),
+    }),
+  },
+  "webhook-redeliver": {
+    description: "Queue one delivery to be sent again now with the same webhook-id and body: sets it pending, due now, and keeps its attempt count (a row past the retry schedule gets this one attempt, no further retries). Refused while the webhook is disabled (re-enable it with webhook-update enabled=true first) and while the delivery is being sent. Needs the same role as the webhook. Sent by the delivery worker (AGENT_FS_WEBHOOK_WORKER). Returns the delivery.",
+    handler: webhookRedeliver,
+    schema: z.object({
+      deliveryId: z.string(),
+    }),
+  },
 };
 
 export async function dispatchOp(
@@ -445,5 +531,6 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, find, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList };
+export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, find, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList, webhookCreate, webhookList, webhookUpdate, webhookDelete, webhookTest, webhookDeliveries, webhookRedeliver };
+export { shareList };
 export type * from "./types.js";

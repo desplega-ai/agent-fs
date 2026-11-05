@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.18.17",
+    "version": "0.18.22",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -693,7 +693,7 @@
     "/orgs/{orgId}/members/{userId}/reset-key": {
       "post": {
         "summary": "Reset a member's API key (org admin only)",
-        "description": "Org admins can rotate a member's API key on their behalf, e.g. to recover a locked-out user. The old key stops working immediately. Org-scoped keys get 403 here, because the new primary key reaches the whole account. Records an api_key_reset audit event with the admin as actor.",
+        "description": "For another member, mints a new API key scoped to this org (it reaches only /orgs/{orgId}/...) and revokes the member's other keys scoped to it; their primary key and their own unscoped keys keep working. For the caller's own userId, rotates the caller's primary key like POST /auth/reset-key. Org-scoped keys get 403 here. Records an api_key_reset audit event with the admin as actor.",
         "operationId": "resetMemberApiKey",
         "tags": [
           "Auth"
@@ -734,6 +734,14 @@
                     },
                     "email": {
                       "type": "string"
+                    },
+                    "keyId": {
+                      "type": "string",
+                      "description": "Id of the new org-scoped key (another member only)"
+                    },
+                    "orgId": {
+                      "type": "string",
+                      "description": "Org the new key is limited to (another member only)"
                     }
                   },
                   "required": [
@@ -3001,7 +3009,7 @@
                   {
                     "type": "object",
                     "title": "share-create",
-                    "description": "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. Default expiry is 24 hours (max 7 days); set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, urlSource, sharePath, path, expiresIn, expiresAt, maxViews }; urlSource (always present) is \"configured\" when url is built on AGENT_FS_PUBLIC_URL, \"request\" when it comes from the request's Host (resolve sharePath against the address you reached the API at). The link is shown only once; keep the id to revoke it.",
+                    "description": "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. Default expiry is 24 hours (max 7 days); expiresIn null makes a link with no time limit, which ends only with share-revoke or at maxViews. Set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, urlSource, sharePath, path, expiresIn, expiresAt, maxViews } (expiresIn and expiresAt are null for a link that never expires); urlSource (always present) is \"configured\" when url is built on AGENT_FS_PUBLIC_URL, \"request\" when it comes from the request's Host (resolve sharePath against the address you reached the API at). The link is shown only once; keep the id to revoke it.",
                     "required": [
                       "op",
                       "path"
@@ -3021,7 +3029,8 @@
                       "expiresIn": {
                         "type": "integer",
                         "minimum": 60,
-                        "maximum": 604800
+                        "maximum": 604800,
+                        "nullable": true
                       },
                       "maxViews": {
                         "type": "integer",
@@ -3440,6 +3449,310 @@
                       "driveId": {
                         "type": "string",
                         "description": "Target drive ID (optional, uses default drive)"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-create",
+                    "description": "Create an outbound webhook that POSTs signed Standard Webhooks events (comment.created, comment.mentioned, comment.updated, comment.resolved, comment.reopened, comment.deleted, file.changed) to url. Only the listed eventTypes are sent; file.changed (one per new file version: path, version, operation, author, size, etag, never content) must be listed explicitly, and pathPrefix limits it to one directory. scope 'drive' (default) covers the active drive and needs drive admin or org admin; scope 'org' covers every drive in the org and needs org admin. The url must be public https (private/loopback targets only via the server's AGENT_FS_WEBHOOK_ALLOWED_HOSTS). Returns the webhook plus its whsec_ signing secret, shown only this once. Delivery needs AGENT_FS_WEBHOOK_WORKER on the server (see workerEnabled).",
+                    "required": [
+                      "op",
+                      "url",
+                      "eventTypes"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-create"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": [
+                          "drive",
+                          "org"
+                        ],
+                        "description": "drive (default): the active drive only. org: every drive in the org (org admin only)."
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                      },
+                      "eventTypes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "comment.created",
+                            "comment.mentioned",
+                            "comment.updated",
+                            "comment.resolved",
+                            "comment.reopened",
+                            "comment.deleted",
+                            "file.changed"
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 7
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      "pathPrefix": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "description": "Send file.changed only for paths under this directory, e.g. /docs/ (it does not filter comment events). Omit or '/' for every path."
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-list",
+                    "description": "List outbound webhooks. scope 'drive' needs drive admin or org admin, 'org' needs org admin, and 'all' (default) returns this drive's hooks for a drive admin plus the org's hooks for an org admin. Never returns signing secrets. Returns { webhooks }.",
+                    "required": [
+                      "op"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-list"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": [
+                          "drive",
+                          "org",
+                          "all"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-update",
+                    "description": "Update a webhook's url, eventTypes, description or pathPrefix, enable or disable it, or rotate its signing secret. Needs drive admin or org admin for a drive hook, org admin for an org hook. enabled=true clears the disabled state and failure counters; enabled=false fails its pending deliveries. rotateSecret=true returns the new whsec_ secret once; the old secret stops working at once (no grace period). Returns the webhook.",
+                    "required": [
+                      "op",
+                      "id"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-update"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                      },
+                      "eventTypes": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "enum": [
+                            "comment.created",
+                            "comment.mentioned",
+                            "comment.updated",
+                            "comment.resolved",
+                            "comment.reopened",
+                            "comment.deleted",
+                            "file.changed"
+                          ]
+                        },
+                        "minItems": 1,
+                        "maxItems": 7
+                      },
+                      "description": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "description": "An empty string clears it."
+                      },
+                      "pathPrefix": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "description": "Directory that limits file.changed, e.g. /docs/. An empty string or '/' clears it."
+                      },
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "rotateSecret": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-delete",
+                    "description": "Delete a webhook and its delivery history. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { deleted }.",
+                    "required": [
+                      "op",
+                      "id"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-delete"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-test",
+                    "description": "Send a signed ping event to a webhook now, inline, and report the receiver's answer. Works with the delivery worker off and does not count toward failures. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { ok, statusCode, error, durationMs, webhookId }.",
+                    "required": [
+                      "op",
+                      "id"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-test"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "share-list",
+                    "description": "List share links without revealing them: the link itself is shown only once, by share-create, and is never listed. scope \"drive\" (default) lists links in the active drive; drive admins see every member's links, everyone else only their own. With path, it returns the links on that file or folder plus folder (site) links on any parent folder that also publish it (relation \"exact\" or \"covering\"). scope \"mine\" lists your own links in every drive of this org you are a member of (one org, never across orgs; path not allowed). Active links only unless includeInactive is true. Newest first; limit (default 100, max 500) and offset page through total. Returns { shares, total, limit, offset, scope, visibility } where each share has id, drive { id, name }, path, kind (file/site), relation, status (active/expired/exhausted/revoked), createdAt, createdBy { userId, email, displayName }, expiresAt (null = never expires), views, maxViews, lastViewedAt, revokedAt, revokedBy { userId, email, displayName } (null when active or revoked before revokers were recorded), canRevoke, and appUrl when configured. Revoke a link with share-revoke and its id, on the drive in drive.id.",
+                    "required": [
+                      "op"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "share-list"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "scope": {
+                        "type": "string",
+                        "enum": [
+                          "drive",
+                          "mine"
+                        ]
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "includeInactive": {
+                        "type": "boolean"
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 500
+                      },
+                      "offset": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-deliveries",
+                    "description": "List a webhook's delivery log, newest first: status (pending, delivered, failed), attempts, next attempt, last status code and error. Omits each delivery's payload unless includePayload is true (it is then the exact JSON body that was signed and sent). Delivered and failed rows are pruned after 30 days. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { deliveries, nextCursor }; pass nextCursor back as cursor for the next page (null on the last page).",
+                    "required": [
+                      "op",
+                      "id"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-deliveries"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "id": {
+                        "type": "string",
+                        "description": "Webhook id."
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "pending",
+                          "delivered",
+                          "failed"
+                        ]
+                      },
+                      "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 200,
+                        "description": "Page size, default 50."
+                      },
+                      "cursor": {
+                        "type": "string",
+                        "maxLength": 512,
+                        "description": "nextCursor from the previous page."
+                      },
+                      "includePayload": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "webhook-redeliver",
+                    "description": "Queue one delivery to be sent again now with the same webhook-id and body: sets it pending, due now, and keeps its attempt count (a row past the retry schedule gets this one attempt, no further retries). Refused while the webhook is disabled (re-enable it with webhook-update enabled=true first) and while the delivery is being sent. Needs the same role as the webhook. Sent by the delivery worker (AGENT_FS_WEBHOOK_WORKER). Returns the delivery.",
+                    "required": [
+                      "op",
+                      "deliveryId"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "webhook-redeliver"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "deliveryId": {
+                        "type": "string"
                       }
                     },
                     "additionalProperties": false

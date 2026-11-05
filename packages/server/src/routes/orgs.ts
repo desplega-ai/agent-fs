@@ -25,6 +25,7 @@ import {
   assertDriveInOrg,
   resetApiKey,
   createUserApiKey,
+  resetOrgScopedKey,
   NotFoundError,
   PermissionDeniedError,
   ValidationError,
@@ -249,8 +250,8 @@ export function orgRoutes(db: DB, appUrl?: string) {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
     const targetUserId = c.req.param("userId");
-    // reset-key returns a new primary key, which reaches the whole account.
-    // An org-scoped key must not mint one, or it escapes its scope. The check
+    // A self reset-key returns a new primary key, which reaches the whole
+    // account. An org-scoped key must not mint one, or it escapes its scope. The check
     // lives here, not in the middleware's path filter, because Hono matches
     // routes on the decoded path (e.g. `reset%2Dkey`).
     if (c.get("scopeOrgId")) {
@@ -265,20 +266,26 @@ export function orgRoutes(db: DB, appUrl?: string) {
     }
     requireOrgAdmin(db, user.id, orgId);
     requireOrgMember(db, targetUserId, orgId);
-    const result = resetApiKey(db, {
-      userId: targetUserId,
-      actorId: user.id,
-      orgId,
-    });
+    if (targetUserId === user.id) {
+      const result = resetApiKey(db, { userId: user.id, actorId: user.id, orgId });
+      return c.json({ apiKey: result.apiKey, userId: result.user.id, email: result.user.email });
+    }
+    // Someone else's reset reaches only this org: their keys scoped to it are
+    // replaced by one new scoped key, and their primary and unscoped keys are
+    // left alone. An admin's power over a member ends at the org.
+    const result = resetOrgScopedKey(db, { userId: targetUserId, actorId: user.id, orgId });
     return c.json({
       apiKey: result.apiKey,
       userId: result.user.id,
       email: result.user.email,
+      keyId: result.keyId,
+      orgId: result.orgId,
     });
   });
 
   // Mint an additional key for a member without touching their existing
-  // keys (reset-key rotates the primary one). Same guard as reset-key. The
+  // keys (an admin reset-key replaces their keys scoped to this org). Same
+  // guard as reset-key. The
   // key is scoped to this org: it only reaches /orgs/<orgId>/..., and it is
   // revoked when the member leaves the org, when the minting admin leaves or
   // loses admin here, and when the member runs their own reset-key.

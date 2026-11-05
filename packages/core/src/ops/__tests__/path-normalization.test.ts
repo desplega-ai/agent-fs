@@ -244,6 +244,22 @@ describe("exact file operation path normalization", () => {
     expectOnlyCanonicalRows(rawDb(db));
   });
 
+  test("share-list finds the same links for both path forms", async () => {
+    const { ctx } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/dir/shared.md", content: "one" });
+    await dispatchOp(ctx, "share-create", { path: "/dir/shared.md" });
+    await dispatchOp(ctx, "share-create", { path: "/dir" });
+    for (const path of ["dir/shared.md", "/dir/shared.md", "dir/shared.md/"]) {
+      const result = (await dispatchOp(ctx, "share-list", { path })) as {
+        shares: { path: string; relation?: string }[];
+      };
+      expect(result.shares.map((s) => `${s.relation} ${s.path}`).sort()).toEqual([
+        "covering /dir",
+        "exact /dir/shared.md",
+      ]);
+    }
+  });
+
   test("favorite-add stores both path forms as one canonical row", async () => {
     const { ctx, db } = createTestContext();
     await dispatchOp(ctx, "write", { path: "/starred.md", content: "one" });
@@ -421,6 +437,7 @@ test("every registered top-level path, from, or to parameter has normalization c
     "rm",
     "share-create",
     "share-revoke",
+    "share-list",
     "signed-url",
     "stat",
     "tail",
