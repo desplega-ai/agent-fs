@@ -27,3 +27,4 @@ browser contexts at once. It covers the Invite dialog,
 pending invites, and the `/invite/:token` accept page: an admin invites a new email to two of three
 drives, a fresh context registers through the link and sees exactly those two drives, and expired
 and revoked links show the same message.
+`webhooks.spec.ts` runs the drive's Webhooks page against an in-memory fixture (`tests/support/webhooks-fixture.ts`): an org admin creates a hook and sees its signing secret once with copy, tests it, disables and enables it, rotates the secret, redelivers a failed delivery from the log and deletes the hook. After each secret dialog closes it checks that the secret is gone from the DOM, web storage and the console. It also covers a drive admin (no org hooks, no org scope), a member who is not an admin (no menu entry, no page, no list request) and a server that refuses the list. `pnpm test:webhooks` covers the same secret rule for the React Query cache.

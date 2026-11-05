@@ -15,6 +15,7 @@ import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
 import { PresentPage } from "@/pages/PresentPage"
 import { MembersPage } from "@/pages/Members"
+import { WebhooksPage } from "@/pages/Webhooks"
 import { Spinner } from "@/components/ui/spinner"
 import { PresenceConnection } from "@/components/presence/PresenceConnection"
 import { StarNudge } from "@/components/StarNudge"
@@ -186,6 +187,18 @@ function MembersRoute() {
   )
 }
 
+/** Like Members: the drive comes from the URL and the active drive stays put. */
+function WebhooksRoute() {
+  return (
+    <>
+      <RouteParamsSync syncFile={false} syncDrive={false} />
+      <Shell>
+        <WebhooksPage />
+      </Shell>
+    </>
+  )
+}
+
 function ApiKeysRoute() {
   return (
     <Shell>
@@ -248,6 +261,7 @@ export default function App() {
                   <Route path="/page/~/:orgId/:driveId/*" element={<PresentRoute />} />
                   <Route path="/sql/~/:orgId/:driveId" element={<SqlRoute />} />
                   <Route path="/members/~/:orgId/:driveId" element={<MembersRoute />} />
+                  <Route path="/webhooks/~/:orgId/:driveId" element={<WebhooksRoute />} />
                   <Route path="/keys" element={<ApiKeysRoute />} />
                   <Route path="/files" element={<FilesRoute />} />
                   <Route path="*" element={<Navigate to="/files" replace />} />
