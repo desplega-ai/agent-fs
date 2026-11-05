@@ -9,7 +9,8 @@ description: >-
   "publish a site", "host this html", "share a folder", "manage members", "invite user", "invite to a drive", "add to drive", "give access to drive", "invite someone without an account", "accept an invite", "pending invites", "list members", "remove member",
   "update role", "reset api key", "rotate api key", "lost my api key",
   "watch drive changes", "stream file changes", "star this file",
-  "add to favorites", "my favorites", file
+  "add to favorites", "my favorites", "webhook", "notify me when mentioned",
+  "notify on comments", "send comment events to slack", "verify webhook signature", file
   persistence for agents, shared agent filesystem, or any
   mention of the agent-fs CLI. Also use when the user needs to manage drives,
   manage org/drive members, generate presigned URLs, check recent activity, or use
@@ -252,7 +253,7 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `comment add` | `agent-fs comment add <path> --body <text> [--mention <user-id-or-email>]... [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits; prefix/suffix pick the right occurrence when the text repeats. Repeat `--mention` to notify drive members. |
+| `comment add` | `agent-fs comment add <path> --body <text> [--mention <user-id-or-email>]... [--line-start <n>] [--line-end <n>] [--quote <text> [--quote-prefix <text>] [--quote-suffix <text>]]` | Add a comment to a file. `--quote` anchors it to exact text that the web app re-finds after edits; prefix/suffix pick the right occurrence when the text repeats. Repeat `--mention` to notify drive members; each one also fires a `comment.mentioned` webhook. |
 | `comment reply` | `agent-fs comment reply <comment-id> --body <text> [--mention <user-id-or-email>]...` | Reply to a comment and optionally mention drive members |
 | `comment list` | `agent-fs comment list [path] [--prefix <path>]` | List comments with inline replies. Use `--prefix` for all comments below a directory. Do not combine a positional path with `--prefix`. |
 | `comment get` | `agent-fs comment get <id>` | Get a comment with its replies |
@@ -263,7 +264,26 @@ Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` 
 | `comment notifications` | `agent-fs comment notifications [--kind <comment\|mention>]... [--unread] [--limit <n>]` | List notifications for the current user. The default kind is `comment`. |
 | `comment read` | `agent-fs comment read [ids...] [--all [--kind <comment\|mention>]...]` | Mark selected notification event IDs, or all active-drive notification kinds, as read. `--all` defaults to `comment`. |
 
+**Only `--mention` (the `mentions` param) notifies someone and fires the `comment.mentioned` webhook. Typing `@name` in the body text does nothing.** `comment update` with `--mention` fires `comment.mentioned` only for users it newly adds.
+
 Comments work on any file, HTML included. People can select text on a rendered `.html` page in the web app and comment on it, as on a markdown preview. Those comments carry a `quote` and the source lines the text sits on, or no lines when a script added the text after the page loaded. Use `--quote` on HTML for the same reason: it anchors to the text people see on the page.
+
+### Webhooks
+
+A webhook sends a signed HTTP POST (Standard Webhooks headers) to a URL when a comment is created, mentions someone, is edited, resolved, reopened or deleted. Event types: `comment.created`, `comment.mentioned`, `comment.updated`, `comment.resolved`, `comment.reopened`, `comment.deleted`. Full receiver guide: `docs/webhooks.md` (https://agent-fs.dev/docs/webhooks).
+
+| Command | Usage | Who may run it | Description |
+|---------|-------|----------------|-------------|
+| `webhook create` | `agent-fs webhook create <url> --event <type>... [--org-wide] [--description <text>]` | Drive admin or org admin; `--org-wide` needs org admin | Create a hook for the active drive, or with `--org-wide` for every drive in the org. Prints the `whsec_` signing secret **once**. |
+| `webhook list` | `agent-fs webhook list [--scope drive\|org\|all]` | Drive admin (drive hooks), org admin (org hooks) | List hooks with their state (`enabled`, `disabledReason`, `consecutiveFailures`, `workerEnabled`). Never shows secrets. |
+| `webhook update` | `agent-fs webhook update <id> [--url <url>] [--event <type>]... [--description <text>] [--enable\|--disable] [--rotate-secret]` | Drive hook: drive admin or org admin. Org hook: org admin | Change a hook. `--event` replaces the list. `--enable` resets the failure state. `--rotate-secret` prints a new secret once; the old one stops working at once. |
+| `webhook delete` | `agent-fs webhook delete <id>` | Drive hook: drive admin or org admin. Org hook: org admin | Delete a hook and its deliveries. |
+| `webhook test` | `agent-fs webhook test <id>` | Drive hook: drive admin or org admin. Org hook: org admin | Send a signed `ping` now and print `{ ok, statusCode, error, durationMs }`. Exits 1 unless the receiver answers 2xx. Works with the worker off. |
+
+- The URL must be public `https://`. Private, loopback and link-local targets are refused unless the server lists the host in `AGENT_FS_WEBHOOK_ALLOWED_HOSTS`. Redirects are not followed, so give the final URL.
+- Nothing is sent unless the server runs with `AGENT_FS_WEBHOOK_WORKER=true`; `workerEnabled: false` in a response means events only queue.
+- Delivery is at least once: dedupe on the `webhook-id` header. Failures retry for about 28 hours. A `410` answer, or 5 days of failures, disables the hook.
+- An org hook sees comments in every drive of the org. A drive hook is managed from its own drive (`--drive <id>`).
 
 ### Favorites
 
@@ -464,6 +484,30 @@ agent-fs comment read --all --kind mention
 
 # Resolve a comment
 agent-fs comment resolve <comment-id>
+```
+
+### Get notified about mentions with a webhook
+
+```bash
+# Create a hook (drive admin). Save the printed whsec_ secret: it is shown once.
+agent-fs webhook create https://hooks.example.com/agent-fs --event comment.mentioned --event comment.created
+
+# Check the receiver answers and verifies the signature
+agent-fs webhook test <webhook-id>
+
+# Mention someone: only --mention fires comment.mentioned (typing @name in the body does not)
+agent-fs comment add docs/spec.md --body "Can you check this?" --mention ben@example.com
+
+# Check the hook's state; re-enable it after a 410 or a failing streak
+agent-fs webhook list
+agent-fs webhook update <webhook-id> --enable
+```
+
+Verify each request in the receiver with the `standardwebhooks` npm package:
+
+```ts
+import { Webhook } from "standardwebhooks";
+const event = new Webhook(process.env.AGENT_FS_WEBHOOK_SECRET!).verify(rawBody, headers); // throws if invalid
 ```
 
 ### Set up a new drive and invite users

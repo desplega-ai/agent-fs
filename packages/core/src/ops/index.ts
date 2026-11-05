@@ -43,6 +43,14 @@ import {
 } from "./comment-notification.js";
 import { driveMembers } from "./drive-members.js";
 import { favoriteAdd, favoriteRemove, favoriteList } from "./favorite.js";
+import {
+  webhookCreate,
+  webhookList,
+  webhookUpdate,
+  webhookDelete,
+  webhookTest,
+} from "./webhook.js";
+import { WEBHOOK_EVENT_TYPES } from "../webhooks/events.js";
 
 export interface OpDefinition {
   description: string;
@@ -397,6 +405,49 @@ const opRegistry: Record<string, OpDefinition> = {
     handler: favoriteList,
     schema: z.object({}),
   },
+  "webhook-create": {
+    description: "Create an outbound webhook that POSTs signed Standard Webhooks events (comment.created, comment.mentioned, comment.updated, comment.resolved, comment.reopened, comment.deleted) to url. scope 'drive' (default) covers the active drive and needs drive admin or org admin; scope 'org' covers every drive in the org and needs org admin. The url must be public https (private/loopback targets only via the server's AGENT_FS_WEBHOOK_ALLOWED_HOSTS). Returns the webhook plus its whsec_ signing secret, shown only this once. Delivery needs AGENT_FS_WEBHOOK_WORKER on the server (see workerEnabled).",
+    handler: webhookCreate,
+    schema: z.object({
+      scope: z.enum(["drive", "org"]).optional().describe("drive (default): the active drive only. org: every drive in the org (org admin only)."),
+      url: z.string().url().max(2048),
+      eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).max(6),
+      description: z.string().max(500).optional(),
+    }),
+  },
+  "webhook-list": {
+    description: "List outbound webhooks. scope 'drive' needs drive admin or org admin, 'org' needs org admin, and 'all' (default) returns this drive's hooks for a drive admin plus the org's hooks for an org admin. Never returns signing secrets. Returns { webhooks }.",
+    handler: webhookList,
+    schema: z.object({
+      scope: z.enum(["drive", "org", "all"]).optional(),
+    }),
+  },
+  "webhook-update": {
+    description: "Update a webhook's url, eventTypes or description, enable or disable it, or rotate its signing secret. Needs drive admin or org admin for a drive hook, org admin for an org hook. enabled=true clears the disabled state and failure counters; enabled=false fails its pending deliveries. rotateSecret=true returns the new whsec_ secret once; the old secret stops working at once (no grace period). Returns the webhook.",
+    handler: webhookUpdate,
+    schema: z.object({
+      id: z.string(),
+      url: z.string().url().max(2048).optional(),
+      eventTypes: z.array(z.enum(WEBHOOK_EVENT_TYPES)).min(1).max(6).optional(),
+      description: z.string().max(500).optional().describe("An empty string clears it."),
+      enabled: z.boolean().optional(),
+      rotateSecret: z.boolean().optional(),
+    }),
+  },
+  "webhook-delete": {
+    description: "Delete a webhook and its delivery history. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { deleted }.",
+    handler: webhookDelete,
+    schema: z.object({
+      id: z.string(),
+    }),
+  },
+  "webhook-test": {
+    description: "Send a signed ping event to a webhook now, inline, and report the receiver's answer. Works with the delivery worker off and does not count toward failures. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { ok, statusCode, error, durationMs, webhookId }.",
+    handler: webhookTest,
+    schema: z.object({
+      id: z.string(),
+    }),
+  },
 };
 
 export async function dispatchOp(
@@ -445,5 +496,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
-export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, find, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList };
+export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, find, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList, webhookCreate, webhookList, webhookUpdate, webhookDelete, webhookTest };
 export type * from "./types.js";

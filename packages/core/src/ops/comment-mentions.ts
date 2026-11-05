@@ -79,8 +79,8 @@ export function emitMentionNotifications(
     userIds: string[];
     createdAt: Date;
   }
-): void {
-  emitCommentNotificationEvents(ctx, {
+): Array<{ id: string; userId: string }> {
+  return emitCommentNotificationEvents(ctx, {
     eventType: COMMENT_MENTION_EVENT,
     commentId: params.commentId,
     userIds: params.userIds,
@@ -98,14 +98,16 @@ export function emitCommentNotificationEvents(
     metadata: Record<string, unknown>;
     createdAt: Date;
   }
-): void {
-  if (params.userIds.length === 0) return;
+): Array<{ id: string; userId: string }> {
+  if (params.userIds.length === 0) return [];
 
+  // Ids are generated here so callers (the webhook outbox) can reference them.
+  const ids = params.userIds.map((userId) => ({ id: crypto.randomUUID(), userId }));
   ctx.db
     .insert(schema.events)
     .values(
-      params.userIds.map((userId) => ({
-        id: crypto.randomUUID(),
+      ids.map(({ id, userId }) => ({
+        id,
         orgId: ctx.orgId,
         type: params.eventType,
         resourceType: "comment",
@@ -118,6 +120,7 @@ export function emitCommentNotificationEvents(
       }))
     )
     .run();
+  return ids;
 }
 
 export function addMentions<T extends { id: string; mentions?: CommentEntry["mentions"] }>(

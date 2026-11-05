@@ -11,4 +11,5 @@ export const SERVER_FEATURES = [
   "html-comments",
   "favorites",
   "presence",
+  "webhooks",
 ] as const;

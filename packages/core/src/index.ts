@@ -66,6 +66,11 @@ export {
   favoriteAdd,
   favoriteRemove,
   favoriteList,
+  webhookCreate,
+  webhookList,
+  webhookUpdate,
+  webhookDelete,
+  webhookTest,
 } from "./ops/index.js";
 export {
   getS3Key,
@@ -207,5 +212,6 @@ export { prepareImageEmbeddings, scheduleImageEmbeddings } from "./search/image-
 export { startVectorSearchWorker } from "./search/vector-worker.js";
 export type { EmbeddingProvider } from "./search/embeddings/index.js";
 export { generateOpenAPISpec } from "./openapi.js";
+export * from "./webhooks/index.js";
 
 export * from "./presence/index.js";

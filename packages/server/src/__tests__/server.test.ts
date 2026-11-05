@@ -71,6 +71,7 @@ describe("Health check", () => {
       "change-stream",
       "favorites",
       "presence",
+      "webhooks",
     ]));
   });
 });
