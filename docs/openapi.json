@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "agent-fs API",
-    "version": "0.18.21",
+    "version": "0.18.22",
     "description": "A persistent, searchable filesystem for AI agents. agent-fs is to files what agentmail is to email.",
     "license": {
       "name": "MIT",
@@ -3288,7 +3288,7 @@
                   {
                     "type": "object",
                     "title": "webhook-create",
-                    "description": "Create an outbound webhook that POSTs signed Standard Webhooks events (comment.created, comment.mentioned, comment.updated, comment.resolved, comment.reopened, comment.deleted) to url. scope 'drive' (default) covers the active drive and needs drive admin or org admin; scope 'org' covers every drive in the org and needs org admin. The url must be public https (private/loopback targets only via the server's AGENT_FS_WEBHOOK_ALLOWED_HOSTS). Returns the webhook plus its whsec_ signing secret, shown only this once. Delivery needs AGENT_FS_WEBHOOK_WORKER on the server (see workerEnabled).",
+                    "description": "Create an outbound webhook that POSTs signed Standard Webhooks events (comment.created, comment.mentioned, comment.updated, comment.resolved, comment.reopened, comment.deleted, file.changed) to url. Only the listed eventTypes are sent; file.changed (one per new file version: path, version, operation, author, size, etag, never content) must be listed explicitly, and pathPrefix limits it to one directory. scope 'drive' (default) covers the active drive and needs drive admin or org admin; scope 'org' covers every drive in the org and needs org admin. The url must be public https (private/loopback targets only via the server's AGENT_FS_WEBHOOK_ALLOWED_HOSTS). Returns the webhook plus its whsec_ signing secret, shown only this once. Delivery needs AGENT_FS_WEBHOOK_WORKER on the server (see workerEnabled).",
                     "required": [
                       "op",
                       "url",
@@ -3326,15 +3326,21 @@
                             "comment.updated",
                             "comment.resolved",
                             "comment.reopened",
-                            "comment.deleted"
+                            "comment.deleted",
+                            "file.changed"
                           ]
                         },
                         "minItems": 1,
-                        "maxItems": 6
+                        "maxItems": 7
                       },
                       "description": {
                         "type": "string",
                         "maxLength": 500
+                      },
+                      "pathPrefix": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "description": "Send file.changed only for paths under this directory, e.g. /docs/ (it does not filter comment events). Omit or '/' for every path."
                       }
                     },
                     "additionalProperties": false
@@ -3369,7 +3375,7 @@
                   {
                     "type": "object",
                     "title": "webhook-update",
-                    "description": "Update a webhook's url, eventTypes or description, enable or disable it, or rotate its signing secret. Needs drive admin or org admin for a drive hook, org admin for an org hook. enabled=true clears the disabled state and failure counters; enabled=false fails its pending deliveries. rotateSecret=true returns the new whsec_ secret once; the old secret stops working at once (no grace period). Returns the webhook.",
+                    "description": "Update a webhook's url, eventTypes, description or pathPrefix, enable or disable it, or rotate its signing secret. Needs drive admin or org admin for a drive hook, org admin for an org hook. enabled=true clears the disabled state and failure counters; enabled=false fails its pending deliveries. rotateSecret=true returns the new whsec_ secret once; the old secret stops working at once (no grace period). Returns the webhook.",
                     "required": [
                       "op",
                       "id"
@@ -3401,16 +3407,22 @@
                             "comment.updated",
                             "comment.resolved",
                             "comment.reopened",
-                            "comment.deleted"
+                            "comment.deleted",
+                            "file.changed"
                           ]
                         },
                         "minItems": 1,
-                        "maxItems": 6
+                        "maxItems": 7
                       },
                       "description": {
                         "type": "string",
                         "maxLength": 500,
                         "description": "An empty string clears it."
+                      },
+                      "pathPrefix": {
+                        "type": "string",
+                        "maxLength": 1024,
+                        "description": "Directory that limits file.changed, e.g. /docs/. An empty string or '/' clears it."
                       },
                       "enabled": {
                         "type": "boolean"

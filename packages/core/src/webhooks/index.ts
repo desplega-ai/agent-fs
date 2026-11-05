@@ -9,6 +9,7 @@ export {
 } from "./signature.js";
 export {
   WEBHOOK_EVENT_TYPES,
+  COMMENT_WEBHOOK_EVENT_TYPES,
   INTERNAL_TO_WEBHOOK,
   isWebhookEventType,
   RETRY_SCHEDULE_MS,
@@ -24,6 +25,7 @@ export {
 export type { WebhookEventType } from "./events.js";
 export {
   enqueueCommentWebhooks,
+  enqueueFileWebhooks,
   onWebhooksEnqueued,
   notifyWebhooksEnqueued,
   truncateWebhookBody,
@@ -32,6 +34,8 @@ export type {
   CommentSnapshot,
   CommentWebhookEvent,
   CommentWebhookData,
+  FileChangedWebhookData,
+  FileChangeOperation,
   WebhookEnvelope,
   WebhookUserRef,
 } from "./outbox.js";

@@ -11,6 +11,7 @@ export interface WebhookCliOpts {
   event?: string[];
   orgWide?: boolean;
   description?: string;
+  pathPrefix?: string;
   scope?: string;
   url?: string;
   enable?: boolean;
@@ -57,6 +58,7 @@ export function webhookParamsFromOpts(
       eventTypes: events,
     };
     if (opts.description !== undefined) params.description = opts.description;
+    if (opts.pathPrefix !== undefined) params.pathPrefix = opts.pathPrefix;
     return params;
   }
 
@@ -86,12 +88,13 @@ export function webhookParamsFromOpts(
   if (opts.url !== undefined) params.url = opts.url;
   if (events.length > 0) params.eventTypes = events;
   if (opts.description !== undefined) params.description = opts.description;
+  if (opts.pathPrefix !== undefined) params.pathPrefix = opts.pathPrefix;
   if (opts.enable) params.enabled = true;
   if (opts.disable) params.enabled = false;
   if (opts.rotateSecret) params.rotateSecret = true;
   if (Object.keys(params).length === 1) {
     throw new Error(
-      "Nothing to update: give --url, --event, --description, --enable, --disable or --rotate-secret"
+      "Nothing to update: give --url, --event, --description, --path-prefix, --enable, --disable or --rotate-secret"
     );
   }
   return params;
@@ -104,7 +107,7 @@ export function webhookCommands(
   getDriveId: (orgId?: string) => string | Promise<string>
 ) {
   const cmd = new Command("webhook").description(
-    "Outbound webhooks: signed HTTP POSTs for comment events (drive or org admin)"
+    "Outbound webhooks: signed HTTP POSTs for comment and file events (drive or org admin)"
   );
 
   async function callOp(opName: string, params: Record<string, unknown>) {
@@ -148,6 +151,7 @@ export function webhookCommands(
     .option("--event <type>", `Event type to send (repeatable): ${EVENT_LIST}`, collect, [] as string[])
     .option("--org-wide", "Send events from every drive in the org (org admin only)")
     .option("--description <text>", "Note shown in webhook list")
+    .option("--path-prefix <dir>", "Send file.changed only for paths under this directory (comment events are not filtered)")
     .description("Create a webhook for the active drive (or the whole org) and print its signing secret once")
     .action(async (url: string, opts: WebhookCliOpts) => {
       await run("webhook-create", () => webhookParamsFromOpts("create", opts, url));
@@ -167,6 +171,7 @@ export function webhookCommands(
     .option("--url <url>", "New receiver URL")
     .option("--event <type>", `Replace the event types (repeatable): ${EVENT_LIST}`, collect, [] as string[])
     .option("--description <text>", "New note; an empty string clears it")
+    .option("--path-prefix <dir>", "New file.changed directory filter; an empty string or / clears it")
     .option("--enable", "Enable the webhook and reset its failure state")
     .option("--disable", "Disable the webhook; its queued deliveries are marked failed")
     .option("--rotate-secret", "Issue a new signing secret (printed once; the old one stops working at once)")

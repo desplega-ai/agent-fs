@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS webhook_subscriptions (
   url TEXT NOT NULL,
   description TEXT,
   event_types TEXT NOT NULL,
+  path_prefix TEXT,
   secret_ciphertext TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
   disabled_reason TEXT CHECK(disabled_reason IN ('gone', 'failing', 'manual')),

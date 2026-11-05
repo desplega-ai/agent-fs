@@ -46,6 +46,34 @@ test("a DB with the webhook tables but no prune index gains it, and a re-run is 
   }
 });
 
+test("a 0.18.20 webhook_subscriptions without path_prefix gains it as NULL, keeping rows; a re-run is a no-op", () => {
+  const raw = new Database(":memory:");
+  try {
+    const withoutPrefix = CREATE_TABLES_SQL.replace("  path_prefix TEXT,\n", "");
+    expect(withoutPrefix).not.toContain("path_prefix");
+    raw.exec(withoutPrefix);
+    raw.exec("INSERT INTO orgs (id, name, created_at) VALUES ('o1', 'o', 0)");
+    raw.exec("INSERT INTO users (id, email, api_key_hash, created_at) VALUES ('u1', 'u@example.com', 'h', 0)");
+    raw.exec(
+      "INSERT INTO webhook_subscriptions (id, org_id, url, event_types, secret_ciphertext, created_by, created_at, updated_at) " +
+        "VALUES ('s1', 'o1', 'https://hooks.example.com/a', '[\"comment.created\"]', 'ct', 'u1', 0, 0)"
+    );
+    const cols = () =>
+      (raw.prepare("PRAGMA table_info(webhook_subscriptions)").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(cols()).not.toContain("path_prefix");
+
+    runMigrations(raw);
+    expect(cols()).toContain("path_prefix");
+    expect(raw.prepare("SELECT id, event_types, path_prefix FROM webhook_subscriptions").all()).toEqual([
+      { id: "s1", event_types: '["comment.created"]', path_prefix: null },
+    ]);
+    runMigrations(raw);
+    expect(cols().filter((c) => c === "path_prefix")).toHaveLength(1);
+  } finally {
+    raw.close();
+  }
+});
+
 test("an existing DB without the webhook tables gains them, and a re-run is a no-op", () => {
   const raw = new Database(":memory:");
   try {
