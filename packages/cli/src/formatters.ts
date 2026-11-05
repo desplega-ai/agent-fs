@@ -396,6 +396,41 @@ function formatFavoriteList(result: any): string {
     .join("\n");
 }
 
+function formatShareList(result: any): string {
+  const shares: any[] = result.shares ?? [];
+  const note = result.visibility === "own" && result.scope !== "mine" ? "\n(only your links)" : "";
+  if (shares.length === 0) return `(no share links)${note}`;
+
+  const showDrive = result.scope === "mine";
+  const showRelation = shares.some((s) => s.relation !== undefined);
+  const headers = ["ID", ...(showDrive ? ["DRIVE"] : []), "PATH", "KIND", "STATUS", "EXPIRES", "VIEWS", "CREATED", "CREATOR"];
+  const rows = shares.map((s) => {
+    const path = s.kind === "site" && s.path !== "/" ? `${s.path}/` : s.path;
+    return [
+      s.id,
+      ...(showDrive ? [s.drive?.name ?? s.drive?.id ?? "-"] : []),
+      showRelation && s.relation === "covering" ? `${path} (covers)` : path,
+      s.kind,
+      s.status,
+      s.expiresAt === null ? "never" : formatDate(s.expiresAt),
+      s.maxViews === null || s.maxViews === undefined ? String(s.views) : `${s.views}/${s.maxViews}`,
+      formatDate(s.createdAt),
+      s.createdBy?.email ?? s.createdBy?.userId ?? "-",
+    ];
+  });
+  const widths = headers.map((header, index) =>
+    Math.max(header.length, ...rows.map((row) => String(row[index]).length))
+  );
+  const table = [headers, ...rows]
+    .map((row) => row.map((cell, index) => padRight(String(cell), widths[index])).join("  ").trimEnd())
+    .join("\n");
+  const total = result.total ?? shares.length;
+  const footer = shares.length < total
+    ? `\nShowing ${(result.offset ?? 0) + 1}-${(result.offset ?? 0) + shares.length} of ${total} (use --offset)`
+    : "";
+  return `${table}${footer}${note}\nRevoke one: agent-fs share-revoke <id>`;
+}
+
 // --- Formatter registry ---
 
 const formatters: Record<string, (result: any) => string> = {
@@ -429,6 +464,7 @@ const formatters: Record<string, (result: any) => string> = {
   "favorite-add": formatFavoriteAdd,
   "favorite-remove": formatFavoriteRemove,
   "favorite-list": formatFavoriteList,
+  "share-list": formatShareList,
 };
 
 function formatResult(opName: string, result: any): string {

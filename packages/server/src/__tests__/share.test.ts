@@ -165,6 +165,43 @@ describe("share-create over HTTP", () => {
   });
 });
 
+describe("share-list over HTTP", () => {
+  test("lists a member's links without the link itself", async () => {
+    const s = await share(h, "/notes/readme.md");
+    const res = await op(h, { op: "share-list", driveId: h.driveId, path: "/notes/readme.md" });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.visibility).toBe("all");
+    const item = body.shares.find((x: any) => x.id === s.id);
+    expect(item).toMatchObject({ path: "/notes/readme.md", kind: "file", status: "active", relation: "exact" });
+    const text = JSON.stringify(body);
+    expect(text).not.toContain(s.token);
+    expect(text).not.toContain(hashShareToken(s.token));
+  });
+
+  test("a drive of another org, or one the caller is not on, looks missing", async () => {
+    const otherReg = await (await h.app.request("/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: `other-${Math.random().toString(36).slice(2)}@example.com` }),
+    })).json();
+    const other = { ...h, apiKey: otherReg.apiKey, orgId: otherReg.orgId };
+    const missing = await op(h, { op: "share-list", driveId: crypto.randomUUID() });
+    const crossOrg = await op(other, { op: "share-list", driveId: h.driveId });
+    expect(crossOrg.status).toBe(missing.status);
+    expect(crossOrg.status).toBe(404);
+    expect((await crossOrg.json()).error).toBe((await missing.json()).error);
+    const foreignOrg = await op(h, { op: "share-list", driveId: h.driveId }, otherReg.apiKey);
+    expect(foreignOrg.status).toBeGreaterThanOrEqual(403);
+    expect(foreignOrg.status).toBeLessThanOrEqual(404);
+  });
+
+  test("/health advertises share-list", async () => {
+    const body = await (await get(h, "/health")).json();
+    expect(body.features).toContain("share-list");
+  });
+});
+
 describe("GET /share/:token — page", () => {
   test("is public, renders markdown, and carries the hardening headers", async () => {
     const s = await share(h, "/notes/readme.md");
