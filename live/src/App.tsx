@@ -15,6 +15,7 @@ import { FileBrowserPage } from "@/pages/FileBrowser"
 import { FileDetailPage } from "@/pages/FileDetail"
 import { PresentPage } from "@/pages/PresentPage"
 import { MembersPage } from "@/pages/Members"
+import { SharedLinksPage } from "@/pages/SharedLinks"
 import { Spinner } from "@/components/ui/spinner"
 import { PresenceConnection } from "@/components/presence/PresenceConnection"
 import { StarNudge } from "@/components/StarNudge"
@@ -186,6 +187,21 @@ function MembersRoute() {
   )
 }
 
+/**
+ * Shared links span every drive of the org; the drive in the URL keeps the
+ * active drive (the server checks membership on it) and nothing else.
+ */
+function SharedLinksRoute() {
+  return (
+    <>
+      <RouteParamsSync syncFile={false} />
+      <Shell>
+        <SharedLinksPage />
+      </Shell>
+    </>
+  )
+}
+
 function ApiKeysRoute() {
   return (
     <Shell>
@@ -248,6 +264,7 @@ export default function App() {
                   <Route path="/page/~/:orgId/:driveId/*" element={<PresentRoute />} />
                   <Route path="/sql/~/:orgId/:driveId" element={<SqlRoute />} />
                   <Route path="/members/~/:orgId/:driveId" element={<MembersRoute />} />
+                  <Route path="/shares/~/:orgId/:driveId" element={<SharedLinksRoute />} />
                   <Route path="/keys" element={<ApiKeysRoute />} />
                   <Route path="/files" element={<FilesRoute />} />
                   <Route path="*" element={<Navigate to="/files" replace />} />

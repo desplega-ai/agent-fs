@@ -2,6 +2,8 @@ import { useState } from "react"
 import { Check, Copy, ExternalLink, Share2 } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useHealth } from "@/hooks/use-health"
+import { useInvalidateShareLists } from "@/hooks/use-share-list"
+import { ShareLinksList } from "@/components/ShareLinksList"
 import { copyShareLink, DEFAULT_SHARE_EXPIRY_SECONDS, effectiveShareExpiry, SHARE_EXPIRY_CHOICES, supportsNoExpiry } from "@/lib/share-link"
 import { isHtmlPath } from "@/lib/html-view"
 import { toast } from "@/stores/toast"
@@ -61,6 +63,7 @@ export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProp
   const [link, setLink] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [copiedAgain, setCopiedAgain] = useState(false)
+  const invalidateShareLists = useInvalidateShareLists()
   const name = path.split("/").filter(Boolean).pop() ?? "drive"
 
   const handleCreate = async () => {
@@ -68,7 +71,10 @@ export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProp
     setBusy(true)
     const next = await copyShareLink(client, orgId, driveId, path, { expiresIn })
     setBusy(false)
-    if (next) setLink(next)
+    if (next) {
+      setLink(next)
+      void invalidateShareLists()
+    }
   }
 
   const handleCopyAgain = async () => {
@@ -135,6 +141,7 @@ export function ShareDialog({ path, isDir, open, onOpenChange }: ShareDialogProp
             </Button>
           </div>
         )}
+        <ShareLinksList path={path} />
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {link ? "Done" : "Cancel"}
