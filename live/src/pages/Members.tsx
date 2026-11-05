@@ -15,6 +15,7 @@ import { useDocumentTitle } from "@/hooks/use-document-title"
 import { UserAvatar } from "@/components/UserAvatar"
 import { InviteDialog } from "@/components/InviteDialog"
 import { PendingInvites } from "@/components/PendingInvites"
+import { OrgSwarmSetting } from "@/components/OrgSwarmSetting"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
@@ -110,6 +111,7 @@ export function MembersPage() {
         </header>
         {body}
         {canInvite && orgId && <PendingInvites orgId={orgId} drives={manageable?.drives} />}
+        {isOrgAdmin && orgId && <OrgSwarmSetting orgId={orgId} />}
       </div>
       {inviting && orgId && (
         <InviteDialog open onOpenChange={setInviting} orgId={orgId} initialDriveId={driveId} />

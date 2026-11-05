@@ -11,6 +11,14 @@ import { SHARE_HTML_MAX_BYTES } from "../share/render.js";
 // requests a minute from a single "IP". The limiter has its own tests below,
 // which set their own limit.
 process.env.AGENT_FS_SHARE_RATE_LIMIT = "0";
+// The shared harness key also sends more than the default 3000 requests a
+// minute to /orgs/* on a fast machine, so turn off that per-key limiter too.
+const savedGeneralRateLimit = process.env.AGENT_FS_RATE_LIMIT;
+process.env.AGENT_FS_RATE_LIMIT = "0";
+afterAll(() => {
+  if (savedGeneralRateLimit === undefined) delete process.env.AGENT_FS_RATE_LIMIT;
+  else process.env.AGENT_FS_RATE_LIMIT = savedGeneralRateLimit;
+});
 
 interface Harness {
   app: ReturnType<typeof createApp>;

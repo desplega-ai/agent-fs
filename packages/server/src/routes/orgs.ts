@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import {
   listUserOrgs,
   getOrg,
+  parseSwarmUrl,
+  setOrgSwarmUrl,
   createOrg,
   inviteToOrg,
   addDriveMember,
@@ -29,6 +31,7 @@ import {
   ValidationError,
 } from "@/core";
 import type { DB, Role, DriveGrant, MemberRole } from "@/core";
+import { ipRateLimitMiddleware } from "../middleware/ip-rate-limit.js";
 import type { AppEnv } from "../types.js";
 
 /**
@@ -100,6 +103,24 @@ function parseDriveGrants(value: unknown): DriveGrant[] | undefined {
   });
 }
 
+/**
+ * `GET /orgs/:orgId/public`, mounted before authMiddleware: a browser with no
+ * key on a deep link learns where to sign in ("Continue with <swarm>"). It
+ * answers only `{ swarmUrl }`, and unknown orgs get the same `null` as orgs
+ * without one, so it reveals no org names and is no existence oracle.
+ */
+export function publicOrgRoutes(db: DB, opts: { requestsPerMinute: number }) {
+  const router = new Hono<AppEnv>();
+  const limit = opts.requestsPerMinute > 0
+    ? ipRateLimitMiddleware(opts.requestsPerMinute)
+    : (_c: unknown, next: () => Promise<void>) => next();
+
+  router.get("/:orgId/public", limit, (c) =>
+    c.json({ swarmUrl: getOrg(db, c.req.param("orgId"))?.swarmUrl ?? null }));
+
+  return router;
+}
+
 export function orgRoutes(db: DB, appUrl?: string) {
   const router = new Hono<AppEnv>();
 
@@ -116,13 +137,28 @@ export function orgRoutes(db: DB, appUrl?: string) {
     return c.json(org, 201);
   });
 
+  // `role` is the caller's role, as in `GET /orgs`. An org-scoped key gets
+  // 403 on that list, so the live app reads its role here.
   router.get("/:orgId", (c) => {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
-    requireOrgMember(db, user.id, orgId);
+    const role = requireOrgMember(db, user.id, orgId);
     const org = getOrg(db, orgId);
     if (!org) return c.json({ error: "NOT_FOUND", message: "Org not found" }, 404);
-    return c.json(org);
+    return c.json({ ...org, role });
+  });
+
+  // The agent-swarm dashboard this org trusts for sign-in. Org admins edit it
+  // in the live app. A swarm sets it on first start, only while it is empty.
+  router.patch("/:orgId", async (c) => {
+    const user = c.get("user");
+    const orgId = c.req.param("orgId");
+    requireOrgAdmin(db, user.id, orgId);
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object" || !("swarmUrl" in body)) {
+      throw new ValidationError("swarmUrl is required (a URL, or null to clear it)", { field: "swarmUrl" });
+    }
+    return c.json(setOrgSwarmUrl(db, { orgId, swarmUrl: parseSwarmUrl(body.swarmUrl) }));
   });
 
   router.get("/:orgId/drives", (c) => {

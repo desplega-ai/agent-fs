@@ -13,7 +13,7 @@ import { normalizePublicUrl, resolveApiUrl } from "./public-url.js";
 import { requestLogMiddleware } from "./middleware/request-log.js";
 import { authRoutes } from "./routes/auth.js";
 import { opsRoutes } from "./routes/ops.js";
-import { orgRoutes } from "./routes/orgs.js";
+import { orgRoutes, publicOrgRoutes } from "./routes/orgs.js";
 import { inviteRoutes, publicInviteRoutes } from "./routes/invites.js";
 import { docsRoutes } from "./routes/docs.js";
 import { fileRoutes } from "./routes/files.js";
@@ -69,6 +69,10 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   // caller (see routes/invites.ts). Tokens carry 256 bits, so the limit only
   // keeps one address from hammering the database.
   app.route("/invites", publicInviteRoutes(db, { requestsPerMinute: 120 }));
+
+  // Where a key-less browser on an org deep link can sign in. Answers only
+  // `{ swarmUrl }`; per-IP limit like the invite preview.
+  app.route("/orgs", publicOrgRoutes(db, { requestsPerMinute: 120 }));
 
   app.use("*", authMiddleware(db));
 
