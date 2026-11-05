@@ -182,7 +182,7 @@ test("servers without share-list get no menu item, no dialog list and no request
   const dialog = await openShareDialog(page)
   await expect(dialog.getByRole("button", { name: "Copy link" })).toBeVisible()
   await expect(dialog.getByRole("region", { name: "Existing links" })).toHaveCount(0)
-  await page.keyboard.press("Escape")
+  await page.goto("/files")
   await page.getByRole("button", { name: /QA/ }).last().click()
   await expect(page.getByRole("menuitem", { name: "API keys" })).toBeVisible()
   await expect(page.getByRole("menuitem", { name: "Shared links" })).toHaveCount(0)
