@@ -63,7 +63,10 @@ function ShareLinkRow({ item }: { item: ShareListItem }) {
               {lifetimeLabel(item)}
             </span>
           )}
-          <span className="text-muted-foreground">· {viewsLabel(item.views, item.maxViews)}</span>
+          <span className="text-muted-foreground">
+            {item.status !== "revoked" && "· "}
+            {viewsLabel(item.views, item.maxViews)}
+          </span>
         </div>
         {auditLines(item, user?.userId).map((line) => (
           <p key={line} className="truncate text-muted-foreground">{line}</p>
