@@ -27,6 +27,7 @@ import { find } from "./find.js";
 import { sql } from "./sql.js";
 import { signedUrl } from "./signed-url.js";
 import { shareCreate, shareRevoke } from "./share.js";
+import { shareList, SHARE_LIST_MAX_LIMIT } from "./share-list.js";
 import { buildAppUrl } from "./urls.js";
 import { recordOp } from "../telemetry.js";
 import {
@@ -453,6 +454,17 @@ const opRegistry: Record<string, OpDefinition> = {
       id: z.string(),
     }),
   },
+  "share-list": {
+    description: "List share links without revealing them: the link itself is shown only once, by share-create, and is never listed. scope \"drive\" (default) lists links in the active drive; drive admins see every member's links, everyone else only their own. With path, it returns the links on that file or folder plus folder (site) links on any parent folder that also publish it (relation \"exact\" or \"covering\"). scope \"mine\" lists your own links in every drive of this org you are a member of (one org, never across orgs; path not allowed). Active links only unless includeInactive is true. Newest first; limit (default 100, max 500) and offset page through total. Returns { shares, total, limit, offset, scope, visibility } where each share has id, drive { id, name }, path, kind (file/site), relation, status (active/expired/exhausted/revoked), createdAt, createdBy { userId, email, displayName }, expiresAt (null = never expires), views, maxViews, lastViewedAt, revokedAt, revokedBy { userId, email, displayName } (null when active or revoked before revokers were recorded), canRevoke, and appUrl when configured. Revoke a link with share-revoke and its id, on the drive in drive.id.",
+    handler: shareList,
+    schema: z.object({
+      scope: z.enum(["drive", "mine"]).optional(),
+      path: z.string().optional(),
+      includeInactive: z.boolean().optional(),
+      limit: z.number().int().min(1).max(SHARE_LIST_MAX_LIMIT).optional(),
+      offset: z.number().int().min(0).optional(),
+    }),
+  },
   "webhook-deliveries": {
     description: "List a webhook's delivery log, newest first: status (pending, delivered, failed), attempts, next attempt, last status code and error. Omits each delivery's payload unless includePayload is true (it is then the exact JSON body that was signed and sent). Delivered and failed rows are pruned after 30 days. Needs drive admin or org admin for a drive hook, org admin for an org hook. Returns { deliveries, nextCursor }; pass nextCursor back as cursor for the next page (null on the last page).",
     handler: webhookDeliveries,
@@ -520,4 +532,5 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 
 // Re-export individual ops for direct use
 export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, find, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList, webhookCreate, webhookList, webhookUpdate, webhookDelete, webhookTest, webhookDeliveries, webhookRedeliver };
+export { shareList };
 export type * from "./types.js";

@@ -353,6 +353,8 @@ export const shares = sqliteTable(
     createdBy: text("created_by").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     revokedAt: integer("revoked_at", { mode: "timestamp" }),
+    /** Who revoked the link. Null for links revoked before this column existed. */
+    revokedBy: text("revoked_by"),
   },
   (table) => ({
     tokenHashUq: uniqueIndex("shares_token_hash_uq").on(table.tokenHash),

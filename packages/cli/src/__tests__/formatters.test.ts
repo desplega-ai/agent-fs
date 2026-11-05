@@ -265,3 +265,56 @@ describe("write link warnings", () => {
     expect(writeLinkWarnings({ version: 1, path: "/a.md" })).toEqual([]);
   });
 });
+
+describe("share-list formatter", () => {
+  const base = {
+    drive: { id: "d1", name: "default" },
+    createdAt: "2026-11-05T10:00:00.000Z",
+    createdBy: { userId: "u1", email: "me@example.com", displayName: null },
+    views: 0,
+    maxViews: null,
+    lastViewedAt: null,
+    revokedAt: null,
+    canRevoke: true,
+  };
+
+  test("empty list, with a note when only own links are visible", () => {
+    const out = captureOutput(() =>
+      outputResult("share-list", { shares: [], total: 0, limit: 100, offset: 0, scope: "drive", visibility: "own" }, false)
+    );
+    expect(out).toContain("(no share links)");
+    expect(out).toContain("(only your links)");
+  });
+
+  test("never-expiring, exhausted and covering rows", () => {
+    const result = {
+      shares: [
+        { ...base, id: "s1", path: "/a/b.md", kind: "file", relation: "exact", status: "active", expiresAt: null },
+        { ...base, id: "s2", path: "/a/b.md", kind: "file", relation: "exact", status: "exhausted", expiresAt: "2026-11-06T10:00:00.000Z", views: 1, maxViews: 1 },
+        { ...base, id: "s3", path: "/a", kind: "site", relation: "covering", status: "active", expiresAt: "2026-11-06T10:00:00.000Z" },
+      ],
+      total: 3, limit: 100, offset: 0, scope: "drive", visibility: "all",
+    };
+    const out = captureOutput(() => outputResult("share-list", result, false));
+    const lines = out.split("\n");
+    expect(lines[0]).toMatch(/^ID\s+PATH\s+KIND\s+STATUS\s+EXPIRES\s+VIEWS\s+CREATED\s+CREATOR$/);
+    expect(lines.find((l) => l.startsWith("s1"))).toContain("never");
+    expect(lines.find((l) => l.startsWith("s2"))).toMatch(/exhausted.*1\/1/);
+    expect(lines.find((l) => l.startsWith("s3"))).toContain("/a/ (covers)");
+    expect(out).not.toContain("(only your links)");
+    expect(out).toContain("agent-fs share-revoke <id>");
+    expect(out).not.toContain("Showing");
+  });
+
+  test("mine scope shows the drive and a paging footer", () => {
+    const result = {
+      shares: [{ ...base, id: "s1", path: "/x.md", kind: "file", status: "active", expiresAt: null, drive: { id: "d2", name: "second" } }],
+      total: 7, limit: 1, offset: 3, scope: "mine", visibility: "own",
+    };
+    const out = captureOutput(() => outputResult("share-list", result, false));
+    expect(out.split("\n")[0]).toMatch(/^ID\s+DRIVE\s+PATH/);
+    expect(out).toContain("second");
+    expect(out).toContain("Showing 4-4 of 7");
+    expect(out).not.toContain("(only your links)");
+  });
+});
