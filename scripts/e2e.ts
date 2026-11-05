@@ -4761,6 +4761,11 @@ async function webhookSuite() {
           body: JSON.stringify({ email, role: "editor" }),
         });
         assert(inv.ok, true, `invite ${email}: ${inv.status} ${await inv.clone().text()}`);
+        // An existing account stays a pending invite until it accepts: accept as the invitee.
+        const { token } = (await inv.json()) as any;
+        assert(typeof token === "string", true, `invite ${email}: expected a pending-invite token`);
+        const acc = await fetch(`${daemonUrl}/invites/${token}/accept`, { method: "POST", headers: authed(keys[email]) });
+        assert(acc.ok, true, `accept ${email}: ${acc.status} ${await acc.clone().text()}`);
       }
       await wh(`write /wh.md --content ${shQuote("# webhook e2e\n")}`);
     });
