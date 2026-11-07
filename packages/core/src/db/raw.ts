@@ -152,7 +152,8 @@ CREATE TABLE IF NOT EXISTS orgs (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   is_personal INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  swarm_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS org_members (

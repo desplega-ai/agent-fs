@@ -122,6 +122,13 @@ export function runMigrations(sqlite: Database): void {
     sqlite.exec("ALTER TABLE webhook_subscriptions ADD COLUMN path_prefix TEXT");
   }
 
+  // Migration 3j: add orgs.swarm_url, the agent-swarm dashboard the live UI
+  // offers for sign-in ("Continue with <swarm>"). Nullable, so no backfill.
+  const orgCols = sqlite.prepare("PRAGMA table_info(orgs)").all() as Array<{ name: string }>;
+  if (!orgCols.some((c) => c.name === "swarm_url")) {
+    sqlite.exec("ALTER TABLE orgs ADD COLUMN swarm_url TEXT");
+  }
+
   // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //
   // Drive visibility is strict explicit membership: drives with zero

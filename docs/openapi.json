@@ -522,6 +522,174 @@
         }
       }
     },
+    "/orgs/{orgId}": {
+      "patch": {
+        "summary": "Set the org's swarm URL (org admin only)",
+        "description": "Sets or clears the agent-swarm dashboard this org trusts for sign-in. The live UI shows a key-less visitor of an org deep link a \"Continue with <swarm host>\" action that opens <swarmUrl>/fs/continue. The value must be an absolute http or https URL without credentials, query or fragment; a trailing slash is dropped. Sending the stored value again is a no-op, so a swarm can set it on every boot. Members below admin get 403, non-members 404.",
+        "operationId": "updateOrg",
+        "tags": [
+          "Orgs"
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "swarmUrl"
+                ],
+                "properties": {
+                  "swarmUrl": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uri",
+                    "maxLength": 2048,
+                    "description": "http(s) URL, or null to clear"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The org after the update",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "name",
+                    "isPersonal",
+                    "swarmUrl"
+                  ],
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "isPersonal": {
+                      "type": "boolean"
+                    },
+                    "swarmUrl": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing or invalid swarmUrl",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller is not an org admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Org not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/public": {
+      "get": {
+        "summary": "Where to sign in to an org (no auth)",
+        "description": "Public, for a browser with no key on an org deep link. Returns only the org's swarm URL. Unknown orgs get the same null as orgs without one, so the route reveals no org names and does not confirm that an org exists. Per-IP rate limit (120/min).",
+        "operationId": "getOrgPublic",
+        "tags": [
+          "Orgs"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The org's swarm URL, or null",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "swarmUrl"
+                  ],
+                  "properties": {
+                    "swarmUrl": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests from this address"
+          }
+        }
+      }
+    },
     "/orgs/{orgId}/members/{userId}/reset-key": {
       "post": {
         "summary": "Reset a member's API key (org admin only)",

@@ -67,10 +67,15 @@ export function listUserOrgs(
   }));
 }
 
-export function getOrg(
-  db: DB,
-  orgId: string
-): { id: string; name: string; isPersonal: boolean } | null {
+export interface OrgInfo {
+  id: string;
+  name: string;
+  isPersonal: boolean;
+  /** The agent-swarm dashboard the live UI offers for sign-in; null when unset. */
+  swarmUrl: string | null;
+}
+
+export function getOrg(db: DB, orgId: string): OrgInfo | null {
   const org = db
     .select()
     .from(schema.orgs)
@@ -78,7 +83,44 @@ export function getOrg(
     .get();
 
   if (!org) return null;
-  return { id: org.id, name: org.name, isPersonal: org.isPersonal };
+  return { id: org.id, name: org.name, isPersonal: org.isPersonal, swarmUrl: org.swarmUrl ?? null };
+}
+
+const MAX_SWARM_URL_LENGTH = 2048;
+
+/**
+ * Validate a swarm URL for `PATCH /orgs/{orgId}`: an absolute http(s) URL
+ * without credentials, query or fragment, or null to clear it. A trailing
+ * slash is dropped so clients can append `/fs/continue`.
+ */
+export function parseSwarmUrl(value: unknown): string | null {
+  if (value === null) return null;
+  const invalid = () =>
+    new ValidationError("swarmUrl must be an absolute http or https URL, or null", {
+      field: "swarmUrl",
+      suggestion: "Send the dashboard origin, e.g. https://swarm.example.com",
+    });
+  if (typeof value !== "string" || value.length > MAX_SWARM_URL_LENGTH) throw invalid();
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw invalid();
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") throw invalid();
+  if (url.username || url.password || url.search || url.hash) throw invalid();
+  return url.origin + url.pathname.replace(/\/+$/, "");
+}
+
+/** Set or clear the org's swarm URL. Setting the stored value again is a no-op. */
+export function setOrgSwarmUrl(db: DB, params: { orgId: string; swarmUrl: string | null }): OrgInfo {
+  db.update(schema.orgs)
+    .set({ swarmUrl: params.swarmUrl })
+    .where(eq(schema.orgs.id, params.orgId))
+    .run();
+  const org = getOrg(db, params.orgId);
+  if (!org) throw new NotFoundError(`Org not found: ${params.orgId}`);
+  return org;
 }
 
 export function listOrgMembers(

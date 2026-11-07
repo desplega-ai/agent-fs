@@ -72,6 +72,7 @@ describe("Health check", () => {
       "favorites",
       "presence",
       "webhooks",
+      "org-swarm-url",
     ]));
   });
 });

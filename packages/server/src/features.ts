@@ -13,4 +13,5 @@ export const SERVER_FEATURES = [
   "favorites",
   "presence",
   "webhooks",
+  "org-swarm-url",
 ] as const;

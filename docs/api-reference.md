@@ -88,6 +88,19 @@ curl http://localhost:7433/auth/me \
 
 For an org-scoped key the answer is identity only, without the personal defaults: `{"userId","email","displayName","scopedOrgId"}`. It is the only `/auth` route such a key may call.
 
+### Org swarm URL
+
+An org can name the agent-swarm dashboard it trusts for sign-in. When a browser with no key opens a deep link into that org (`/file/~/<orgId>/<driveId>/<path>?apiUrl=<this server>`), the live UI shows "Continue with <swarm host>", which opens `<swarmUrl>/fs/continue?return_to=<the live URL>`. The live URL carries `handoff=<nonce>` in its query: a single-use value the page stores in localStorage for 10 minutes when it shows the link, together with this server, so the return works in a new tab too. The swarm mints a key for the signed-in user and sends the browser back to `return_to`, query unchanged, with `#key=<af_...>&apiUrl=<this server>` in the fragment. The live UI removes the fragment from the address bar before any request. It saves the key and opens the original path only when `handoff` matches a stored nonce and `apiUrl` matches the server stored with it. Otherwise it ignores the key. When the org has no swarm URL (`null`), the live UI offers the hosted swarm, `https://app.agent-swarm.dev`. Org admins can change the URL in the live app, on the Members page. Servers that support this list `org-swarm-url` in the `/health` `features` array.
+
+| Method | Path | Who | Body | Response |
+|---|---|---|---|---|
+| `PATCH` | `/orgs/{orgId}` | org admin | `{"swarmUrl":"https://swarm.example.com"}` or `{"swarmUrl":null}` | `{"id","name","isPersonal","swarmUrl"}` |
+| `GET` | `/orgs/{orgId}` | org member | none | `{"id","name","isPersonal","swarmUrl","role"}` (`role` is the caller's role) |
+| `GET` | `/orgs/{orgId}/public` | anyone (no key) | none | `{"swarmUrl"}` |
+
+- `swarmUrl` must be an absolute `http` or `https` URL without credentials, query or fragment (max 2048 characters). A trailing slash is dropped. Anything else gets `400 {"error":"VALIDATION_ERROR","field":"swarmUrl"}`. Members below admin get 403, non-members 404. Sending the stored value again changes nothing, so a swarm can set it on every boot.
+- `GET /orgs/{orgId}/public` sits before authentication with a per-IP limit of 120 requests per minute. It returns only `swarmUrl`. An unknown org gets the same `{"swarmUrl":null}` as an org without one.
+
 ### `ALL /mcp`
 
 MCP endpoint (Streamable HTTP transport). Accepts JSON-RPC requests from MCP clients. Stateless — each request creates a fresh MCP server instance.
