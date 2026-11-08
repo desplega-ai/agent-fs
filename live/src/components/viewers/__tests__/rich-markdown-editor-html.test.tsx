@@ -20,12 +20,9 @@ const HTML_FILE = [
   "",
 ].join("\n")
 
-const IMAGE_FILE = [
-  "# Images",
-  "",
-  '<img src="pic.png" alt="a picture" width="40" onerror="window.__flag4 = 1">',
-  "",
-].join("\n")
+function imageFile(html: string): string {
+  return ["# Images", "", html, ""].join("\n")
+}
 
 type Root = { render(node: unknown): void; unmount(): void }
 type Rendered = { editable: Element; parseErrors: number }
@@ -142,13 +139,36 @@ describe("RichMarkdownEditor raw HTML", () => {
     expect(html.parseErrors).toBe(1)
   })
 
-  test("an HTML <img> tag becomes an image node with only the image attributes", async () => {
+  test("an HTML <img> tag becomes an image node with the image attributes", async () => {
     const before = innerHtmlWrites.length
-    const img = await renderEditor(IMAGE_FILE, el => el.querySelector("[data-lexical-decorator]") !== null)
+    const img = await renderEditor(
+      imageFile('<img src="pic.png" alt="a picture" width="40">'),
+      el => el.querySelector("[data-lexical-decorator]") !== null,
+    )
     expect(img.parseErrors).toBe(0)
     expect(img.editable.querySelector("h1")?.textContent).toBe("Images")
     const writes = innerHtmlWrites.slice(before).filter(v => v.includes("<img"))
     expect(writes).toEqual(['<img src="pic.png" alt="a picture" width="40">'])
     expect(scriptAttributes(img.editable)).toEqual([])
   })
+
+  // Each of these holds markup the image node cannot keep, so the file must
+  // open in the source editor instead of losing it on save.
+  const unsupported: [string, string][] = [
+    ["an event handler attribute", '<img src="pic.png" alt="a picture" onerror="window.__flag4 = 1">'],
+    ["a text line after the tag", '<img src="pic.png" alt="x">\nA line of text'],
+    ["a second tag on the next line", '<img src="a.png">\n<img src="b.png">'],
+    ["a class attribute", '<img src="pic.png" class="wide">'],
+    ["align and style attributes", '<img src="pic.png" align="right" style="border: 0">'],
+    ["a non-numeric width", '<img src="pic.png" width="50%">'],
+  ]
+  for (const [name, html] of unsupported) {
+    test(`an HTML <img> with ${name} reports a parse error`, async () => {
+      const before = innerHtmlWrites.length
+      const img = await renderEditor(imageFile(html), el => el.querySelector("h1") !== null)
+      expect(img.parseErrors).toBe(1)
+      expect(innerHtmlWrites.slice(before).filter(v => v.includes("<img"))).toEqual([])
+      expect(scriptAttributes(img.editable)).toEqual([])
+    })
+  }
 })
