@@ -21,7 +21,7 @@ import type { OpContext } from "../../ops/types.js";
 
 const BUCKET = "test-bucket";
 
-type Recorded = { method: string; target: string };
+type Recorded = { method: string; target: string; copySource?: string };
 
 /** RFC 3986 remove_dot_segments on the decoded path, as a resolving provider would. */
 function resolveDots(path: string): string {
@@ -42,6 +42,14 @@ function resolvedKey(target: string): string {
   return resolved.startsWith(prefix) ? resolved.slice(prefix.length) : resolved;
 }
 
+/** Source key a provider reads from an `x-amz-copy-source` header (`<bucket>/<key>`, URL-decoded). */
+function copySourceKey(header: string): string {
+  const decoded = decodeURIComponent(header.replace(/^\//, ""));
+  const prefix = `${BUCKET}/`;
+  if (!decoded.startsWith(prefix)) throw new Error(`copy source outside bucket: ${header}`);
+  return decoded.slice(prefix.length);
+}
+
 describe("S3 adapter keeps user paths inside the caller's drive", () => {
   let server: Server;
   let port: number;
@@ -57,12 +65,20 @@ describe("S3 adapter keeps user paths inside the caller's drive", () => {
         buf += chunk.toString("latin1");
         const end = buf.indexOf("\r\n\r\n");
         if (end === -1) return;
-        const [method, target] = buf.split("\r\n")[0].split(" ");
-        recorded.push({ method, target });
-        const body = "dummy-body";
+        const [requestLine, ...headerLines] = buf.slice(0, end).split("\r\n");
+        const [method, target] = requestLine.split(" ");
+        const copySource = headerLines
+          .find((h) => h.toLowerCase().startsWith("x-amz-copy-source:"))
+          ?.slice("x-amz-copy-source:".length)
+          .trim();
+        recorded.push({ method, target, ...(copySource !== undefined && { copySource }) });
+        const body =
+          copySource !== undefined
+            ? '<?xml version="1.0" encoding="UTF-8"?><CopyObjectResult><ETag>"e"</ETag></CopyObjectResult>'
+            : "dummy-body";
         sock.end(
           "HTTP/1.1 200 OK\r\n" +
-            "Content-Type: text/plain\r\n" +
+            `Content-Type: ${copySource !== undefined ? "application/xml" : "text/plain"}\r\n` +
             `Content-Length: ${body.length}\r\n` +
             'ETag: "e"\r\n' +
             "Connection: close\r\n\r\n" +
@@ -125,6 +141,32 @@ describe("S3 adapter keeps user paths inside the caller's drive", () => {
       }
       expect(recorded).toEqual([]);
       expect(err).toBeInstanceOf(ValidationError);
+    });
+  }
+
+  for (const op of ["cp", "mv"] as const) {
+    test(`${op} source with percent-encoded dot segments stays literal in the copy source`, async () => {
+      recorded.length = 0;
+      const enc = "%2e%2e";
+      const from = `/${enc}/${enc}/${enc}/${otherOrgId}/drives/${otherDriveId}/secret.txt`;
+      await dispatchOp(caller, op, { from, to: "/copied.txt" }).catch(() => {});
+
+      const copies = recorded.filter((r) => r.copySource !== undefined);
+      expect(copies.length).toBe(1);
+      const sourceKey = copySourceKey(copies[0].copySource!);
+      // The provider reads back the literal name: no `..` segment to resolve.
+      expect(sourceKey).toBe(`${ownPrefix()}${from.slice(1)}`);
+      expect(resolveDots(sourceKey).startsWith(ownPrefix())).toBe(true);
+    });
+
+    test(`${op} source name with '%', '?', '#' and a space reaches the provider unchanged`, async () => {
+      recorded.length = 0;
+      const from = "/dir/100% done? #1 final.txt";
+      await dispatchOp(caller, op, { from, to: "/out.txt" }).catch(() => {});
+
+      const copies = recorded.filter((r) => r.copySource !== undefined);
+      expect(copies.length).toBe(1);
+      expect(copySourceKey(copies[0].copySource!)).toBe(`${ownPrefix()}dir/100% done? #1 final.txt`);
     });
   }
 });

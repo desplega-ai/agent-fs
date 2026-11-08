@@ -37,6 +37,11 @@ const S3_CONNECTION_TIMEOUT_MS = 5_000;
 const S3_SOCKET_TIMEOUT_MS = 30_000;
 const S3_MAX_ATTEMPTS = 3;
 
+/** URL-encode each `/`-separated segment of a key, keeping the slashes. */
+function encodeCopySourceKey(key: string): string {
+  return key.split("/").map(encodeURIComponent).join("/");
+}
+
 // Every key (or prefix) goes through assertKeyInsideDrive first: S3-compatible
 // providers differ on whether they resolve `..` in a key, so a key must not carry one.
 export class AgentS3Client implements StorageAdapter {
@@ -140,7 +145,11 @@ export class AgentS3Client implements StorageAdapter {
     const result = await this.client.send(
       new CopyObjectCommand({
         Bucket: this.bucket,
-        CopySource: `${this.bucket}/${fromKey}`,
+        // The SDK encodes `Key` but sends `CopySource` as given, and the
+        // provider URL-decodes it. Encode each segment so the source key is
+        // read back exactly as written (a `%2e%2e` stays literal, and `%`,
+        // `?`, `#` or a space in a name survive).
+        CopySource: `${this.bucket}/${encodeCopySourceKey(fromKey)}`,
         Key: toKey,
       })
     );
