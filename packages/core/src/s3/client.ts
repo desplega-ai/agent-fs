@@ -21,6 +21,7 @@ import type {
   GetObjectResult,
   HeadObjectResult,
 } from "../storage/adapter.js";
+import { assertKeyInsideDrive } from "../storage/key-guard.js";
 
 // These value/result types now live in storage/adapter.ts (canonical home).
 // Re-exported here for back-compat with existing `s3/client.js` / `@/core` imports.
@@ -36,6 +37,8 @@ const S3_CONNECTION_TIMEOUT_MS = 5_000;
 const S3_SOCKET_TIMEOUT_MS = 30_000;
 const S3_MAX_ATTEMPTS = 3;
 
+// Every key (or prefix) goes through assertKeyInsideDrive first: S3-compatible
+// providers differ on whether they resolve `..` in a key, so a key must not carry one.
 export class AgentS3Client implements StorageAdapter {
   private client: S3Client;
   private presignClient: S3Client;
@@ -81,6 +84,7 @@ export class AgentS3Client implements StorageAdapter {
     metadata?: Record<string, string>,
     contentType?: string,
   ): Promise<PutObjectResult> {
+    assertKeyInsideDrive(key);
     const result = await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
@@ -101,6 +105,7 @@ export class AgentS3Client implements StorageAdapter {
     versionId?: string,
     opts?: { abortSignal?: AbortSignal }
   ): Promise<GetObjectResult> {
+    assertKeyInsideDrive(key);
     const result = await this.client.send(
       new GetObjectCommand({
         Bucket: this.bucket,
@@ -120,6 +125,7 @@ export class AgentS3Client implements StorageAdapter {
   }
 
   async deleteObject(key: string): Promise<void> {
+    assertKeyInsideDrive(key);
     await this.client.send(
       new DeleteObjectCommand({
         Bucket: this.bucket,
@@ -129,6 +135,8 @@ export class AgentS3Client implements StorageAdapter {
   }
 
   async copyObject(fromKey: string, toKey: string): Promise<PutObjectResult> {
+    assertKeyInsideDrive(fromKey);
+    assertKeyInsideDrive(toKey);
     const result = await this.client.send(
       new CopyObjectCommand({
         Bucket: this.bucket,
@@ -146,6 +154,7 @@ export class AgentS3Client implements StorageAdapter {
     prefix: string,
     options?: { delimiter?: string; maxKeys?: number }
   ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
+    assertKeyInsideDrive(prefix);
     const objects: S3Object[] = [];
     const prefixes: string[] = [];
     const seenPrefixes = new Set<string>();
@@ -194,6 +203,7 @@ export class AgentS3Client implements StorageAdapter {
   }
 
   async headObject(key: string): Promise<HeadObjectResult> {
+    assertKeyInsideDrive(key);
     const result = await this.client.send(
       new HeadObjectCommand({
         Bucket: this.bucket,
@@ -210,6 +220,7 @@ export class AgentS3Client implements StorageAdapter {
   }
 
   async listObjectVersions(key: string): Promise<S3ObjectVersion[]> {
+    assertKeyInsideDrive(key);
     const result = await this.client.send(
       new ListObjectVersionsCommand({
         Bucket: this.bucket,
@@ -259,6 +270,7 @@ export class AgentS3Client implements StorageAdapter {
     responseContentDisposition?: string,
     signingDate?: Date,
   ): Promise<string> {
+    assertKeyInsideDrive(key);
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,

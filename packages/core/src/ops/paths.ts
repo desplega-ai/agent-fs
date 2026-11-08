@@ -40,15 +40,14 @@ export function stripLeadingSlash(path: string): string {
  *
  * A drive is `<orgId>/drives/<driveId>/` inside one storage namespace, and the
  * local-filesystem backend resolves a key against the whole storage root, so
- * `/../../../<org>/drives/<drive>/x` reaches another tenant's drive. S3 treats
- * `..` as a literal character, but a path that means two different things on
- * two backends is not one to hand out a public link for.
+ * `/../../../<org>/drives/<drive>/x` reaches another tenant's drive. Both
+ * storage adapters also refuse such a key, but a share or favorite should be
+ * refused before it is stored, not when it is later read.
  *
  * Rejects a `.` or `..` segment on either separator (a backslash is a
  * separator on Windows hosts) and NUL bytes. Names that merely contain dots
  * (`a..b`, `.hidden`, `file..`) are fine. This is deliberately not folded into
- * {@link normalizePath}: validation and canonicalization are separate steps,
- * and on S3 an existing `a/../b` key is legal data.
+ * {@link normalizePath}: validation and canonicalization are separate steps.
  */
 export function assertPathInsideDrive(path: string): void {
   if (path.includes("\u0000")) {

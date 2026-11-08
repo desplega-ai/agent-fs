@@ -9,6 +9,7 @@ import {
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { schema } from "../../db/index.js";
+import { ValidationError } from "../../errors.js";
 import { createUser } from "../../identity/users.js";
 import { listUserOrgs } from "../../identity/orgs.js";
 import { listDrives } from "../../identity/drives.js";
@@ -296,8 +297,7 @@ describe("LocalStorageAdapter — tenant containment", () => {
   });
 });
 
-describe("S3 adapter is unchanged", () => {
-  // On S3 an `a/../b` key is ordinary data, so the key must reach the wire verbatim.
+describe("S3 adapter runs the same key guard", () => {
   function stubbedClient() {
     const client = new AgentS3Client({
       provider: "minio",
@@ -326,24 +326,42 @@ describe("S3 adapter is unchanged", () => {
     return { client, sent };
   }
 
-  test("dot segments and backslashes are passed to S3 untouched, through ops and directly", async () => {
+  test("dot segments, backslash dot segments and NUL bytes are refused before anything is sent", async () => {
     const { client, sent } = stubbedClient();
     const base = createTestContext();
     const ctx: OpContext = { ...base.ctx, s3: client };
 
-    await dispatchOp(ctx, "write", { path: "/a/../b.txt", content: "x" });
-    const put = sent.find((c) => c instanceof PutObjectCommand) as PutObjectCommand;
-    expect(put.input.Key).toBe(`${ctx.orgId}/drives/${ctx.driveId}/a/../b.txt`);
+    await expect(dispatchOp(ctx, "write", { path: "/a/../b.txt", content: "x" })).rejects.toThrow(
+      "'.' or '..' segments",
+    );
+    const k = "o/drives/d/../../x";
+    for (const call of [
+      () => client.putObject("o/drives/d/a\\..\\b", "x"),
+      () => client.putObject("o/drives/d/nul\u0000name", "x"),
+      () => client.getObject(k),
+      () => client.headObject(k),
+      () => client.deleteObject(k),
+      () => client.copyObject(k, "o/drives/d/copy.txt"),
+      () => client.copyObject("o/drives/d/mine.txt", k),
+      () => client.listObjects("o/drives/d/../"),
+      () => client.listObjectVersions(k),
+      () => client.getPresignedUrl(k),
+    ]) {
+      await expect(call()).rejects.toThrow(ValidationError);
+    }
+    expect(sent).toEqual([]);
+  });
 
-    await expect(client.putObject("o/drives/d/a\\..\\b", "x")).resolves.toBeDefined();
-    await expect(client.putObject("o/drives/d/nul\u0000name", "x")).resolves.toBeDefined();
-    await expect(client.getObject("o/drives/d/../x")).resolves.toBeDefined();
-    await expect(client.listObjects("o/drives/d/../")).resolves.toBeDefined();
-
-    const keys = sent
-      .filter((c): c is PutObjectCommand | GetObjectCommand => c instanceof PutObjectCommand || c instanceof GetObjectCommand)
-      .map((c) => c.input.Key);
-    expect(keys).toContain("o/drives/d/a\\..\\b");
-    expect(keys).toContain("o/drives/d/../x");
+  test("names that merely contain dots still reach S3 verbatim", async () => {
+    const { client, sent } = stubbedClient();
+    for (const key of ["o/drives/d/.env", "o/drives/d/..v/.n..txt", "o/drives/d/file.."]) {
+      await client.putObject(key, "x");
+    }
+    await client.listObjects("");
+    expect(sent.filter((c) => c instanceof PutObjectCommand).map((c) => (c as PutObjectCommand).input.Key)).toEqual([
+      "o/drives/d/.env",
+      "o/drives/d/..v/.n..txt",
+      "o/drives/d/file..",
+    ]);
   });
 });
