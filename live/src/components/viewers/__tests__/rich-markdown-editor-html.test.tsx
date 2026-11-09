@@ -20,6 +20,24 @@ const HTML_FILE = [
   "",
 ].join("\n")
 
+// Angle-bracket placeholders in prose, the pattern agents write in research
+// notes. Without the mdx-jsx parser they are inline HTML to markdown.
+const PLACEHOLDER_FILE = [
+  "# Route notes for <org>",
+  "",
+  "Checked the canonical, the breadcrumb use /blog/omnia/<slug>, the sitemap lists it, and the feed links to <slug> as well.",
+  "",
+  "- open /file/<org>/<drive>/<path> to review",
+  "- line break here<br>and after",
+  "",
+  "| Route        | Owner  |",
+  "| ------------ | ------ |",
+  "| /blog/<slug> | <team> |",
+  "",
+  "Keep `<slug>` in code spans as code.",
+  "",
+].join("\n")
+
 function imageFile(html: string): string {
   return ["# Images", "", html, ""].join("\n")
 }
@@ -171,4 +189,79 @@ describe("RichMarkdownEditor raw HTML", () => {
       expect(scriptAttributes(img.editable)).toEqual([])
     })
   }
+})
+
+// Exports the markdown MDXEditor builds from `content` with the rich editor's
+// HTML settings, before any edit. MDXEditor trims the document; the rich
+// editor restores the final newline the same way.
+async function exportMarkdown(content: string): Promise<string> {
+  const React = await import("react")
+  const { createRoot } = await import("react-dom/client")
+  const { MDXEditor, headingsPlugin, listsPlugin, tablePlugin } = await import("@mdxeditor/editor")
+  const { htmlImagePlugin, inlineHtmlTextPlugin } = await import("../rich-markdown-html")
+  const host = document.createElement("div")
+  document.body.appendChild(host)
+  const root = createRoot(host) as Root
+  roots.push(root)
+  const ref = React.createRef<{ getMarkdown(): string }>()
+  root.render(
+    React.createElement(MDXEditor, {
+      ref,
+      markdown: content,
+      suppressHtmlProcessing: true,
+      toMarkdownOptions: { bullet: "-", rule: "-" },
+      plugins: [headingsPlugin(), listsPlugin(), tablePlugin(), htmlImagePlugin(), inlineHtmlTextPlugin()],
+    } as never),
+  )
+  await waitFor(() => host.querySelector('[contenteditable="true"] h1'))
+  return ref.current!.getMarkdown() + "\n"
+}
+
+describe("RichMarkdownEditor inline HTML placeholders", () => {
+  let rendered: Rendered
+
+  beforeAll(async () => {
+    rendered = await renderEditor(PLACEHOLDER_FILE, el => el.querySelector("table") !== null)
+  })
+
+  test("a file with <slug> placeholders opens without a parse error", () => {
+    expect(rendered.parseErrors).toBe(0)
+  })
+
+  test("placeholders show as literal text, not as elements", () => {
+    const text = rendered.editable.textContent ?? ""
+    expect(rendered.editable.querySelector("h1")?.textContent).toBe("Route notes for <org>")
+    expect(text).toContain("/blog/omnia/<slug>, the sitemap")
+    expect(text).toContain("/file/<org>/<drive>/<path> to review")
+    expect(text).toContain("line break here<br>and after")
+    expect(rendered.editable.querySelector("table")?.textContent).toContain("<team>")
+    // `path` is left out: the table UI draws SVG icons with <path> elements.
+    for (const tag of ["slug", "org", "drive", "team", "br"]) {
+      expect(rendered.editable.querySelectorAll(tag).length).toBe(0)
+    }
+  })
+
+  // happy-dom has no layout, so this guards the class; the scroll itself is
+  // covered by `tests/markdown-edit.spec.ts` in a browser.
+  test("the editor root is bounded to its pane so the document scrolls", () => {
+    const root = rendered.editable.closest(".mdxeditor")
+    expect(root?.classList.contains("flex-1")).toBe(true)
+    expect(root?.classList.contains("min-h-0")).toBe(true)
+    expect(rendered.editable.closest(".mdxeditor-root-contenteditable")).not.toBeNull()
+  })
+
+  test("an unedited file exports byte-equal", async () => {
+    expect(await exportMarkdown(PLACEHOLDER_FILE)).toBe(PLACEHOLDER_FILE)
+  })
+
+  test("inline HTML with attributes stays text and keeps no attribute", async () => {
+    const file = '# Inline\n\nHover <span onmouseover="window.__flag5 = 1" class="x">here</span> please.\n'
+    const inline = await renderEditor(file, el => el.querySelector("h1") !== null)
+    expect(inline.parseErrors).toBe(0)
+    expect(inline.editable.textContent).toContain('<span onmouseover="window.__flag5 = 1" class="x">here</span>')
+    expect(inline.editable.querySelectorAll("span[onmouseover], span.x").length).toBe(0)
+    expect(scriptAttributes(inline.editable)).toEqual([])
+    expect((window as { __flag5?: number }).__flag5).toBeUndefined()
+    expect(await exportMarkdown(file)).toBe(file)
+  })
 })
