@@ -170,3 +170,59 @@ test("a scroll away from the revealed file sticks while folders above it load", 
   // The listings still landing above the target never pull the sidebar back.
   expect(scrollTops).toEqual([0])
 })
+
+test("collapsing a folder above the viewport at the bottom of the sidebar keeps the visible rows still", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 844 })
+  const { ops } = await installFixture(page, { reveal: true })
+  await page.goto(`/file/~/org/drive/${TARGET}`)
+  await page.locator(`[data-tree-path="${TARGET}"]`).waitFor()
+  // Let every previously expanded listing land.
+  await expect.poll(() => PREVIOUSLY_EXPANDED.every((path) => ops.includes(`ls ${path}`)), { timeout: 10_000 }).toBe(true)
+  // The slowest of them answers 2.8 s after its request.
+  await sleep(3000)
+
+  const folder = page.locator('[data-tree-path="area-000"]')
+  await folder.focus()
+  const before = await page.evaluate(() => {
+    const panel = document.querySelector<HTMLElement>('[role="tabpanel"]')!
+    panel.scrollTop = panel.scrollHeight
+    return new Promise<{ scrollTop: number; rows: Record<string, number> }>((resolve) =>
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const box = panel.getBoundingClientRect()
+          const rows: Record<string, number> = {}
+          for (const el of panel.querySelectorAll<HTMLElement>("[data-tree-path]")) {
+            const rect = el.getBoundingClientRect()
+            if (rect.top >= box.top && rect.bottom <= box.bottom) rows[el.dataset.treePath!] = Math.round(rect.top - box.top)
+          }
+          resolve({ scrollTop: panel.scrollTop, rows })
+        }),
+      ),
+    )
+  })
+  // The focused folder is far above the viewport, which sits at the bottom.
+  await expect(folder).toBeFocused()
+  const tree = page.locator('[role="tree"]')
+  const treeHeight = () => tree.evaluate((el) => el.getBoundingClientRect().height)
+  const heightBefore = await treeHeight()
+  expect(Object.keys(before.rows)).not.toContain("area-000")
+  expect(Object.keys(before.rows).length).toBeGreaterThan(10)
+
+  await page.keyboard.press("ArrowLeft")
+  // area-000 had 41 rows of its own plus 31 in its expanded `sub`.
+  await expect.poll(treeHeight).toBe(heightBefore - 72 * 28)
+  await expect(folder).toBeFocused()
+  await sleep(300)
+  const after = await page.evaluate((paths) => {
+    const panel = document.querySelector<HTMLElement>('[role="tabpanel"]')!
+    const box = panel.getBoundingClientRect()
+    return Object.fromEntries(
+      paths.map((path) => {
+        const el = panel.querySelector<HTMLElement>(`[data-tree-path="${path}"]`)
+        return [path, el ? Math.round(el.getBoundingClientRect().top - box.top) : null]
+      }),
+    )
+  }, Object.keys(before.rows))
+  // The 72 rows removed above the viewport leave every visible row in place.
+  expect(after).toEqual(before.rows)
+})

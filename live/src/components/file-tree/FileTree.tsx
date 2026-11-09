@@ -317,12 +317,18 @@ function VirtualTree({ rows, revealPath, onRevealed }: VirtualTreeProps) {
   // hold the view still when an expanded folder's listing lands above it. Do
   // it here, before paint: keep the selected row where it is if it is in view,
   // else the top visible row.
+  // The tree's height is set here, not in render: a collapse near the bottom
+  // shrinks the tree, and the browser clamps scrollTop to the shorter content
+  // as soon as layout runs. Holding the old height until scrollTop is read
+  // keeps the anchor at the position the user saw.
   const prevRowsRef = useRef(rows)
   useLayoutEffect(() => {
     const prev = prevRowsRef.current
     prevRowsRef.current = rows
+    const scrollTop = prev !== rows && scrollElement ? scrollElement.scrollTop : 0
+    if (treeRef.current) treeRef.current.style.height = `${rows.length * ROW_HEIGHT}px`
     if (prev === rows || !scrollElement) return
-    const top = scrollElement.scrollTop - scrollMargin
+    const top = scrollTop - scrollMargin
     if (top <= 0) return
     const selectedIndex = selectedPath === null ? -1 : prev.findIndex((row) => row.path === selectedPath)
     const selectedTop = selectedIndex * ROW_HEIGHT
@@ -332,10 +338,11 @@ function VirtualTree({ rows, revealPath, onRevealed }: VirtualTreeProps) {
         : Math.floor(top / ROW_HEIGHT)
     const anchorPath = prev[anchorIndex]?.path
     const nextIndex = rows.findIndex((row) => row.path === anchorPath)
+    // Assign, not `+=`: the new height may already have clamped scrollTop.
     if (nextIndex >= 0 && nextIndex !== anchorIndex) {
-      scrollElement.scrollTop += (nextIndex - anchorIndex) * ROW_HEIGHT
-      syncWindow()
+      scrollElement.scrollTop = scrollTop + (nextIndex - anchorIndex) * ROW_HEIGHT
     }
+    syncWindow()
   }, [rows, scrollElement, scrollMargin, selectedPath, syncWindow])
 
   // Reveal the selected file once, as soon as its row exists, without moving
@@ -492,7 +499,6 @@ function VirtualTree({ rows, revealPath, onRevealed }: VirtualTreeProps) {
             onContextMenu={pickMenuTarget}
             onTouchStart={pickMenuTarget}
             className="relative w-full"
-            style={{ height: rows.length * ROW_HEIGHT }}
           >
             {mountedIndexes.map((index) => {
               const row = rows[index]
