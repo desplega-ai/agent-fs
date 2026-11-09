@@ -4,6 +4,13 @@ See [PRODUCT.md](./PRODUCT.md) for product vision and positioning (agent-fs is t
 
 Bun monorepo: `packages/{core, cli, mcp, server}`
 
+## Pull request description
+
+Every PR, from anyone, fills the org template [desplega-ai/.github/pull_request_template.md](https://github.com/desplega-ai/.github/blob/main/pull_request_template.md): keep its `**Why:**` and `**Risk:**` lines and its `##` headings.
+`gh pr create --body` and `--fill` skip the template. Write the body to a file and pass `--body-file`.
+Check the file with the org checker: `git clone --depth 1 https://github.com/desplega-ai/.github /tmp/desplega-github && cd /tmp/desplega-github/pr-body && PR_TEMPLATE_PATH=../pull_request_template.md bun scripts/check-pr-body.ts --title "<title>" --body-file <absolute path>`.
+A red **PR Body** check fails the required `ci` job and blocks the merge. Editing the description re-runs it; no push needed.
+
 ## Commands
 
 - `bun install` — install dependencies

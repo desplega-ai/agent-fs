@@ -9,6 +9,7 @@ Thanks for your interest in contributing to Agent FS!
 - [Code Quality](#code-quality)
 - [Project Structure](#project-structure)
 - [Submitting Changes](#submitting-changes)
+- [Pull Requests](#pull-requests)
 - [Releasing](#releasing)
 
 ---
@@ -90,6 +91,24 @@ agent-fs/
 5. Open a PR
 
 Don't bump the version in your PR unless you're cutting a release — see below.
+
+---
+
+## Pull Requests
+
+Every PR description fills the org [PR template](https://github.com/desplega-ai/.github/blob/main/pull_request_template.md). Keep its `**Why:**` and `**Risk:**` lines and its `##` headings, and replace each HTML comment with your text. The comments say what each part needs.
+
+GitHub pre-fills the template only in the web UI. `gh pr create --body` and `--fill` skip it, and so does a coding agent that calls them. Write the body to a file and open the PR with `gh pr create --title "<title>" --body-file <file>`.
+
+To check the file before you open the PR:
+
+```bash
+git clone --depth 1 https://github.com/desplega-ai/.github /tmp/desplega-github
+cd /tmp/desplega-github/pr-body
+PR_TEMPLATE_PATH=../pull_request_template.md bun scripts/check-pr-body.ts --title "<title>" --body-file <absolute path to your body file>
+```
+
+The **PR Body** check runs the same script on every PR. When it fails, the required `ci` job fails and the PR cannot merge. Edit the PR description to fix it; no push is needed.
 
 ---
 
