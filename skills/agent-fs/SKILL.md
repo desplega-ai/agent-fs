@@ -194,6 +194,7 @@ PDF text is searchable. `search` and `vec-search` results carry `page` for PDF t
 With EmbeddingGemma 2, semantic search also finds PNG, JPEG, WebP, GIF, and the first 3 PDF pages as images.
 Results carry `kind: "text"` or `kind: "image"` for semantic matches.
 Image matches use `[image]` snippets. PDF page images use `[PDF page N]` snippets and carry `page`.
+Text snippets are HTML fragments: file text is HTML-escaped (`&lt;`, `&amp;`) and matches are wrapped in `<b></b>`.
 Search still returns one result per file. The best semantic chunk determines `kind` and `page`.
 Hybrid search doubles an image's vector contribution only when cosine similarity reaches 0.69 and FTS misses the file.
 Lower similarities keep one vector contribution. An FTS match still adds its keyword contribution.

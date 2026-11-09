@@ -46,6 +46,35 @@ export function removeFromIndex(
 
 const MAX_RESULTS = 50;
 
+// Snippets are HTML fragments: document text is escaped and the only markup is
+// the <b></b> around matches, so a client can render them as HTML. Matches are
+// first marked with control characters (FTS5 snippet() cannot escape), then
+// the text is escaped and the marks become tags.
+const MARK_OPEN = "\u0002";
+const MARK_CLOSE = "\u0003";
+const HTML_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+/** Document text as an HTML-safe snippet with no highlight. */
+export function escapeSnippetText(text: string): string {
+  return text.replace(/[&<>"'\u0002\u0003]/g, (ch) => HTML_ESCAPES[ch] ?? "");
+}
+
+function markedToHtml(marked: string): string {
+  return marked
+    .replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch])
+    .replaceAll(MARK_OPEN, "<b>")
+    .replaceAll(MARK_CLOSE, "</b>");
+}
+
+const FTS5_SNIPPET_SQL = (table: string) =>
+  `snippet(${table}, 1, char(2), char(3), '...', 32)`;
+
 export interface FtsMatch {
   path: string;
   snippet: string;
@@ -123,10 +152,10 @@ function snippetFor(raw: Database, pattern: string, id: number, bytes: number): 
   if (bytes <= FTS5_SNIPPET_MAX_BYTES) {
     const row = raw
       .query(
-        "SELECT snippet(files_fts, 1, '<b>', '</b>', '...', 32) AS snippet FROM files_fts WHERE content MATCH ? AND rowid = ?"
+        `SELECT ${FTS5_SNIPPET_SQL("files_fts")} AS snippet FROM files_fts WHERE content MATCH ? AND rowid = ?`
       )
       .get(pattern, id) as { snippet: string } | null;
-    return row?.snippet ?? "";
+    return markedToHtml(row?.snippet ?? "");
   }
   const row = raw.query("SELECT content FROM files_fts_docs WHERE id = ?").get(id) as
     | { content: string }
@@ -137,7 +166,7 @@ function snippetFor(raw: Database, pattern: string, id: number, bytes: number): 
 const SNIPPET_BEFORE = 60;
 const SNIPPET_AFTER = 180;
 
-/** A window of `content` around the first match of a term of `pattern`, matches in <b>. */
+/** A window of `content` around the first match of a term of `pattern`, HTML-escaped, matches in <b>. */
 export function plainSnippet(content: string, pattern: string): string {
   const terms = queryTerms(pattern);
   const match = terms.length > 0 ? termRegex(terms, "iu").exec(content) : null;
@@ -154,9 +183,9 @@ export function plainSnippet(content: string, pattern: string): string {
     if (space > at) end = space;
   }
 
-  let text = content.slice(start, end);
-  if (terms.length > 0) text = text.replace(termRegex(terms, "giu"), "<b>$&</b>");
-  return (start > 0 ? "..." : "") + text + (end < content.length ? "..." : "");
+  let text = content.slice(start, end).replace(/[\u0002\u0003]/g, "");
+  if (terms.length > 0) text = text.replace(termRegex(terms, "giu"), `${MARK_OPEN}$&${MARK_CLOSE}`);
+  return (start > 0 ? "..." : "") + markedToHtml(text) + (end < content.length ? "..." : "");
 }
 
 /** Bare terms of an FTS5 query: no operators, column filters or quotes. A trailing `*` marks a prefix. */
@@ -186,7 +215,7 @@ function legacyFtsQuery(
   // Filter by drive_id and path prefix after the MATCH.
   const pathFilter = params.pathPrefix ? " AND path LIKE ?" : "";
   const sql = `
-    SELECT path, snippet(${table}, 1, '<b>', '</b>', '...', 32) as snippet, rank
+    SELECT path, ${FTS5_SNIPPET_SQL(table)} as snippet, rank
     FROM ${table}
     WHERE content MATCH ? AND drive_id = ?${pathFilter}${legacyRowIsCurrent(table)}
     ORDER BY rank
@@ -194,5 +223,6 @@ function legacyFtsQuery(
   `;
   const binds: unknown[] = [params.pattern, params.driveId];
   if (params.pathPrefix) binds.push(params.pathPrefix + "%");
-  return raw.prepare(sql).all(...(binds as any[])) as FtsMatch[];
+  const rows = raw.prepare(sql).all(...(binds as any[])) as FtsMatch[];
+  return rows.map((row) => ({ ...row, snippet: markedToHtml(row.snippet ?? "") }));
 }

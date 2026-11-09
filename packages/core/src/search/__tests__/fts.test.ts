@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { indexFile, removeFromIndex, ftsQuery, plainSnippet } from "../fts.js";
+import { indexFile, removeFromIndex, ftsQuery, plainSnippet, escapeSnippetText } from "../fts.js";
 import { createTestContext } from "../../test-utils.js";
 
 describe("FTS indexing", () => {
@@ -165,5 +165,15 @@ describe("plainSnippet", () => {
 
   test("falls back to the start of the document when no term is found", () => {
     expect(plainSnippet("plain text here", "zzz")).toBe("plain text here");
+  });
+
+  test("escapes document text, including text that matches a term", () => {
+    expect(plainSnippet(`a <i>amp</i> & "b"`, "amp")).toBe("a &lt;i&gt;<b>amp</b>&lt;/i&gt; &amp; &quot;b&quot;");
+  });
+});
+
+describe("escapeSnippetText", () => {
+  test("escapes markup and drops highlight control characters", () => {
+    expect(escapeSnippetText(`<b>x</b> & 'y'\u0002`)).toBe("&lt;b&gt;x&lt;/b&gt; &amp; &#39;y&#39;");
   });
 });

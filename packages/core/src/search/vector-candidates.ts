@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { Database } from "bun:sqlite";
 import { schema, type DB } from "../db/index.js";
+import { escapeSnippetText } from "./fts.js";
 import { runKnn, type ChunkHit } from "./vector-worker.js";
 import type { ChunkKind } from "./pipeline.js";
 
@@ -106,7 +107,7 @@ function addDistinctFiles(
       distance: hit.distance,
       snippet: match.kind === "image"
         ? match.page === null ? "[image]" : `[PDF page ${match.page}]`
-        : match.content.slice(0, 200),
+        : escapeSnippetText(match.content.slice(0, 200)),
       page: match.page ?? undefined,
       kind: match.kind,
       author: match.author,
