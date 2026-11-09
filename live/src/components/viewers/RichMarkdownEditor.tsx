@@ -38,6 +38,7 @@ import { useTheme } from "@/hooks/use-theme"
 import { toast } from "@/stores/toast"
 import { cn } from "@/lib/utils"
 import { EditToolbar } from "./EditToolbar"
+import { htmlImagePlugin } from "./rich-markdown-html"
 
 // Languages offered in the code block language picker. Any other fence
 // language still opens in CodeMirror through the catch-all descriptor below
@@ -238,6 +239,7 @@ export default function RichMarkdownEditor({
       linkPlugin(),
       linkDialogPlugin(),
       imagePlugin(),
+      htmlImagePlugin(),
       tablePlugin(),
       codeBlockPlugin({
         defaultCodeBlockLanguage: "",
@@ -270,6 +272,10 @@ export default function RichMarkdownEditor({
           className="mdx-rich-editor mdxeditor-full-height"
           contentEditableClassName="prose prose-neutral dark:prose-invert prose-sm leading-relaxed max-w-3xl mx-auto"
           markdown={content}
+          // Raw HTML stays text: a file with HTML blocks fails the import and
+          // opens in the source editor (`onParseError`). `<img>` tags still
+          // become image nodes through `htmlImagePlugin`.
+          suppressHtmlProcessing
           onChange={handleChange}
           onError={handleError}
           plugins={plugins}
