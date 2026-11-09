@@ -57,8 +57,8 @@ import type {
  * root, and `files-sdk` only stops a key from leaving the *root*. So every
  * method here first runs its key (or prefix) through {@link assertKeyInsideDrive},
  * which refuses `.`/`..` segments and NUL bytes. That covers every op, since
- * they all reach storage through this adapter. S3 is not affected: an
- * `a/../b` key is ordinary data there and that adapter is left alone.
+ * they all reach storage through this adapter. The S3 adapter runs the same
+ * guard.
  *
  * ### Keys files-sdk 3 reserves
  * files-sdk 2.0.0 stored a key ending in `.fls-tmp` like any other; files-sdk 3

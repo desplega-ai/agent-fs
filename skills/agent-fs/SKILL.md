@@ -641,7 +641,7 @@ Things worth knowing before you share:
 - **It shows the file's current content**, not a snapshot. If the file is edited the link shows the new version; if it is deleted or moved the link shows "file unavailable".
 - **`--one-off` / `--max-views` count page views, and the bytes go with the view.** A view-limited link never serves the file on its URL alone: the page that spent a view gets a private, short-lived credential (up to one hour, never past the link's expiry) that its embed and Download button use. Once the views are used up, nobody holding only the link can fetch the file, and revoking or expiring the link cuts every credential at once. Unlimited links need no credential. Link-preview crawlers (Slack, WhatsApp, ...) and `HEAD` requests do not spend a view.
 - **A shared HTML file is only that file.** It runs in a sandbox with an opaque origin, and relative assets next to it (`chart.png`, `app.js`) return 404. Share the folder instead (below) when the page needs them.
-- **Paths must stay inside the drive.** `share-create` rejects any path with a `.` or `..` segment (either slash direction) instead of resolving it.
+- **Paths must stay inside the drive.** Every op, on every storage backend, rejects a path with a `.` or `..` segment (either slash direction) or a NUL byte instead of resolving it. `share-create` checks this before it stores the link.
 - **Viewer role is enough to create a link**, and the creator (or a drive admin) can revoke it. Every counted view is written as a `share_viewed` event.
 - Set `AGENT_FS_PUBLIC_URL` when the server sits behind a proxy that does not forward `Host` / `X-Forwarded-*`, so returned links point at the right address.
 

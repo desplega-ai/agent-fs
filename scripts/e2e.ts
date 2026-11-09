@@ -4518,8 +4518,8 @@ async function signedUrlMatrix(minio: Backend | undefined, local: Backend) {
 // drive on any op. Two real users on a real daemon: the attacker climbs out of
 // their own drive over the JSON ops API and the raw file route, and the
 // victim's bytes must stay untouched and undisclosed. Legitimate dotted names
-// must keep working. (S3 is not covered here: an `a/../b` key is ordinary data
-// there and its adapter is unchanged.)
+// must keep working. (The S3 adapter runs the same key guard; its unit tests
+// cover it against a loopback listener.)
 // ---------------------------------------------------------------------------
 
 async function localContainmentSuite(b: Backend) {

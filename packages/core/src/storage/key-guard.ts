@@ -7,7 +7,9 @@ import { ValidationError } from "../errors.js";
  * org and drive plus a user-supplied path. The local-filesystem backend
  * resolves that key against the whole storage root, so a `..` in the path
  * climbs out of the drive into another tenant's (`/../../../<org>/drives/<drive>/x`).
- * Nothing else stands between two drives: they are sibling directories.
+ * Nothing else stands between two drives: they are sibling directories. On
+ * S3-compatible backends the key goes on the wire with its `..` segments, and
+ * whether the provider resolves them is up to the provider.
  *
  * Rejects a `.` or `..` segment on either separator (a backslash is a
  * separator on Windows hosts) and NUL bytes. With no dot segments the key
@@ -15,8 +17,7 @@ import { ValidationError } from "../errors.js";
  * was built with. Names that merely contain dots (`a.b`, `.env`, `..foo`,
  * `file..`) are fine.
  *
- * Only the local adapter calls this. On S3 a key is opaque data and
- * `a/../b` is a legal object name, so that adapter deliberately does not.
+ * Both storage adapters call this on every key and prefix they are given.
  */
 export function assertKeyInsideDrive(key: string): void {
   if (key.includes("\u0000")) {
