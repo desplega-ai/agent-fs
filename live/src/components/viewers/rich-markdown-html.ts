@@ -2,12 +2,20 @@ import {
   addExportVisitor$,
   addImportVisitor$,
   addLexicalNode$,
+  IS_BOLD,
+  IS_CODE,
+  IS_HIGHLIGHT,
+  IS_ITALIC,
+  IS_STRIKETHROUGH,
+  IS_SUBSCRIPT,
+  IS_SUPERSCRIPT,
+  IS_UNDERLINE,
   realmPlugin,
   UnrecognizedMarkdownConstructError,
   type LexicalExportVisitor,
   type MdastImportVisitor,
 } from "@mdxeditor/editor"
-import { TextNode, type LexicalNode, type NodeKey, type SerializedTextNode } from "lexical"
+import { $isTextNode, TextNode, type LexicalNode, type NodeKey, type SerializedTextNode } from "lexical"
 
 // The mdast node types, taken from MDXEditor's own signature.
 type MdastNode = Parameters<Exclude<MdastImportVisitor<never>["testNode"], string>>[0]
@@ -129,18 +137,90 @@ const inlineHtmlVisitor: MdastImportVisitor<MdastHtml> = {
   },
 }
 
-const rawHtmlTextExportVisitor: LexicalExportVisitor<RawHtmlTextNode, MdastHtml> = {
-  testLexicalNode: $isRawHtmlTextNode,
+type ExportParams = Parameters<NonNullable<LexicalExportVisitor<TextNode, MdastNode>["visitLexicalNode"]>>[0]
+type MdastParent = ExportParams["mdastParent"]
+
+// The mdast wrapper each text format writes, in the order MDXEditor's text
+// visitor opens them (`u`, `sup` and `sub` are JSX elements there too).
+const FORMAT_WRAPPERS: [number, () => MdastParent][] = [
+  [IS_UNDERLINE, () => ({ type: "mdxJsxTextElement", name: "u", children: [], attributes: [] }) as never],
+  [IS_SUPERSCRIPT, () => ({ type: "mdxJsxTextElement", name: "sup", children: [], attributes: [] }) as never],
+  [IS_SUBSCRIPT, () => ({ type: "mdxJsxTextElement", name: "sub", children: [], attributes: [] }) as never],
+  [IS_ITALIC, () => ({ type: "emphasis", children: [] })],
+  [IS_BOLD, () => ({ type: "strong", children: [] })],
+  [IS_STRIKETHROUGH, () => ({ type: "delete", children: [] })],
+  [IS_HIGHLIGHT, () => ({ type: "highlight", children: [] }) as never],
+]
+
+function wrapperFormat(node: MdastNode | undefined): number {
+  if (!node) return 0
+  switch (node.type) {
+    case "emphasis": return IS_ITALIC
+    case "strong": return IS_BOLD
+    case "delete": return IS_STRIKETHROUGH
+    case "highlight" as string: return IS_HIGHLIGHT
+    case "mdxJsxTextElement": {
+      const el = node as { name?: string; attributes?: unknown[] }
+      if (el.attributes?.length) return 0
+      return el.name === "u" ? IS_UNDERLINE : el.name === "sup" ? IS_SUPERSCRIPT : el.name === "sub" ? IS_SUBSCRIPT : 0
+    }
+    default: return 0
+  }
+}
+
+/**
+ * Appends `leaf` under the wrappers for `lexicalNode`'s format. Formats it
+ * shares with the previous sibling continue the wrappers that sibling opened,
+ * in whatever order they nest; MDXEditor's text visitor reopens them in a
+ * fixed order, which splits `**a *<x> b* c**` once a token node sits between
+ * two text nodes.
+ */
+function appendFormatted({ lexicalNode, mdastParent, actions }: ExportParams, leaf: MdastNode): void {
+  const previous = lexicalNode.getPreviousSibling()
+  const format = lexicalNode.getFormat()
+  let shared = ($isTextNode(previous) ? previous.getFormat() : 0) & format
+  let open = format
+  let parent = mdastParent
+  for (;;) {
+    const last = parent.children.at(-1) as MdastNode | undefined
+    const flag = wrapperFormat(last)
+    if (!(shared & flag)) break
+    parent = last as MdastParent
+    shared &= ~flag
+    open &= ~flag
+  }
+  for (const [flag, wrapper] of FORMAT_WRAPPERS) {
+    if (open & flag) parent = actions.appendToParent(parent, wrapper() as never) as MdastParent
+  }
+  actions.appendToParent(parent, leaf as never)
+}
+
+function followsRawHtml(node: TextNode): boolean {
+  for (let prev = node.getPreviousSibling(); prev; prev = prev.getPreviousSibling()) {
+    if ($isRawHtmlTextNode(prev)) return true
+  }
+  return false
+}
+
+// Writes a raw HTML token back as the markup it was read from, inside its
+// formatting (`**<span class="notice">warning</span>**`), and writes the text
+// nodes after a token in the same paragraph with the same nesting logic.
+// Code and styled text go to MDXEditor's text visitor: code writes the token
+// as an inline code span, which is what the user asked for. shortcut: a
+// styled token saves escaped; the editor has no style control, upgrade if one
+// is added.
+const rawHtmlTextExportVisitor: LexicalExportVisitor<TextNode, MdastNode> = {
+  testLexicalNode: (node): node is TextNode =>
+    $isRawHtmlTextNode(node) || ($isTextNode(node) && followsRawHtml(node)),
   priority: 50,
-  visitLexicalNode({ lexicalNode, mdastParent, actions }) {
-    // shortcut: formatted inline HTML (`**<slug>**`) goes through the text
-    // visitor and saves escaped (`**\<slug>**`); write the format wrappers
-    // here if that case shows up in real files.
-    if (lexicalNode.getFormat() !== 0 || lexicalNode.getStyle() !== "") {
+  visitLexicalNode(params) {
+    const { lexicalNode, actions } = params
+    if (lexicalNode.getFormat() & IS_CODE || lexicalNode.getStyle() !== "") {
       actions.nextVisitor()
       return
     }
-    actions.appendToParent(mdastParent, { type: "html", value: lexicalNode.getTextContent() })
+    const value = lexicalNode.getTextContent()
+    appendFormatted(params, $isRawHtmlTextNode(lexicalNode) ? { type: "html", value } : { type: "text", value })
   },
 }
 

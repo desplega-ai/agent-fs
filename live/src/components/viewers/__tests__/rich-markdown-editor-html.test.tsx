@@ -38,6 +38,28 @@ const PLACEHOLDER_FILE = [
   "",
 ].join("\n")
 
+// Inline HTML inside emphasis, strong and strikethrough. The editor imports
+// it with the parent's formatting, so the export must write the formatting
+// back around the markup instead of escaping it.
+const FORMATTED_FILE = [
+  "# Formatted",
+  "",
+  'A **<span class="notice">warning</span>** before the list.',
+  "",
+  "Bold run **a <slug> b**, italic *<org>*, both ***<drive>***, and struck ~~<team>~~ text.",
+  "",
+  "Mixed **bold *<path> in italic* tail** end.",
+  "",
+  "## Heading with **<slug>**",
+  "",
+  "See [the **<slug>** page](https://example.test/x) next.",
+  "",
+  "| Route         | Owner    |",
+  "| ------------- | -------- |",
+  "| **/b/<slug>** | *<team>* |",
+  "",
+].join("\n")
+
 function imageFile(html: string): string {
   return ["# Images", "", html, ""].join("\n")
 }
@@ -191,29 +213,32 @@ describe("RichMarkdownEditor raw HTML", () => {
   }
 })
 
+type EditorRef = { getMarkdown(): string; focus(cb?: () => void, opts?: { defaultSelection?: "rootStart" | "rootEnd" }): void; insertMarkdown(md: string): void }
+
 // Exports the markdown MDXEditor builds from `content` with the rich editor's
 // HTML settings, before any edit. MDXEditor trims the document; the rich
 // editor restores the final newline the same way.
-async function exportMarkdown(content: string): Promise<string> {
+async function exportMarkdown(content: string, edit?: (editor: EditorRef) => Promise<void>): Promise<string> {
   const React = await import("react")
   const { createRoot } = await import("react-dom/client")
-  const { MDXEditor, headingsPlugin, listsPlugin, tablePlugin } = await import("@mdxeditor/editor")
+  const { MDXEditor, headingsPlugin, linkPlugin, listsPlugin, tablePlugin } = await import("@mdxeditor/editor")
   const { htmlImagePlugin, inlineHtmlTextPlugin } = await import("../rich-markdown-html")
   const host = document.createElement("div")
   document.body.appendChild(host)
   const root = createRoot(host) as Root
   roots.push(root)
-  const ref = React.createRef<{ getMarkdown(): string }>()
+  const ref = React.createRef<EditorRef>()
   root.render(
     React.createElement(MDXEditor, {
       ref,
       markdown: content,
       suppressHtmlProcessing: true,
       toMarkdownOptions: { bullet: "-", rule: "-" },
-      plugins: [headingsPlugin(), listsPlugin(), tablePlugin(), htmlImagePlugin(), inlineHtmlTextPlugin()],
+      plugins: [headingsPlugin(), listsPlugin(), linkPlugin(), tablePlugin(), htmlImagePlugin(), inlineHtmlTextPlugin()],
     } as never),
   )
   await waitFor(() => host.querySelector('[contenteditable="true"] h1'))
+  if (edit) await edit(ref.current!)
   return ref.current!.getMarkdown() + "\n"
 }
 
@@ -252,6 +277,27 @@ describe("RichMarkdownEditor inline HTML placeholders", () => {
 
   test("an unedited file exports byte-equal", async () => {
     expect(await exportMarkdown(PLACEHOLDER_FILE)).toBe(PLACEHOLDER_FILE)
+  })
+
+  test("formatted inline HTML exports byte-equal", async () => {
+    expect(await exportMarkdown(FORMATTED_FILE)).toBe(FORMATTED_FILE)
+  })
+
+  test("an unrelated edit saves formatted inline HTML unchanged", async () => {
+    const saved = await exportMarkdown(FORMATTED_FILE, async editor => {
+      await new Promise<void>(r => editor.focus(r, { defaultSelection: "rootEnd" }))
+      editor.insertMarkdown("Appended line.")
+    })
+    expect(saved).toContain("Appended line.")
+    expect(saved.replace(/\n*Appended line\.\n$/, "\n")).toBe(FORMATTED_FILE)
+  })
+
+  test("formatted inline HTML opens as text and keeps no attribute", async () => {
+    const formatted = await renderEditor(FORMATTED_FILE, el => el.querySelector("h1") !== null)
+    expect(formatted.parseErrors).toBe(0)
+    expect(formatted.editable.textContent).toContain('<span class="notice">warning</span>')
+    expect(formatted.editable.querySelectorAll("span.notice").length).toBe(0)
+    expect(formatted.editable.querySelector("strong, b")?.textContent).toContain('<span class="notice">')
   })
 
   test("inline HTML with attributes stays text and keeps no attribute", async () => {
