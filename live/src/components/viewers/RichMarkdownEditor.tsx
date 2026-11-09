@@ -38,7 +38,7 @@ import { useTheme } from "@/hooks/use-theme"
 import { toast } from "@/stores/toast"
 import { cn } from "@/lib/utils"
 import { EditToolbar } from "./EditToolbar"
-import { htmlImagePlugin } from "./rich-markdown-html"
+import { htmlImagePlugin, inlineHtmlTextPlugin } from "./rich-markdown-html"
 
 // Languages offered in the code block language picker. Any other fence
 // language still opens in CodeMirror through the catch-all descriptor below
@@ -240,6 +240,7 @@ export default function RichMarkdownEditor({
       linkDialogPlugin(),
       imagePlugin(),
       htmlImagePlugin(),
+      inlineHtmlTextPlugin(),
       tablePlugin(),
       codeBlockPlugin({
         defaultCodeBlockLanguage: "",
@@ -269,12 +270,17 @@ export default function RichMarkdownEditor({
       <div className="flex-1 min-h-0 flex flex-col">
         <MDXEditor
           ref={editorRef}
-          className="mdx-rich-editor mdxeditor-full-height"
+          // `flex-1 min-h-0` bounds the editor root to the pane. Without it the
+          // root grows to the document's height, the pane clips it, and the
+          // inner scroller (`.mdxeditor-root-contenteditable`) never scrolls.
+          className="mdx-rich-editor mdxeditor-full-height flex-1 min-h-0"
           contentEditableClassName="prose prose-neutral dark:prose-invert prose-sm leading-relaxed max-w-3xl mx-auto"
           markdown={content}
-          // Raw HTML stays text: a file with HTML blocks fails the import and
-          // opens in the source editor (`onParseError`). `<img>` tags still
-          // become image nodes through `htmlImagePlugin`.
+          // Raw HTML stays text: inline HTML (`<slug>` placeholders, `<br>`)
+          // shows as literal text through `inlineHtmlTextPlugin`; a file with
+          // HTML blocks fails the import and opens in the source editor
+          // (`onParseError`). `<img>` tags still become image nodes through
+          // `htmlImagePlugin`.
           suppressHtmlProcessing
           onChange={handleChange}
           onError={handleError}
