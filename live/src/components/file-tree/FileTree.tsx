@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual"
 import { FolderOpen } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
@@ -25,9 +24,14 @@ import { Tooltip, TooltipContent, createTooltipHandle } from "@/components/ui/to
 import type { LsResult } from "@/api/types"
 
 const REVEAL_TIMEOUT_MS = 15_000
-/** `py-1 text-sm` row; `py-1 text-xs` "Empty folder" line. Measured after mount. */
-const ENTRY_ROW_HEIGHT = 28
-const EMPTY_ROW_HEIGHT = 24
+/**
+ * Every row, "Empty folder" included, is exactly this tall and never measured,
+ * so a row's offset is `index * ROW_HEIGHT` and a listing that lands can be
+ * compensated in the same frame.
+ */
+const ROW_HEIGHT = 28
+/** Rows mounted above and below the viewport. */
+const OVERSCAN = 20
 
 function ancestorPaths(path: string): string[] {
   const parts = path.split("/").filter(Boolean)
@@ -35,10 +39,7 @@ function ancestorPaths(path: string): string[] {
 }
 
 // Module-level so useQueries keeps the combined result stable between renders.
-const combineListings = (results: { data?: LsResult; isPending: boolean }[]) => ({
-  data: results.map((result) => result.data),
-  settled: results.every((result) => !result.isPending),
-})
+const combineListings = (results: { data?: LsResult }[]) => results.map((result) => result.data)
 
 export function FileTree() {
   const { client, orgId, driveId } = useAuth()
@@ -64,7 +65,7 @@ export function FileTree() {
         queryClient.getQueryData<LsResult>(["ls", orgId, driveId, path]),
       ).expandedDirs
     : []
-  const { data: listings, settled: listingsSettled } = useQueries({
+  const listings = useQueries({
     queries: expandedDirs.map((path) => ({
       queryKey: ["ls", orgId, driveId, path],
       queryFn: () => client.callOp<LsResult>(orgId!, "ls", { path }, driveId),
@@ -121,7 +122,7 @@ export function FileTree() {
     })
 
     // Off-screen rows are not in the DOM, so the virtual list scrolls to the
-    // row's index as soon as it appears in `rows`, then clears this.
+    // row once, as soon as it appears in `rows`, then clears this.
     setRevealPath(path)
     const timeoutId = window.setTimeout(
       () => setRevealPath((current) => (current === path ? null : current)),
@@ -177,7 +178,6 @@ export function FileTree() {
   return (
     <VirtualTree
       rows={rows}
-      listingsSettled={listingsSettled}
       revealPath={revealPath}
       onRevealed={handleRevealed}
     />
@@ -197,8 +197,6 @@ function findScrollParent(element: HTMLElement): HTMLElement | null {
 
 interface VirtualTreeProps {
   rows: TreeRow[]
-  /** False while an expanded folder's listing is still loading. */
-  listingsSettled: boolean
   revealPath: string | null
   onRevealed: (path: string) => void
 }
@@ -207,7 +205,7 @@ interface VirtualTreeProps {
  * Renders only the rows near the viewport. Kept apart from FileTree so a
  * scroll re-renders this list, not the listing queries and flattening above.
  */
-function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualTreeProps) {
+function VirtualTree({ rows, revealPath, onRevealed }: VirtualTreeProps) {
   const favorites = useFavorites()
   const { toggleFavorite } = favorites
   const toggleTreeFavorite = useCallback(
@@ -252,33 +250,8 @@ function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualT
     focusedPath !== null && indexByPath.has(focusedPath) ? focusedPath : (entryPaths[0] ?? null)
   const tabStopIndex = tabStopPath === null ? -1 : (indexByPath.get(tabStopPath) ?? -1)
 
-  // Always keep the tab stop mounted so the tree stays tabbable and a focused
-  // row keeps DOM focus when scrolled away, and keep the first and last rows
-  // mounted for callers that focus `[data-tree-path]` from outside the tree.
-  const rangeExtractor = useCallback(
-    (range: Range) => {
-      const indexes = new Set(defaultRangeExtractor(range))
-      for (const index of [tabStopIndex, firstEntryIndex, lastEntryIndex]) {
-        if (index >= 0 && index < range.count) indexes.add(index)
-      }
-      return [...indexes].sort((a, b) => a - b)
-    },
-    [tabStopIndex, firstEntryIndex, lastEntryIndex],
-  )
-
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => scrollElement,
-    estimateSize: (index) =>
-      rows[index]?.kind === "empty" ? EMPTY_ROW_HEIGHT : ENTRY_ROW_HEIGHT,
-    getItemKey: (index) => rows[index]?.path ?? index,
-    overscan: 12,
-    scrollMargin,
-    rangeExtractor,
-  })
-
   // The search panel sits above the tree in the same scroll container; track
-  // how far down the tree starts so the virtualizer maps offsets correctly.
+  // how far down the tree starts so scroll offsets map to row indices.
   useLayoutEffect(() => {
     const tree = treeRef.current
     const header = headerRef.current
@@ -300,22 +273,89 @@ function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualT
     return () => observer.disconnect()
   }, [])
 
-  // Reveal the selected file without moving DOM focus away from the viewer,
-  // editor, or search input the user is working in. Rows are absolutely
-  // positioned, so the browser's scroll anchoring cannot keep the row in view
-  // while other expanded folders load above it: follow its index until every
-  // listing has settled.
-  useEffect(() => {
-    if (!revealPath) return
+  // Windowing over fixed-height rows: the mounted range is a pure function of
+  // scrollTop, so any code that moves scrollTop calls `syncWindow` and the
+  // matching rows render before the next paint. A scroll-event-driven window
+  // (what a generic virtualizer does) paints one blank frame after every
+  // programmatic scroll, because the event arrives a frame late.
+  const [visible, setVisible] = useState({ first: 0, last: 0 })
+  const syncWindow = useCallback(() => {
+    if (!scrollElement) return
+    const top = scrollElement.scrollTop - scrollMargin
+    const first = Math.max(0, Math.floor(top / ROW_HEIGHT))
+    const last = Math.max(0, Math.ceil((top + scrollElement.clientHeight) / ROW_HEIGHT))
+    setVisible((current) =>
+      current.first === first && current.last === last ? current : { first, last },
+    )
+  }, [scrollElement, scrollMargin])
+  useLayoutEffect(() => {
+    if (!scrollElement) return
+    syncWindow()
+    scrollElement.addEventListener("scroll", syncWindow, { passive: true })
+    const observer = new ResizeObserver(syncWindow)
+    observer.observe(scrollElement)
+    return () => {
+      scrollElement.removeEventListener("scroll", syncWindow)
+      observer.disconnect()
+    }
+  }, [scrollElement, syncWindow])
+
+  // Always keep the tab stop mounted so the tree stays tabbable and a focused
+  // row keeps DOM focus when scrolled away, and keep the first and last rows
+  // mounted for callers that focus `[data-tree-path]` from outside the tree.
+  const mountedIndexes = useMemo(() => {
+    const indexes = new Set<number>()
+    const end = Math.min(rows.length - 1, visible.last + OVERSCAN)
+    for (let index = Math.max(0, visible.first - OVERSCAN); index <= end; index++) indexes.add(index)
+    for (const index of [tabStopIndex, firstEntryIndex, lastEntryIndex]) {
+      if (index >= 0 && index < rows.length) indexes.add(index)
+    }
+    return [...indexes].sort((a, b) => a - b)
+  }, [visible, rows.length, tabStopIndex, firstEntryIndex, lastEntryIndex])
+
+  // Rows are absolutely positioned, so the browser's scroll anchoring cannot
+  // hold the view still when an expanded folder's listing lands above it. Do
+  // it here, before paint: keep the selected row where it is if it is in view,
+  // else the top visible row.
+  const prevRowsRef = useRef(rows)
+  useLayoutEffect(() => {
+    const prev = prevRowsRef.current
+    prevRowsRef.current = rows
+    if (prev === rows || !scrollElement) return
+    const top = scrollElement.scrollTop - scrollMargin
+    if (top <= 0) return
+    const selectedIndex = selectedPath === null ? -1 : prev.findIndex((row) => row.path === selectedPath)
+    const selectedTop = selectedIndex * ROW_HEIGHT
+    const anchorIndex =
+      selectedIndex >= 0 && selectedTop >= top && selectedTop < top + scrollElement.clientHeight
+        ? selectedIndex
+        : Math.floor(top / ROW_HEIGHT)
+    const anchorPath = prev[anchorIndex]?.path
+    const nextIndex = rows.findIndex((row) => row.path === anchorPath)
+    if (nextIndex >= 0 && nextIndex !== anchorIndex) {
+      scrollElement.scrollTop += (nextIndex - anchorIndex) * ROW_HEIGHT
+      syncWindow()
+    }
+  }, [rows, scrollElement, scrollMargin, selectedPath, syncWindow])
+
+  // Reveal the selected file once, as soon as its row exists, without moving
+  // DOM focus away from the viewer, editor, or search input the user is
+  // working in. Listings that land later are absorbed by the anchoring above.
+  // Not `scrollToIndex`: it keeps re-aiming at the numeric index for seconds,
+  // and that index points at another row once a listing lands above it.
+  useLayoutEffect(() => {
+    if (!revealPath || !scrollElement) return
     const index = indexByPath.get(revealPath)
-    if (index === undefined || !scrollElement) return
+    if (index === undefined) return
     treeExpansionStore.setFocusedPath(revealPath)
-    virtualizer.scrollToIndex(index, { align: "center" })
-    if (listingsSettled) onRevealed(revealPath)
-  }, [revealPath, indexByPath, listingsSettled, scrollElement, virtualizer, onRevealed])
+    const centered = scrollMargin + index * ROW_HEIGHT - (scrollElement.clientHeight - ROW_HEIGHT) / 2
+    scrollElement.scrollTop = Math.max(0, Math.round(centered))
+    syncWindow()
+    onRevealed(revealPath)
+  }, [revealPath, indexByPath, scrollElement, scrollMargin, syncWindow, onRevealed])
 
   // Keyboard navigation: move DOM focus once the target row is rendered. The
-  // range extractor keeps the focused row mounted, so this lands on the render
+  // tab stop is always in `mountedIndexes`, so this lands on the render
   // right after `setFocusedPath`.
   useLayoutEffect(() => {
     const path = pendingFocusRef.current
@@ -452,18 +492,16 @@ function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualT
             onContextMenu={pickMenuTarget}
             onTouchStart={pickMenuTarget}
             className="relative w-full"
-            style={{ height: virtualizer.getTotalSize() }}
+            style={{ height: rows.length * ROW_HEIGHT }}
           >
-            {virtualizer.getVirtualItems().map((item) => {
-              const row = rows[item.index]
+            {mountedIndexes.map((index) => {
+              const row = rows[index]
               if (!row) return null
               return (
                 <div
-                  key={item.key}
-                  data-index={item.index}
-                  ref={virtualizer.measureElement}
+                  key={row.path}
                   className="absolute left-0 top-0 w-full"
-                  style={{ transform: `translateY(${item.start - scrollMargin}px)` }}
+                  style={{ height: ROW_HEIGHT, transform: `translateY(${index * ROW_HEIGHT}px)` }}
                 >
                   {row.kind === "entry" ? (
                     <FileTreeNode
@@ -482,7 +520,7 @@ function VirtualTree({ rows, listingsSettled, revealPath, onRevealed }: VirtualT
                     />
                   ) : (
                     <p
-                      className="px-2 py-1 text-xs text-muted-foreground italic"
+                      className="px-2 py-1 text-xs leading-5 text-muted-foreground italic"
                       style={{ paddingLeft: `${row.depth * 12 + 8}px` }}
                     >
                       Empty folder
