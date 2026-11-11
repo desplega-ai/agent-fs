@@ -84,46 +84,45 @@ async function present(page: Page) {
 }
 
 for (const [width, height] of [[1280, 844], [390, 844]] as const) {
-  test(`the presented page shows the HTML file and its comments at ${width}x${height}`, async ({ page }, testInfo) => {
+  test(`the presented page shows only the HTML file at ${width}x${height}, with comments a button away`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height })
     await installFixture(page)
     const frame = await present(page)
 
+    expect(await frame.boundingBox()).toEqual({ x: 0, y: 0, width, height })
     await expect(page.locator("header")).toHaveCount(0)
+    await expect(page.locator("aside")).toHaveCount(0)
     await expect(page.getByRole("tablist", { name: "File navigation" })).toHaveCount(0)
     await page.waitForLoadState("networkidle")
     await expect(page.getByText("Enjoying agent-fs?")).toHaveCount(0)
     await expect(page).toHaveTitle("qa.html — agent-fs")
+    await page.screenshot({ path: testInfo.outputPath(`present-${width}.png`) })
+
+    // The floating button opens the comments: the rail on desktop, the sheet on a phone.
+    await page.getByRole("button", { name: "Toggle comments" }).click()
     if (width >= 1024) {
-      // The desktop comments rail, as on the detail page; the page takes the rest.
       const rail = page.locator("aside")
-      await expect(rail).toBeVisible()
       await expect(rail.getByRole("button", { name: "Add comment" })).toBeVisible()
       const railBox = (await rail.boundingBox())!
       expect(railBox.x + railBox.width).toBe(width)
-      const box = (await frame.boundingBox())!
-      expect(box).toMatchObject({ x: 0, y: 0, height })
-      expect(box.width).toBeGreaterThanOrEqual(width - railBox.width - 2)
+      await expect.poll(async () => (await frame.boundingBox())!.width).toBeLessThan(width - railBox.width)
+      // Its own preference: the detail page's rail is untouched.
+      expect(await page.evaluate(() => localStorage.getItem("liveui:comments"))).toBeNull()
     } else {
-      // The phone gets the floating comments toggle instead.
-      await expect(page.locator("aside")).not.toBeVisible()
-      expect(await frame.boundingBox()).toEqual({ x: 0, y: 0, width, height })
-      await expect(page.getByRole("button", { name: "Toggle comments" })).toBeVisible()
+      await expect(page.getByRole("dialog").getByText("No comments yet")).toBeVisible()
     }
-    await page.screenshot({ path: testInfo.outputPath(`present-${width}.png`) })
   })
 }
 
-test("] collapses the comments rail of the presented page and opens it again", async ({ page }) => {
+test("] opens the comments rail of the presented page and closes it again", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 844 })
   await installFixture(page)
   const frame = await present(page)
+  await page.keyboard.press("]")
   await expect(page.locator("aside")).toBeVisible()
   await page.keyboard.press("]")
   await expect(page.locator("aside")).toHaveCount(0)
-  await expect.poll(async () => (await frame.boundingBox())!.width).toBeGreaterThan(1200)
-  await page.getByRole("button", { name: "Open comments" }).click()
-  await expect(page.locator("aside")).toBeVisible()
+  expect(await frame.boundingBox()).toEqual({ x: 0, y: 0, width: 1280, height: 844 })
 })
 
 test("a presented Markdown file renders and takes a comment on a selection", async ({ page }, testInfo) => {
@@ -133,7 +132,7 @@ test("a presented Markdown file renders and takes a comment on a selection", asy
   await expect(page.getByRole("heading", { name: "Notes" })).toBeVisible()
   await expect(page.locator("header")).toHaveCount(0)
   await expect(page.locator("iframe")).toHaveCount(0)
-  await expect(page.locator("aside").getByRole("button", { name: /Outline/ })).toBeVisible()
+  await expect(page.locator("aside")).toHaveCount(0)
   await expect(page).toHaveTitle("notes.md — agent-fs")
   await page.screenshot({ path: testInfo.outputPath("present-markdown.png") })
 
@@ -143,7 +142,9 @@ test("a presented Markdown file renders and takes a comment on a selection", asy
   await page.getByRole("button", { name: "Send comment" }).click()
   await expect.poll(() => adds.length).toBe(1)
   expect(adds[0]).toMatchObject({ op: "comment-add", path: "notes.md", body: "Say more", lineStart: 3, quote: { exact: "A line worth a comment." } })
+  await page.keyboard.press("]")
   await expect(page.locator("aside").getByText("Say more")).toBeVisible()
+  await expect(page.locator("aside").getByRole("button", { name: /Outline/ })).toBeVisible()
   await page.getByRole("link", { name: "Back to file" }).click()
   await expect(page).toHaveURL("/file/~/org/drive/notes.md")
 })
@@ -154,6 +155,8 @@ test("a presented HTML page gets the comment overlay and lists its comments", as
   await installFixture(page, { features: ["share-links", "html-sites", "html-comments"], comments: [existing] })
   const frame = await present(page)
   await expect(frame).toHaveAttribute("src", "http://fixture.test/site/tok/qa.html?__afs_comments=1")
+  await expect(page.getByRole("button", { name: "Toggle comments" })).toContainText("1")
+  await page.getByRole("button", { name: "Toggle comments" }).click()
   await expect(page.locator("aside").getByText("Bigger title please")).toBeVisible()
   // The overlay painted the anchored quote inside the frame.
   await expect.poll(() => page.frames().find(f => f.url().includes("/site/tok/"))?.evaluate(() => CSS.highlights.get("afs-comment")?.size ?? 0)).toBe(1)

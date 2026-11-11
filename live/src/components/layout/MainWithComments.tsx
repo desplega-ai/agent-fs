@@ -35,6 +35,15 @@ interface MainWithCommentsProps {
    * a selector inside the viewer instead (see `MarkdownViewer`).
    */
   outline?: OutlineItem[]
+  /**
+   * No collapsed strip when the rail is closed and the floating comments button
+   * on every breakpoint: the presented page, which shows nothing but the file
+   * until the viewer asks for comments.
+   */
+  chromeless?: boolean
+  /** Own persisted rail state (open, width), so a page can start closed without changing the others. */
+  storageKey?: string
+  defaultOpen?: boolean
   /** Main content (typically a file viewer or empty state). */
   children: ReactNode
 }
@@ -53,6 +62,9 @@ export function MainWithComments({
   onCommentClick,
   showCommentsHeader = true,
   outline = [],
+  chromeless = false,
+  storageKey = COMMENTS_KEY,
+  defaultOpen = COMMENTS_DEFAULTS.open,
   children,
 }: MainWithCommentsProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -61,7 +73,7 @@ export function MainWithComments({
     getDesktopBreakpointSnapshot,
     () => false,
   )
-  const comments = useResizableSidebar(COMMENTS_KEY, COMMENTS_DEFAULTS)
+  const comments = useResizableSidebar(storageKey, { ...COMMENTS_DEFAULTS, open: defaultOpen })
   const visibleSurfaces = getVisibleCommentSurfaces(isDesktop, comments.open, mobileOpen)
 
   useEffect(() => {
@@ -129,7 +141,7 @@ export function MainWithComments({
               />
             </aside>
           </>
-        ) : (
+        ) : chromeless ? null : (
           <CommentsCollapsedRail onOpen={() => comments.setOpen(true)} />
         )}
       </div>
@@ -139,7 +151,8 @@ export function MainWithComments({
       <MobileCommentToggle
         path={filePath}
         open={visibleSurfaces.mobileOpen}
-        onToggle={() => setMobileOpen((v) => !v)}
+        everywhere={chromeless}
+        onToggle={() => (chromeless && isDesktop ? comments.toggle() : setMobileOpen((v) => !v))}
         onOpenChange={setMobileOpen}
         onCommentClick={onCommentClick}
       />
@@ -222,12 +235,15 @@ function CommentsCollapsedRail({ onOpen }: { onOpen: () => void }) {
 function MobileCommentToggle({
   path,
   open,
+  everywhere = false,
   onToggle,
   onOpenChange,
   onCommentClick,
 }: {
   path: string
   open: boolean
+  /** The button on desktop too (the sheet stays a phone thing). */
+  everywhere?: boolean
   onToggle: () => void
   onOpenChange: (open: boolean) => void
   onCommentClick?: (lineStart?: number, lineEnd?: number, quotedContent?: string, commentId?: string) => void
@@ -237,7 +253,7 @@ function MobileCommentToggle({
 
   return (
     <>
-      <div className="lg:hidden fixed bottom-4 right-4 z-30">
+      <div className={cn("fixed bottom-4 right-4 z-30", !everywhere && "lg:hidden")}>
         <Tooltip>
           <TooltipTrigger
             render={

@@ -93,7 +93,16 @@ export function PresentPage() {
 
   return (
     <div className="h-dvh">
-      <MainWithComments filePath={filePath} onCommentClick={handleCommentClick} showCommentsHeader outline={outline}>
+      {/* Nothing but the file until the viewer asks for comments (the floating button, ], n). */}
+      <MainWithComments
+        filePath={filePath}
+        onCommentClick={handleCommentClick}
+        showCommentsHeader
+        outline={outline}
+        chromeless
+        storageKey="liveui:comments:present"
+        defaultOpen={false}
+      >
         {isHtml ? (
           // Per drive too, as in FileViewer: the drive-root confirm must not carry over.
           <HtmlViewer
