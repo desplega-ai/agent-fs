@@ -217,7 +217,7 @@ export class LocalStorageAdapter implements StorageAdapter {
     }
   }
 
-  async copyObject(fromKey: string, toKey: string): Promise<PutObjectResult> {
+  async copyObject(fromKey: string, toKey: string, contentType?: string): Promise<PutObjectResult> {
     // Check both ends before reading anything, so a hostile destination does
     // not even cost a read of the source.
     assertKeyInsideDrive(fromKey);
@@ -225,7 +225,7 @@ export class LocalStorageAdapter implements StorageAdapter {
     // Read source bytes, then re-put — ensures the blob exists for `toKey`'s
     // history and writes the plain destination key.
     const src = await this.getObject(fromKey);
-    return this.putObject(toKey, src.body, undefined, src.contentType);
+    return this.putObject(toKey, src.body, undefined, contentType ?? src.contentType);
   }
 
   async listObjects(

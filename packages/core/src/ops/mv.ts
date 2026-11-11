@@ -9,7 +9,7 @@ import {
 import { indexFile, indexedContent, removeFromIndex } from "../search/fts.js";
 import { readCurrentVersion } from "../search/pipeline.js";
 import { schema } from "../db/index.js";
-import { extractIndexableText, detectMimeType } from "./mime.js";
+import { extractIndexableText, copiedMimeType } from "./mime.js";
 import { clearSearchData } from "./search-index.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { normalizePath } from "./paths.js";
@@ -40,17 +40,19 @@ export async function mv(
     }
 
     // 1. Copy to new location
-    const copyResult = await ctx.s3.copyObject(fromKey, toKey);
+    const head = await ctx.s3.headObject(fromKey);
+    const contentType = copiedMimeType(head.contentType, to);
+    const copyResult = await ctx.s3.copyObject(
+      fromKey,
+      toKey,
+      contentType === head.contentType ? undefined : contentType,
+    );
     invalidateDriveGlobListings(ctx.orgId, ctx.driveId);
-
-    // 2. Get size from head
-    const head = await ctx.s3.headObject(toKey);
 
     // Fetch the moved content once so we can compute its hash and decide whether
     // existing search metadata should move with it.
     const obj = await ctx.s3.getObject(toKey);
     const contentHash = createHash("sha256").update(obj.body).digest("hex");
-    const contentType = head.contentType ?? obj.contentType ?? detectMimeType(to);
     const preserveImages = imageEligible(ctx.embeddingProvider, contentType, pdfPageImages, ctx.driveId);
     const sourceFile = ctx.db.select({
       imageStatus: schema.files.imageEmbeddingStatus,

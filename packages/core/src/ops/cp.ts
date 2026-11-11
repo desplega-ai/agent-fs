@@ -5,7 +5,7 @@ import {
   createVersion,
   assertExpectedVersion,
 } from "./versioning.js";
-import { detectMimeType } from "./mime.js";
+import { copiedMimeType } from "./mime.js";
 import { indexBytesForSearch } from "./search-index.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { normalizePath } from "./paths.js";
@@ -32,16 +32,18 @@ export async function cp(
     }
 
     // 1. Copy in S3
-    const copyResult = await ctx.s3.copyObject(fromKey, toKey);
+    const head = await ctx.s3.headObject(fromKey);
+    const contentType = copiedMimeType(head.contentType, to);
+    const copyResult = await ctx.s3.copyObject(
+      fromKey,
+      toKey,
+      contentType === head.contentType ? undefined : contentType,
+    );
     invalidateDriveGlobListings(ctx.orgId, ctx.driveId);
-
-    // 2. Get size
-    const head = await ctx.s3.headObject(toKey);
 
     // Fetch destination bytes once for both content hash + FTS5 indexing.
     const obj = await ctx.s3.getObject(toKey);
     const contentHash = createHash("sha256").update(obj.body).digest("hex");
-    const contentType = head.contentType ?? obj.contentType ?? detectMimeType(to);
 
     // 3. Create version on new path
     const version = await createVersion(ctx, {
