@@ -100,19 +100,18 @@ test("the drive-root confirm offers Render and the way back, not the source", as
   expect(shared).toEqual([])
 })
 
-test("a file name with #, ? and % survives both links", async ({ page, context }) => {
+test("a file name with #, ? and % survives both links", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 844 })
   await installFixture(page)
   await page.goto(`/detail/~/org/drive/${encodeURIComponent(ODD_NAME)}`)
-  const opened = context.waitForEvent("page")
   await page.getByRole("button", { name: "Present" }).click()
-  const presented = await opened
-  await presented.getByRole("button", { name: "Render", exact: true }).click()
-  await expect(presented.locator("iframe")).toHaveAttribute("title", ODD_NAME)
+  await expect(page).toHaveURL(`/page/~/org/drive/${encodeURIComponent(ODD_NAME)}`)
+  await page.getByRole("button", { name: "Render", exact: true }).click()
+  await expect(page.locator("iframe")).toHaveAttribute("title", ODD_NAME)
 
-  await presented.getByRole("link", { name: "Back to file" }).click()
-  await expect(presented).toHaveURL(`/file/~/org/drive/${encodeURIComponent(ODD_NAME)}`)
-  await expect(presented.locator(`iframe[title="${ODD_NAME}"]`)).toBeVisible()
+  await page.getByRole("link", { name: "Back to file" }).click()
+  await expect(page).toHaveURL(`/file/~/org/drive/${encodeURIComponent(ODD_NAME)}`)
+  await expect(page.locator(`iframe[title="${ODD_NAME}"]`)).toBeVisible()
 })
 
 test("a presented page cannot reach the app or navigate it", async ({ page }) => {
@@ -162,15 +161,61 @@ test("a server without html-sites does not render the page", async ({ page }) =>
   expect(shared).toEqual([])
 })
 
+// A nested file: one at the drive root asks before rendering.
+const isFullscreen = (page: Page) => page.evaluate(() => document.fullscreenElement != null)
+
+for (const [view, route] of [["file", "/file/~/org/drive/reports/page.html"], ["detail", "/detail/~/org/drive/reports/page.html"]] as const) {
+  test(`Present in the ${view} view takes the browser full screen on the presented page`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1280, height: 844 })
+    await installFixture(page)
+    await page.goto(route)
+    await expect(page.locator('iframe[title="reports/page.html"]')).toBeVisible()
+    expect(await isFullscreen(page)).toBe(false)
+    if (view === "file") await page.screenshot({ path: testInfo.outputPath("viewer-header.png") })
+
+    await page.getByRole("button", { name: "Present" }).click()
+    await expect(page).toHaveURL("/page/~/org/drive/reports/page.html")
+    expect(await isFullscreen(page)).toBe(true)
+    await expect(page.locator("header")).toHaveCount(0)
+
+    // Leaving the page gives the screen back.
+    await page.getByRole("link", { name: "Back to file" }).click()
+    await expect(page).toHaveURL("/file/~/org/drive/reports/page.html")
+    await expect.poll(() => isFullscreen(page)).toBe(false)
+  })
+}
+
+test("P presents the file from the file view", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 844 })
+  await installFixture(page)
+  await page.goto("/file/~/org/drive/reports/page.html")
+  await expect(page.locator('iframe[title="reports/page.html"]')).toBeVisible()
+  await page.keyboard.press("p")
+  await expect(page).toHaveURL("/page/~/org/drive/reports/page.html")
+  expect(await isFullscreen(page)).toBe(true)
+})
+
+test("Present sits next to Open full page for an HTML file only", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 844 })
+  await installFixture(page)
+  await page.goto("/file/~/org/drive/reports/page.html")
+  await expect(page.locator('iframe[title="reports/page.html"]')).toBeVisible()
+  const header = page.locator("[data-viewer-header]")
+  const labels = await header.getByRole("button").evaluateAll(els => els.map(el => el.getAttribute("aria-label")))
+  expect(labels.indexOf("Present")).toBe(labels.indexOf("Open full page") - 1)
+
+  await page.goto("/file/~/org/drive/notes.md")
+  await expect(header.getByRole("button", { name: "Open full page" })).toBeVisible()
+  await expect(header.getByRole("button", { name: "Present" })).toHaveCount(0)
+  await page.keyboard.press("p")
+  await expect(page).toHaveURL("/file/~/org/drive/notes.md")
+})
+
 test("the detail toolbar offers Present for an HTML file only", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 844 })
   await installFixture(page)
   await page.goto("/detail/~/org/drive/qa.html")
-  // A link that Base UI gives the button role, like its neighbours.
-  const presentButton = page.getByRole("button", { name: "Present" })
-  await expect(presentButton).toHaveAttribute("href", "/page/~/org/drive/qa.html")
-  await expect(presentButton).toHaveAttribute("target", "_blank")
-  await expect(presentButton).toHaveAttribute("rel", "noopener")
+  await expect(page.getByRole("button", { name: "Present" })).toBeVisible()
   await page.screenshot({ path: testInfo.outputPath("detail-toolbar.png") })
 
   await page.goto("/detail/~/org/drive/notes.md")

@@ -23,6 +23,8 @@ import { useFileActions } from "@/hooks/use-file-actions"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { isQueryablePath } from "@/lib/sql-engine/types"
 import { isHtmlPath, supportsHtmlSites } from "@/lib/html-view"
+import { enterFullscreen, presentUrl } from "@/lib/present"
+import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
 import { uiChromeStore } from "@/stores/ui-chrome"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
 import type { OutlineItem } from "@/lib/outline"
@@ -59,6 +61,23 @@ export function FileDetailPage() {
     queueMicrotask(() => uiChromeStore.setLeft(false))
   }, [])
 
+  // The presented page, full screen. Same tab: a new one would open without
+  // the activation the full-screen request needs.
+  const onPresent = filePath && isHtmlPath(filePath) && supportsHtmlSites(health) && orgId && driveId
+    ? () => {
+      enterFullscreen()
+      navigate(presentUrl(orgId, driveId, filePath))
+    }
+    : undefined
+  const shortcuts: ShortcutMap = {}
+  if (onPresent) {
+    shortcuts.p = (e) => {
+      e.preventDefault()
+      onPresent()
+    }
+  }
+  useKeyboardShortcuts(shortcuts)
+
   const handleCommentClick = useCallback((lineStart?: number, _lineEnd?: number, quotedContent?: string, commentId?: string) => {
     scrollToCommentRef.current?.({ lineStart, quotedContent, commentId })
   }, [])
@@ -69,8 +88,6 @@ export function FileDetailPage() {
   }
 
   const filename = filePath.split("/").pop() ?? filePath
-  // Per segment, so a `#` or `?` in a name stays part of the path.
-  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/")
 
   return (
     <MainWithComments filePath={filePath} onCommentClick={handleCommentClick} showCommentsHeader outline={outline}>
@@ -149,15 +166,14 @@ export function FileDetailPage() {
               </Tooltip>
             )}
             {canShareLink && <ShareButton path={filePath} />}
-            {isHtmlPath(filePath) && supportsHtmlSites(health) && orgId && driveId && (
+            {onPresent && (
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      nativeButton={false}
-                      render={<a href={`/page/~/${orgId}/${driveId}/${encodedPath}`} target="_blank" rel="noopener" />}
+                      onClick={onPresent}
                       className="text-muted-foreground"
                       aria-label="Present"
                     >
@@ -165,7 +181,7 @@ export function FileDetailPage() {
                     </Button>
                   }
                 />
-                <TooltipContent>Present without the app chrome</TooltipContent>
+                <TooltipContent>Present <Kbd className="ml-1">P</Kbd></TooltipContent>
               </Tooltip>
             )}
             <Tooltip>
