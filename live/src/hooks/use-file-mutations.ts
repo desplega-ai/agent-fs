@@ -114,7 +114,14 @@ export function useFileMutations() {
   const deleteFile = useCallback(
     async (path: string): Promise<void> => {
       if (!orgId || !driveId) throw new Error("No org/drive selected")
-      await client.rm(orgId, driveId, { path })
+      try {
+        await client.rm(orgId, driveId, { path })
+      } catch (err) {
+        // Someone else already removed it: the file is gone either way, so
+        // refresh the stale listing instead of showing an error.
+        const e = err as Partial<ApiError>
+        if (e.error !== "NOT_FOUND" && e.status !== 404) throw err
+      }
       invalidateForPath(queryClient, orgId, driveId, path)
       // The server dropped the star with the file.
       void queryClient.invalidateQueries({ queryKey: favoritesQueryKey(credential.id, client.endpoint, orgId, driveId) })

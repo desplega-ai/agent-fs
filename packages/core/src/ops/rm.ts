@@ -11,6 +11,37 @@ import { publishDriveEvent } from "../events/bus.js";
 import { normalizePath } from "./paths.js";
 import { favoritesAfterRemove } from "./favorite.js";
 import { withPathLock } from "./path-lock.js";
+import { NotFoundError } from "../errors.js";
+
+/** True when a live file sits at `path`: a non-deleted row or a stored object. */
+async function fileExists(ctx: OpContext, path: string, s3Key: string): Promise<boolean> {
+  const row = ctx.db
+    .select({ path: schema.files.path })
+    .from(schema.files)
+    .where(
+      and(
+        eq(schema.files.path, path),
+        eq(schema.files.driveId, ctx.driveId),
+        eq(schema.files.isDeleted, false)
+      )
+    )
+    .get();
+  if (row) return true;
+  try {
+    await ctx.s3.headObject(s3Key);
+    return true;
+  } catch (err: any) {
+    // S3 misses surface as `NotFound`, the local adapter as `NoSuchKey`.
+    if (
+      err?.name === "NotFound" ||
+      err?.name === "NoSuchKey" ||
+      err?.$metadata?.httpStatusCode === 404
+    ) {
+      return false;
+    }
+    throw err;
+  }
+}
 
 export async function rm(
   ctx: OpContext,
@@ -23,6 +54,12 @@ export async function rm(
     // Optimistic concurrency: assert the head version we are deleting.
     if (params.expectedVersion !== undefined) {
       await assertExpectedVersion(ctx, path, params.expectedVersion);
+    }
+
+    // Nothing to delete: answer NOT_FOUND like cat/stat/edit, before any
+    // version row, tombstone or file.changed webhook is written.
+    if (!(await fileExists(ctx, path, s3Key))) {
+      throw new NotFoundError(`File not found: ${path}`, { path });
     }
 
     // 1. Delete from S3 (creates delete marker if versioning enabled)
