@@ -46,6 +46,8 @@ test.beforeEach(async ({ page }) => {
         case "comment-notification-list": json = { notifications: [], unreadCount: 0 }; break
         case "ls": json = { entries: [] }; break
         case "tree": json = { tree: [] }; break
+        case "drive-members": json = { members: [] }; break
+        case "reveal": return route.fulfill({ status: 400, json: { error: "Unknown operation: reveal" } })
         default: throw new Error(`Unexpected op: ${op}`)
       }
     } else if (url.pathname === "/health") json = { status: "ok" }
