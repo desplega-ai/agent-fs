@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { getRegisteredOps, getOpDefinition } from "../index.js";
+import { getRegisteredOps, getOpDefinition, dispatchOp } from "../index.js";
 
 describe("Op Registry", () => {
   const expectedOps = [
@@ -32,5 +32,14 @@ describe("Op Registry", () => {
 
   test("getOpDefinition returns undefined for unknown op", () => {
     expect(getOpDefinition("nonexistent")).toBeUndefined();
+  });
+
+  test.each(["constructor", "__proto__", "toString", "hasOwnProperty"])("getOpDefinition returns undefined for inherited name %s", (name) => {
+    expect(getOpDefinition(name)).toBeUndefined();
+  });
+
+  // The unknown-op check runs before ctx is touched, so no DB or S3 is needed here.
+  test.each(["constructor", "__proto__", "toString", "hasOwnProperty"])("dispatchOp rejects inherited name %s as an unknown op", async (name) => {
+    await expect(dispatchOp({} as any, name, {})).rejects.toThrow(`Unknown operation: ${name}`);
   });
 });
