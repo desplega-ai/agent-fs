@@ -74,6 +74,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          components: clippy, rustfmt
+      - name: Test FUSE helper
+        working-directory: packages/fuse-helper
+        run: cargo test
+      - name: Lint FUSE helper
+        working-directory: packages/fuse-helper
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Check FUSE helper formatting
+        working-directory: packages/fuse-helper
+        run: cargo fmt --check
       - name: Build FUSE helper (host target)
         run: |
           cd packages/fuse-helper
