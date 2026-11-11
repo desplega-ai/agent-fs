@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import {
+  AgentFSError,
   NotFoundError,
   PermissionDeniedError,
   EditConflictError,
@@ -9,6 +10,7 @@ import {
   EmbeddingProviderError,
   PresenceLimitError,
 } from "@/core";
+import { redactShareToken } from "./request-log.js";
 
 function getStatusCode(err: Error): number {
   if (err instanceof NotFoundError) return 404;
@@ -23,20 +25,17 @@ function getStatusCode(err: Error): number {
   // 502 Bad Gateway: the upstream embedding provider sent an unusable vector.
   if (err instanceof EmbeddingProviderError) return 502;
   if (err instanceof PresenceLimitError) return 429;
-  if ("code" in err) return 400; // AgentFSError base
+  if (err instanceof AgentFSError) return 400;
   return 500;
 }
 
 export function handleError(err: Error, c: Context) {
-  const status = getStatusCode(err);
-
-  // Check if error has toJSON (AgentFSError)
-  if ("toJSON" in err && typeof (err as any).toJSON === "function") {
-    return c.json((err as any).toJSON(), status as any);
+  if (err instanceof AgentFSError) {
+    return c.json(err.toJSON(), getStatusCode(err) as any);
   }
 
-  return c.json(
-    { error: "INTERNAL_ERROR", message: err.message },
-    status as any
-  );
+  // Never echo unexpected errors: storage and database messages carry bucket
+  // names, endpoints and SQL. The detail goes to the server log only.
+  console.error(`unhandled error on ${c.req.method} ${redactShareToken(c.req.path)}:`, err);
+  return c.json({ error: "INTERNAL_ERROR", message: "Internal server error" }, 500);
 }
