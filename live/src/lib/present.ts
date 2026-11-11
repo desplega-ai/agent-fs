@@ -1,3 +1,19 @@
+import { isHtmlPath, supportsHtmlSites } from "@/lib/html-view"
+import type { HealthResponse } from "@/lib/upload-limit"
+
+/** Files `MarkdownViewer` renders (as in `FileViewer`). */
+export function isMarkdownPath(path: string): boolean {
+  const name = path.split("/").pop() ?? ""
+  const dot = name.lastIndexOf(".")
+  const ext = dot === -1 ? "" : name.slice(dot + 1).toLowerCase()
+  return ext === "md" || ext === "mdx" || ext === "txt"
+}
+
+/** What the presented page can show: Markdown, and HTML on a server with `html-sites`. */
+export function canPresent(path: string, health?: HealthResponse): boolean {
+  return isMarkdownPath(path) || (isHtmlPath(path) && supportsHtmlSites(health))
+}
+
 /** The route that shows a file on its own, without the app chrome. */
 export function presentUrl(orgId: string, driveId: string, path: string): string {
   // Per segment, so a `#` or `?` in a name stays part of the path.

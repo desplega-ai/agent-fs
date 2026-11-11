@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { isQueryablePath } from "@/lib/sql-engine/types"
 import { isHtmlPath, supportsHtmlSites } from "@/lib/html-view"
-import { enterFullscreen, presentUrl } from "@/lib/present"
+import { enterFullscreen, isMarkdownPath, presentUrl } from "@/lib/present"
 import { healthQueryOptions } from "@/lib/upload-limit"
 import { useAuth } from "@/contexts/auth"
 import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
@@ -122,9 +122,7 @@ function isGenericContentType(contentType?: string): boolean {
   return !contentType || contentType === "application/octet-stream"
 }
 
-function isMarkdown(path: string): boolean {
-  return ["md", "mdx", "txt"].includes(getExt(path))
-}
+const isMarkdown = isMarkdownPath
 
 function isPdf(path: string): boolean {
   return getExt(path) === "pdf"
@@ -399,7 +397,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   }
   // The presented page, full screen. Same tab: a new one would open without
   // the activation the full-screen request needs.
-  const onPresent = isHtml && orgId && driveId
+  const onPresent = (isHtml || isMd) && orgId && driveId
     ? () => {
       enterFullscreen()
       navigate(presentUrl(orgId, driveId, path))
