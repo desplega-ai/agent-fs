@@ -564,18 +564,20 @@ export class AgentFsClient {
    * A URL the browser can load for `path`. Backends without presigned URLs
    * answer `signed-url` with an `app` link, which is the viewer page rather
    * than the bytes; those are read through the authenticated raw route into
-   * an object URL that the caller must revoke.
+   * an object URL that the caller must revoke. `type` sets the object URL's
+   * type instead of the stored one, so a viewer loads only the type it renders.
    */
   async fetchableUrl(
     orgId: string,
     driveId: string,
     path: string,
-    options?: { disposition?: SignedUrlDisposition; signal?: AbortSignal },
+    options?: { disposition?: SignedUrlDisposition; signal?: AbortSignal; type?: string },
   ): Promise<{ url: string; expiresAt: string; objectUrl: boolean }> {
     const result = await this.getSignedUrl(orgId, driveId, path, options)
     if (result.kind !== "app") return { url: result.url, expiresAt: result.expiresAt, objectUrl: false }
     const blob = await this.fetchRaw(orgId, driveId, path, { signal: options?.signal })
-    return { url: URL.createObjectURL(blob), expiresAt: "", objectUrl: true }
+    const typed = options?.type ? new Blob([blob], { type: options.type }) : blob
+    return { url: URL.createObjectURL(typed), expiresAt: "", objectUrl: true }
   }
 
   /** Share links in `driveId` (or, with `scope: "mine"`, the caller's links across the org). */

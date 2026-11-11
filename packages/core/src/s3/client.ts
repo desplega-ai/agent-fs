@@ -139,7 +139,7 @@ export class AgentS3Client implements StorageAdapter {
     );
   }
 
-  async copyObject(fromKey: string, toKey: string): Promise<PutObjectResult> {
+  async copyObject(fromKey: string, toKey: string, contentType?: string): Promise<PutObjectResult> {
     assertKeyInsideDrive(fromKey);
     assertKeyInsideDrive(toKey);
     const result = await this.client.send(
@@ -151,6 +151,8 @@ export class AgentS3Client implements StorageAdapter {
         // `?`, `#` or a space in a name survive).
         CopySource: `${this.bucket}/${encodeCopySourceKey(fromKey)}`,
         Key: toKey,
+        // COPY (the default) keeps the source type; REPLACE is the only way to set a new one.
+        ...(contentType && { MetadataDirective: "REPLACE", ContentType: contentType }),
       })
     );
     return {

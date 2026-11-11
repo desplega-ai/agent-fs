@@ -645,7 +645,7 @@ Things worth knowing before you share:
 - **Viewer role is enough to create a link**, and the creator (or a drive admin) can revoke it. Every counted view is written as a `share_viewed` event.
 - Set `AGENT_FS_PUBLIC_URL` when the server sits behind a proxy that does not forward `Host` / `X-Forwarded-*`, so returned links point at the right address.
 
-**MIME types on upload:** `write`, `edit`, `append`, and `revert` automatically detect and set the correct `Content-Type` on S3 objects based on file extension. The content type is also stored in the database and visible in `stat` output via the `contentType` field. Raw stdin and `--file` uploads preserve bytes exactly. Search indexes valid, indexable UTF-8 text and extracted PDF text.
+**MIME types on upload:** `write`, `edit`, `append`, and `revert` automatically detect and set the correct `Content-Type` on S3 objects based on file extension. The content type is also stored in the database and visible in `stat` output via the `contentType` field. `mv` and `cp` keep the source type (a PDF moved to `.txt` is still a PDF), except HTML, SVG and XML, which take the destination extension's type unless it implies the same one. Raw stdin and `--file` uploads preserve bytes exactly. Search indexes valid, indexable UTF-8 text and extracted PDF text.
 
 ### Publish an HTML site from a folder
 

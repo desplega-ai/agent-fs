@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { detectMimeType, withUtf8Charset } from "../mime.js";
+import { copiedMimeType, detectMimeType, withUtf8Charset } from "../mime.js";
 
 describe("detectMimeType", () => {
   // Standard extensions
@@ -87,5 +87,24 @@ describe("withUtf8Charset", () => {
 
   it("keeps non-charset MIME parameters", () => {
     expect(withUtf8Charset("text/plain; format=flowed")).toBe("text/plain; format=flowed; charset=utf-8");
+  });
+});
+
+describe("copiedMimeType", () => {
+  it("keeps the source type", () => {
+    expect(copiedMimeType("application/pdf", "/moved.txt")).toBe("application/pdf");
+    expect(copiedMimeType("text/html", "/b.html")).toBe("text/html");
+    expect(copiedMimeType("image/svg+xml", "/b.svg")).toBe("image/svg+xml");
+  });
+
+  it("types markup by the destination when its extension does not imply it", () => {
+    expect(copiedMimeType("text/html", "/a.pdf")).toBe("application/pdf");
+    expect(copiedMimeType("image/svg+xml", "/a.png")).toBe("image/png");
+    expect(copiedMimeType("Text/HTML; charset=utf-8", "/a")).toBe("application/octet-stream");
+    expect(copiedMimeType("application/xml", "/a.txt")).toBe("text/plain");
+  });
+
+  it("falls back to the destination type", () => {
+    expect(copiedMimeType(undefined, "/a.pdf")).toBe("application/pdf");
   });
 });

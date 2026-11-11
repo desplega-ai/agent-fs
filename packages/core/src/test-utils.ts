@@ -144,14 +144,14 @@ export class MockS3Client implements StorageAdapter {
     this.store.delete(key);
   }
 
-  async copyObject(fromKey: string, toKey: string): Promise<PutObjectResult> {
+  async copyObject(fromKey: string, toKey: string, contentType?: string): Promise<PutObjectResult> {
     const entry = this.store.get(fromKey);
     if (!entry) {
       const err = new Error(`NoSuchKey: ${fromKey}`);
       err.name = "NoSuchKey";
       throw err;
     }
-    return this.putObject(toKey, entry.body, entry.metadata, entry.contentType);
+    return this.putObject(toKey, entry.body, entry.metadata, contentType ?? entry.contentType);
   }
 
   async listObjects(

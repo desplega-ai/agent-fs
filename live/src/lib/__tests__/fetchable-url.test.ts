@@ -41,6 +41,21 @@ describe("fetchableUrl", () => {
     URL.revokeObjectURL(result.url)
   })
 
+  test("type replaces the stored type on the object URL", async () => {
+    const { client } = setup({ url: "https://app.example/file/~/org/drive/a.pdf", expiresAt: "", kind: "app" })
+    const created = spyOn(URL, "createObjectURL")
+
+    const plain = await client.fetchableUrl("org", "drive", "/a.pdf")
+    const typed = await client.fetchableUrl("org", "drive", "/a.pdf", { type: "application/pdf" })
+
+    expect((created.mock.calls[0][0] as Blob).type).toBe("image/png")
+    expect((created.mock.calls[1][0] as Blob).type).toBe("application/pdf")
+    expect(await (created.mock.calls[1][0] as Blob).text()).toBe("bytes")
+    created.mockRestore()
+    URL.revokeObjectURL(plain.url)
+    URL.revokeObjectURL(typed.url)
+  })
+
   test("the signal reaches both the signed-url op and the raw read", async () => {
     const { client, callOp, requests } = setup({ url: "https://app.example/file/~/org/drive/a.png", expiresAt: "", kind: "app" })
     const controller = new AbortController()

@@ -96,7 +96,8 @@ export interface StorageAdapter {
 
   deleteObject(key: string): Promise<void>;
 
-  copyObject(fromKey: string, toKey: string): Promise<PutObjectResult>;
+  /** `contentType` replaces the source object's type on the destination. */
+  copyObject(fromKey: string, toKey: string, contentType?: string): Promise<PutObjectResult>;
 
   /** `maxKeys` caps the result at that many objects plus prefixes. */
   listObjects(

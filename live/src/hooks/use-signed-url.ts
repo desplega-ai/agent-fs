@@ -14,8 +14,9 @@ const OBJECT_URL_TTL_MS = 2 * MIN_FRESH_MS
 /**
  * @param disposition `inline` for URLs the browser must render (PDF iframe);
  *   omitted for download links, which keep the server's `attachment` default.
+ * @param type forces the object URL's type (see `AgentFsClient.fetchableUrl`).
  */
-export function useSignedUrl(path: string | null, disposition?: SignedUrlDisposition) {
+export function useSignedUrl(path: string | null, disposition?: SignedUrlDisposition, type?: string) {
   const { client, orgId, driveId } = useAuth()
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +34,7 @@ export function useSignedUrl(path: string | null, disposition?: SignedUrlDisposi
     setIsLoading(true)
     setError(null)
 
-    client.fetchableUrl(orgId, driveId, path, { disposition, signal: controller.signal }).then((result) => {
+    client.fetchableUrl(orgId, driveId, path, { disposition, signal: controller.signal, type }).then((result) => {
       if (result.objectUrl) objectUrl = result.url
       if (cancelled) {
         if (objectUrl) URL.revokeObjectURL(objectUrl)
@@ -53,7 +54,7 @@ export function useSignedUrl(path: string | null, disposition?: SignedUrlDisposi
       controller.abort()
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [path, orgId, driveId, client, disposition])
+  }, [path, orgId, driveId, client, disposition, type])
 
   return { url, error, isLoading }
 }

@@ -60,6 +60,27 @@ export function detectMimeType(path: string): string {
   return MIME_MAP[ext] ?? "application/octet-stream";
 }
 
+// Markup a browser renders as a document that can run script.
+const ACTIVE_DOCUMENT_TYPES = new Set([
+  "text/html",
+  "application/xhtml+xml",
+  "image/svg+xml",
+  "application/xml",
+  "text/xml",
+]);
+
+/**
+ * The type an object copied (mv/cp) to `to` is stored with. It keeps the
+ * source type, so a moved PDF is still indexed as a PDF, except a markup type
+ * that `to`'s extension does not imply: that one takes the destination type.
+ */
+export function copiedMimeType(sourceType: string | undefined, to: string): string {
+  const target = detectMimeType(to);
+  if (!sourceType) return target;
+  const base = sourceType.split(";")[0]?.trim().toLowerCase() ?? "";
+  return ACTIVE_DOCUMENT_TYPES.has(base) && base !== target ? target : sourceType;
+}
+
 /**
  * Add `charset=utf-8` to a text-family content type for HTTP delivery.
  *
