@@ -9,6 +9,7 @@ import { NotFoundError, EditConflictError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
 import { indexTextForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
+import { withPathLock } from "./path-lock.js";
 
 export async function edit(
   ctx: OpContext,
@@ -17,76 +18,79 @@ export async function edit(
   const path = normalizePath(params.path);
   const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
 
-  // Optimistic concurrency: check head version matches expectedVersion
-  // before any S3 mutation (avoids edit-on-stale-read).
-  if (params.expectedVersion !== undefined) {
-    await assertExpectedVersion(ctx, path, params.expectedVersion);
-  }
-
-  // 1. Get current content
-  let body: Uint8Array;
-  try {
-    const result = await ctx.s3.getObject(s3Key);
-    body = result.body;
-  } catch (err: any) {
-    if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
-      throw new NotFoundError(`File not found: ${path}`, {
-        path,
-      });
+  return withPathLock(ctx.driveId, [path], async () => {
+    // Optimistic concurrency: check head version matches expectedVersion
+    // before any S3 mutation (avoids edit-on-stale-read).
+    if (params.expectedVersion !== undefined) {
+      await assertExpectedVersion(ctx, path, params.expectedVersion);
     }
-    throw err;
-  }
 
-  const content = new TextDecoder().decode(body);
-
-  // 2. Verify old_string exists exactly once
-  const occurrences = content.split(params.old_string).length - 1;
-  if (occurrences === 0) {
-    throw new EditConflictError(
-      `old_string not found in ${path}`,
-      {
-        path,
-        suggestion: "Verify the exact text you want to replace",
+    // 1. Get current content
+    let body: Uint8Array;
+    try {
+      const result = await ctx.s3.getObject(s3Key);
+      body = result.body;
+    } catch (err: any) {
+      if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
+        throw new NotFoundError(`File not found: ${path}`, {
+          path,
+        });
       }
-    );
-  }
-  if (occurrences > 1) {
-    throw new EditConflictError(
-      `old_string found ${occurrences} times in ${path}, expected exactly 1`,
-      {
-        path,
-        suggestion: "Provide more surrounding context to make the match unique",
-      }
-    );
-  }
+      throw err;
+    }
 
-  // 3. Replace and write back
-  const newContent = content.replace(params.old_string, params.new_string);
-  const size = Buffer.byteLength(newContent);
-  const contentType = detectMimeType(path);
-  const contentHash = createHash("sha256").update(newContent).digest("hex");
+    const content = new TextDecoder().decode(body);
 
-  const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
+    // 2. Verify old_string exists exactly once
+    const occurrences = content.split(params.old_string).length - 1;
+    if (occurrences === 0) {
+      throw new EditConflictError(
+        `old_string not found in ${path}`,
+        {
+          path,
+          suggestion: "Verify the exact text you want to replace",
+        }
+      );
+    }
+    if (occurrences > 1) {
+      throw new EditConflictError(
+        `old_string found ${occurrences} times in ${path}, expected exactly 1`,
+        {
+          path,
+          suggestion: "Provide more surrounding context to make the match unique",
+        }
+      );
+    }
 
-  // 4. Create version with diff summary
-  const diffSummary = JSON.stringify({
-    old: params.old_string,
-    new: params.new_string,
+    // 3. Replace and write back
+    // A function replacer stops replace() from expanding $$, $&, $` and $' in new_string.
+    const newContent = content.replace(params.old_string, () => params.new_string);
+    const size = Buffer.byteLength(newContent);
+    const contentType = detectMimeType(path);
+    const contentHash = createHash("sha256").update(newContent).digest("hex");
+
+    const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
+
+    // 4. Create version with diff summary
+    const diffSummary = JSON.stringify({
+      old: params.old_string,
+      new: params.new_string,
+    });
+
+    const version = await createVersion(ctx, {
+      path,
+      s3VersionId: s3Result.versionId ?? "",
+      operation: "edit",
+      message: params.message,
+      diffSummary,
+      size,
+      etag: s3Result.etag,
+      contentType,
+      contentHash,
+    });
+
+    await indexTextForSearch(ctx, path, newContent);
+
+    return { version, path, changes: 1 };
   });
-
-  const version = await createVersion(ctx, {
-    path,
-    s3VersionId: s3Result.versionId ?? "",
-    operation: "edit",
-    message: params.message,
-    diffSummary,
-    size,
-    etag: s3Result.etag,
-    contentType,
-    contentHash,
-  });
-
-  await indexTextForSearch(ctx, path, newContent);
-
-  return { version, path, changes: 1 };
 }

@@ -12,6 +12,7 @@ import { assertCapability } from "../storage/capabilities.js";
 import { detectMimeType } from "./mime.js";
 import { indexBytesForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
+import { withPathLock } from "./path-lock.js";
 
 export async function revert(
   ctx: OpContext,
@@ -24,63 +25,65 @@ export async function revert(
   // case below covers a versioning-capable backend whose row lacks a handle.)
   assertCapability(ctx.s3, "versioning", "revert");
 
-  // Optimistic concurrency: head must match expectedVersion before
-  // a new revert version is created on top of it.
-  if (params.expectedVersion !== undefined) {
-    await assertExpectedVersion(ctx, path, params.expectedVersion);
-  }
+  return withPathLock(ctx.driveId, [path], async () => {
+    // Optimistic concurrency: head must match expectedVersion before
+    // a new revert version is created on top of it.
+    if (params.expectedVersion !== undefined) {
+      await assertExpectedVersion(ctx, path, params.expectedVersion);
+    }
 
-  // 1. Find the target version
-  const targetVersion = ctx.db
-    .select()
-    .from(schema.fileVersions)
-    .where(
-      and(
-        eq(schema.fileVersions.path, path),
-        eq(schema.fileVersions.driveId, ctx.driveId),
-        eq(schema.fileVersions.version, params.version)
+    // 1. Find the target version
+    const targetVersion = ctx.db
+      .select()
+      .from(schema.fileVersions)
+      .where(
+        and(
+          eq(schema.fileVersions.path, path),
+          eq(schema.fileVersions.driveId, ctx.driveId),
+          eq(schema.fileVersions.version, params.version)
+        )
       )
-    )
-    .get();
+      .get();
 
-  if (!targetVersion) {
-    throw new NotFoundError(
-      `Version ${params.version} not found for ${path}`,
-      { path }
-    );
-  }
+    if (!targetVersion) {
+      throw new NotFoundError(
+        `Version ${params.version} not found for ${path}`,
+        { path }
+      );
+    }
 
-  if (!targetVersion.s3VersionId) {
-    throw new AgentFSError(
-      "VERSIONING_REQUIRED",
-      "S3 versioning required for revert",
-      "Enable S3 versioning on the bucket"
-    );
-  }
+    if (!targetVersion.s3VersionId) {
+      throw new AgentFSError(
+        "VERSIONING_REQUIRED",
+        "S3 versioning required for revert",
+        "Enable S3 versioning on the bucket"
+      );
+    }
 
-  // 2. Get the old content from S3 using versionId
-  const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
-  const oldContent = await ctx.s3.getObject(s3Key, targetVersion.s3VersionId);
-  const contentType = detectMimeType(path);
+    // 2. Get the old content from S3 using versionId
+    const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
+    const oldContent = await ctx.s3.getObject(s3Key, targetVersion.s3VersionId);
+    const contentType = detectMimeType(path);
 
-  // 3. Write it as the new current version
-  const s3Result = await ctx.s3.putObject(s3Key, oldContent.body, undefined, contentType);
-  const size = oldContent.body.length;
-  const contentHash = createHash("sha256").update(oldContent.body).digest("hex");
+    // 3. Write it as the new current version
+    const s3Result = await ctx.s3.putObject(s3Key, oldContent.body, undefined, contentType);
+    const size = oldContent.body.length;
+    const contentHash = createHash("sha256").update(oldContent.body).digest("hex");
 
-  // 4. Create version record
-  const version = await createVersion(ctx, {
-    path,
-    s3VersionId: s3Result.versionId ?? "",
-    operation: "revert",
-    message: `Reverted to version ${params.version}`,
-    size,
-    etag: s3Result.etag,
-    contentType,
-    contentHash,
+    // 4. Create version record
+    const version = await createVersion(ctx, {
+      path,
+      s3VersionId: s3Result.versionId ?? "",
+      operation: "revert",
+      message: `Reverted to version ${params.version}`,
+      size,
+      etag: s3Result.etag,
+      contentType,
+      contentHash,
+    });
+
+    await indexBytesForSearch(ctx, path, oldContent.body, contentType);
+
+    return { version, revertedTo: params.version };
   });
-
-  await indexBytesForSearch(ctx, path, oldContent.body, contentType);
-
-  return { version, revertedTo: params.version };
 }

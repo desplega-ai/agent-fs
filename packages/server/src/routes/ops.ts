@@ -10,7 +10,18 @@ export function opsRoutes(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   router.post("/:orgId/ops", async (c) => {
     const user = c.get("user");
     const orgId = c.req.param("orgId");
-    const body = await c.req.json();
+    // Only a parse failure is the client's fault; rethrow the rest so bodyLimit
+    // still answers 413 for an oversized chunked body.
+    const body = await c.req.json().catch((err) => {
+      if (err instanceof SyntaxError) return null;
+      throw err;
+    });
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return c.json(
+        { error: "VALIDATION_ERROR", message: "Request body must be a JSON object with an op field" },
+        400
+      );
+    }
     const { op, ...params } = body;
 
     if (!op) {

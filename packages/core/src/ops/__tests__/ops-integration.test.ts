@@ -85,6 +85,45 @@ describe("edit operation", () => {
       })
     ).rejects.toThrow();
   });
+
+  test.each(["echo $$", "x=$&y", "a $` b", "cost $' end", "$1 and $<name>"])(
+    "edit stores new_string %p literally",
+    async (newString) => {
+      const { ctx } = createTestContext();
+
+      await dispatchOp(ctx, "write", { path: "/lit.txt", content: "run: OLD\nrest" });
+      await dispatchOp(ctx, "edit", {
+        path: "/lit.txt",
+        old_string: "OLD",
+        new_string: newString,
+      });
+
+      const cat = await dispatchOp(ctx, "cat", { path: "/lit.txt" });
+      expect((cat as any).content).toBe(`run: ${newString}\nrest`);
+    }
+  );
+
+  test.each([
+    ["a non-empty", "ab"],
+    ["an empty", ""],
+  ])("edit rejects an empty old_string on %s file", async (_label, content) => {
+    const { ctx } = createTestContext();
+
+    await dispatchOp(ctx, "write", { path: "/empty-old.txt", content });
+
+    await expect(
+      dispatchOp(ctx, "edit", {
+        path: "/empty-old.txt",
+        old_string: "",
+        new_string: "X",
+      })
+    ).rejects.toThrow();
+
+    const cat = await dispatchOp(ctx, "cat", { path: "/empty-old.txt" });
+    expect((cat as any).content).toBe(content);
+    const stat = await dispatchOp(ctx, "stat", { path: "/empty-old.txt" });
+    expect((stat as any).currentVersion).toBe(1);
+  });
 });
 
 describe("append operation", () => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { OpContext } from "./types.js";
 import { checkPermission, getRequiredRole } from "../identity/rbac.js";
+import { ValidationError } from "../errors.js";
 import { write, writeRaw } from "./write.js";
 import { cat } from "./cat.js";
 import { edit } from "./edit.js";
@@ -87,7 +88,7 @@ const opRegistry: Record<string, OpDefinition> = {
     handler: edit,
     schema: z.object({
       path: z.string(),
-      old_string: z.string(),
+      old_string: z.string().min(1),
       new_string: z.string(),
       message: z.string().optional(),
       expectedVersion: z.number().int().optional(),
@@ -491,9 +492,10 @@ export async function dispatchOp(
   params: unknown,
   opts?: { skipAuth?: boolean }
 ): Promise<unknown> {
-  const op = opRegistry[opName];
+  // Own keys only: "constructor" / "__proto__" must take the unknown-op path.
+  const op = getOpDefinition(opName);
   if (!op) {
-    throw new Error(`Unknown operation: ${opName}`);
+    throw new ValidationError(`Unknown operation: ${opName}`, { field: "op" });
   }
 
   // RBAC check — enforced at the core dispatcher level
@@ -506,8 +508,15 @@ export async function dispatchOp(
     });
   }
 
-  const validated = op.schema.parse(params);
-  const result = await op.handler(ctx, validated);
+  const parsed = op.schema.safeParse(params);
+  if (!parsed.success) {
+    const { issues } = parsed.error;
+    const detail = issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`).join("; ");
+    throw new ValidationError(`Invalid parameters for '${opName}': ${detail}`, {
+      field: issues[0]?.path.join(".") || undefined,
+    });
+  }
+  const result = await op.handler(ctx, parsed.data);
   recordOp(opName);
 
   // Enrich results with appUrl when available
@@ -527,7 +536,7 @@ export function getRegisteredOps(): string[] {
 }
 
 export function getOpDefinition(name: string): OpDefinition | undefined {
-  return opRegistry[name];
+  return Object.hasOwn(opRegistry, name) ? opRegistry[name] : undefined;
 }
 
 // Re-export individual ops for direct use
