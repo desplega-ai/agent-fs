@@ -10,6 +10,7 @@ import { clearSearchData } from "./search-index.js";
 import { publishDriveEvent } from "../events/bus.js";
 import { normalizePath } from "./paths.js";
 import { favoritesAfterRemove } from "./favorite.js";
+import { withPathLock } from "./path-lock.js";
 
 export async function rm(
   ctx: OpContext,
@@ -18,64 +19,66 @@ export async function rm(
   const path = normalizePath(params.path);
   const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
 
-  // Optimistic concurrency: assert the head version we are deleting.
-  if (params.expectedVersion !== undefined) {
-    await assertExpectedVersion(ctx, path, params.expectedVersion);
-  }
+  return withPathLock(ctx.driveId, [path], async () => {
+    // Optimistic concurrency: assert the head version we are deleting.
+    if (params.expectedVersion !== undefined) {
+      await assertExpectedVersion(ctx, path, params.expectedVersion);
+    }
 
-  // 1. Delete from S3 (creates delete marker if versioning enabled)
-  await ctx.s3.deleteObject(s3Key);
+    // 1. Delete from S3 (creates delete marker if versioning enabled)
+    await ctx.s3.deleteObject(s3Key);
 
-  // 2. Create version record
-  await createVersion(ctx, {
-    path,
-    s3VersionId: "",
-    operation: "delete",
-  });
-
-  // 3. Clear search data
-  clearSearchData(ctx, path, "all");
-
-  // 4. Soft-delete comments on this file
-  const deletedComments = ctx.db
-    .select({ id: schema.comments.id, path: schema.comments.path })
-    .from(schema.comments)
-    .where(
-      and(
-        eq(schema.comments.path, path),
-        eq(schema.comments.driveId, ctx.driveId),
-        isNull(schema.comments.parentId),
-        eq(schema.comments.isDeleted, false)
-      )
-    )
-    .all();
-  const now = new Date();
-  ctx.db
-    .update(schema.comments)
-    .set({ isDeleted: true, updatedAt: now })
-    .where(
-      and(
-        eq(schema.comments.path, path),
-        eq(schema.comments.driveId, ctx.driveId)
-      )
-    )
-    .run();
-
-  for (const comment of deletedComments) {
-    publishDriveEvent({
-      type: "comment.changed",
-      driveId: ctx.driveId,
-      path: comment.path,
-      commentId: comment.id,
-      parentId: null,
-      action: "deleted",
-      actor: ctx.userId,
-      at: now.toISOString(),
+    // 2. Create version record
+    await createVersion(ctx, {
+      path,
+      s3VersionId: "",
+      operation: "delete",
     });
-  }
 
-  // 5. Drop every user's star on the file (and on folders it emptied)
-  await favoritesAfterRemove(ctx, path);
+    // 3. Clear search data
+    clearSearchData(ctx, path, "all");
 
-  return { path, deleted: true };
+    // 4. Soft-delete comments on this file
+    const deletedComments = ctx.db
+      .select({ id: schema.comments.id, path: schema.comments.path })
+      .from(schema.comments)
+      .where(
+        and(
+          eq(schema.comments.path, path),
+          eq(schema.comments.driveId, ctx.driveId),
+          isNull(schema.comments.parentId),
+          eq(schema.comments.isDeleted, false)
+        )
+      )
+      .all();
+    const now = new Date();
+    ctx.db
+      .update(schema.comments)
+      .set({ isDeleted: true, updatedAt: now })
+      .where(
+        and(
+          eq(schema.comments.path, path),
+          eq(schema.comments.driveId, ctx.driveId)
+        )
+      )
+      .run();
+
+    for (const comment of deletedComments) {
+      publishDriveEvent({
+        type: "comment.changed",
+        driveId: ctx.driveId,
+        path: comment.path,
+        commentId: comment.id,
+        parentId: null,
+        action: "deleted",
+        actor: ctx.userId,
+        at: now.toISOString(),
+      });
+    }
+
+    // 5. Drop every user's star on the file (and on folders it emptied)
+    await favoritesAfterRemove(ctx, path);
+
+    return { path, deleted: true };
+  });
 }

@@ -6,7 +6,8 @@ import { createTestContext } from "../../test-utils.js";
 import { write, writeRaw } from "../../ops/write.js";
 import { reindex } from "../../ops/reindex.js";
 import { mv } from "../../ops/mv.js";
-import { getS3Key } from "../../ops/versioning.js";
+import { createVersion, getS3Key } from "../../ops/versioning.js";
+import { indexTextForSearch } from "../../ops/search-index.js";
 import { extractPdfText, PDF_PAGE_IMAGES, renderPdfPages } from "../pdf.js";
 import { ftsQuery, removeFromIndex } from "../fts.js";
 import { prepareEmbeddingMigration, runPendingEmbeddings } from "../embedding-migration.js";
@@ -189,7 +190,16 @@ describe("PDF text", () => {
     const deleteObject = s3.deleteObject.bind(s3);
     s3.deleteObject = async (key) => {
       await deleteObject(key);
-      await write(ctx, { path: "/target.pdf", content: "replacement currentcontent" });
+      // A writer in another process is not covered by the in-process path lock,
+      // so replay write's storage, version and index steps without withPathLock.
+      const content = "replacement currentcontent";
+      const bytes = new TextEncoder().encode(content);
+      const put = await s3.putObject(getS3Key(ctx.orgId, ctx.driveId, "/target.pdf"), bytes, undefined, "application/pdf");
+      await createVersion(ctx, {
+        path: "/target.pdf", s3VersionId: put.versionId ?? "", operation: "write",
+        size: bytes.byteLength, etag: put.etag, contentType: "application/pdf",
+      });
+      await indexTextForSearch(ctx, "/target.pdf", content);
     };
 
     await mv(ctx, { from: "/source.pdf", to: "/target.pdf" });
