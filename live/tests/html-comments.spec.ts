@@ -163,6 +163,12 @@ test("another user's comment is highlighted; its card reveals it and hovering th
   // The quote, not the body: clicks on the body stay in the card.
   await page.getByText(quote.exact).click()
   await expect.poll(() => frame.evaluate(() => scrollY)).toBeGreaterThan(500)
+  // The reveal scrolls smoothly. Hover only once it stops: the overlay hit-tests on mousemove, and hover() moves the mouse once.
+  await expect.poll(async () => {
+    const before = await frame.evaluate(() => scrollY)
+    await page.waitForTimeout(150)
+    return before === (await frame.evaluate(() => scrollY))
+  }).toBe(true)
 
   await page.frameLocator(FRAME).locator("#target").hover()
   await expect.poll(() => highlightSizes(page)).toMatchObject({ active: 1 })
