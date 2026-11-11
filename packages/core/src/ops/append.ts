@@ -9,6 +9,7 @@ import { NotFoundError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
 import { indexTextForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
+import { withPathLock } from "./path-lock.js";
 
 export async function append(
   ctx: OpContext,
@@ -17,46 +18,48 @@ export async function append(
   const path = normalizePath(params.path);
   const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
 
-  // Optimistic concurrency check before reading current content.
-  if (params.expectedVersion !== undefined) {
-    await assertExpectedVersion(ctx, path, params.expectedVersion);
-  }
-
-  // 1. Get current content
-  let currentContent = "";
-  try {
-    const result = await ctx.s3.getObject(s3Key);
-    currentContent = new TextDecoder().decode(result.body);
-  } catch (err: any) {
-    if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
-      throw new NotFoundError(`File not found: ${path}`, {
-        path,
-      });
+  return withPathLock(ctx.driveId, [path], async () => {
+    // Optimistic concurrency check before reading current content.
+    if (params.expectedVersion !== undefined) {
+      await assertExpectedVersion(ctx, path, params.expectedVersion);
     }
-    throw err;
-  }
 
-  // 2. Append and write back
-  const newContent = currentContent + params.content;
-  const size = Buffer.byteLength(newContent);
-  const contentType = detectMimeType(path);
-  const contentHash = createHash("sha256").update(newContent).digest("hex");
+    // 1. Get current content
+    let currentContent = "";
+    try {
+      const result = await ctx.s3.getObject(s3Key);
+      currentContent = new TextDecoder().decode(result.body);
+    } catch (err: any) {
+      if (err?.name === "NoSuchKey" || err?.$metadata?.httpStatusCode === 404) {
+        throw new NotFoundError(`File not found: ${path}`, {
+          path,
+        });
+      }
+      throw err;
+    }
 
-  const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
+    // 2. Append and write back
+    const newContent = currentContent + params.content;
+    const size = Buffer.byteLength(newContent);
+    const contentType = detectMimeType(path);
+    const contentHash = createHash("sha256").update(newContent).digest("hex");
 
-  // 3. Create version
-  const version = await createVersion(ctx, {
-    path,
-    s3VersionId: s3Result.versionId ?? "",
-    operation: "append",
-    message: params.message,
-    size,
-    etag: s3Result.etag,
-    contentType,
-    contentHash,
+    const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
+
+    // 3. Create version
+    const version = await createVersion(ctx, {
+      path,
+      s3VersionId: s3Result.versionId ?? "",
+      operation: "append",
+      message: params.message,
+      size,
+      etag: s3Result.etag,
+      contentType,
+      contentHash,
+    });
+
+    await indexTextForSearch(ctx, path, newContent);
+
+    return { version, size };
   });
-
-  await indexTextForSearch(ctx, path, newContent);
-
-  return { version, size };
 }

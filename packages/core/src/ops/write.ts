@@ -14,6 +14,7 @@ import { recordOp } from "../telemetry.js";
 import { indexBytesForSearch, indexTextForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
 import { findMissingLinkTargets } from "./md-links.js";
+import { withPathLock } from "./path-lock.js";
 
 /** Max file size: 10 MB. Protects SQLite FTS indexing and embedding costs. */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -79,55 +80,57 @@ async function writeInternal(
     .update(bytes)
     .digest("hex");
 
-  // Optimistic concurrency check — and dedup short-circuit.
-  if (params.expectedVersion !== undefined) {
-    const currentVersion = await assertExpectedVersion(
-      ctx,
-      path,
-      params.expectedVersion
-    );
+  return withPathLock(ctx.driveId, [path], async () => {
+    // Optimistic concurrency check — and dedup short-circuit.
+    if (params.expectedVersion !== undefined) {
+      const currentVersion = await assertExpectedVersion(
+        ctx,
+        path,
+        params.expectedVersion
+      );
 
-    // Dedup short-circuit: hash matches head AND expectedVersion matches.
-    // No S3 PUT, no createVersion, no FTS5/embedding work, no mtime bump.
-    // The server is the source of truth for hash, so this safely handles
-    // FUSE-driven `touch`/idempotent-rewrite traffic.
-    if (currentVersion > 0) {
-      const headHash = await getHeadContentHash(ctx, path);
-      if (headHash !== null && headHash === contentHash) {
-        return withLinkWarnings(ctx, params, {
-          version: currentVersion,
-          path,
-          size,
-          contentHash,
-          deduped: true,
-        });
+      // Dedup short-circuit: hash matches head AND expectedVersion matches.
+      // No S3 PUT, no createVersion, no FTS5/embedding work, no mtime bump.
+      // The server is the source of truth for hash, so this safely handles
+      // FUSE-driven `touch`/idempotent-rewrite traffic.
+      if (currentVersion > 0) {
+        const headHash = await getHeadContentHash(ctx, path);
+        if (headHash !== null && headHash === contentHash) {
+          return withLinkWarnings(ctx, params, {
+            version: currentVersion,
+            path,
+            size,
+            contentHash,
+            deduped: true,
+          });
+        }
       }
     }
-  }
 
-  // 1. Write to S3
-  const contentType = detectMimeType(path);
-  const s3Result = await ctx.s3.putObject(s3Key, bytes, undefined, contentType);
+    // 1. Write to S3
+    const contentType = detectMimeType(path);
+    const s3Result = await ctx.s3.putObject(s3Key, bytes, undefined, contentType);
 
-  // 2. Create version record
-  const version = await createVersion(ctx, {
-    path,
-    s3VersionId: s3Result.versionId ?? "",
-    operation: "write",
-    message: params.message,
-    size,
-    etag: s3Result.etag,
-    contentType,
-    contentHash,
+    // 2. Create version record
+    const version = await createVersion(ctx, {
+      path,
+      s3VersionId: s3Result.versionId ?? "",
+      operation: "write",
+      message: params.message,
+      size,
+      etag: s3Result.etag,
+      contentType,
+      contentHash,
+    });
+
+    if (params.indexableText !== undefined) {
+      await indexTextForSearch(ctx, path, params.indexableText);
+    } else {
+      await indexBytesForSearch(ctx, path, bytes, contentType);
+    }
+
+    return withLinkWarnings(ctx, params, { version, path, size, contentHash, deduped: false });
   });
-
-  if (params.indexableText !== undefined) {
-    await indexTextForSearch(ctx, path, params.indexableText);
-  } else {
-    await indexBytesForSearch(ctx, path, bytes, contentType);
-  }
-
-  return withLinkWarnings(ctx, params, { version, path, size, contentHash, deduped: false });
 }
 
 /**
