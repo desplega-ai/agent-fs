@@ -61,7 +61,8 @@ export async function edit(
   }
 
   // 3. Replace and write back
-  const newContent = content.replace(params.old_string, params.new_string);
+  // A function replacer stops replace() from expanding $$, $&, $` and $' in new_string.
+  const newContent = content.replace(params.old_string, () => params.new_string);
   const size = Buffer.byteLength(newContent);
   const contentType = detectMimeType(path);
   const contentHash = createHash("sha256").update(newContent).digest("hex");

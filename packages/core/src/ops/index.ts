@@ -88,7 +88,7 @@ const opRegistry: Record<string, OpDefinition> = {
     handler: edit,
     schema: z.object({
       path: z.string(),
-      old_string: z.string(),
+      old_string: z.string().min(1),
       new_string: z.string(),
       message: z.string().optional(),
       expectedVersion: z.number().int().optional(),
