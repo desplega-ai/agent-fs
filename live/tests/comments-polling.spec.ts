@@ -59,6 +59,11 @@ async function installFixture(page: Page, counts: { unresolved: number; resolved
         case "tree":
           json = { tree: [] }
           break
+        case "drive-members":
+          json = { members: [{ userId: "another-user", email: "other@example.test", displayName: null }] }
+          break
+        case "reveal":
+          return route.fulfill({ status: 400, json: { error: "Unknown operation: reveal" } })
         default:
           throw new Error(`Unexpected op: ${body.op}`)
       }

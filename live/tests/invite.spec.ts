@@ -55,7 +55,7 @@ test("an admin invites a new email to two of three drives and the invitee lands 
   await dialog.getByLabel("Role on context").selectOption("editor")
   await dialog.getByRole("button", { name: "Invite", exact: true }).click()
 
-  await expect(dialog.getByText("new@example.test has no account yet")).toBeVisible()
+  await expect(dialog.getByText("Invite ready for new@example.test")).toBeVisible()
   await expect(dialog.getByText(/^Expires /)).toBeVisible()
   const link = await acceptLinkFrom(page)
   expect(server.calls).toEqual(["invite new@example.test viewer work:viewer,context:editor"])
