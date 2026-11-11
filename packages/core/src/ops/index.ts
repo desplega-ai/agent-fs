@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { OpContext } from "./types.js";
 import { checkPermission, getRequiredRole } from "../identity/rbac.js";
+import { ValidationError } from "../errors.js";
 import { write, writeRaw } from "./write.js";
 import { cat } from "./cat.js";
 import { edit } from "./edit.js";
@@ -493,7 +494,7 @@ export async function dispatchOp(
 ): Promise<unknown> {
   const op = opRegistry[opName];
   if (!op) {
-    throw new Error(`Unknown operation: ${opName}`);
+    throw new ValidationError(`Unknown operation: ${opName}`, { field: "op" });
   }
 
   // RBAC check — enforced at the core dispatcher level
@@ -506,8 +507,15 @@ export async function dispatchOp(
     });
   }
 
-  const validated = op.schema.parse(params);
-  const result = await op.handler(ctx, validated);
+  const parsed = op.schema.safeParse(params);
+  if (!parsed.success) {
+    const { issues } = parsed.error;
+    const detail = issues.map((i) => `${i.path.join(".") || "params"}: ${i.message}`).join("; ");
+    throw new ValidationError(`Invalid parameters for '${opName}': ${detail}`, {
+      field: issues[0]?.path.join(".") || undefined,
+    });
+  }
+  const result = await op.handler(ctx, parsed.data);
   recordOp(opName);
 
   // Enrich results with appUrl when available

@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { Server } from "bun";
 import { eq } from "drizzle-orm";
-import { ZodError } from "zod";
 import { Webhook } from "standardwebhooks";
 import { createTestContext } from "../../test-utils.js";
 import { schema } from "../../db/index.js";
@@ -308,15 +307,15 @@ describe("webhook ops", () => {
     ).rejects.toBeInstanceOf(ValidationError);
 
     for (const eventTypes of [["ping"], ["file.*"], [], ["comment.created", "nope"]]) {
-      await expect(op(ctx, "webhook-create", { url: URL_A, eventTypes })).rejects.toBeInstanceOf(ZodError);
+      await expect(op(ctx, "webhook-create", { url: URL_A, eventTypes })).rejects.toBeInstanceOf(ValidationError);
     }
-    await expect(op(ctx, "webhook-create", { url: "not a url", eventTypes: ["comment.created"] })).rejects.toBeInstanceOf(ZodError);
-    await expect(op(ctx, "webhook-create", { url: URL_A, eventTypes: ["comment.created"], scope: "all" })).rejects.toBeInstanceOf(ZodError);
+    await expect(op(ctx, "webhook-create", { url: "not a url", eventTypes: ["comment.created"] })).rejects.toBeInstanceOf(ValidationError);
+    await expect(op(ctx, "webhook-create", { url: URL_A, eventTypes: ["comment.created"], scope: "all" })).rejects.toBeInstanceOf(ValidationError);
   });
 
   test("eventTypes is required, so no hook gets file.changed unless it lists it", async () => {
     const { ctx } = fixture();
-    await expect(op(ctx, "webhook-create", { url: URL_A })).rejects.toBeInstanceOf(ZodError);
+    await expect(op(ctx, "webhook-create", { url: URL_A })).rejects.toBeInstanceOf(ValidationError);
     const all = await op<Created>(ctx, "webhook-create", { url: URL_A, eventTypes: [...WEBHOOK_EVENT_TYPES] });
     expect(all.eventTypes).toEqual([...WEBHOOK_EVENT_TYPES]);
     expect(all.eventTypes).toContain("file.changed");
@@ -564,7 +563,7 @@ describe("webhook-deliveries", () => {
     expect(failed.deliveries.map((d) => d.status)).toEqual(["failed", "failed", "failed"]);
 
     await expect(op(f.ctx, "webhook-deliveries", { id: hook.id, cursor: "garbage" })).rejects.toBeInstanceOf(ValidationError);
-    await expect(op(f.ctx, "webhook-deliveries", { id: hook.id, limit: 201 })).rejects.toBeInstanceOf(ZodError);
+    await expect(op(f.ctx, "webhook-deliveries", { id: hook.id, limit: 201 })).rejects.toBeInstanceOf(ValidationError);
   });
 
   test("a deleted hook's deliveries are gone; another hook's are not listed", async () => {

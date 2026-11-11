@@ -74,16 +74,19 @@ export function createMcpServer(options: McpServerOptions) {
       const ctx = getContext(extra);
       const result = await dispatchOp(ctx, "ls", { path: "/" }, { skipAuth: true }) as any;
       status.database = { ok: true, rootEntries: result.entries?.length ?? 0 };
-    } catch (err: any) {
-      status.database = { ok: false, error: err.message };
+    } catch (err) {
+      // Never echo internal errors (paths, SQL, endpoints) to the caller.
+      console.error("mcp health: database check failed:", err);
+      status.database = { ok: false };
     }
 
     // S3
     try {
       await s3.listObjects("", { delimiter: "/" });
       status.s3 = { ok: true };
-    } catch (err: any) {
-      status.s3 = { ok: false, error: err.message };
+    } catch (err) {
+      console.error("mcp health: s3 check failed:", err);
+      status.s3 = { ok: false };
     }
 
     // Embeddings

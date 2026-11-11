@@ -2,7 +2,7 @@ import type { MiddlewareHandler } from "hono";
 import type { AppEnv } from "../types.js";
 
 /** The token is the credential for /share/:token, /site/:token and /invites/:token, so it never reaches the logs. */
-function redactShareToken(path: string): string {
+export function redactShareToken(path: string): string {
   return path.replace(/^\/(share|site|invites)\/[^/]+/, "/$1/<token>");
 }
 
