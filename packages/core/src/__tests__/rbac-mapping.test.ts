@@ -36,4 +36,8 @@ describe("getRequiredRole", () => {
     expect(getRequiredRole("unknown_op")).toBe("admin");
     expect(getRequiredRole("")).toBe("admin");
   });
+
+  test.each(["constructor", "__proto__", "toString", "hasOwnProperty"])("inherited name %s defaults to admin", (name) => {
+    expect(getRequiredRole(name)).toBe("admin");
+  });
 });

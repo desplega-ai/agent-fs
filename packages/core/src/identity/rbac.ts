@@ -66,7 +66,7 @@ const OP_ROLES: Record<string, Role> = {
 };
 
 export function getRequiredRole(opName: string): Role {
-  return OP_ROLES[opName] ?? "admin";
+  return Object.hasOwn(OP_ROLES, opName) ? OP_ROLES[opName] : "admin";
 }
 
 /** True when `role` is present and at least as privileged as `required`. */

@@ -491,7 +491,8 @@ export async function dispatchOp(
   params: unknown,
   opts?: { skipAuth?: boolean }
 ): Promise<unknown> {
-  const op = opRegistry[opName];
+  // Own keys only: "constructor" / "__proto__" must take the unknown-op path.
+  const op = getOpDefinition(opName);
   if (!op) {
     throw new Error(`Unknown operation: ${opName}`);
   }
@@ -527,7 +528,7 @@ export function getRegisteredOps(): string[] {
 }
 
 export function getOpDefinition(name: string): OpDefinition | undefined {
-  return opRegistry[name];
+  return Object.hasOwn(opRegistry, name) ? opRegistry[name] : undefined;
 }
 
 // Re-export individual ops for direct use
