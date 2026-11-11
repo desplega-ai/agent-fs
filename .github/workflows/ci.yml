@@ -120,3 +120,56 @@ jobs:
       - name: Smoke test
         if: steps.changes.outputs.run == 'true'
         run: bash scripts/smoke-live-image.sh agent-fs-live:ci
+
+  # Live UI tests: every unit test under live/src (the `ci` job covers only
+  # live/src/lib, which needs no live dependencies) and the Playwright suite,
+  # which runs against fixtures. On PRs it runs only when live/ changes.
+  live-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect live changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qE '^(live/|package\.json$|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: oven-sh/setup-bun@v2
+        if: steps.changes.outputs.run == 'true'
+        with:
+          bun-version: "1.4.4"
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        if: steps.changes.outputs.run == 'true'
+        with:
+          node-version: '22'
+      # live/src/lib/__tests__/share-url-server.test.ts imports packages/core.
+      - name: Install root dependencies
+        if: steps.changes.outputs.run == 'true'
+        run: bun install --frozen-lockfile
+      - name: Install live dependencies
+        if: steps.changes.outputs.run == 'true'
+        working-directory: live
+        run: corepack enable && pnpm install --frozen-lockfile
+      - name: Unit tests
+        if: steps.changes.outputs.run == 'true'
+        working-directory: live
+        run: bun test src/
+      - name: Install Chromium
+        if: steps.changes.outputs.run == 'true'
+        working-directory: live
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Build
+        if: steps.changes.outputs.run == 'true'
+        working-directory: live
+        run: pnpm build
+      - name: Playwright
+        if: steps.changes.outputs.run == 'true'
+        working-directory: live
+        run: pnpm test:e2e
