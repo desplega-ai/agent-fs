@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { Eye, EyeOff, Trash2, LogIn, Info, ArrowRight, ChevronDown, Server } from "lucide-react"
@@ -137,17 +137,6 @@ export function CredentialsPage() {
     setActiveCredential(cred.id)
     navigate(successTarget, { replace: true })
   }
-
-  const autoSubmittedRef = useRef(false)
-  useEffect(() => {
-    if (autoSubmittedRef.current) return
-    if (mode !== "connect") return
-    if (!endpoint || !apiKey) return
-    if (!initialParams.get("apiUrl") || !initialParams.get("apiKey")) return
-    autoSubmittedRef.current = true
-    void handleConnect({ preventDefault: () => {} } as React.FormEvent)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const handleRemove = (id: string) => {
     removeCredential(id)
