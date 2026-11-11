@@ -25,7 +25,7 @@ export function authMiddleware(db: DB) {
   return async (c: Context, next: Next) => {
     const path = new URL(c.req.url).pathname;
 
-    if (PUBLIC_PATHS.some((p) => path === p || path.startsWith(p))) {
+    if (PUBLIC_PATHS.includes(path)) {
       return next();
     }
 

@@ -142,7 +142,7 @@ describe.skipIf(SKIP)("Ops API", () => {
       body: JSON.stringify({ op: "nonexistent" }),
     });
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
   });
 });
 
