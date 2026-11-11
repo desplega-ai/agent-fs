@@ -9,6 +9,7 @@ import type { AppEnv } from "./types.js";
 import { authMiddleware } from "./middleware/auth.js";
 import { handleError } from "./middleware/error.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
+import { ipRateLimitMiddleware } from "./middleware/ip-rate-limit.js";
 import { normalizePublicUrl, resolveApiUrl } from "./public-url.js";
 import { requestLogMiddleware } from "./middleware/request-log.js";
 import { authRoutes } from "./routes/auth.js";
@@ -73,6 +74,11 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   // Where a key-less browser on an org deep link can sign in. Answers only
   // `{ swarmUrl }`; per-IP limit like the invite preview.
   app.route("/orgs", publicOrgRoutes(db, { requestsPerMinute: 120 }));
+
+  // Registration is anonymous, so its limit is per client address: the
+  // general limiter below keys on headers the caller writes.
+  const registerRpm = config.server?.registerRateLimit?.requestsPerMinute ?? 120;
+  if (registerRpm > 0) app.use("/auth/register", ipRateLimitMiddleware(registerRpm));
 
   app.use("*", authMiddleware(db));
 

@@ -118,6 +118,10 @@ export interface AgentFSConfig {
     siteRateLimit?: {
       requestsPerMinute: number;
     };
+    /** Per-IP limit for the public POST /auth/register route (default 120). */
+    registerRateLimit?: {
+      requestsPerMinute: number;
+    };
     /**
      * Public address of this API server, e.g. https://agent-fs-acme.fly.dev.
      * Used to build absolute share links; when unset it is derived from the
@@ -326,6 +330,10 @@ function applyEnvOverrides(config: AgentFSConfig): AgentFSConfig {
   if (env.AGENT_FS_SITE_RATE_LIMIT) {
     const rpm = parseInt(env.AGENT_FS_SITE_RATE_LIMIT, 10);
     if (Number.isFinite(rpm) && rpm >= 0) config.server.siteRateLimit = { requestsPerMinute: rpm };
+  }
+  if (env.AGENT_FS_REGISTER_RATE_LIMIT) {
+    const rpm = parseInt(env.AGENT_FS_REGISTER_RATE_LIMIT, 10);
+    if (Number.isFinite(rpm) && rpm >= 0) config.server.registerRateLimit = { requestsPerMinute: rpm };
   }
   // Passed through as is, invalid or not: the server validates it at startup.
   // An empty or whitespace-only variable leaves the config file's value.
