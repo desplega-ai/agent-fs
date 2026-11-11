@@ -47,6 +47,7 @@ export const shortcutsRegistry: ShortcutDescriptor[] = [
   { key: "o", label: "Outline tab", group: "Sidebars", display: "O" },
   { key: "n", label: "New comment", group: "Comments", display: "N" },
   { key: "f", label: "Open full page", group: "File", display: "F" },
+  { key: "p", label: "Present", group: "File", display: "P" },
   { key: "y", label: "Copy path", group: "File", display: "Y" },
   { key: "shift+y", label: "Copy link", group: "File", display: "⇧Y" },
   { key: "d", label: "Download file", group: "File", display: "D" },

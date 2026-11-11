@@ -1,9 +1,10 @@
 import React, { Suspense, lazy, useState, useEffect, useCallback, useRef, type MutableRefObject } from "react"
-import { SquareArrowOutUpRight, History, MessageSquare, Code, Eye, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid, Type } from "lucide-react"
+import { SquareArrowOutUpRight, History, MessageSquare, Code, Eye, Link, Check, Download, Database, Pencil, Columns2, LayoutGrid, Type, Presentation } from "lucide-react"
 import { useNavigate, useSearchParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { isQueryablePath } from "@/lib/sql-engine/types"
 import { isHtmlPath, supportsHtmlSites } from "@/lib/html-view"
+import { enterFullscreen, presentUrl } from "@/lib/present"
 import { healthQueryOptions } from "@/lib/upload-limit"
 import { useAuth } from "@/contexts/auth"
 import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
@@ -396,6 +397,20 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
       openDetail({ history: true })
     }
   }
+  // The presented page, full screen. Same tab: a new one would open without
+  // the activation the full-screen request needs.
+  const onPresent = isHtml && orgId && driveId
+    ? () => {
+      enterFullscreen()
+      navigate(presentUrl(orgId, driveId, path))
+    }
+    : undefined
+  if (onPresent) {
+    fileShortcuts.p = (e) => {
+      e.preventDefault()
+      onPresent()
+    }
+  }
 
   // Tabular/data files (csv, tsv, parquet, xlsx, json, ndjson, sqlite, duckdb)
   // get a direct entry point into the SQL workbench, pre-bound to this file.
@@ -554,6 +569,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
           actions={fileActions}
           showExpand={showExpandButton}
           onExpand={openDetail}
+          onPresent={onPresent}
           onQuery={onQuery}
           commentCount={commentCount}
           showViewToggle={(isMd || isHtml) && !isEditing}
@@ -790,11 +806,13 @@ function SplitPane({ children, orientation }: { children: [React.ReactNode, Reac
   )
 }
 
-function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCount = 0, showViewToggle, showRaw, onToggleRaw, isEditable, isEditing, onEdit, mdEditView, onMdEditViewChange, showRichEditView, splitOrientation, onToggleOrientation }: {
+function ViewerHeader({ path, actions, showExpand, onExpand, onPresent, onQuery, commentCount = 0, showViewToggle, showRaw, onToggleRaw, isEditable, isEditing, onEdit, mdEditView, onMdEditViewChange, showRichEditView, splitOrientation, onToggleOrientation }: {
   path: string
   actions: ReturnType<typeof useFileActions>
   showExpand: boolean
   onExpand: (opts?: { history?: boolean }) => void
+  /** Set for files the presented page can show. */
+  onPresent?: () => void
   onQuery?: () => void
   commentCount?: number
   showViewToggle?: boolean
@@ -1028,6 +1046,24 @@ function ViewerHeader({ path, actions, showExpand, onExpand, onQuery, commentCou
               }
             />
             <TooltipContent>Version history <Kbd className="ml-1">H</Kbd></TooltipContent>
+          </Tooltip>
+        )}
+        {onPresent && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onPresent}
+                  className="text-muted-foreground"
+                  aria-label="Present"
+                >
+                  <Presentation />
+                </Button>
+              }
+            />
+            <TooltipContent>Present <Kbd className="ml-1">P</Kbd></TooltipContent>
           </Tooltip>
         )}
         {showExpand && (

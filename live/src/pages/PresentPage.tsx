@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { Link, useParams } from "react-router"
 import { ArrowLeft } from "lucide-react"
 import { HtmlViewer } from "@/components/viewers/HtmlViewer"
@@ -6,6 +7,7 @@ import { useAuth } from "@/contexts/auth"
 import { useHealth } from "@/hooks/use-health"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { isHtmlPath, supportsHtmlSites } from "@/lib/html-view"
+import { exitFullscreen } from "@/lib/present"
 
 export function PresentPage() {
   const params = useParams()
@@ -16,6 +18,8 @@ export function PresentPage() {
   // Per segment, so a `#` or `?` in a name stays part of the path.
   const fileUrl = `/file/~/${params.orgId}/${params.driveId}/${filePath.split("/").map(encodeURIComponent).join("/")}`
   useDocumentTitle(filePath.split("/").pop() || null)
+  // Present took the browser full screen; leaving the page gives it back.
+  useEffect(() => exitFullscreen, [])
 
   const backLink = (
     <Link
