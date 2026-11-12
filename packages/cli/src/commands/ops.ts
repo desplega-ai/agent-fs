@@ -34,6 +34,18 @@ export function resolveSinceDuration(value: string): string {
   return new Date(Date.now() - amount * unitMs).toISOString();
 }
 
+// Numeric flags must be plain integers: `parseInt` silently yields NaN for
+// garbage (serialized as null, which e.g. `share-create --expires-in` treats
+// as "never expires") and truncates trailing junk (`--limit 2x` becomes 2).
+export function parseNumericFlag(value: string | number, flagName: string): number {
+  if (typeof value === "number") {
+    if (Number.isInteger(value)) return value;
+  } else if (/^-?\d+$/.test(value.trim())) {
+    return Number(value.trim());
+  }
+  throw new Error(`Invalid value for ${flagName}: "${value}" (expected an integer)`);
+}
+
 const OP_COMMANDS: OpCommandDef[] = [
   { name: "write", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "File content (reads stdin if omitted)" }, { flag: "--file <path>", description: "Read bytes from a local file and upload without text decoding" }, { flag: "-m, --message <msg>", description: "Version message" }, { flag: "--expected-version <n>", description: "Fail if file is not at this version (optimistic concurrency)" }] },
   { name: "cat", args: [{ name: "path", required: true }], options: [{ flag: "--offset <n>", description: "Line offset" }, { flag: "--limit <n>", description: "Max lines (default: 200 when stdout is a TTY, unlimited when piped/redirected)" }, { flag: "--raw", description: "Exact stored bytes: no line-number gutter" }] },
@@ -209,7 +221,8 @@ export function registerOpCommands(
 
       for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth", "expiresIn", "maxViews"]) {
         if (params[key] !== undefined && params[key] !== null) {
-          params[key] = parseInt(params[key]);
+          const flag = `--${key.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase())}`;
+          params[key] = parseNumericFlag(params[key], flag);
         }
       }
 
