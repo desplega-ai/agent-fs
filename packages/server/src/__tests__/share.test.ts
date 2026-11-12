@@ -421,6 +421,20 @@ describe("GET /share/:token — page", () => {
     expect(after.headers.get("location")).toBeNull();
   });
 
+  test("a view-limited link's embed carries the view's grant and leaks no storage URL", async () => {
+    const s = await share(h, "/notes/pic.png", { maxViews: 1 });
+    const page = await (await get(h, s.sharePath)).text();
+    const grant = grantOf(page)!;
+    expect(grant).toBeTruthy();
+    expect(page).toContain(`<img class="media" src="/share/${s.token}/raw?g=${grant}"`);
+    expect(page).not.toContain("https://mock.local");
+    // The bare link is spent; the embed's own grant still reaches storage.
+    expect((await get(h, `${s.sharePath}/raw`)).status).toBe(410);
+    const raw = await get(h, withGrant(`${s.sharePath}/raw`, grant));
+    expect(raw.status).toBe(302);
+    expect(raw.headers.get("location")).toContain("https://mock.local/");
+  });
+
   test("download is a redirect to a short-lived attachment URL", async () => {
     const s = await share(h, "/notes/plain.txt");
     const res = await get(h, `${s.sharePath}/download`);
