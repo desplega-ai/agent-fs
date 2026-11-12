@@ -21,7 +21,7 @@ function comment(path: string, c: Json): Json {
  * With `html-comments` in `features`, `/site/` serves the page through the
  * server's real overlay when the viewer asks for it.
  */
-async function installFixture(page: Page, { features = ["share-links", "html-sites"] as string[] | null, site = html, signedIn = true, comments = [] as Json[] } = {}) {
+async function installFixture(page: Page, { features = ["share-links", "html-sites"] as string[] | null, site = html, signedIn = true, comments = [] as Json[], source = true } = {}) {
   const shared: string[] = []
   const adds: Json[] = []
   if (signedIn) {
@@ -40,6 +40,8 @@ async function installFixture(page: Page, { features = ["share-links", "html-sit
     else if (url.pathname === "/orgs") json = { orgs: [{ id: "org", name: "QA" }] }
     else if (url.pathname.endsWith("/drives")) json = { drives: [{ id: "drive", name: "QA", orgId: "org" }] }
     else if (url.pathname === "/content") {
+      // `source: false` is a file whose bytes cannot be downloaded.
+      if (!source) return route.abort()
       const isHtml = url.searchParams.get("path")?.endsWith(".html")
       return route.fulfill({ body: isHtml ? html : NOTES, contentType: "text/plain" })
     }
@@ -113,6 +115,23 @@ for (const [width, height] of [[1280, 844], [390, 844]] as const) {
     }
   })
 }
+
+test("n opens the comments rail with the add-comment form", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 844 })
+  await installFixture(page)
+  await present(page)
+  await expect(page.locator("aside")).toHaveCount(0)
+  await page.keyboard.press("n")
+  await expect(page.locator("aside").getByPlaceholder("Comment on this file...")).toBeFocused()
+})
+
+test("an HTML page renders even when its source cannot be downloaded", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 844 })
+  await installFixture(page, { features: ["share-links", "html-sites", "html-comments"], source: false })
+  const frame = await present(page)
+  expect(await frame.boundingBox()).toEqual({ x: 0, y: 0, width: 1280, height: 844 })
+  await expect(page.getByText("Failed to load the file.")).toHaveCount(0)
+})
 
 test("] opens the comments rail of the presented page and closes it again", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 844 })

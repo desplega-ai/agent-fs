@@ -61,6 +61,7 @@ export function PresentPage() {
     n: (e) => {
       e.preventDefault()
       uiChromeStore.openComments()
+      sidePanelStore.requestAddComment()
     },
   })
 
@@ -74,7 +75,9 @@ export function PresentPage() {
     </Link>
   )
 
-  if (healthLoading || (presentable && contentLoading)) {
+  // Markdown is the source; HTML is the frame, which only anchors comments to
+  // the source when it arrives, so a slow or failed download never holds it.
+  if (healthLoading || (presentable && !isHtml && contentLoading)) {
     return (
       <div className="flex h-dvh items-center justify-center">
         <Spinner size="lg" />
@@ -82,7 +85,7 @@ export function PresentPage() {
     )
   }
 
-  if (!presentable || !content) {
+  if (!presentable || (!isHtml && !content)) {
     return (
       <div className="flex h-dvh items-center justify-center p-8 text-center text-sm text-muted-foreground">
         {presentable ? "Failed to load the file." : "Only HTML and Markdown files can be presented."}
@@ -110,12 +113,12 @@ export function PresentPage() {
             path={filePath}
             className="h-full w-full"
             comments={commentsData?.comments}
-            content={content.content}
+            content={content?.content}
             onScrollToCommentRef={scrollToCommentRef}
           />
         ) : (
           <MarkdownViewer
-            content={content.content}
+            content={content!.content}
             path={filePath}
             comments={commentsData?.comments}
             className="h-full"
