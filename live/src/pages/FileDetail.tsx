@@ -22,8 +22,7 @@ import { useHealth } from "@/hooks/use-health"
 import { useFileActions } from "@/hooks/use-file-actions"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { isQueryablePath } from "@/lib/sql-engine/types"
-import { isHtmlPath, supportsHtmlSites } from "@/lib/html-view"
-import { enterFullscreen, presentUrl } from "@/lib/present"
+import { canPresent, enterFullscreen, presentUrl } from "@/lib/present"
 import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
 import { uiChromeStore } from "@/stores/ui-chrome"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
@@ -63,7 +62,7 @@ export function FileDetailPage() {
 
   // The presented page, full screen. Same tab: a new one would open without
   // the activation the full-screen request needs.
-  const onPresent = filePath && isHtmlPath(filePath) && supportsHtmlSites(health) && orgId && driveId
+  const onPresent = filePath && canPresent(filePath, health) && orgId && driveId
     ? () => {
       enterFullscreen()
       navigate(presentUrl(orgId, driveId, filePath))
