@@ -53,12 +53,15 @@ const storage = (page: Page) =>
   }))
 
 const connectButton = (page: Page) => page.locator("form").getByRole("button", { name: "Connect", exact: true })
+const linkNotice = (page: Page) => page.getByRole("status").filter({ hasText: "Filled in from your link." })
 
 test("apiUrl and apiKey in the query pre-fill the form and change nothing until Connect", async ({ page }) => {
   const log = await setup(page)
   await page.goto(`/credentials?apiUrl=${encodeURIComponent(S2)}&apiKey=af_dummy`)
   await expect(page.locator("#endpoint")).toHaveValue(S2)
   await expect(page.locator("#apiKey")).toHaveValue("af_dummy")
+  await expect(linkNotice(page)).toBeVisible()
+  await expect(connectButton(page)).toBeFocused()
   // Leave time for anything that would submit on mount.
   await page.waitForTimeout(2500)
 
@@ -79,6 +82,7 @@ test("/credentials without query params changes nothing and calls no endpoint", 
   const log = await setup(page)
   await page.goto("/credentials")
   await expect(connectButton(page)).toBeVisible()
+  await expect(linkNotice(page)).toHaveCount(0)
   await page.waitForTimeout(1000)
   const s = await storage(page)
   expect(s.active).toBe("cred-a")
@@ -97,4 +101,12 @@ test("a typed endpoint and key save and activate the new credential on Connect",
   expect(s.creds.map((c) => c.endpoint)).toEqual([S1, S2])
   expect(s.active).toBe(s.creds[1].id)
   expect(log.s2).toContain("GET /auth/me")
+})
+
+test("editing a field filled from the link hides the link notice", async ({ page }) => {
+  await setup(page)
+  await page.goto(`/credentials?apiUrl=${encodeURIComponent(S2)}&apiKey=af_dummy`)
+  await expect(linkNotice(page)).toBeVisible()
+  await page.locator("#endpoint").fill(S1)
+  await expect(linkNotice(page)).toHaveCount(0)
 })

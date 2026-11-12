@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router"
 import { useQuery } from "@tanstack/react-query"
-import { Eye, EyeOff, Trash2, LogIn, Info, ArrowRight, ChevronDown, Server } from "lucide-react"
+import { Eye, EyeOff, Trash2, LogIn, Info, ArrowRight, ChevronDown, Server, Link2 } from "lucide-react"
 import { AgentFsClient } from "@/api/client"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -53,6 +53,10 @@ export function CredentialsPage() {
   const [connecting, setConnecting] = useState(false)
   const [credentials, setCredentials] = useState(getCredentials)
   const [detailsCred, setDetailsCred] = useState<Credential | null>(null)
+  // A link that carries both fields says so, until the user edits either one.
+  const linkEndpoint = initialParams.get("apiUrl")
+  const linkKey = initialParams.get("apiKey")
+  const filledFromLink = !!linkEndpoint && !!linkKey && endpoint === linkEndpoint && apiKey === linkKey
 
   const successTarget = useMemo(() => {
     // Only the invite accept page may send people here and take them back.
@@ -159,6 +163,8 @@ export function CredentialsPage() {
     "Your swarm signs you in and brings you back to this page."
   ) : mode === "register" ? (
     "Enter your server endpoint and email to get a new API key."
+  ) : filledFromLink ? (
+    "Your link brought the endpoint and API key. One click connects you."
   ) : (
     <>
       Paste the endpoint and API key of your <span className="whitespace-nowrap">agent-fs</span> server.
@@ -206,6 +212,18 @@ export function CredentialsPage() {
       <div role="tabpanel" id="credentials-panel" aria-labelledby={`credentials-tab-${mode}`}>
         {mode === "connect" ? (
           <form onSubmit={handleConnect} className="space-y-4">
+            {filledFromLink && (
+              <p
+                role="status"
+                className="flex gap-2.5 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2.5 text-sm"
+              >
+                <Link2 aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
+                <span>
+                  <span className="font-medium">Filled in from your link.</span>{" "}
+                  <span className="text-muted-foreground">Click Connect to finish. Nothing changes until you do.</span>
+                </span>
+              </p>
+            )}
             <div className="space-y-1.5">
               <label className={LABEL} htmlFor="endpoint">
                 Endpoint URL
@@ -277,6 +295,7 @@ export function CredentialsPage() {
               variant={secondary ? "outline" : "default"}
               size="lg"
               className={SUBMIT}
+              autoFocus={filledFromLink}
             >
               {connecting ? "Connecting…" : "Connect"}
             </Button>
