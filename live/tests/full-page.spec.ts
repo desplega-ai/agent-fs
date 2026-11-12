@@ -162,6 +162,7 @@ test("a server without html-sites does not render the page", async ({ page }) =>
 })
 
 // A nested file: one at the drive root asks before rendering.
+// Entering full screen settles after the navigation on a slow runner, so wait for it.
 const isFullscreen = (page: Page) => page.evaluate(() => document.fullscreenElement != null)
 
 for (const [view, route] of [["file", "/file/~/org/drive/reports/page.html"], ["detail", "/detail/~/org/drive/reports/page.html"]] as const) {
@@ -175,7 +176,7 @@ for (const [view, route] of [["file", "/file/~/org/drive/reports/page.html"], ["
 
     await page.getByRole("button", { name: "Present" }).click()
     await expect(page).toHaveURL("/page/~/org/drive/reports/page.html")
-    expect(await isFullscreen(page)).toBe(true)
+    await expect.poll(() => isFullscreen(page)).toBe(true)
     await expect(page.locator("header")).toHaveCount(0)
 
     // Leaving the page gives the screen back.
@@ -192,7 +193,7 @@ test("P presents the file from the file view", async ({ page }) => {
   await expect(page.locator('iframe[title="reports/page.html"]')).toBeVisible()
   await page.keyboard.press("p")
   await expect(page).toHaveURL("/page/~/org/drive/reports/page.html")
-  expect(await isFullscreen(page)).toBe(true)
+  await expect.poll(() => isFullscreen(page)).toBe(true)
 })
 
 test("Present sits next to Open full page for an HTML file only", async ({ page }) => {
