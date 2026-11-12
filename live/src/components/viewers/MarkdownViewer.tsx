@@ -8,6 +8,8 @@ import { AddComment } from "@/components/comments/AddComment"
 import { MermaidDiagram } from "./MermaidDiagram"
 import { MarkdownImage, MarkdownDocContext } from "./MarkdownImage"
 import { CodeBlock } from "./CodeBlock"
+import { SwarmEmbedPlaceholder } from "./SwarmEmbedPlaceholder"
+import { remarkSwarmEmbed, SWARM_EMBED_ELEMENT } from "@/lib/swarm-embed"
 import { MarkdownPresence } from "@/components/presence/MarkdownPresence"
 import { Button } from "@/components/ui/button"
 import {
@@ -64,7 +66,11 @@ const markdownComponents: Components = {
     if (typeof src !== "string" || !src) return null
     return <MarkdownImage src={src} alt={alt} title={title} />
   },
-}
+  // `<SwarmSheet … />` and `<SwarmBoard … />` lines (see `remarkSwarmEmbed`).
+  // The key is not an HTML tag, so react-markdown's `Components` type has no
+  // slot for it.
+  [SWARM_EMBED_ELEMENT]: ({ node: _node, ...props }: Record<string, unknown>) => <SwarmEmbedPlaceholder {...props} />,
+} as Components
 
 type FrontmatterValue = string | number | boolean | null | FrontmatterValue[]
 type FrontmatterRecord = Record<string, FrontmatterValue>
@@ -224,7 +230,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
   const renderedMarkdown = useMemo(
     () => (
       <Markdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkSwarmEmbed]}
         rehypePlugins={[[rehypeHighlight, { detect: true, ignoreMissing: true }], rehypeSourceLines(lineOffset)]}
         components={markdownComponents}
       >

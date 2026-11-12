@@ -15,7 +15,18 @@ import {
   type LexicalExportVisitor,
   type MdastImportVisitor,
 } from "@mdxeditor/editor"
-import { $isTextNode, TextNode, type LexicalNode, type NodeKey, type SerializedTextNode } from "lexical"
+import {
+  $isTextNode,
+  DecoratorNode,
+  TextNode,
+  type LexicalNode,
+  type NodeKey,
+  type SerializedLexicalNode,
+  type SerializedTextNode,
+  type Spread,
+} from "lexical"
+import { createElement, type ReactElement } from "react"
+import { matchSwarmEmbed } from "@/lib/swarm-embed"
 
 // The mdast node types, taken from MDXEditor's own signature.
 type MdastNode = Parameters<Exclude<MdastImportVisitor<never>["testNode"], string>>[0]
@@ -231,6 +242,110 @@ export const inlineHtmlTextPlugin = realmPlugin({
       [addLexicalNode$]: RawHtmlTextNode,
       [addImportVisitor$]: inlineHtmlVisitor,
       [addExportVisitor$]: rawHtmlTextExportVisitor,
+    })
+  },
+})
+
+type SerializedSwarmEmbedNode = Spread<{ source: string }, SerializedLexicalNode>
+
+/**
+ * A `<SwarmSheet … />` or `<SwarmBoard … />` block, kept as the exact text it
+ * was read from. The editor shows a small label and never loads the object.
+ * The node is atomic (kept, moved or deleted as a whole) and writes back
+ * byte-for-byte, so a prose edit elsewhere in the file leaves the line alone.
+ */
+export class SwarmEmbedNode extends DecoratorNode<ReactElement> {
+  __source: string
+
+  static getType(): string {
+    return "swarm-embed"
+  }
+
+  static clone(node: SwarmEmbedNode): SwarmEmbedNode {
+    return new SwarmEmbedNode(node.__source, node.__key)
+  }
+
+  static importJSON(serializedNode: SerializedSwarmEmbedNode): SwarmEmbedNode {
+    return $createSwarmEmbedNode(serializedNode.source)
+  }
+
+  constructor(source = "", key?: NodeKey) {
+    super(key)
+    this.__source = source
+  }
+
+  exportJSON(): SerializedSwarmEmbedNode {
+    return { ...super.exportJSON(), source: this.__source }
+  }
+
+  createDOM(): HTMLElement {
+    return document.createElement("div")
+  }
+
+  updateDOM(): false {
+    return false
+  }
+
+  getTextContent(): string {
+    return this.__source
+  }
+
+  isInline(): false {
+    return false
+  }
+
+  decorate(): ReactElement {
+    const match = matchSwarmEmbed(this.__source)
+    const label = match.status === "embed" && match.tag === "SwarmBoard" ? "Swarm board" : "Swarm sheet"
+    return createElement(
+      "div",
+      {
+        "data-swarm-embed": "",
+        title: this.__source,
+        className: "my-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground select-none",
+      },
+      `${label} · renders live in the swarm dashboard.`,
+    )
+  }
+}
+
+export function $createSwarmEmbedNode(source: string): SwarmEmbedNode {
+  return new SwarmEmbedNode(source)
+}
+
+export function $isSwarmEmbedNode(node: LexicalNode | null | undefined): node is SwarmEmbedNode {
+  return node instanceof SwarmEmbedNode
+}
+
+// Runs before `inlineHtmlVisitor`. Only a valid tag in a block position is
+// taken; inline HTML and every other block fall through, so invalid tags and
+// other HTML blocks still fail the import and open in the source editor.
+const swarmEmbedImportVisitor: MdastImportVisitor<MdastHtml> = {
+  testNode: (node) => node.type === "html" && matchSwarmEmbed(node.value).status === "embed",
+  priority: 75,
+  visitNode({ mdastNode, mdastParent, actions }) {
+    if (!mdastParent || PHRASING_PARENTS.has(mdastParent.type)) {
+      actions.nextVisitor()
+      return
+    }
+    actions.addAndStepInto($createSwarmEmbedNode(mdastNode.value))
+  },
+}
+
+const swarmEmbedExportVisitor: LexicalExportVisitor<SwarmEmbedNode, MdastNode> = {
+  testLexicalNode: $isSwarmEmbedNode,
+  visitLexicalNode({ lexicalNode, mdastParent, actions }) {
+    actions.appendToParent(mdastParent, { type: "html", value: lexicalNode.__source })
+  },
+}
+
+/** Registers {@link SwarmEmbedNode} and its import and export visitors. */
+export const swarmEmbedPlugin = realmPlugin({
+  init(realm) {
+    realm.pubIn({
+      [addLexicalNode$]: SwarmEmbedNode,
+      [addImportVisitor$]: swarmEmbedImportVisitor,
+      [addExportVisitor$]: swarmEmbedExportVisitor,
     })
   },
 })
