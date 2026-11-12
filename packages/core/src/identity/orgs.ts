@@ -2,7 +2,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { NotFoundError, ValidationError } from "../errors.js";
-import { createDrive, describeDrives, findSoleAdminDrives, withWriteLock } from "./drives.js";
+import { createDrive, describeDrives, findSoleAdminDrives, revokeSharesCreatedBy, withWriteLock } from "./drives.js";
 import { grantDriveRole, grantOrgRole } from "./grants.js";
 import { assertDriveInOrg, getUserDriveRole, getUserOrgRole } from "./rbac.js";
 import { createPendingInvite, revokeOpenInviteForEmail } from "./invites.js";
@@ -302,6 +302,7 @@ export function removeOrgMember(
     // Org-scoped keys die with the membership: the member's own keys for this
     // org, and any key they minted here for someone else as an admin.
     revokeGrantedKeys(tx, { reason: "memberLeftOrg", orgId: params.orgId, userId: params.userId });
+    revokeSharesCreatedBy(tx, { orgId: params.orgId, userId: params.userId });
   });
 }
 
