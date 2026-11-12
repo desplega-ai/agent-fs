@@ -120,6 +120,7 @@ agent-fs exposes operational signal at well-known paths so agents can self-diagn
 ```
 
 - The **drive root** is read-only: `mkdir /mnt/agent-fs/new-drive` returns `EROFS`. Create drives via `agent-fs drive create` (CLI) and they'll show up automatically on next `readdir`.
+- Each drive directory is named after the drive. On a local mount, when several drives you can see share a name (every org starts with a `default` drive), each of them is listed as `<name>-<first 8 characters of the drive id>` instead, so one path never maps to two drives. The bare shared name does not resolve.
 - With `--remote`, drives from different orgs can share a name (every org's first drive is `default`). Your default drive keeps the plain name; each other drive with that name shows up as `<name>@<driveId>`.
 - The `current` symlink updates **dynamically** when you switch default drive (`agent-fs drive switch <name>`) — no remount needed.
 - POSIX locks (`flock`) return `ENOSYS` in v1; agents that rely on them must use the `expectedVersion` parameter on the CLI / MCP / HTTP surfaces for optimistic concurrency.

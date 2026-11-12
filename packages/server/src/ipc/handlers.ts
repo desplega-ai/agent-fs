@@ -141,9 +141,43 @@ interface Request {
   attempted_hash?: string;
 }
 
+interface VisibleDrive {
+  slug: string;
+  id: string;
+  orgId: string;
+  isDefault: boolean;
+  isPersonalOrg: boolean;
+}
+
 /**
- * Resolve the org + drive for an IPC request. `drive` is the slug or id; we
- * look it up against the user's visible drives.
+ * Every drive the user can see, each with a slug that names only that drive.
+ * Drive names repeat across orgs (every org starts with "default"), so a name
+ * shared by several drives gets a `-<first 8 of the drive id>` suffix on all
+ * of them; none keeps the bare name, so the result never depends on org order.
+ */
+function listVisibleDrives(ctx: IpcContext, userId: string): VisibleDrive[] {
+  const drives: VisibleDrive[] = [];
+  for (const org of listUserOrgs(ctx.db, userId)) {
+    for (const d of listDrivesForUser(ctx.db, org.id, userId)) {
+      drives.push({ slug: d.name, id: d.id, orgId: org.id, isDefault: d.isDefault, isPersonalOrg: org.isPersonal });
+    }
+  }
+  const countBy = (key: (d: VisibleDrive) => string) => {
+    const counts = new Map<string, number>();
+    for (const d of drives) counts.set(key(d), (counts.get(key(d)) ?? 0) + 1);
+    return counts;
+  };
+  const names = countBy((d) => d.slug);
+  for (const d of drives) if (names.get(d.slug)! > 1) d.slug = `${d.slug}-${d.id.slice(0, 8)}`;
+  // A suffixed slug can still equal another drive's literal name; the id is unique.
+  const slugs = countBy((d) => d.slug);
+  for (const d of drives) if (slugs.get(d.slug)! > 1) d.slug = d.id;
+  return drives;
+}
+
+/**
+ * Resolve the org + drive for an IPC request. `drive` is a drive id or a slug
+ * from `listVisibleDrives`; a bare name shared by several drives is not found.
  */
 function resolveDrive(
   ctx: IpcContext,
@@ -157,16 +191,9 @@ function resolveDrive(
   } catch {
     /* fall through to slug lookup */
   }
-  // Slug-based — walk every org the user can see. The number of orgs per
-  // local user is tiny (usually 1); this is fine.
-  const orgs = listUserOrgs(ctx.db, userId);
-  for (const org of orgs) {
-    const drives = listDrivesForUser(ctx.db, org.id, userId);
-    // Match by name (slug == name in this codebase).
-    const match = drives.find((d) => d.name === driveRef);
-    if (match) {
-      return { orgId: org.id, driveId: match.id };
-    }
+  const match = listVisibleDrives(ctx, userId).find((d) => d.slug === driveRef);
+  if (match) {
+    return { orgId: match.orgId, driveId: match.id };
   }
   const e: any = new Error(`Drive not found: ${driveRef}`);
   e.name = "NotFoundError";
@@ -220,29 +247,17 @@ async function dispatch(ctx: IpcContext, req: Request): Promise<unknown> {
 
     case "list_drives": {
       const auth = resolveAuth(ctx);
-      const orgs = listUserOrgs(ctx.db, auth.userId);
-      const out: Array<{ slug: string; id: string; org_id: string }> = [];
-      for (const org of orgs) {
-        const drives = listDrivesForUser(ctx.db, org.id, auth.userId);
-        for (const d of drives) {
-          out.push({ slug: d.name, id: d.id, org_id: org.id });
-        }
-      }
-      return { drives: out };
+      const drives = listVisibleDrives(ctx, auth.userId).map((d) => ({ slug: d.slug, id: d.id, org_id: d.orgId }));
+      return { drives };
     }
 
     case "default_drive_slug": {
       const auth = resolveAuth(ctx);
-      const orgs = listUserOrgs(ctx.db, auth.userId);
-      // First default-marked drive across the user's visible orgs wins.
-      for (const org of orgs) {
-        const drives = listDrivesForUser(ctx.db, org.id, auth.userId);
-        const def = drives.find((d) => d.isDefault) ?? drives[0];
-        if (def) {
-          return { default_drive_slug: def.name };
-        }
-      }
-      return { default_drive_slug: null };
+      const drives = listVisibleDrives(ctx, auth.userId);
+      // The personal org's default drive, else the first default-marked drive, else any.
+      const def =
+        drives.find((d) => d.isPersonalOrg && d.isDefault) ?? drives.find((d) => d.isDefault) ?? drives[0];
+      return { default_drive_slug: def?.slug ?? null };
     }
 
     case "get_attr": {
