@@ -129,6 +129,23 @@ export function runMigrations(sqlite: Database): void {
     sqlite.exec("ALTER TABLE orgs ADD COLUMN swarm_url TEXT");
   }
 
+  // Migration 3k: add orgs.owner_user_id, the user a personal org belongs to.
+  // A personal org can hold other members, so membership alone does not say
+  // whose it is. Backfill: createOrg inserts the creator's membership in the
+  // same call that creates the org, so the org's first membership row is its
+  // owner. Idempotent: only personal orgs still missing an owner are touched.
+  if (!orgCols.some((c) => c.name === "owner_user_id")) {
+    sqlite.exec("ALTER TABLE orgs ADD COLUMN owner_user_id TEXT");
+  }
+  sqlite.exec(
+    "UPDATE orgs SET owner_user_id = (" +
+      "SELECT om.user_id FROM org_members om WHERE om.org_id = orgs.id ORDER BY om.rowid LIMIT 1" +
+      ") WHERE is_personal = 1 AND owner_user_id IS NULL"
+  );
+  sqlite.exec(
+    "CREATE INDEX IF NOT EXISTS idx_orgs_owner_user_id ON orgs(owner_user_id) WHERE owner_user_id IS NOT NULL"
+  );
+
   // Migration 4: backfill explicit drive memberships (multi-tenant RBAC).
   //
   // Drive visibility is strict explicit membership: drives with zero

@@ -146,6 +146,7 @@ export {
   resetApiKeyOrgless,
   createOrg,
   listUserOrgs,
+  getPersonalOrgId,
   getOrg,
   parseSwarmUrl,
   setOrgSwarmUrl,
