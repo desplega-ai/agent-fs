@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { DB } from "../db/index.js";
 import { ValidationError } from "../errors.js";
@@ -297,7 +297,25 @@ export function removeDriveMember(
         )
       )
       .run();
+
+    revokeSharesCreatedBy(tx, { driveId: params.driveId, userId: params.userId });
   });
+}
+
+/**
+ * Share links are minted on a drive membership, so they end with it, the way
+ * org-scoped API keys do (revokeGrantedKeys). Scoped to one drive or a whole org.
+ */
+export function revokeSharesCreatedBy(
+  tx: DbTx,
+  params: { userId: string } & ({ driveId: string } | { orgId: string })
+): void {
+  const s = schema.shares;
+  const scope = "driveId" in params ? eq(s.driveId, params.driveId) : eq(s.orgId, params.orgId);
+  tx.update(s)
+    .set({ revokedAt: new Date() })
+    .where(and(scope, eq(s.createdBy, params.userId), isNull(s.revokedAt)))
+    .run();
 }
 
 export function setDriveMember(
