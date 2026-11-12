@@ -118,7 +118,7 @@ test("open mobile comments receive another user's comment and polling restarts a
   await expect(page.getByRole("dialog").getByText("No comments yet")).toBeVisible()
   await page.clock.runFor(10_000)
   await expect(page.getByRole("dialog").getByText(userComment.body)).toBeVisible()
-  expect(counts.unresolved).toBe(2)
+  await expect.poll(() => counts.unresolved).toBe(2)
 
   await page.keyboard.press("Escape")
   await expect(page.getByRole("dialog")).toBeHidden()
@@ -130,6 +130,6 @@ test("open mobile comments receive another user's comment and polling restarts a
   await expect(page.getByRole("dialog").getByText(userComment.body)).toBeVisible()
   const afterReopen = { ...counts }
   await page.clock.runFor(10_000)
-  expect(counts.unresolved).toBeGreaterThan(afterReopen.unresolved)
-  expect(counts.resolved).toBeGreaterThan(afterReopen.resolved)
+  await expect.poll(() => counts.unresolved).toBeGreaterThan(afterReopen.unresolved)
+  await expect.poll(() => counts.resolved).toBeGreaterThan(afterReopen.resolved)
 })
