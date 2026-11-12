@@ -5,6 +5,7 @@ import {
   getRegisterAllowedDomains,
   updateProfile,
   listUserOrgs,
+  getPersonalOrgId,
   resolveContext,
   resetApiKey,
   resetApiKeyOrgless,
@@ -124,11 +125,10 @@ export function authRoutes(db: DB) {
       return c.json({ apiKey });
     }
 
-    const org = orgs.find((o) => o.isPersonal) ?? orgs[0];
     const result = resetApiKey(db, {
       userId: user.id,
       actorId: user.id,
-      orgId: org.id,
+      orgId: getPersonalOrgId(db, user.id) ?? orgs[0].id,
     });
     return c.json({ apiKey: result.apiKey });
   });
@@ -138,8 +138,7 @@ export function authRoutes(db: DB) {
   // Audit events go to the caller's personal org, like /reset-key. A user
   // with no orgs (should not happen) gets the key without an event.
   const auditOrgId = (userId: string) => {
-    const orgs = listUserOrgs(db, userId);
-    return (orgs.find((o) => o.isPersonal) ?? orgs[0])?.id;
+    return getPersonalOrgId(db, userId) ?? listUserOrgs(db, userId)[0]?.id;
   };
 
   router.post("/keys", async (c) => {

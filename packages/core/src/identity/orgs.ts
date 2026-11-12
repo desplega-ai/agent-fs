@@ -23,6 +23,7 @@ export function createOrg(
       id,
       name: params.name,
       isPersonal: params.isPersonal ?? false,
+      ownerUserId: params.isPersonal ? params.userId : null,
       createdAt: now,
     })
     .run();
@@ -41,6 +42,20 @@ export function createOrg(
   });
 
   return { id, name: params.name };
+}
+
+/**
+ * The personal org created for this user at registration. Other people can be
+ * members of it, and the user can be a member of other people's personal orgs,
+ * so this reads the owner, never membership.
+ */
+export function getPersonalOrgId(db: DB, userId: string): string | null {
+  const org = db
+    .select({ id: schema.orgs.id })
+    .from(schema.orgs)
+    .where(and(eq(schema.orgs.ownerUserId, userId), eq(schema.orgs.isPersonal, true)))
+    .get();
+  return org?.id ?? null;
 }
 
 export function listUserOrgs(

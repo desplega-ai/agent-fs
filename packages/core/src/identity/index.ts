@@ -17,7 +17,7 @@ export {
   PRIMARY_API_KEY_ID,
 } from "./api-keys.js";
 export type { ApiKeyInfo, CreatedApiKey } from "./api-keys.js";
-export { createOrg, listUserOrgs, getOrg, parseSwarmUrl, setOrgSwarmUrl, inviteToOrg, addDriveMember, listOrgMembers, updateOrgMemberRole, removeOrgMember } from "./orgs.js";
+export { createOrg, getPersonalOrgId, listUserOrgs, getOrg, parseSwarmUrl, setOrgSwarmUrl, inviteToOrg, addDriveMember, listOrgMembers, updateOrgMemberRole, removeOrgMember } from "./orgs.js";
 export type { MemberRole, DriveGrant, InviteResult, AddedInviteResult, OrgInfo } from "./orgs.js";
 export {
   INVITE_TTL_SECONDS,
