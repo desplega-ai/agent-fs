@@ -49,6 +49,8 @@ export const orgs = sqliteTable("orgs", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   // The agent-swarm dashboard this org trusts to sign people in to it.
   swarmUrl: text("swarm_url"),
+  // The user a personal org was created for. Null on shared orgs.
+  ownerUserId: text("owner_user_id"),
 });
 
 // org_members

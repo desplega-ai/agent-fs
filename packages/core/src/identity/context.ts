@@ -4,6 +4,7 @@ import type { DB } from "../db/index.js";
 import { NotFoundError } from "../errors.js";
 import type { Role } from "./rbac.js";
 import { getUserDriveRole } from "./rbac.js";
+import { getPersonalOrgId } from "./orgs.js";
 
 export interface ResolvedContext {
   orgId: string;
@@ -75,27 +76,17 @@ export function resolveContext(
     return { orgId: params.orgId, driveId: drive.id, role };
   }
 
-  // Fallback: user's personal org's default drive
-  const personalOrg = db
-    .select({ orgId: schema.orgMembers.orgId })
-    .from(schema.orgMembers)
-    .innerJoin(schema.orgs, eq(schema.orgMembers.orgId, schema.orgs.id))
-    .where(
-      and(
-        eq(schema.orgMembers.userId, params.userId),
-        eq(schema.orgs.isPersonal, true)
-      )
-    )
-    .get();
-
-  if (!personalOrg) throw new Error("No personal org found for user");
+  // Fallback: the default drive of the personal org the user owns. Being a
+  // member of someone else's personal org never changes it.
+  const personalOrgId = getPersonalOrgId(db, params.userId);
+  if (!personalOrgId) throw new Error("No personal org found for user");
 
   const drive = db
     .select()
     .from(schema.drives)
     .where(
       and(
-        eq(schema.drives.orgId, personalOrg.orgId),
+        eq(schema.drives.orgId, personalOrgId),
         eq(schema.drives.isDefault, true)
       )
     )
@@ -106,5 +97,5 @@ export function resolveContext(
   const role = getUserDriveRole(db, params.userId, drive.id);
   if (!role) throw new Error("You do not have access to your default drive");
 
-  return { orgId: personalOrg.orgId, driveId: drive.id, role };
+  return { orgId: personalOrgId, driveId: drive.id, role };
 }
