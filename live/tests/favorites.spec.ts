@@ -89,7 +89,7 @@ test("clicking a tree row's star stars it without opening the file or folder", a
   await expect(page.locator('[data-tree-path="docs"]')).toHaveAttribute("data-tree-expanded", "false")
 
   expect(page.url()).toBe(urlBefore)
-  expect(calls).toEqual(["add /notes.md", "add /docs"])
+  await expect.poll(() => [...calls]).toEqual(["add /notes.md", "add /docs"])
 })
 
 test("Enter and Space on a folder-view star toggle it and never open the entry", async ({ page }) => {
@@ -106,7 +106,7 @@ test("Enter and Space on a folder-view star toggle it and never open the entry",
   await expect(page.getByRole("button", { name: "Add a.md to favorites" })).toBeFocused()
 
   expect(page.url()).toBe(urlBefore)
-  expect(calls).toEqual(["add /docs/a.md", "remove /docs/a.md"])
+  await expect.poll(() => [...calls]).toEqual(["add /docs/a.md", "remove /docs/a.md"])
 })
 
 test("the Favorites tab lists stars, opens them, and unstars without navigating", async ({ page }) => {
@@ -125,7 +125,7 @@ test("the Favorites tab lists stars, opens them, and unstars without navigating"
   await list.getByRole("button", { name: "Remove docs from favorites" }).click()
   await expect(list.getByRole("button", { name: "Remove docs from favorites" })).toHaveCount(0)
   expect(page.url()).toBe(urlBefore)
-  expect(calls).toEqual(["remove /docs"])
+  await expect.poll(() => [...calls]).toEqual(["remove /docs"])
 
   // Opening a favorite navigates to it.
   await list.getByRole("button", { name: "notes.md Drive root" }).click()
@@ -139,7 +139,7 @@ test("the open file's header star toggles the favorite", async ({ page }) => {
   await header.click()
   await expect(page.getByRole("button", { name: "Remove notes.md from favorites" }).first()).toHaveAttribute("aria-pressed", "true")
   await expect(page).toHaveURL(/\/file\/~\/org\/drive\/notes\.md$/)
-  expect(calls).toEqual(["add /notes.md"])
+  await expect.poll(() => [...calls]).toEqual(["add /notes.md"])
 })
 
 test("a server without favorites shows no stars and no Favorites tab", async ({ page }) => {
