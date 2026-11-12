@@ -75,9 +75,10 @@ export function PresentPage() {
     </Link>
   )
 
-  // Markdown is the source; HTML is the frame, which only anchors comments to
-  // the source when it arrives, so a slow or failed download never holds it.
-  if (healthLoading || (presentable && !isHtml && contentLoading)) {
+  // Markdown is the source. HTML is the frame: the source only anchors its
+  // comments, so the frame waits for the download (a frame mounted before it
+  // would reload with the comments flag) but not for its success.
+  if (healthLoading || (presentable && contentLoading)) {
     return (
       <div className="flex h-dvh items-center justify-center">
         <Spinner size="lg" />
