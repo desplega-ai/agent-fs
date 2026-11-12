@@ -33,4 +33,16 @@ describe("parseNumericFlag", () => {
     expect(parseNumericFlag("3600s")).toBe(null);
     expect(parseNumericFlag("12 34")).toBe(null);
   });
+
+  test("accepts the largest safe integer", () => {
+    expect(parseNumericFlag("9007199254740991")).toBe(9007199254740991);
+    expect(parseNumericFlag("-9007199254740991")).toBe(-9007199254740991);
+  });
+
+  test("rejects values beyond the safe range (Infinity/rounding → corrupt request)", () => {
+    expect(parseNumericFlag("9007199254740992")).toBe(null);
+    expect(parseNumericFlag("9007199254740993")).toBe(null);
+    expect(parseNumericFlag("9".repeat(400))).toBe(null);
+    expect(parseNumericFlag("-9007199254740993")).toBe(null);
+  });
 });

@@ -39,10 +39,14 @@ export function resolveSinceDuration(value: string): string {
  * replaces, it rejects non-numeric input ("abc" — `parseInt` yields NaN, which
  * serializes to `null` on the wire; `share-create --expires-in abc` then meant
  * "never expires") and values with trailing garbage ("2x" was silently read
- * as 2). Returns `null` when the value is not a whole decimal integer.
+ * as 2). Returns `null` when the value is not a whole decimal integer that
+ * fits the safe range — arbitrarily long digit strings reach the request as
+ * `Infinity` or a rounded value (both silently corrupt it).
  */
 export function parseNumericFlag(value: string): number | null {
-  return /^[+-]?\d+$/.test(value.trim()) ? parseInt(value.trim(), 10) : null;
+  const trimmed = value.trim();
+  const parsed = Number(trimmed);
+  return /^[+-]?\d+$/.test(trimmed) && Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 const OP_COMMANDS: OpCommandDef[] = [
