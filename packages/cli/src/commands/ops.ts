@@ -34,6 +34,17 @@ export function resolveSinceDuration(value: string): string {
   return new Date(Date.now() - amount * unitMs).toISOString();
 }
 
+/**
+ * Strictly parse a numeric CLI flag value. Unlike the bare `parseInt` this
+ * replaces, it rejects non-numeric input ("abc" — `parseInt` yields NaN, which
+ * serializes to `null` on the wire; `share-create --expires-in abc` then meant
+ * "never expires") and values with trailing garbage ("2x" was silently read
+ * as 2). Returns `null` when the value is not a whole decimal integer.
+ */
+export function parseNumericFlag(value: string): number | null {
+  return /^[+-]?\d+$/.test(value.trim()) ? parseInt(value.trim(), 10) : null;
+}
+
 const OP_COMMANDS: OpCommandDef[] = [
   { name: "write", args: [{ name: "path", required: true }], options: [{ flag: "--content <text>", description: "File content (reads stdin if omitted)" }, { flag: "--file <path>", description: "Read bytes from a local file and upload without text decoding" }, { flag: "-m, --message <msg>", description: "Version message" }, { flag: "--expected-version <n>", description: "Fail if file is not at this version (optimistic concurrency)" }] },
   { name: "cat", args: [{ name: "path", required: true }], options: [{ flag: "--offset <n>", description: "Line offset" }, { flag: "--limit <n>", description: "Max lines (default: 200 when stdout is a TTY, unlimited when piped/redirected)" }, { flag: "--raw", description: "Exact stored bytes: no line-number gutter" }] },
@@ -209,7 +220,13 @@ export function registerOpCommands(
 
       for (const key of ["offset", "limit", "lines", "v1", "v2", "version", "expectedVersion", "depth", "expiresIn", "maxViews"]) {
         if (params[key] !== undefined && params[key] !== null) {
-          params[key] = parseInt(params[key]);
+          const parsed = parseNumericFlag(String(params[key]));
+          if (parsed === null) {
+            const flag = key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+            console.error(`Error: --${flag} expects an integer, got "${params[key]}"`);
+            process.exit(1);
+          }
+          params[key] = parsed;
         }
       }
 
