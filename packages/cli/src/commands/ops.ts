@@ -206,6 +206,13 @@ export function registerOpCommands(
         params.expiresIn = def.name === "share-create" && params["expires-in"] === "never" ? null : params["expires-in"];
         delete params["expires-in"];
       }
+      // Commander camel-cases `--expires-in` to `expiresIn`, so the kebab-case
+      // branch above never fires in real CLI runs; without this normalization
+      // `share-create --expires-in never` reaches the numeric loop below and
+      // exits 1, breaking both never-expiry E2E scenarios.
+      if (def.name === "share-create" && params.expiresIn === "never") {
+        params.expiresIn = null;
+      }
       // `--one-off` is sugar for `--max-views 1` (commander camel-cases it).
       if (params.oneOff !== undefined) {
         if (params.oneOff) params.maxViews = 1;
