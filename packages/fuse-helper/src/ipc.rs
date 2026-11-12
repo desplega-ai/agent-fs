@@ -611,6 +611,7 @@ impl HttpIpcClient {
         let orgs: OrgsResponse = orgs_resp.json().await.context("decode /orgs")?;
 
         let mut table = DriveTable::default();
+        let mut found: Vec<DriveInfo> = Vec::new();
         for org in orgs.orgs {
             let drives_url = format!("{}/orgs/{}/drives", self.base_url, org.id);
             let drives_resp = self
@@ -634,18 +635,51 @@ impl HttpIpcClient {
             let drives: DrivesResponse =
                 drives_resp.json().await.context("decode drives response")?;
             for d in drives.drives {
-                // Slug == name in this codebase (see daemon
-                // `handlers.ts:213`). Keep the same mapping here.
-                table
-                    .by_slug
-                    .insert(d.name.clone(), (d.id.clone(), org.id.clone()));
-                table.slug_by_id.insert(d.id.clone(), d.name.clone());
-                table.all.push(DriveInfo {
+                found.push(DriveInfo {
                     slug: d.name,
                     id: d.id,
                     org_id: org.id.clone(),
                 });
             }
+        }
+
+        // Slug == name in this codebase (see daemon `handlers.ts:213`), but
+        // names are not unique across orgs: every org's first drive is
+        // `default`. A shared name stays bare only for the `/auth/me` default
+        // drive; every other holder becomes `<name>@<driveId>`, so the order
+        // of `GET /orgs` never decides which drive a path reaches.
+        let default_drive = match self.ensure_auth_me().await {
+            Ok(()) => self.default_drive.get().cloned(),
+            Err(e) => {
+                tracing::debug!(error = %e, "no default drive for slug assignment");
+                None
+            }
+        };
+        let mut name_count: HashMap<String, usize> = HashMap::new();
+        for d in &found {
+            *name_count.entry(d.slug.clone()).or_default() += 1;
+        }
+        let mut bare = Vec::new();
+        let mut qualified = Vec::new();
+        for mut d in found {
+            if name_count[&d.slug] == 1 || default_drive.as_deref() == Some(d.id.as_str()) {
+                bare.push(d);
+            } else {
+                d.slug = format!("{}@{}", d.slug, d.id);
+                qualified.push(d);
+            }
+        }
+        // Bare names first, so a qualified slug can never displace one.
+        for d in bare.into_iter().chain(qualified) {
+            if table.by_slug.contains_key(&d.slug) {
+                tracing::warn!(slug = %d.slug, drive_id = %d.id, "skipping drive with taken slug");
+                continue;
+            }
+            table
+                .by_slug
+                .insert(d.slug.clone(), (d.id.clone(), d.org_id.clone()));
+            table.slug_by_id.insert(d.id.clone(), d.slug.clone());
+            table.all.push(d);
         }
         *self.drive_table.lock().await = Some(table);
         Ok(())
