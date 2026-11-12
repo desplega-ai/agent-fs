@@ -384,27 +384,41 @@ describe("GET /share/:token — page", () => {
     expect((await get(big, `${s.sharePath}/raw`)).status).toBe(413);
   });
 
-  test("images, PDFs and video embed a short-lived presigned URL and open only that origin in the CSP", async () => {
-    const cases: Array<[string, RegExp]> = [
-      ["/notes/pic.png", /<img class="media" src="https:\/\/mock\.local\//],
-      ["/notes/doc.pdf", /<iframe class="media" src="https:\/\/mock\.local\//],
-      ["/notes/clip.mp4", /<video class="media" src="https:\/\/mock\.local\//],
+  test("images, PDFs and video embed /raw, which redirects to a short-lived inline URL", async () => {
+    const cases: Array<[string, string]> = [
+      ["/notes/pic.png", "img"],
+      ["/notes/doc.pdf", "iframe"],
+      ["/notes/clip.mp4", "video"],
     ];
-    for (const [path, pattern] of cases) {
+    for (const [path, tag] of cases) {
       const s = await share(h, path);
       const res = await get(h, s.sharePath);
       const body = await res.text();
-      expect(body).toMatch(pattern);
+      expect(body).toContain(`<${tag} class="media" src="/share/${s.token}/raw"`);
+      // The embed loads from this host, then follows the redirect to storage.
       const csp = res.headers.get("content-security-policy")!;
-      expect(csp).toContain("img-src https://mock.local");
-      expect(csp).toContain("media-src https://mock.local");
-      expect(csp).toContain("frame-src https://mock.local");
-      // inline disposition + explicit content type on the presigned URL
-      const src = /src="([^"]+)"/.exec(body.slice(body.indexOf("<main>")))![1].replace(/&amp;/g, "&");
-      const u = new URL(src);
-      expect(Number(u.searchParams.get("e"))).toBeLessThanOrEqual(3600);
+      expect(csp).toContain("img-src 'self' https://mock.local");
+      expect(csp).toContain("media-src 'self' https://mock.local");
+      expect(csp).toContain("frame-src 'self' https://mock.local");
+      expect(body).not.toContain("https://mock.local");
+      const raw = await get(h, `${s.sharePath}/raw`);
+      expect(raw.status).toBe(302);
+      const u = new URL(raw.headers.get("location")!);
+      expect(Number(u.searchParams.get("e"))).toBeLessThanOrEqual(300);
       expect(u.searchParams.get("cd")).toMatch(/^inline;/);
     }
+  });
+
+  test("revoking a link stops the embed of a page that was already served", async () => {
+    const s = await share(h, "/notes/pic.png");
+    const page = await (await get(h, s.sharePath)).text();
+    const src = /src="([^"]+)"/.exec(page.slice(page.indexOf("<main>")))![1];
+    expect(src).toBe(`/share/${s.token}/raw`);
+    expect((await get(h, src)).status).toBe(302);
+    await op(h, { op: "share-revoke", id: s.id });
+    const after = await get(h, src);
+    expect(after.status).toBe(410);
+    expect(after.headers.get("location")).toBeNull();
   });
 
   test("download is a redirect to a short-lived attachment URL", async () => {
@@ -684,12 +698,10 @@ describe("time is read fresh at every authorization and presign point", () => {
     const s = await share(t, "/pic.png", { expiresIn: 60 });
     setShare(t, s.id, "expires_at", new Date(Math.floor(Date.now() / 1000) * 1000 + 6000));
 
-    const page = await (await get(t, s.sharePath)).text();
-    const embed = /src="([^"]+)"/.exec(page.slice(page.indexOf("<main>")))![1].replace(/&amp;/g, "&");
     const raw = (await get(t, `${s.sharePath}/raw`)).headers.get("location")!;
     const download = (await get(t, `${s.sharePath}/download`)).headers.get("location")!;
 
-    for (const ttl of [urlTtl(embed), urlTtl(raw), urlTtl(download)]) {
+    for (const ttl of [urlTtl(raw), urlTtl(download)]) {
       expect(ttl).toBeGreaterThanOrEqual(1);
       expect(ttl).toBeLessThanOrEqual(6);
     }
@@ -697,9 +709,6 @@ describe("time is read fresh at every authorization and presign point", () => {
 
   test("far from expiry the fixed ceilings still apply", async () => {
     const s = await share(t, "/pic.png");
-    const page = await (await get(t, s.sharePath)).text();
-    const embed = /src="([^"]+)"/.exec(page.slice(page.indexOf("<main>")))![1].replace(/&amp;/g, "&");
-    expect(urlTtl(embed)).toBe(3600);
     expect(urlTtl((await get(t, `${s.sharePath}/raw`)).headers.get("location")!)).toBe(300);
     expect(urlTtl((await get(t, `${s.sharePath}/download`)).headers.get("location")!)).toBe(300);
   });
@@ -844,6 +853,8 @@ describe("a slow presigner cannot extend a link past its expiry", () => {
 
   type Surface = "page" | "raw" | "download";
   const surfaces: Surface[] = ["page", "raw", "download"];
+  // The page signs (to learn the storage origin) but never releases a URL.
+  const issuers: Surface[] = ["raw", "download"];
   const OK: Record<Surface, number> = { page: 200, raw: 302, download: 302 };
 
   let p: Harness;
@@ -896,7 +907,7 @@ describe("a slow presigner cannot extend a link past its expiry", () => {
     return { s, t0, expiresAt: t0 + 6000 };
   }
 
-  test.each(surfaces)("%s: signing that lands inside the link still dies with it", async (surface) => {
+  test.each(issuers)("%s: signing that lands inside the link still dies with it", async (surface) => {
     const { s, t0, expiresAt } = await shortLink();
     const undo = slowSigner(() => {
       setSystemTime(new Date(t0 + 2000));
@@ -982,12 +993,12 @@ describe("a slow presigner cannot extend a link past its expiry", () => {
     }
   });
 
-  test.each(surfaces)("%s: with no delay the URL is unchanged: the ceiling, minus nothing", async (surface) => {
+  test.each(issuers)("%s: with no delay the URL is unchanged: the ceiling, minus nothing", async (surface) => {
     const s = await share(p, "/pic.png");
     const { res, url } = await issue(surface, s.sharePath);
     expect(res.status).toBe(OK[surface]);
     const ttl = Number(new URL(url!).searchParams.get("X-Amz-Expires"));
-    expect(ttl).toBe(surface === "page" ? 3600 : 300);
+    expect(ttl).toBe(300);
   });
 });
 
@@ -1045,7 +1056,7 @@ describe("every share response carries the security baseline", () => {
   test("the preview page keeps its own CSP and the PDF route its deliberate override", async () => {
     const png = await get(h, (await share(h, "/notes/pic.png")).sharePath);
     const csp = png.headers.get("content-security-policy")!;
-    expect(csp).toContain("img-src https://mock.local");
+    expect(csp).toContain("img-src 'self' https://mock.local");
     expect(csp).not.toContain("sandbox"); // the page itself is not sandboxed
 
     const local = await setup({ presigned: false });

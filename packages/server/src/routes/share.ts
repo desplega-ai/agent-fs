@@ -34,8 +34,7 @@ import { renderMarkdownDocument } from "../share/markdown.js";
 
 /** Largest text/markdown file rendered into the page; bigger ones are download-only. */
 const MAX_PREVIEW_BYTES = 1024 * 1024;
-/** Longest an embed (or a download redirect) presigned URL lives. */
-const EMBED_URL_TTL_SECONDS = 3600;
+/** Longest a /raw or /download redirect's presigned URL lives. */
 const DOWNLOAD_URL_TTL_SECONDS = 300;
 
 function isNotFound(err: any): boolean {
@@ -147,7 +146,7 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
     let body: ShareBody;
     let embedSource: string | null = null;
     try {
-      const built = await buildBody({ s3, key, share: spent, filename, type, size: head.size, token, grant });
+      const built = await buildBody({ s3, key, share: spent, type, size: head.size, token, grant });
       // No time left to issue an embed URL for: the link is over.
       if (!built) return expired(spent);
       body = built.body;
@@ -189,7 +188,7 @@ export function shareRoutes(db: DB, s3: StorageAdapter, opts: { requestsPerMinut
   const authorizeBytes = (c: Context) =>
     authorizeShareBytes(db, c.req.param("token")!, c.req.query("g"), new Date());
 
-  // --- Inline bytes for the page's embed (backends without presigned URLs) ---
+  // --- Inline bytes for the page's embed ---
 
   router.get("/:token/raw", async (c) => {
     const access = authorizeBytes(c);
@@ -363,13 +362,12 @@ async function buildBody(args: {
   s3: StorageAdapter;
   key: string;
   share: ShareRecord;
-  filename: string;
   type: ShareFileType;
   size: number;
   token: string;
   grant: string | null;
 }): Promise<{ body: ShareBody; embedSource: string | null } | null> {
-  const { s3, key, share, filename, type, size, token, grant } = args;
+  const { s3, key, share, type, size, token, grant } = args;
 
   if (type.downloadOnly) {
     return {
@@ -391,17 +389,17 @@ async function buildBody(args: {
 
   if (isEmbeddable(type)) {
     const tag = type.kind === "pdf" ? "iframe" : type.kind === "image" ? "img" : type.kind === "audio" ? "audio" : "video";
+    // Always /raw, which re-authorizes every fetch, so a revoke stops the embed:
+    // a presigned URL in the page would stay valid in storage after it.
+    const embed: ShareBody = { kind: "embed", tag, src: `/share/${token}/raw${grantQuery(grant)}` };
     if (s3.capabilities.presignedUrls) {
-      // Signed against the clock now, and never valid past the link's expiry.
-      const url = await presignShareUrl(s3, share, key, {
-        capSeconds: EMBED_URL_TTL_SECONDS,
-        contentType: type.mime,
-        disposition: contentDisposition("inline", filename),
-      });
+      // /raw redirects to storage, so the CSP must allow that origin too. This
+      // URL is signed only to learn it, and is never released.
+      const url = await presignShareUrl(s3, share, key, { capSeconds: DOWNLOAD_URL_TTL_SECONDS });
       if (url === null) return null;
-      return { body: { kind: "embed", tag, src: url }, embedSource: new URL(url).origin };
+      return { body: embed, embedSource: `'self' ${new URL(url).origin}` };
     }
-    return { body: { kind: "embed", tag, src: `/share/${token}/raw${grantQuery(grant)}` }, embedSource: "'self'" };
+    return { body: embed, embedSource: "'self'" };
   }
 
   if (type.kind === "markdown" || type.kind === "text" || type.kind === "sniff") {
