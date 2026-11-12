@@ -9,7 +9,7 @@ import { copiedMimeType } from "./mime.js";
 import { indexBytesForSearch } from "./search-index.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { normalizePath } from "./paths.js";
-import { ValidationError } from "../errors.js";
+import { NotFoundError, ValidationError } from "../errors.js";
 import { withPathLock } from "./path-lock.js";
 
 export async function cp(
@@ -32,7 +32,19 @@ export async function cp(
     }
 
     // 1. Copy in S3
-    const head = await ctx.s3.headObject(fromKey);
+    let head;
+    try {
+      head = await ctx.s3.headObject(fromKey);
+    } catch (err: any) {
+      if (
+        err?.name === "NotFound" ||
+        err?.name === "NoSuchKey" ||
+        err?.$metadata?.httpStatusCode === 404
+      ) {
+        throw new NotFoundError(`File not found: ${from}`, { path: from });
+      }
+      throw err;
+    }
     const contentType = copiedMimeType(head.contentType, to);
     const copyResult = await ctx.s3.copyObject(
       fromKey,

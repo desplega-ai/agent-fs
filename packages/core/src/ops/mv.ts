@@ -13,7 +13,7 @@ import { extractIndexableText, copiedMimeType } from "./mime.js";
 import { clearSearchData } from "./search-index.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { normalizePath } from "./paths.js";
-import { ValidationError } from "../errors.js";
+import { NotFoundError, ValidationError } from "../errors.js";
 import { favoritesAfterMove } from "./favorite.js";
 import { imageEligible, queueImageEmbeddings } from "../search/image-embedding.js";
 import { canRenderPdfPages } from "../search/pdf.js";
@@ -40,7 +40,19 @@ export async function mv(
     }
 
     // 1. Copy to new location
-    const head = await ctx.s3.headObject(fromKey);
+    let head;
+    try {
+      head = await ctx.s3.headObject(fromKey);
+    } catch (err: any) {
+      if (
+        err?.name === "NotFound" ||
+        err?.name === "NoSuchKey" ||
+        err?.$metadata?.httpStatusCode === 404
+      ) {
+        throw new NotFoundError(`File not found: ${from}`, { path: from });
+      }
+      throw err;
+    }
     const contentType = copiedMimeType(head.contentType, to);
     const copyResult = await ctx.s3.copyObject(
       fromKey,
