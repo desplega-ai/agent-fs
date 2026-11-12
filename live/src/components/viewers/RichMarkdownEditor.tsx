@@ -38,7 +38,7 @@ import { useTheme } from "@/hooks/use-theme"
 import { toast } from "@/stores/toast"
 import { cn } from "@/lib/utils"
 import { EditToolbar } from "./EditToolbar"
-import { htmlImagePlugin, inlineHtmlTextPlugin } from "./rich-markdown-html"
+import { htmlImagePlugin, inlineHtmlTextPlugin, swarmEmbedPlugin } from "./rich-markdown-html"
 
 // Languages offered in the code block language picker. Any other fence
 // language still opens in CodeMirror through the catch-all descriptor below
@@ -241,6 +241,7 @@ export default function RichMarkdownEditor({
       imagePlugin(),
       htmlImagePlugin(),
       inlineHtmlTextPlugin(),
+      swarmEmbedPlugin(),
       tablePlugin(),
       codeBlockPlugin({
         defaultCodeBlockLanguage: "",
@@ -280,7 +281,8 @@ export default function RichMarkdownEditor({
           // shows as literal text through `inlineHtmlTextPlugin`; a file with
           // HTML blocks fails the import and opens in the source editor
           // (`onParseError`). `<img>` tags still become image nodes through
-          // `htmlImagePlugin`.
+          // `htmlImagePlugin`, and a valid `<SwarmSheet … />` or
+          // `<SwarmBoard … />` block is kept as written by `swarmEmbedPlugin`.
           suppressHtmlProcessing
           onChange={handleChange}
           onError={handleError}

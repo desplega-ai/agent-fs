@@ -60,6 +60,25 @@ const FORMATTED_FILE = [
   "",
 ].join("\n")
 
+const SHEET_TAG = '<SwarmSheet id="7f1c2a4e-9b3d-4e61-8a0f-5c2d1e3b4a67" tab="Q4 plan" range="B2:D9" />'
+const BOARD_TAG = '<SwarmBoard id="0d9b6e2a-3c41-4f8e-b7a5-91e2c6f0d384" height="400" fit="true" />'
+
+// A report with a sheet and a board embed on their own lines.
+const EMBED_FILE = [
+  "# Q4 report",
+  "",
+  "Numbers first.",
+  "",
+  SHEET_TAG,
+  "",
+  "Then the plan board.",
+  "",
+  BOARD_TAG,
+  "",
+  "Closing **notes**.",
+  "",
+].join("\n")
+
 function imageFile(html: string): string {
   return ["# Images", "", html, ""].join("\n")
 }
@@ -221,8 +240,8 @@ type EditorRef = { getMarkdown(): string; focus(cb?: () => void, opts?: { defaul
 async function exportMarkdown(content: string, edit?: (editor: EditorRef) => Promise<void>): Promise<string> {
   const React = await import("react")
   const { createRoot } = await import("react-dom/client")
-  const { MDXEditor, headingsPlugin, linkPlugin, listsPlugin, tablePlugin } = await import("@mdxeditor/editor")
-  const { htmlImagePlugin, inlineHtmlTextPlugin } = await import("../rich-markdown-html")
+  const { MDXEditor, headingsPlugin, linkPlugin, listsPlugin, quotePlugin, tablePlugin } = await import("@mdxeditor/editor")
+  const { htmlImagePlugin, inlineHtmlTextPlugin, swarmEmbedPlugin } = await import("../rich-markdown-html")
   const host = document.createElement("div")
   document.body.appendChild(host)
   const root = createRoot(host) as Root
@@ -234,7 +253,7 @@ async function exportMarkdown(content: string, edit?: (editor: EditorRef) => Pro
       markdown: content,
       suppressHtmlProcessing: true,
       toMarkdownOptions: { bullet: "-", rule: "-" },
-      plugins: [headingsPlugin(), listsPlugin(), linkPlugin(), tablePlugin(), htmlImagePlugin(), inlineHtmlTextPlugin()],
+      plugins: [headingsPlugin(), listsPlugin(), quotePlugin(), linkPlugin(), tablePlugin(), htmlImagePlugin(), inlineHtmlTextPlugin(), swarmEmbedPlugin()],
     } as never),
   )
   await waitFor(() => host.querySelector('[contenteditable="true"] h1'))
@@ -310,4 +329,81 @@ describe("RichMarkdownEditor inline HTML placeholders", () => {
     expect((window as { __flag5?: number }).__flag5).toBeUndefined()
     expect(await exportMarkdown(file)).toBe(file)
   })
+})
+
+describe("RichMarkdownEditor swarm embeds", () => {
+  let rendered: Rendered
+
+  beforeAll(async () => {
+    rendered = await renderEditor(EMBED_FILE, el => el.querySelector("h1") !== null)
+  })
+
+  test("a file with embed lines opens in the rich editor", () => {
+    expect(rendered.parseErrors).toBe(0)
+  })
+
+  test("each embed is a label, not an element made from the tag", () => {
+    const labels = Array.from(rendered.editable.querySelectorAll("[data-swarm-embed]"))
+    expect(labels.map(el => el.textContent)).toEqual([
+      "Swarm sheet · renders live in the swarm dashboard.",
+      "Swarm board · renders live in the swarm dashboard.",
+    ])
+    expect(rendered.editable.querySelectorAll("swarmsheet, swarmboard, swarm-embed").length).toBe(0)
+  })
+
+  test("an unedited file exports byte-equal", async () => {
+    expect(await exportMarkdown(EMBED_FILE)).toBe(EMBED_FILE)
+  })
+
+  test("an edit to a prose line saves both tag lines byte-for-byte", async () => {
+    const saved = await exportMarkdown(EMBED_FILE, async editor => {
+      await new Promise<void>(r => editor.focus(r, { defaultSelection: "rootEnd" }))
+      editor.insertMarkdown("Appended line.")
+    })
+    expect(saved).toContain("Appended line.")
+    expect(saved.split("\n")).toContain(SHEET_TAG)
+    expect(saved.split("\n")).toContain(BOARD_TAG)
+    expect(saved.replace(/\n*Appended line\.\n$/, "\n")).toBe(EMBED_FILE)
+  })
+
+  test("a tag in a block quote exports byte-equal", async () => {
+    const quoted = ["# Nested", "", "> Quoted.", ">", `> ${SHEET_TAG}`, ""].join("\n")
+    expect(await exportMarkdown(quoted)).toBe(quoted)
+  })
+
+  // The list writer normalizes a loose item's spacing, as it does for any
+  // list; the tag itself comes back unchanged.
+  test("a tag in a list item keeps its text", async () => {
+    const listed = ["# Nested", "", "- item", "", `  ${BOARD_TAG}`, ""].join("\n")
+    const saved = await exportMarkdown(listed)
+    expect(saved.split("\n").map(line => line.trim())).toContain(BOARD_TAG)
+  })
+
+  test("a tag inside a paragraph stays inline text and round-trips", async () => {
+    const file = `# Inline\n\nUse ${SHEET_TAG} to embed.\n`
+    const inline = await renderEditor(file, el => el.querySelector("h1") !== null)
+    expect(inline.parseErrors).toBe(0)
+    expect(inline.editable.querySelectorAll("[data-swarm-embed]").length).toBe(0)
+    expect(inline.editable.textContent).toContain(SHEET_TAG)
+    expect(await exportMarkdown(file)).toBe(file)
+  })
+
+  // Anything that is not a valid tag keeps today's behaviour: the import
+  // fails and the file opens in the source editor.
+  const refused: [string, string][] = [
+    ["an unknown attribute", '<SwarmSheet id="7f1c2a4e-9b3d-4e61-8a0f-5c2d1e3b4a67" onload="window.__flag6 = 1" />'],
+    ["an expression", "<SwarmSheet id={uuid} />"],
+    ["a missing id", "<SwarmBoard />"],
+    ["another HTML block", "<details>x</details>"],
+  ]
+  for (const [name, tag] of refused) {
+    test(`a block tag with ${name} reports a parse error`, async () => {
+      const file = ["# Refused", "", "Prose.", "", tag, ""].join("\n")
+      const result = await renderEditor(file, el => el.querySelector("h1") !== null)
+      expect(result.parseErrors).toBe(1)
+      expect(result.editable.querySelectorAll("[data-swarm-embed]").length).toBe(0)
+      expect(scriptAttributes(result.editable)).toEqual([])
+      expect((window as { __flag6?: number }).__flag6).toBeUndefined()
+    })
+  }
 })
