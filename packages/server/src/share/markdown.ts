@@ -281,8 +281,14 @@ export function renderMarkdownDocument(source: string): MarkdownDocument {
 
   const slots: Slot[] = [];
   const slot = (s: Slot) => `${PH_OPEN}${slots.push(s) - 1}${PH_CLOSE}`;
-  /** Placeholders back to their source text (for code, attributes and plain text). */
+  /** Placeholders back to their source text, for hrefs and heading text (escaped or stripped later). */
   const restore = (text: string) => text.replace(PLACEHOLDER, (_, i) => slots[Number(i)]?.raw ?? "");
+  /**
+   * Same, for HTML output: callback children are already escaped, so the source
+   * text must be too. The prose splitter can misread a block as prose (indented
+   * code, fences inside quotes), leaving placeholders inside code.
+   */
+  const restoreHtml = (text: string) => text.replace(PLACEHOLDER, (_, i) => escapeHtml(slots[Number(i)]?.raw ?? ""));
 
   const { body: withoutDefs, defs } = extractFootnoteDefs(rawBody);
   const prose = (text: string) =>
@@ -332,7 +338,7 @@ export function renderMarkdownDocument(source: string): MarkdownDocument {
       return `<div class="callout callout-${type.toLowerCase()}"><p class="callout-title">${CALLOUTS[type]}</p>${rest}</div>\n`;
     },
     code: (children: string, meta: any) => {
-      const code = restore(children);
+      const code = restoreHtml(children);
       const lang = codeLanguage(meta);
       if (lang === "mermaid") {
         features.mermaid = true;
@@ -347,7 +353,7 @@ export function renderMarkdownDocument(source: string): MarkdownDocument {
       const label = lang ? ` data-lang="${escapeHtml(lang)}"` : "";
       return `<div class="code-block"${label}><pre class="code"><code${cls}>${code}</code></pre></div>\n`;
     },
-    codespan: (children: string) => `<code>${restore(children)}</code>`,
+    codespan: (children: string) => `<code>${restoreHtml(children)}</code>`,
     hr: () => "<hr>\n",
     strong: (children: string) => `<strong>${children}</strong>`,
     emphasis: (children: string) => `<em>${children}</em>`,

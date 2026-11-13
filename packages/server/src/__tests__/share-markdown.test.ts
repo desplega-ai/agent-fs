@@ -130,6 +130,21 @@ describe("share markdown: nothing from the file becomes markup", () => {
     expect(doc.html).not.toMatch(/href="[^"]*<span/);
   });
 
+  test("math-like text stays escaped in every kind of code block", () => {
+    for (const md of [
+      "```\n$<b>x</b>$\n```\n",
+      "para\n\n    $<b>x</b>$\n",
+      "> ~~~\n> $<b>x</b>$\n> ~~~\n",
+      "- item\n\n  ~~~\n  $<b>x</b>$\n  ~~~\n",
+      "```\na\n    ```\n$<b>x</b>$\n```\n",
+      "`a` $<b>x</b>$ `b`\n",
+    ]) {
+      const html = render(md).html;
+      expect(html).not.toContain("<b>");
+      expect(html).toContain("&lt;b&gt;");
+    }
+  });
+
   test("only http(s), mailto and in-page fragment links survive", () => {
     const doc = render("[a](javascript:alert(1)) [b](#goals) [c](/rel) <https://ok.example> www.ok.example\n");
     expect(doc.html).toContain('<a href="#goals">b</a>');
