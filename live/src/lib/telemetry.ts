@@ -10,6 +10,10 @@
  * Do Not Track. See docs/telemetry.md.
  */
 
+import { routeTemplate } from "./route-template"
+
+export { routeTemplate }
+
 const TELEMETRY_ENDPOINT = "https://proxy.desplega.sh/v1/events"
 const ID_KEY = "agent-fs:telemetry-id"
 const SESSION_KEY = "agent-fs:telemetry-session"
@@ -42,28 +46,6 @@ function defaultDeps(): TelemetryDeps {
 
 function randomHex(): string {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 16)
-}
-
-/** Route templates from App.tsx. Keep in sync when routes change. */
-const ROUTE_TEMPLATES: [RegExp, string][] = [
-  [/^\/credentials\/?$/, "/credentials"],
-  [/^\/files\/?$/, "/files"],
-  [/^\/orgs\/[^/]+\/files(\/.*)?$/, "/orgs/:orgId/files/*"],
-  [/^\/file\/~\/[^/]+\/[^/]+(\/.*)?$/, "/file/~/:orgId/:driveId/*"],
-  [/^\/detail\/~\/[^/]+\/[^/]+(\/.*)?$/, "/detail/~/:orgId/:driveId/*"],
-  [/^\/sql\/~\/[^/]+\/[^/]+\/?$/, "/sql/~/:orgId/:driveId"],
-  [/^\/members\/~\/[^/]+\/[^/]+\/?$/, "/members/~/:orgId/:driveId"],
-  [/^\/invite\/?$/, "/invite"],
-  [/^\/invite\/[^/]+\/?$/, "/invite/:token"],
-  [/^\/?$/, "/"],
-]
-
-/** Map a concrete path to its route template; unknown paths become "other". */
-export function routeTemplate(pathname: string): string {
-  for (const [pattern, template] of ROUTE_TEMPLATES) {
-    if (pattern.test(pathname)) return template
-  }
-  return "other"
 }
 
 /** Fire-and-forget. Never throws. */
