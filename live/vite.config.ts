@@ -3,6 +3,7 @@ import path from "path"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
+import { ROUTE_TEMPLATES } from "./src/lib/route-template"
 
 /** Plausible site script id of the hosted UI (live.agent-fs.dev). */
 const DEFAULT_PLAUSIBLE_SCRIPT_ID = "4ExgxHDFIoeAnKsDUlJ1U"
@@ -17,6 +18,11 @@ function plausibleAnalytics(): Plugin {
   const enabled = flag === "1" || flag === "true"
   const scriptId =
     (process.env.VITE_PLAUSIBLE_SCRIPT_ID ?? "").trim() || DEFAULT_PLAUSIBLE_SCRIPT_ID
+  // Page URLs carry API keys (query), invite tokens (fragment) and org, drive
+  // and file names (path). Send the origin plus the route template instead,
+  // and only the origin of other-origin URLs (outbound links, referrers).
+  const routes = JSON.stringify(ROUTE_TEMPLATES.map(([re, template]) => [re.source, template]))
+  const transformRequest = `function(p){var T=${routes};function t(s){var u;try{u=new URL(s,location.href)}catch(e){return location.origin}if(u.origin!==location.origin)return u.origin;for(var i=0;i<T.length;i++)if(new RegExp(T[i][0]).test(u.pathname))return u.origin+T[i][1];return u.origin+"/other"}p.u=t(p.u);if(p.r)p.r=t(p.r);if(p.p&&typeof p.p.url==="string")p.p.url=t(p.p.url);return p}`
   return {
     name: "plausible-analytics",
     transformIndexHtml() {
@@ -30,7 +36,8 @@ function plausibleAnalytics(): Plugin {
         {
           tag: "script",
           children:
-            "window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};plausible.init()",
+            "window.plausible=window.plausible||function(){(plausible.q=plausible.q||[]).push(arguments)},plausible.init=plausible.init||function(i){plausible.o=i||{}};" +
+            `plausible.init({transformRequest:${transformRequest}})`,
           injectTo: "head",
         },
       ]

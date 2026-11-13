@@ -55,7 +55,9 @@ builds ship with no analytics script by default.
 
 To enable production analytics, set `VITE_PLAUSIBLE_ANALYTICS=1` in the Vercel
 project for `live` and rebuild/redeploy. Changing these variables requires a new
-build.
+build. Events report the page as its route template (for example
+`/file/~/:orgId/:driveId/*`) with no query string or fragment, and other-origin
+URLs as their origin only.
 
 Separately, production builds of `live` send one anonymous `live.session_started`
 telemetry event per browser session (see [docs/telemetry.md](./docs/telemetry.md)).
