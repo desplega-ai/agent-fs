@@ -10,9 +10,10 @@ on:
         required: true
         type: string
 
+# Read-only by default. Only the publish jobs get the extra scopes they use,
+# so build and test steps never hold a write token or the OIDC identity.
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
   # ----------------------------------------------------------------------
@@ -24,11 +25,19 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     outputs:
       release_tag: ${{ env.RELEASE_TAG }}
+      # Later jobs check out this commit, not the tag name, so they build
+      # exactly what this job tested.
+      release_sha: ${{ steps.sha.outputs.sha }}
       pkg_version: ${{ steps.pkg.outputs.version }}
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           ref: ${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+
+      - name: Record tested commit
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
         with:
@@ -68,7 +77,8 @@ jobs:
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
-          ref: ${{ needs.validate.outputs.release_tag }}
+          ref: ${{ needs.validate.outputs.release_sha }}
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@b3b07ba8b418998c39fb20f53e8b695cdcc8de1b # stable, 2024-09-23
         with:
@@ -114,10 +124,14 @@ jobs:
   publish-fuse-subpackages:
     needs: [validate, build-fuse]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm publish --provenance
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
-          ref: ${{ needs.validate.outputs.release_tag }}
+          ref: ${{ needs.validate.outputs.release_sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
@@ -205,7 +219,8 @@ jobs:
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
-          ref: ${{ needs.validate.outputs.release_tag }}
+          ref: ${{ needs.validate.outputs.release_sha }}
+          persist-credentials: false
 
       - uses: oven-sh/setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2.0.1
         with:
@@ -244,12 +259,16 @@ jobs:
   publish-main:
     needs: [validate, publish-fuse-subpackages, build-manifest]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release create
+      id-token: write # npm publish --provenance
     env:
       RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
-          ref: ${{ needs.validate.outputs.release_tag }}
+          ref: ${{ needs.validate.outputs.release_sha }}
+          persist-credentials: false
 
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
