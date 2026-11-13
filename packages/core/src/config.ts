@@ -358,9 +358,13 @@ function readConfigFile(): Partial<AgentFSConfig> {
   return JSON.parse(raw) as Partial<AgentFSConfig>;
 }
 
+/** The config file merged with defaults, without env overrides. */
+export function getStoredConfig(): AgentFSConfig {
+  return deepMergeConfig(DEFAULT_CONFIG, readConfigFile());
+}
+
 export function getConfig(): AgentFSConfig {
-  const parsed = readConfigFile();
-  return applyEnvOverrides(deepMergeConfig(DEFAULT_CONFIG, parsed));
+  return applyEnvOverrides(getStoredConfig());
 }
 
 export function setConfig<K extends keyof AgentFSConfig>(

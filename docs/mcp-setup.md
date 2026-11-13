@@ -164,7 +164,7 @@ agent-fs has three search tools for different use cases:
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `AGENT_FS_API_URL` | Server URL (e.g., `http://localhost:7433`) | For remote mode |
+| `AGENT_FS_API_URL` | Server URL (e.g., `http://localhost:7433`). Needs `AGENT_FS_API_KEY` too; the key saved in config only goes to the saved `apiUrl` or the configured `server.host`/`server.port` | For remote mode |
 | `AGENT_FS_API_KEY` | API key for authentication | For remote mode |
 | `AGENT_FS_HOME` | Data directory (default: `~/.agent-fs`) | No |
 | `OPENAI_API_KEY` | OpenAI API key for embeddings | For semantic search |
@@ -178,7 +178,7 @@ Semantic search (`search` tool) requires an embedding provider. Set `OPENAI_API_
 
 ### "Cannot connect to agent-fs"
 
-The daemon must be running. Start it with `agent-fs daemon start`, or set `AGENT_FS_API_URL` to point to a remote server. Default port is 7433.
+The daemon must be running. Start it with `agent-fs daemon start`, or point to a remote server with `AGENT_FS_API_URL` and `AGENT_FS_API_KEY` (or `agent-fs config set apiUrl <url>`). Default port is 7433.
 
 ### Tools not appearing
 

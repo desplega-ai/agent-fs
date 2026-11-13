@@ -8,6 +8,7 @@ export {
 export type { FtsMigrationResult } from "./db/fts-migration.js";
 export {
   getConfig,
+  getStoredConfig,
   getMaxUploadBytes,
   getRegisterAllowedDomains,
   DEFAULT_MAX_UPLOAD_BYTES,

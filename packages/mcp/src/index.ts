@@ -3,11 +3,25 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { getConfig, VERSION } from "@/core";
+import { getStoredConfig, VERSION } from "@/core";
 
-const config = getConfig();
-const apiUrl = process.env.AGENT_FS_API_URL ?? config.apiUrl ?? `http://${config.server.host}:${config.server.port}`;
-const apiKey = process.env.AGENT_FS_API_KEY ?? config.apiKey ?? config.auth?.apiKey;
+// Bun also loads a .env from the directory the MCP host spawns us in, so env
+// overrides may not come from the user. The stored key only goes to the server
+// stored next to it; an env URL needs an env key, and PORT/HOST (server-side
+// settings) never pick the target.
+const config = getStoredConfig();
+const envUrl = process.env.AGENT_FS_API_URL || undefined;
+const envKey = process.env.AGENT_FS_API_KEY || undefined;
+
+if (envUrl && !envKey) {
+  console.error(
+    "Error: AGENT_FS_API_URL is set without AGENT_FS_API_KEY. Set both, or save the URL with `agent-fs config set apiUrl <url>`."
+  );
+  process.exit(1);
+}
+
+const apiUrl = envUrl ?? config.apiUrl ?? `http://${config.server.host}:${config.server.port}`;
+const apiKey = envKey ?? config.apiKey ?? config.auth?.apiKey;
 
 if (!apiKey) {
   console.error("Error: No API key. Register with `agent-fs auth register` or set AGENT_FS_API_KEY.");
@@ -27,7 +41,7 @@ try {
 } catch (err) {
   console.error(
     `Cannot connect to agent-fs at ${apiUrl}.\n` +
-    `Start a daemon with \`agent-fs daemon start\` or set AGENT_FS_API_URL to connect to a remote server.`
+    `Start a daemon with \`agent-fs daemon start\` or set AGENT_FS_API_URL and AGENT_FS_API_KEY to connect to a remote server.`
   );
   process.exit(1);
 }
