@@ -204,16 +204,29 @@ function ensureHomeDir(): void {
  * inside an owner-only home dir (0700). The write `mode` applies only on
  * create, so chmod also tightens files and dirs from older installs.
  */
-function writeConfigFile(config: Partial<AgentFSConfig>): void {
-  const configPath = getConfigPath();
-  writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+function tightenConfigPerms(configPath: string): void {
   for (const [path, mode] of [[configPath, 0o600], [getHome(), 0o700]] as const) {
     try {
       chmodSync(path, mode);
     } catch {
-      // Not the owner (e.g. a shared AGENT_FS_HOME): keep the write, skip the chmod.
+      // Missing yet, or not the owner (e.g. a shared AGENT_FS_HOME): skip the chmod.
     }
   }
+}
+
+/** Config paths already tightened by a read in this process. */
+const tightenedOnRead = new Set<string>();
+
+/**
+ * The only config.json writer. Writes the object as given (no defaults merged).
+ * Tightens before writing so new secrets never land in a 0644 file, and after
+ * so a freshly created file is 0600 whatever the umask.
+ */
+export function writeConfigFile(config: object): void {
+  const configPath = getConfigPath();
+  tightenConfigPerms(configPath);
+  writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+  tightenConfigPerms(configPath);
 }
 
 /**
@@ -371,6 +384,11 @@ function readConfigFile(): Partial<AgentFSConfig> {
     return structuredClone(DEFAULT_CONFIG);
   }
 
+  // Installs that never write again (e.g. daemon-only) still get tightened.
+  if (!tightenedOnRead.has(configPath)) {
+    tightenConfigPerms(configPath);
+    tightenedOnRead.add(configPath);
+  }
   const raw = readFileSync(configPath, "utf-8");
   return JSON.parse(raw) as Partial<AgentFSConfig>;
 }

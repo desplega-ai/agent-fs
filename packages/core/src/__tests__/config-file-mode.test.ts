@@ -1,8 +1,9 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { chmodSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { getConfig, getConfigPath, setConfig, setConfigValue } from "../config.js";
+import { getOrCreateInstallId } from "../telemetry.js";
 
 const mode = (path: string) => statSync(path).mode & 0o777;
 
@@ -47,6 +48,32 @@ describe.skipIf(process.platform === "win32")("config file permissions", () => {
 
     setConfig("apiKey", "af_dummy_remote_key");
 
+    expect(mode(getConfigPath())).toBe(0o600);
+    expect(mode(home)).toBe(0o700);
+  });
+
+  function seedLooseConfig(config: object): void {
+    mkdirSync(home, { recursive: true });
+    chmodSync(home, 0o755);
+    writeFileSync(getConfigPath(), JSON.stringify(config));
+    chmodSync(getConfigPath(), 0o644);
+  }
+
+  test("minting a telemetry install ID tightens a 0644 config.json and 0755 home", () => {
+    seedLooseConfig({ apiKey: "af_dummy_remote_key" });
+
+    const installId = getOrCreateInstallId();
+
+    expect(installId).toMatch(/^install_/);
+    expect(JSON.parse(readFileSync(getConfigPath(), "utf-8")).apiKey).toBe("af_dummy_remote_key");
+    expect(mode(getConfigPath())).toBe(0o600);
+    expect(mode(home)).toBe(0o700);
+  });
+
+  test("a read-only install (install ID already set) is tightened on first read", () => {
+    seedLooseConfig({ apiKey: "af_dummy_remote_key", telemetry: { installId: "install_existing" } });
+
+    expect(getOrCreateInstallId()).toBe("install_existing");
     expect(mode(getConfigPath())).toBe(0o600);
     expect(mode(home)).toBe(0o700);
   });
