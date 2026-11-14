@@ -42,6 +42,20 @@ describe("sql op result size", () => {
     expect(res.truncated).toBe(true);
   });
 
+  test("escaped and multi-byte characters count toward the limit", async () => {
+    process.env.AGENT_FS_SQL_MAX_RESULT_BYTES = String(MiB);
+    const { ctx } = createTestContext();
+    // Each value is 64 KiB of characters but about 384 KiB of JSON (\u0001).
+    for (const ch of ["chr(1)", "'€'"]) {
+      const res = await sql(ctx, {
+        query: `SELECT i, repeat(${ch}, ${64 * 1024}) AS v FROM range(20) t(i)`,
+        maxRows: 20,
+      });
+      expect(Buffer.byteLength(JSON.stringify(res.rows))).toBeLessThanOrEqual(MiB);
+      expect(res.truncated).toBe(true);
+    }
+  });
+
   test("a single row over the limit is rejected", async () => {
     process.env.AGENT_FS_SQL_MAX_RESULT_BYTES = "1000";
     const { ctx } = createTestContext();

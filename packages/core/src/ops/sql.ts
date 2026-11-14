@@ -274,9 +274,22 @@ function toJsonValue(v: unknown): unknown {
   return String(v);
 }
 
+/** Approximate JSON size of a string in UTF-8 bytes, counting escapes. */
+function jsonStringSize(s: string): number {
+  let n = s.length + 2;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x20) n += 5; // worst case \uXXXX
+    else if (c === 0x22 || c === 0x5c) n += 1; // \" and \\
+    else if (c >= 0x800) n += 2; // 3 UTF-8 bytes (a surrogate pair totals 4)
+    else if (c >= 0x80) n += 1; // 2 UTF-8 bytes
+  }
+  return n;
+}
+
 /** Approximate JSON size of a value produced by toJsonValue. */
 function jsonSize(v: unknown): number {
-  if (typeof v === "string") return v.length + 2;
+  if (typeof v === "string") return jsonStringSize(v);
   if (Array.isArray(v)) return v.reduce((n: number, x) => n + jsonSize(x) + 1, 2);
   if (v && typeof v === "object") {
     let n = 2;
@@ -536,7 +549,8 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
       }));
 
       // Convert value by value against a byte budget, so a few huge computed
-      // values cannot pull an unbounded result into the process.
+      // values cannot produce an unbounded JSON result. The rows already read
+      // into DuckDB chunks above are not covered by this budget.
       const available = Math.min(reader.currentRowCount, maxRows);
       let truncated = reader.currentRowCount > maxRows || !reader.done;
       let resultBytes = 0;
