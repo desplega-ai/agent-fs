@@ -48,8 +48,10 @@ fi
 cid=$(compose ps -q agent-fs)
 check "agent-fs container health" "$(docker inspect --format '{{.State.Health.Status}}' "$cid")" "healthy"
 image=$(docker inspect --format '{{.Image}}' "$cid")
-# Uncompressed layer bytes, comparable across Docker image stores (.Size can be the compressed size).
-echo "info image size: $(( $(docker save "$image" | wc -c) / 1000000 )) MB uncompressed, $(( $(docker image inspect --format '{{.Size}}' "$image") / 1000000 )) MB as docker reports it"
+# Unpacked size from inside the image, and the size of what a pull downloads
+# (docker save of the containerd image store exports compressed layers).
+unpacked=$(docker run --rm --entrypoint sh "$image" -c 'du -sxm / | cut -f1')
+echo "info image size: ${unpacked} MB unpacked, $(( $(docker save "$image" | wc -c) / 1000000 )) MB compressed"
 
 base="http://127.0.0.1:7433"
 check "/health from the host" "$(curl -s -o /dev/null -w '%{http_code}' "$base/health")" "200"
