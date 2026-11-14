@@ -1,5 +1,6 @@
 import { Command } from "commander";
 import { execSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import {
   getConfig,
   setConfig,
@@ -237,19 +238,31 @@ async function setupLocalMinIO(autoYes: boolean) {
 
   console.log("Setting up MinIO (local S3)...");
 
+  let credentials: MinioCredentials;
   try {
     if (existing === "agent-fs-minio") {
       execSync("docker start agent-fs-minio", { stdio: "inherit" });
       console.log("MinIO container started.");
+      credentials = readContainerCredentials();
     } else {
+      // Publish on loopback only (the daemon reaches MinIO via localhost) and
+      // give each install its own root password. The credentials go to docker
+      // through the environment so they never appear in a process listing.
+      credentials = { user: "minioadmin", password: randomBytes(24).toString("hex") };
       execSync(
         "docker run -d --name agent-fs-minio " +
-          "-p 9000:9000 -p 9001:9001 " +
+          "-p 127.0.0.1:9000:9000 -p 127.0.0.1:9001:9001 " +
           "-v agent-fs-minio-data:/data " +
-          "-e MINIO_ROOT_USER=minioadmin " +
-          "-e MINIO_ROOT_PASSWORD=minioadmin " +
+          "-e MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD " +
           'minio/minio server /data --console-address ":9001"',
-        { stdio: "inherit" }
+        {
+          stdio: "inherit",
+          env: {
+            ...process.env,
+            MINIO_ROOT_USER: credentials.user,
+            MINIO_ROOT_PASSWORD: credentials.password,
+          },
+        }
       );
       console.log("MinIO container created.");
     }
@@ -260,7 +273,8 @@ async function setupLocalMinIO(autoYes: boolean) {
 
     try {
       execSync(
-        "docker exec agent-fs-minio mc alias set local http://localhost:9000 minioadmin minioadmin && " +
+        "docker exec agent-fs-minio sh -c " +
+          "'mc alias set local http://localhost:9000 \"$MINIO_ROOT_USER\" \"$MINIO_ROOT_PASSWORD\"' && " +
           "docker exec agent-fs-minio mc mb --ignore-existing local/agentfs",
         { stdio: "inherit" }
       );
@@ -284,10 +298,36 @@ async function setupLocalMinIO(autoYes: boolean) {
   setConfigValue("s3.endpoint", "http://localhost:9000");
   setConfigValue("s3.bucket", "agentfs");
   setConfigValue("s3.region", "us-east-1");
-  setConfigValue("s3.accessKeyId", "minioadmin");
-  setConfigValue("s3.secretAccessKey", "minioadmin");
+  setConfigValue("s3.accessKeyId", credentials.user);
+  setConfigValue("s3.secretAccessKey", credentials.password);
 
   console.log("MinIO configured.");
+}
+
+interface MinioCredentials {
+  user: string;
+  password: string;
+}
+
+/**
+ * Root credentials of an existing agent-fs-minio container, read from its
+ * environment. Containers created before per-install passwords fall back to
+ * MinIO's stock pair.
+ */
+function readContainerCredentials(): MinioCredentials {
+  const env = execSync(
+    "docker inspect --format='{{range .Config.Env}}{{println .}}{{end}}' agent-fs-minio",
+    { encoding: "utf-8" }
+  );
+  const value = (name: string) =>
+    env
+      .split("\n")
+      .find((line) => line.startsWith(`${name}=`))
+      ?.slice(name.length + 1);
+  return {
+    user: value("MINIO_ROOT_USER") || "minioadmin",
+    password: value("MINIO_ROOT_PASSWORD") || "minioadmin",
+  };
 }
 
 /**
