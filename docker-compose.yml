@@ -1,24 +1,40 @@
 services:
   minio:
-    image: minio/minio
+    # MinIO stopped publishing images; minio/minio can no longer be pulled
+    # anonymously. This is upstream MinIO RELEASE.2025-07-23, the last
+    # Bitnami build, frozen in the bitnamilegacy repo (amd64 and arm64).
+    image: bitnamilegacy/minio:2025.7.23-debian-12-r5
     ports:
       - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     volumes:
-      - minio-data:/data
+      - minio-data:/bitnami/minio/data
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    command: server /data --console-address ":9001"
+      # Created on first start; agent-fs does not create its bucket.
+      MINIO_DEFAULT_BUCKETS: agentfs
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   agent-fs:
     build: .
     ports:
-      - "7433:7433"  # REST API + MCP endpoint (Streamable HTTP)
+      - "127.0.0.1:7433:7433"  # REST API + MCP endpoint (Streamable HTTP)
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     environment:
       AGENT_FS_HOME: /data
+      SERVER_HOST: 0.0.0.0
+      S3_PROVIDER: minio
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      BUCKET_NAME: agentfs
     volumes:
       - agent-fs-data:/data
 

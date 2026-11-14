@@ -69,8 +69,17 @@ Pre-built multi-arch images (`linux/amd64`, `linux/arm64`) are published to GHCR
 
 ```bash
 docker pull ghcr.io/desplega-ai/agent-fs:latest
-docker run -d -p 7433:7433 -v agent-fs-data:/data ghcr.io/desplega-ai/agent-fs:latest
+docker run -d -p 7433:7433 -v agent-fs-data:/data \
+  -e SERVER_HOST=0.0.0.0 \
+  -e S3_ENDPOINT=https://<s3-host> -e S3_ACCESS_KEY_ID=<key> -e S3_SECRET_ACCESS_KEY=<secret> -e BUCKET_NAME=<bucket> \
+  ghcr.io/desplega-ai/agent-fs:latest
 ```
+
+The server binds `127.0.0.1` unless `SERVER_HOST` is set, and a published port cannot reach that. Images after 0.18.27 set `SERVER_HOST=0.0.0.0` themselves; 0.18.27 and older need the `-e`. The bucket must already exist: agent-fs does not create it. See [Environment Variables Reference](#environment-variables-reference) for the other S3 settings, or set `AGENT_FS_STORAGE_PROVIDER=local` to keep files under `/data`.
+
+The image's `HEALTHCHECK` calls `GET /health` with bun (the image has no curl). The image ships the CPU build of each native dependency for its own architecture only: no CUDA or Vulkan llama.cpp builds, so local embeddings run on the CPU.
+
+For a self-contained local stack (agent-fs plus MinIO, with the `agentfs` bucket created on first start), run `docker compose up --build` from the repo root. Both services publish on `127.0.0.1` only.
 
 Images are tagged with the full version (`0.2.0`), major.minor (`0.2`), major (`0`), git SHA, and `latest`. Browse available tags at [ghcr.io/desplega-ai/agent-fs](https://github.com/desplega-ai/agent-fs/pkgs/container/agent-fs).
 
