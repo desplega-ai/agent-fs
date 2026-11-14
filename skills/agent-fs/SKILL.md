@@ -251,7 +251,7 @@ Glob patterns are case-sensitive. Full-text matches indexed tokens. Neither mode
 |---------|-------|-------------|
 | `sql` | `agent-fs sql <query> [-t name=path[:format]]... [--max-rows <n>]` | Run DuckDB SQL over stored documents |
 
-Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` except parquet/xlsx), sqlite (`.db`/`.sqlite`/`.sqlite3`), and `.duckdb`. Reference file-format documents directly by quoted drive path inside the query, or bind any document to a table name with `-t`. SQLite/DuckDB databases require a `-t` binding and expose their tables as `<name>.<table>`. Append `:format` to a binding to query documents with non-standard extensions (e.g. `-t logs=/raw/data.txt:csv`). Queries are sandboxed — no host filesystem or network access. Results cap at `--max-rows` (default 1000, max 10000); `truncated: true` in JSON output signals more rows exist.
+Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` except parquet/xlsx), sqlite (`.db`/`.sqlite`/`.sqlite3`), and `.duckdb`. Reference file-format documents directly by quoted drive path inside the query, or bind any document to a table name with `-t`. SQLite/DuckDB databases require a `-t` binding and expose their tables as `<name>.<table>`. Append `:format` to a binding to query documents with non-standard extensions (e.g. `-t logs=/raw/data.txt:csv`). Queries are sandboxed — no host filesystem or network access. Results cap at `--max-rows` (default 1000, max 10000) and at a server-side result size limit (16 MB by default); `truncated: true` in JSON output signals more rows exist.
 
 ### Comments
 
