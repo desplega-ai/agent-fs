@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 export const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -195,8 +195,38 @@ export function getDbPath(): string {
 function ensureHomeDir(): void {
   const home = getHome();
   if (!existsSync(home)) {
-    mkdirSync(home, { recursive: true });
+    mkdirSync(home, { recursive: true, mode: 0o700 });
   }
+}
+
+/**
+ * config.json holds API keys and storage secrets, so it is owner-only (0600)
+ * inside an owner-only home dir (0700). The write `mode` applies only on
+ * create, so chmod also tightens files and dirs from older installs.
+ */
+function tightenConfigPerms(configPath: string): void {
+  for (const [path, mode] of [[configPath, 0o600], [getHome(), 0o700]] as const) {
+    try {
+      chmodSync(path, mode);
+    } catch {
+      // Missing yet, or not the owner (e.g. a shared AGENT_FS_HOME): skip the chmod.
+    }
+  }
+}
+
+/** Config paths already tightened by a read in this process. */
+const tightenedOnRead = new Set<string>();
+
+/**
+ * The only config.json writer. Writes the object as given (no defaults merged).
+ * Tightens before writing so new secrets never land in a 0644 file, and after
+ * so a freshly created file is 0600 whatever the umask.
+ */
+export function writeConfigFile(config: object): void {
+  const configPath = getConfigPath();
+  tightenConfigPerms(configPath);
+  writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
+  tightenConfigPerms(configPath);
 }
 
 /**
@@ -350,10 +380,15 @@ function readConfigFile(): Partial<AgentFSConfig> {
   const configPath = getConfigPath();
 
   if (!existsSync(configPath)) {
-    writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2));
+    writeConfigFile(DEFAULT_CONFIG);
     return structuredClone(DEFAULT_CONFIG);
   }
 
+  // Installs that never write again (e.g. daemon-only) still get tightened.
+  if (!tightenedOnRead.has(configPath)) {
+    tightenConfigPerms(configPath);
+    tightenedOnRead.add(configPath);
+  }
   const raw = readFileSync(configPath, "utf-8");
   return JSON.parse(raw) as Partial<AgentFSConfig>;
 }
@@ -373,7 +408,7 @@ export function setConfig<K extends keyof AgentFSConfig>(
 ): void {
   const config = deepMergeConfig(DEFAULT_CONFIG, readConfigFile());
   config[key] = value;
-  writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+  writeConfigFile(config);
 }
 
 export function setConfigValue(path: string, value: unknown): boolean {
@@ -392,6 +427,6 @@ export function setConfigValue(path: string, value: unknown): boolean {
     obj = obj[keys[i]] as Record<string, unknown>;
   }
   obj[keys[keys.length - 1]] = value;
-  writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+  writeConfigFile(config);
   return removedProviderFields;
 }

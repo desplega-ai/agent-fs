@@ -10,9 +10,9 @@
  * Mirrors agent-swarm's `src/telemetry.ts`: no dependencies, fire-and-forget.
  */
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { Database } from "bun:sqlite";
-import { getConfig, getConfigPath } from "./config.js";
+import { getConfig, getConfigPath, writeConfigFile } from "./config.js";
 import { VERSION } from "./version.js";
 
 const TELEMETRY_ENDPOINT = "https://proxy.desplega.sh/v1/events";
@@ -62,7 +62,7 @@ export function getOrCreateInstallId(): string {
     const path = getConfigPath();
     const raw = existsSync(path) ? JSON.parse(readFileSync(path, "utf-8")) : {};
     raw.telemetry = { ...(raw.telemetry ?? {}), installId };
-    writeFileSync(path, JSON.stringify(raw, null, 2));
+    writeConfigFile(raw);
     return installId;
   } catch {
     // Unwritable config: use a per-process ID rather than failing startup.
