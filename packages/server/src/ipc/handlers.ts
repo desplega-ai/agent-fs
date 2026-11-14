@@ -72,6 +72,9 @@ function classifyError(e: any): ErrorResponse {
   if (name === "ValidationError") {
     return err(415, "VALIDATION", msg);
   }
+  if (e?.code === "QUOTA_EXCEEDED") {
+    return err(413, "QUOTA_EXCEEDED", msg);
+  }
   if (name === "IndexingInProgressError") {
     return err(503, "INDEXING_IN_PROGRESS", msg);
   }

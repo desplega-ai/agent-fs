@@ -4,6 +4,7 @@ import {
   getS3Key,
   createVersion,
   assertExpectedVersion,
+  assertDriveBudget,
 } from "./versioning.js";
 import { copiedMimeType } from "./mime.js";
 import { indexBytesForSearch } from "./search-index.js";
@@ -45,6 +46,7 @@ export async function cp(
       }
       throw err;
     }
+    assertDriveBudget(ctx, head.size, [to]);
     const contentType = copiedMimeType(head.contentType, to);
     const copyResult = await ctx.s3.copyObject(
       fromKey,

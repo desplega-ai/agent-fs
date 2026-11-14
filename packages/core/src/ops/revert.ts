@@ -6,6 +6,7 @@ import {
   getS3Key,
   createVersion,
   assertExpectedVersion,
+  assertDriveBudget,
 } from "./versioning.js";
 import { NotFoundError, AgentFSError } from "../errors.js";
 import { assertCapability } from "../storage/capabilities.js";
@@ -64,6 +65,7 @@ export async function revert(
     const s3Key = getS3Key(ctx.orgId, ctx.driveId, path);
     const oldContent = await ctx.s3.getObject(s3Key, targetVersion.s3VersionId);
     const contentType = detectMimeType(path);
+    assertDriveBudget(ctx, oldContent.body.length, [path]);
 
     // 3. Write it as the new current version
     const s3Result = await ctx.s3.putObject(s3Key, oldContent.body, undefined, contentType);
