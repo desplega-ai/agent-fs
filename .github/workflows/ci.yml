@@ -135,6 +135,30 @@ jobs:
         if: steps.changes.outputs.run == 'true'
         run: bash scripts/smoke-live-image.sh agent-fs-live:ci
 
+  # Server image + docker-compose.yml: the HEALTHCHECK passes, the published
+  # port answers from the host, and a write lands in MinIO. On PRs it runs only
+  # when its inputs change.
+  server-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Detect server image changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qE '^(Dockerfile$|docker/|docker-compose\.yml$|package\.json$|bun\.lock$|scripts/smoke-server-compose\.sh$|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Smoke test
+        if: steps.changes.outputs.run == 'true'
+        run: bash scripts/smoke-server-compose.sh
+
   # Live UI tests: every unit test under live/src (the `ci` job covers only
   # live/src/lib, which needs no live dependencies) and the Playwright suite,
   # which runs against fixtures. On PRs it runs only when live/ changes.
