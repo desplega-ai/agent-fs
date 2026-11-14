@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createTestConfigDir } from "@/core/test-utils.js";
-import { onboardCommand } from "../commands/onboard.js";
+import { MINIO_IMAGE, onboardCommand } from "../commands/onboard.js";
 
 // A stand-in `docker` on PATH records every invocation (plus the MinIO root
 // credentials it was handed through the environment), so the onboard wizard
@@ -110,6 +110,25 @@ test(
     expect(password).toBeDefined();
     expect(password).not.toBe("minioadmin");
     expect(password!.length).toBeGreaterThanOrEqual(32);
+  },
+  15000
+);
+
+test(
+  "a new MinIO container uses the pullable image pinned in docker-compose.yml",
+  async () => {
+    installFakeDocker(false);
+    await runOnboard();
+
+    const run = dockerCalls().find((c) => c.startsWith("run "))!;
+    const compose = readFileSync(join(import.meta.dir, "../../../../docker-compose.yml"), "utf-8");
+    expect(compose).toContain(`image: ${MINIO_IMAGE}`);
+    // The image's own entrypoint starts the server; a command override such
+    // as minio/minio's `server /data` would bypass it.
+    expect(run.split(" env:")[0].endsWith(` ${MINIO_IMAGE}`)).toBe(true);
+    expect(run).not.toContain("minio/minio");
+    expect(run).toContain("-v agent-fs-minio-data:/bitnami/minio/data");
+    expect(run).toContain("-e MINIO_DEFAULT_BUCKETS=agentfs");
   },
   15000
 );
