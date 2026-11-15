@@ -134,3 +134,40 @@ describe("markdown link extraction", () => {
     expect(resolveLinkTarget("/doc.md", "?q=1")).toBeNull();
   });
 });
+
+describe("markdown link extraction on large input", () => {
+  // A linear scan of 100k characters takes about a millisecond; the budget
+  // leaves room for slow CI while catching quadratic scans (seconds).
+  const N = 100_000;
+  const BUDGET_MS = 500;
+  const timed = (fn: () => unknown) => {
+    const start = performance.now();
+    fn();
+    return performance.now() - start;
+  };
+
+  test("plain prose of the same size is fast", () => {
+    expect(timed(() => extractMarkdownLinkTargets("a".repeat(N)))).toBeLessThan(BUDGET_MS);
+  });
+
+  test.each([
+    ["a long backtick run after other text", "x" + "`".repeat(N)],
+    ["many unclosed <img tags", "<img ".repeat(N / 5)],
+    ["many unclosed angle-bracket destinations", "](<".repeat(N / 3)],
+  ])("%s is scanned in linear time", (_, md) => {
+    expect(timed(() => extractMarkdownLinkTargets(md))).toBeLessThan(BUDGET_MS);
+  });
+
+  test("a markdown write with a long backtick run returns promptly", async () => {
+    const { ctx } = createTestContext();
+    const start = performance.now();
+    const result = await write(ctx, { path: REPORT, content: "x" + "`".repeat(N) });
+    expect(performance.now() - start).toBeLessThan(BUDGET_MS * 2);
+    expect(result.version).toBe(1);
+  });
+
+  test("code spans close only on a run of the same length", () => {
+    const md = '[a](x.md) `[b](code.md)` <img alt="i" src="pic.png"> ``[c](`y`.md)`` ```[d](z.md)`` [e](e.md)';
+    expect(extractMarkdownLinkTargets(md)).toEqual(["x.md", "z.md", "e.md", "pic.png"]);
+  });
+});

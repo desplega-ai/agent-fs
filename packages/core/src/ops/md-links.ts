@@ -19,16 +19,22 @@ const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 export function extractMarkdownLinkTargets(markdown: string): string[] {
   const text = stripCode(markdown);
   const targets: string[] = [];
+  // Every pattern must stay linear on untrusted input: no unbounded scan may
+  // restart from each of many openers that never close.
   const patterns = [
-    /\]\(\s*(?:<([^>\n]*)>|([^\s()<>]+(?:\([^\s()]*\)[^\s()<>]*)*))/g,
+    /\]\(\s*(?:<([^<>\n]*)>|([^\s()<>]+(?:\([^\s()]*\)[^\s()<>]*)*))/g,
     /^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(?:<([^>\n]*)>|(\S+))/gm,
-    /<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi,
   ];
   for (const pattern of patterns) {
     for (const match of text.matchAll(pattern)) {
       const target = (match[1] ?? match[2] ?? "").trim();
       if (target) targets.push(target);
     }
+  }
+  // Match the whole tag first, then look for src inside it, so tags never overlap.
+  for (const tag of text.matchAll(/<img\b[^>]*/gi)) {
+    const target = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(tag[0])?.[1].trim();
+    if (target) targets.push(target);
   }
   return targets;
 }
@@ -127,7 +133,40 @@ function stripCode(markdown: string): string {
       fence = null;
     }
   }
-  return kept.join("\n").replace(/(`+)[\s\S]*?\1/g, "");
+  return stripInlineCode(kept.join("\n"));
+}
+
+/**
+ * Drops inline code spans: a backtick run through the next run of the same
+ * length. Linear time; a backreference regex is quadratic on unclosed runs.
+ */
+function stripInlineCode(text: string): string {
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (let i = text.indexOf("`"); i !== -1; i = text.indexOf("`", ends[ends.length - 1])) {
+    let end = i + 1;
+    while (text.charCodeAt(end) === 96) end++;
+    starts.push(i);
+    ends.push(end);
+  }
+  const nextSameLength = new Int32Array(starts.length);
+  const laterByLength: number[] = [];
+  for (let i = starts.length - 1; i >= 0; i--) {
+    const length = ends[i] - starts[i];
+    nextSameLength[i] = laterByLength[length] ?? -1;
+    laterByLength[length] = i;
+  }
+  const kept: string[] = [];
+  let cursor = 0;
+  for (let i = 0; i < starts.length; i++) {
+    const close = nextSameLength[i];
+    if (close === -1) continue;
+    kept.push(text.slice(cursor, starts[i]));
+    cursor = ends[close];
+    i = close;
+  }
+  kept.push(text.slice(cursor));
+  return kept.join("");
 }
 
 function safeDecode(value: string): string {
