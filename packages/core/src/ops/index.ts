@@ -245,10 +245,10 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   find: {
-    description: "Find files by approximate name. Matching is case- and accent-insensitive. Every query word must match the path, in any order. When no file has every word as typed, letters can be skipped (\"zphr\" finds \"Zephyr.pdf\"). File-name hits rank above folder hits. Optionally scope to a path prefix. Returns { matches, total }: matches holds path, size, modifiedAt, and score, best first, capped at limit (default 50). total counts all matching files.",
+    description: "Find files by approximate name. Matching is case- and accent-insensitive. Every query word must match the path, in any order. The query is at most 256 characters. When no file has every word as typed, letters can be skipped (\"zphr\" finds \"Zephyr.pdf\"). File-name hits rank above folder hits. Optionally scope to a path prefix. Returns { matches, total }: matches holds path, size, modifiedAt, and score, best first, capped at limit (default 50). total counts all matching files.",
     handler: find,
     schema: z.object({
-      query: z.string().min(1),
+      query: z.string().min(1).max(256),
       path: z.string().optional(),
       limit: z.number().int().min(1).max(500).optional(),
     }),

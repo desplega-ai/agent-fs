@@ -142,7 +142,7 @@ symlinks are unsupported and throw `EPERM`.
 | `reveal` | `agent-fs reveal <path>` | Everything needed to show one file in a tree, in one call: the `ls` listing of every ancestor (root first, as `listings: [{ path, entries }]`) plus the file's `stat`. Same permissions as `ls`; `NOT_FOUND` for a missing file. Prefer `ls`/`stat` for ordinary reads. |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
 | `glob` | `agent-fs glob <pattern> [--path <prefix>]` | Find files by pattern (`*.md`, `**/*.md`) across all storage pages. Case-sensitive |
-| `find` | `agent-fs find <query> [--path <prefix>] [--limit <n>]` | Find files by approximate name. Ignores case and accents and takes words in any order. When no file has every word as typed, letters can be skipped (`zphr` finds `Zephyr.pdf`). Best match first: file-name hits rank above folder hits. Default limit 50. Returns `{ matches, total }` |
+| `find` | `agent-fs find <query> [--path <prefix>] [--limit <n>]` | Find files by approximate name. Ignores case and accents and takes words in any order (query up to 256 characters). When no file has every word as typed, letters can be skipped (`zphr` finds `Zephyr.pdf`). Best match first: file-name hits rank above folder hits. Default limit 50. Returns `{ matches, total }` |
 | `rm` | `agent-fs rm <path>` | Delete a file (`NOT_FOUND` if no live file is at the path) |
 | `mv` | `agent-fs mv <from> <to> [-m <msg>]` | Move or rename a file (`NOT_FOUND` if the source is missing) |
 | `cp` | `agent-fs cp <from> <to>` | Copy a file (`NOT_FOUND` if the source is missing) |
