@@ -197,6 +197,9 @@ function configureEmbeddings(
   }
 }
 
+/** Keep in sync with the minio service image in docker-compose.yml. */
+export const MINIO_IMAGE = "bitnamilegacy/minio:2025.7.23-debian-12-r5";
+
 async function setupLocalMinIO(autoYes: boolean) {
   // Docker pre-flight check
   try {
@@ -248,13 +251,16 @@ async function setupLocalMinIO(autoYes: boolean) {
       // Publish on loopback only (the daemon reaches MinIO via localhost) and
       // give each install its own root password. The credentials go to docker
       // through the environment so they never appear in a process listing.
+      // minio/minio can no longer be pulled anonymously; use the image that
+      // docker-compose.yml pins. Its own entrypoint starts the server on
+      // 9000/9001 and creates MINIO_DEFAULT_BUCKETS on first start.
       credentials = { user: "minioadmin", password: randomBytes(24).toString("hex") };
       execSync(
         "docker run -d --name agent-fs-minio " +
           "-p 127.0.0.1:9000:9000 -p 127.0.0.1:9001:9001 " +
-          "-v agent-fs-minio-data:/data " +
-          "-e MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD " +
-          'minio/minio server /data --console-address ":9001"',
+          "-v agent-fs-minio-data:/bitnami/minio/data " +
+          "-e MINIO_ROOT_USER -e MINIO_ROOT_PASSWORD -e MINIO_DEFAULT_BUCKETS=agentfs " +
+          MINIO_IMAGE,
         {
           stdio: "inherit",
           env: {
@@ -267,7 +273,8 @@ async function setupLocalMinIO(autoYes: boolean) {
       console.log("MinIO container created.");
     }
 
-    // Always wait briefly and ensure bucket exists
+    // Always wait briefly and ensure bucket exists (containers from older
+    // installs run minio/minio, which does not read MINIO_DEFAULT_BUCKETS)
     console.log("Waiting for MinIO to be ready...");
     await new Promise((r) => setTimeout(r, 2000));
 
