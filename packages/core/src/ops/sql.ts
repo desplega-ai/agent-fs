@@ -274,6 +274,35 @@ function toJsonValue(v: unknown): unknown {
   return String(v);
 }
 
+/** Approximate JSON size of a string in UTF-8 bytes, counting escapes. */
+function jsonStringSize(s: string): number {
+  let n = s.length + 2;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x20) n += 5; // worst case \uXXXX
+    else if (c === 0x22 || c === 0x5c) n += 1; // \" and \\
+    else if (c >= 0x800) n += 2; // 3 UTF-8 bytes (a surrogate pair totals 4)
+    else if (c >= 0x80) n += 1; // 2 UTF-8 bytes
+  }
+  return n;
+}
+
+/** Approximate JSON size of a value produced by toJsonValue. */
+function jsonSize(v: unknown): number {
+  if (typeof v === "string") return jsonStringSize(v);
+  if (Array.isArray(v)) return v.reduce((n: number, x) => n + jsonSize(x) + 1, 2);
+  if (v && typeof v === "object") {
+    let n = 2;
+    for (const [k, x] of Object.entries(v)) n += k.length + 4 + jsonSize(x);
+    return n;
+  }
+  return 8;
+}
+
+// Each query opens its own DuckDB instance with its own memory limit, so the
+// number in flight is what bounds the process total.
+let activeQueries = 0;
+
 function wrapDuckDbError(err: unknown, timedOut: boolean, timeoutMs: number): ValidationError {
   if (timedOut) {
     return new ValidationError(`Query timed out after ${timeoutMs}ms`, {
@@ -302,10 +331,26 @@ function wrapDuckDbError(err: unknown, timedOut: boolean, timeoutMs: number): Va
  * user SQL never loads it.
  */
 export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
+  const maxConcurrent = envInt("AGENT_FS_SQL_MAX_CONCURRENT", 4);
+  if (activeQueries >= maxConcurrent) {
+    throw new ValidationError(`Too many SQL queries running (limit ${maxConcurrent})`, {
+      suggestion: "Retry when a running query finishes",
+    });
+  }
+  activeQueries++;
+  try {
+    return await runSql(ctx, params);
+  } finally {
+    activeQueries--;
+  }
+}
+
+async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
   const started = Date.now();
   const maxRows = params.maxRows ?? DEFAULT_MAX_ROWS;
   const timeoutMs = envInt("AGENT_FS_SQL_TIMEOUT_MS", 30_000);
   const maxFileBytes = envInt("AGENT_FS_SQL_MAX_FILE_BYTES", 256 * 1024 * 1024);
+  const maxResultBytes = envInt("AGENT_FS_SQL_MAX_RESULT_BYTES", 16 * 1024 * 1024);
 
   const bindings = collectBindings(ctx, params);
   for (const b of bindings) {
@@ -503,15 +548,35 @@ export async function sql(ctx: OpContext, params: SqlParams): Promise<SqlResult>
         type: String(columnTypes[i] ?? "UNKNOWN"),
       }));
 
-      const raw = reader.getRows();
-      const truncated = raw.length > maxRows || !reader.done;
-      const rows = raw.slice(0, maxRows).map((values) => {
+      // Convert value by value against a byte budget, so a few huge computed
+      // values cannot produce an unbounded JSON result. The rows already read
+      // into DuckDB chunks above are not covered by this budget.
+      const available = Math.min(reader.currentRowCount, maxRows);
+      let truncated = reader.currentRowCount > maxRows || !reader.done;
+      let resultBytes = 0;
+      const rows: Record<string, unknown>[] = [];
+      convert: for (let r = 0; r < available; r++) {
         const row: Record<string, unknown> = {};
         for (let i = 0; i < columnNames.length; i++) {
-          row[columnNames[i]] = toJsonValue(values[i]);
+          const value = toJsonValue(reader.value(i, r));
+          resultBytes += columnNames[i].length + 4 + jsonSize(value);
+          if (resultBytes > maxResultBytes) {
+            truncated = true;
+            break convert;
+          }
+          row[columnNames[i]] = value;
         }
-        return row;
-      });
+        rows.push(row);
+      }
+      if (rows.length === 0 && truncated && available > 0) {
+        throw new ValidationError(
+          `Result row exceeds the result size limit (${maxResultBytes} bytes)`,
+          {
+            suggestion:
+              "Select fewer or shorter columns (e.g. left(col, 1000)), or raise AGENT_FS_SQL_MAX_RESULT_BYTES on the server",
+          }
+        );
+      }
 
       const files: SqlBoundFile[] = bindings.map((b) => ({
         table: b.table,

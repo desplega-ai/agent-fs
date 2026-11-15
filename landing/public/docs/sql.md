@@ -138,7 +138,9 @@ Server-side knobs (environment variables on the daemon/server):
 | `AGENT_FS_SQL_TIMEOUT_MS` | `30000` | Query timeout (the query is interrupted) |
 | `AGENT_FS_SQL_MAX_FILE_BYTES` | `268435456` (256 MB) | Per-document size cap |
 | `AGENT_FS_SQL_MEMORY_LIMIT` | `512MB` | DuckDB memory limit |
+| `AGENT_FS_SQL_MAX_RESULT_BYTES` | `16777216` (16 MB) | Approximate JSON size cap for the returned rows |
+| `AGENT_FS_SQL_MAX_CONCURRENT` | `4` | SQL queries the server runs at once; extra queries are rejected |
 
-`maxRows` caps the returned rows (default 1000, max 10000); `truncated: true` signals there were more.
+`maxRows` caps the returned rows (default 1000, max 10000), and the result size limit caps their total size; `truncated: true` signals there were more. A single row larger than the size limit fails with a `VALIDATION_ERROR`.
 
 Note: the first query that touches an `.xlsx` or SQLite document downloads the DuckDB `excel`/`sqlite` extension on the server (cached in `~/.duckdb` afterwards), so the server needs outbound network access once.
