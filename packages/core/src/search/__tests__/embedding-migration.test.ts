@@ -1,5 +1,7 @@
 import { describe, expect, test, spyOn } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import * as schema from "../../db/schema.js";
 import type { DB } from "../../db/index.js";
 import { write } from "../../ops/write.js";
 import { vecSearch } from "../../ops/vec-search.js";
@@ -503,5 +505,55 @@ describe("failed and blank files", () => {
     }
     expect(calls).toEqual([]);
     expect(statusOf(db, path)).toBeNull();
+  });
+});
+
+describe("restart", () => {
+  test("the file read when the process stopped is marked failed on the next boot", async () => {
+    const { ctx, db, s3, orgId, driveId } = createTestContext();
+    await write(ctx, { path: "/a.md", content: "cats" });
+    await write(ctx, { path: "/b.md", content: "cars" });
+    prepareEmbeddingMigration(raw(db), PROVIDER);
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+
+    const stuckKey = getS3Key(orgId, driveId, "/b.md");
+    const getObject = s3.getObject.bind(s3);
+    const reads: string[] = [];
+    let hang = true;
+    s3.getObject = async (key, versionId) => {
+      reads.push(key);
+      // A read that never returns stands in for the process stopping on this file.
+      if (hang && key === stuckKey) return new Promise(() => {});
+      return getObject(key, versionId);
+    };
+
+    void runPendingEmbeddings(db, s3, PROVIDER, { cpuShare: 1 });
+    await waitFor(() => reads.includes(stuckKey));
+    expect(statusOf(db, "/a.md")).toBe("indexed");
+    expect(statusOf(db, "/b.md")).toBe("pending");
+
+    // Next boot: same stored state, new handle, since the stopped run still holds the old one's slot.
+    hang = false;
+    reads.length = 0;
+    const rebooted = drizzle(raw(db), { schema }) as unknown as DB;
+    expect(prepareEmbeddingMigration(raw(rebooted), PROVIDER)).toBe(false);
+    await runPendingEmbeddings(rebooted, s3, PROVIDER, { cpuShare: 1 });
+
+    expect(reads).not.toContain(stuckKey);
+    expect(statusOf(db, "/b.md")).toBe("failed");
+    expect(raw(db).prepare("SELECT 1 FROM meta WHERE key = 'embedding_job_current'").get()).toBeNull();
+  });
+
+  test("a newer write keeps the interrupted path pending", async () => {
+    const { ctx, db, s3 } = createTestContext();
+    await write(ctx, { path: "/b.md", content: "cars" });
+    prepareEmbeddingMigration(raw(db), PROVIDER);
+    raw(db).prepare("INSERT INTO meta(key, value) VALUES ('embedding_job_current', ?)")
+      .run(JSON.stringify({ driveId: ctx.driveId, path: "/b.md", version: "older" }));
+    raw(db).prepare("UPDATE files SET embedding_status = 'pending'").run();
+
+    expect(prepareEmbeddingMigration(raw(db), PROVIDER)).toBe(true);
+    expect(await runPendingEmbeddings(db, s3, PROVIDER, { cpuShare: 1 })).toMatchObject({ indexed: 1 });
+    expect(statusOf(db, "/b.md")).toBe("indexed");
   });
 });
