@@ -27,7 +27,8 @@ function foldText(text: string): string {
 
 /** Split a query into words on whitespace and punctuation (`/ _ - .` and the rest). */
 export function queryWords(query: string): string[] {
-  return foldText(query).split(NON_WORD).filter(Boolean);
+  // A repeated word adds no filtering, only another pass over every file.
+  return [...new Set(foldText(query).split(NON_WORD).filter(Boolean))];
 }
 
 interface Segment {
@@ -66,21 +67,30 @@ function isSubsequence(word: string, text: string): boolean {
  * that sit at word starts or right after the previous letter.
  */
 function subsequenceScore(word: string, seg: Segment): number {
+  const n = word.length;
+  // chain[k]: where word[k] sits in the last full match. tail[k]: word starts
+  // plus adjacent pairs over chain[k..].
+  const chain: number[] = [];
+  const tail = new Array<number>(n + 1).fill(0);
   let best = 0;
   for (let start = seg.text.indexOf(word[0]); start !== -1; start = seg.text.indexOf(word[0], start + 1)) {
     if (!seg.starts[start]) continue;
-    let pos = start;
-    let starts = 1;
-    let adjacent = 0;
-    for (let k = 1; k < word.length; k++) {
-      const next = seg.text.indexOf(word[k], pos + 1);
+    // A later start never matches a letter before the last match does. Once it
+    // reaches a spot before chain[k], it continues along chain[k..], so only
+    // the new head is scanned and the total work stays linear.
+    const head = [start];
+    let k = 1;
+    for (let pos = start; k < n && !(chain.length > 0 && pos < chain[k]); k++) {
+      pos = seg.text.indexOf(word[k], pos + 1);
       // A later start leaves fewer letters to match, so it cannot succeed either.
-      if (next === -1) return best;
-      if (seg.starts[next]) starts++;
-      if (next === pos + 1) adjacent++;
-      pos = next;
+      if (pos === -1) return best;
+      head.push(pos);
     }
-    best = Math.max(best, 1 + (4 * starts + 4 * adjacent) / word.length);
+    chain.splice(0, k, ...head);
+    for (let j = Math.min(k, n - 1); j >= 0; j--) {
+      tail[j] = (seg.starts[chain[j]] ? 1 : 0) + (j > 0 && chain[j] === chain[j - 1] + 1 ? 1 : 0) + tail[j + 1];
+    }
+    best = Math.max(best, 1 + (4 * tail[0]) / n);
   }
   return best;
 }

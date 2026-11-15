@@ -113,6 +113,12 @@ describe("find op", () => {
     const { ctx } = createTestContext();
     await expect(dispatchOp(ctx, "find", { query: "" })).rejects.toThrow();
   });
+
+  test("rejects a query over 256 characters", async () => {
+    const { ctx } = createTestContext();
+    await expect(dispatchOp(ctx, "find", { query: "e ".repeat(50_000) })).rejects.toThrow();
+    await expect(dispatchOp(ctx, "find", { query: "e".repeat(256) })).resolves.toEqual({ matches: [], total: 0 });
+  });
 });
 
 describe("find scoring", () => {
@@ -120,6 +126,33 @@ describe("find scoring", () => {
 
   test("queryWords folds and splits on punctuation", () => {
     expect(queryWords("  Zephyr_Pitch-Deck.PDF  Café ")).toEqual(["zephyr", "pitch", "deck", "pdf", "cafe"]);
+  });
+
+  test("queryWords drops repeated words", () => {
+    expect(queryWords("deck Deck DECK zephyr deck")).toEqual(["deck", "zephyr"]);
+    expect(queryWords("e ".repeat(1_000))).toHaveLength(1);
+  });
+
+  test("subsequence scoring work grows linearly with segment length", () => {
+    // Count the characters String#indexOf scans: a deterministic work measure.
+    const scanned = (pairs: number) => {
+      const original = String.prototype.indexOf;
+      let total = 0;
+      String.prototype.indexOf = function (this: string, search: string, from?: number) {
+        const start = Math.max(0, from ?? 0);
+        const at = original.call(this, search, start);
+        total += (at === -1 ? this.length : at) - start;
+        return at;
+      };
+      try {
+        expect(pathScore(["ab"], "a-".repeat(pairs) + "b")).not.toBeNull();
+      } finally {
+        String.prototype.indexOf = original;
+      }
+      return total;
+    };
+    // 8x the segment: linear work grows ~8x, quadratic ~64x.
+    expect(scanned(1_024) / scanned(128)).toBeLessThan(16);
   });
 
   test("folds Greek final sigma, so case does not change the letter", () => {
