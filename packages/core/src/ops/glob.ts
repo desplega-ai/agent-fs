@@ -6,41 +6,54 @@ import { normalizePrefix } from "./paths.js";
 import { getCachedDriveListing } from "./glob-cache.js";
 
 /**
- * Convert a glob pattern to a RegExp.
+ * Compile a glob pattern into a path matcher.
  * Supports: `*` (any chars except /), `?` (single char except /), `**` (any chars including /)
  */
-function globToRegex(pattern: string): RegExp {
-  let regex = "";
-  let i = 0;
-
-  while (i < pattern.length) {
-    const char = pattern[i];
-
-    if (char === "*") {
-      if (pattern[i + 1] === "*") {
-        // ** matches everything including /
-        regex += ".*";
-        i += 2;
-        // Skip trailing / after **
-        if (pattern[i] === "/") i++;
-      } else {
-        // * matches everything except /
-        regex += "[^/]*";
-        i++;
-      }
-    } else if (char === "?") {
-      regex += "[^/]";
-      i++;
-    } else if (".+^${}()|[]\\".includes(char)) {
-      regex += "\\" + char;
-      i++;
+function globToMatcher(pattern: string): (path: string) => boolean {
+  const tokens: string[] = [];
+  for (let i = 0; i < pattern.length; ) {
+    if (pattern.startsWith("**", i)) {
+      tokens.push("**");
+      i += 2;
+      // Skip trailing / after **
+      if (pattern[i] === "/") i++;
     } else {
-      regex += char;
+      tokens.push(pattern[i]);
       i++;
     }
   }
 
-  return new RegExp("^" + regex + "$");
+  // Track every pattern position at once instead of compiling a RegExp: a
+  // backtracking regex grows with path length to the power of the wildcard
+  // count, this stays path length times pattern length.
+  // live[j]: tokens[0..j) match the path read so far.
+  return (path) => {
+    let live = new Uint8Array(tokens.length + 1);
+    let next = new Uint8Array(tokens.length + 1);
+    live[0] = 1;
+    for (let j = 0; j < tokens.length && (tokens[j] === "*" || tokens[j] === "**"); j++) live[j + 1] = 1;
+
+    for (let i = 0; i < path.length; i++) {
+      const ch = path[i];
+      next.fill(0);
+      let alive = false;
+      for (let j = 1; j <= tokens.length; j++) {
+        const t = tokens[j - 1];
+        const ok =
+          t === "**" ? next[j - 1] || live[j]
+          : t === "*" ? next[j - 1] || (live[j] && ch !== "/")
+          : t === "?" ? live[j - 1] && ch !== "/"
+          : live[j - 1] && ch === t;
+        if (ok) {
+          next[j] = 1;
+          alive = true;
+        }
+      }
+      if (!alive) return false;
+      [live, next] = [next, live];
+    }
+    return live[tokens.length] === 1;
+  };
 }
 
 export async function glob(
@@ -75,7 +88,7 @@ export async function glob(
 
   const dbFileMap = new Map(dbFiles.map((f) => [f.path, f]));
 
-  const regex = globToRegex(params.pattern);
+  const isMatch = globToMatcher(params.pattern);
   const matches: GlobMatch[] = [];
 
   for (const obj of objects) {
@@ -83,7 +96,7 @@ export async function glob(
     if (!relativePath || relativePath.endsWith("/")) continue;
 
     // Test the relative path against the glob pattern
-    if (regex.test(relativePath)) {
+    if (isMatch(relativePath)) {
       const fullPath = prefix + relativePath;
       const dbFile = dbFileMap.get(fullPath);
       matches.push({
