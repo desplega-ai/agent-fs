@@ -4,6 +4,11 @@ import { stat } from "./stat.js";
 import { normalizePath } from "./paths.js";
 import { ValidationError } from "../errors.js";
 
+/** Longest path reveal accepts, in characters (the op schema enforces it). */
+export const REVEAL_MAX_PATH_LENGTH = 4096;
+/** Deepest folder nesting reveal lists: it runs one `ls` per ancestor. */
+export const REVEAL_MAX_DEPTH = 128;
+
 /**
  * Every directory that must be expanded to show `filePath`, root first:
  * "/a/b/c.md" → ["/", "/a", "/a/b"].
@@ -27,6 +32,13 @@ export async function reveal(
     throw new ValidationError("reveal needs a file path, not the drive root", {
       field: "path",
       suggestion: "Use ls to list the drive root.",
+    });
+  }
+
+  if (path.split("/").filter(Boolean).length > REVEAL_MAX_DEPTH) {
+    throw new ValidationError(`reveal supports at most ${REVEAL_MAX_DEPTH} folder levels`, {
+      field: "path",
+      suggestion: "Use ls on the parent folders instead.",
     });
   }
 

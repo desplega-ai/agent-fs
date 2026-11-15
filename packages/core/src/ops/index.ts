@@ -8,7 +8,7 @@ import { edit } from "./edit.js";
 import { append } from "./append.js";
 import { ls } from "./ls.js";
 import { stat } from "./stat.js";
-import { reveal } from "./reveal.js";
+import { reveal, REVEAL_MAX_DEPTH, REVEAL_MAX_PATH_LENGTH } from "./reveal.js";
 import { rm } from "./rm.js";
 import { mv } from "./mv.js";
 import { cp } from "./cp.js";
@@ -115,9 +115,9 @@ const opRegistry: Record<string, OpDefinition> = {
     schema: z.object({ path: z.string() }),
   },
   reveal: {
-    description: "Everything needed to show one file in a tree, in one call: the ls listing of every ancestor directory (root first) plus the file's stat. Returns { path, stat, listings } where each listing is { path, entries } with entries shaped exactly like ls.",
+    description: `Everything needed to show one file in a tree, in one call: the ls listing of every ancestor directory (root first) plus the file's stat. The path is at most ${REVEAL_MAX_PATH_LENGTH} characters and ${REVEAL_MAX_DEPTH} levels deep. Returns { path, stat, listings } where each listing is { path, entries } with entries shaped exactly like ls.`,
     handler: reveal,
-    schema: z.object({ path: z.string() }),
+    schema: z.object({ path: z.string().max(REVEAL_MAX_PATH_LENGTH) }),
   },
   rm: {
     description: "Delete a file. Removes from S3, cleans up FTS5 index and vector embeddings. Returns { path, deleted }.",

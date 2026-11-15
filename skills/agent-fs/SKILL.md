@@ -139,7 +139,7 @@ symlinks are unsupported and throw `EPERM`.
 | `tail` | `agent-fs tail <path> [--lines <n>]` | Last N lines (default: 20) |
 | `ls` | `agent-fs ls [path]` | List directory contents (defaults to /) |
 | `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps, embedding status: `pending`, `indexed`, `failed`, or `skipped`, `etag` of the current bytes: compare for equality to tell whether content changed) |
-| `reveal` | `agent-fs reveal <path>` | Everything needed to show one file in a tree, in one call: the `ls` listing of every ancestor (root first, as `listings: [{ path, entries }]`) plus the file's `stat`. Same permissions as `ls`; `NOT_FOUND` for a missing file. Prefer `ls`/`stat` for ordinary reads. |
+| `reveal` | `agent-fs reveal <path>` | Everything needed to show one file in a tree, in one call: the `ls` listing of every ancestor (root first, as `listings: [{ path, entries }]`) plus the file's `stat`. Same permissions as `ls`; `NOT_FOUND` for a missing file, `VALIDATION_ERROR` for a path over 4096 characters or 128 levels deep. Prefer `ls`/`stat` for ordinary reads. |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
 | `glob` | `agent-fs glob <pattern> [--path <prefix>]` | Find files by pattern (`*.md`, `**/*.md`) across all storage pages. Case-sensitive |
 | `find` | `agent-fs find <query> [--path <prefix>] [--limit <n>]` | Find files by approximate name. Ignores case and accents and takes words in any order (query up to 256 characters). When no file has every word as typed, letters can be skipped (`zphr` finds `Zephyr.pdf`). Best match first: file-name hits rank above folder hits. Default limit 50. Returns `{ matches, total }` |

@@ -7,7 +7,7 @@ import { createTestContext } from "../../test-utils.js";
 import { createUser } from "../../identity/users.js";
 import { inviteToOrg } from "../../identity/orgs.js";
 import { dispatchOp, ls, reveal, write } from "../index.js";
-import { revealAncestors } from "../reveal.js";
+import { revealAncestors, REVEAL_MAX_DEPTH } from "../reveal.js";
 import { NotFoundError, PermissionDeniedError, ValidationError } from "../../errors.js";
 import type { OpContext } from "../types.js";
 
@@ -85,5 +85,63 @@ describe("reveal", () => {
     await expect(
       dispatchOp({ ...ctx, userId: outsider.user.id }, "reveal", { path: "/a/b/c/deep.md" })
     ).rejects.toBeInstanceOf(PermissionDeniedError);
+  });
+});
+
+describe("reveal input limits", () => {
+  let ctx: OpContext;
+
+  beforeEach(() => {
+    ctx = createTestContext().ctx;
+  });
+
+  /** Wrap the context's storage so every listObjects call is counted. */
+  function countListings(): { ctx: OpContext; calls: () => number } {
+    let n = 0;
+    const s3 = ctx.s3;
+    const counted = Object.create(s3) as typeof s3;
+    counted.listObjects = ((...args: Parameters<typeof s3.listObjects>) => {
+      n++;
+      return s3.listObjects(...args);
+    }) as typeof s3.listObjects;
+    return { ctx: { ...ctx, s3: counted }, calls: () => n };
+  }
+
+  async function rejection(path: string) {
+    const counted = countListings();
+    const err: unknown = await dispatchOp(counted.ctx, "reveal", { path }).catch((e: unknown) => e);
+    // Compare the code, not the error object: its message echoes the whole path.
+    return { code: (err as { code?: string } | undefined)?.code, isValidation: err instanceof ValidationError, listings: counted.calls() };
+  }
+
+  test("a file at the deepest allowed level is revealed with one listing per ancestor", async () => {
+    const path = "/" + Array.from({ length: REVEAL_MAX_DEPTH - 1 }, (_, i) => `d${i}`).join("/") + "/f.md";
+    await write(ctx, { path, content: "x" });
+    const counted = countListings();
+    const res = (await dispatchOp(counted.ctx, "reveal", { path })) as Awaited<ReturnType<typeof reveal>>;
+    expect(res.listings).toHaveLength(REVEAL_MAX_DEPTH);
+    expect(counted.calls()).toBe(REVEAL_MAX_DEPTH);
+  });
+
+  test("a path deeper than the limit is rejected before any listing", async () => {
+    expect(await rejection("/" + Array.from({ length: REVEAL_MAX_DEPTH + 1 }, () => "a").join("/"))).toEqual({
+      code: "VALIDATION_ERROR",
+      isValidation: true,
+      listings: 0,
+    });
+    // 2000 one-character segments stay under the length limit, so only the depth limit catches it.
+    expect(await rejection("/" + Array.from({ length: 2000 }, () => "a").join("/"))).toEqual({
+      code: "VALIDATION_ERROR",
+      isValidation: true,
+      listings: 0,
+    });
+  });
+
+  test("a path longer than the limit is rejected before any listing", async () => {
+    expect(await rejection("/" + "x".repeat(100_000) + "/f.md")).toEqual({
+      code: "VALIDATION_ERROR",
+      isValidation: true,
+      listings: 0,
+    });
   });
 });
