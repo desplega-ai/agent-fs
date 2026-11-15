@@ -27,7 +27,9 @@ import {
  *      It also marks NULL-status PDFs pending for a one-time text backfill.
  *   2. `runPendingEmbeddings()` (async, in the background): embeds every
  *      `pending` file again. A crash leaves the rest `pending`, so the next
- *      boot resumes. It also picks up files whose on-write job never ran.
+ *      boot resumes. The file being read at the crash is marked `failed`
+ *      instead, so one file cannot stop every boot. It also picks up files
+ *      whose on-write job never ran.
  *
  * Search keeps working meanwhile. Old and new vectors rank together until the
  * run ends.
@@ -44,6 +46,7 @@ export const EXCLUDE_DRIVES_KEY = "embedding_exclude_drives";
 const REVISIONS: Record<string, number> = { local: 3 };
 
 const FAILED_RETRY_KEY = "embedding_failed_retry";
+const CURRENT_KEY = "embedding_job_current";
 
 /**
  * Bump to retry every `failed` file once more on the next boot, after a fix
@@ -180,6 +183,25 @@ export function prepareEmbeddingMigration(sqlite: Database, provider: EmbeddingP
     )
     .run();
 
+  // Last, so this boot's failed-file retry cannot queue the interrupted file again.
+  const current = sqlite.prepare("SELECT value FROM meta WHERE key = ?").get(CURRENT_KEY) as { value: string } | null;
+  if (current) {
+    sqlite.transaction(() => {
+      try {
+        const file = JSON.parse(current.value) as { driveId: string; path: string; version: string | null };
+        if (!excludedDrives.includes(file.driveId)) {
+          sqlite.prepare(
+            `UPDATE files SET embedding_status = 'failed'
+             WHERE drive_id = ? AND path = ? AND embedding_status = 'pending' AND current_version_id IS ? AND is_deleted = 0`
+          ).run(file.driveId, file.path, file.version);
+        }
+      } catch {
+        // A malformed marker must not prevent startup.
+      }
+      sqlite.prepare("DELETE FROM meta WHERE key = ?").run(CURRENT_KEY);
+    })();
+  }
+
   return !!sqlite
     .prepare("SELECT 1 FROM files WHERE embedding_status = 'pending' AND is_deleted = 0 LIMIT 1")
     .get();
@@ -290,6 +312,10 @@ async function runPendingEmbeddingsUnlocked(
     `UPDATE files SET embedding_status = ?
      WHERE drive_id = ? AND path = ? AND embedding_status = 'pending' AND current_version_id IS ?`
   );
+  const setCurrent = sqlite.prepare(
+    "INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  );
+  const clearCurrent = sqlite.prepare("DELETE FROM meta WHERE key = ?");
 
   let cursor: [string, string] = ["", ""];
 
@@ -305,11 +331,14 @@ async function runPendingEmbeddingsUnlocked(
           result[await indexFileEmbeddings(db, provider, { ...row, content: "" })]++;
           continue;
         }
+        // Spans the read and extraction only; a marker left at boot names the file that stopped the process.
+        setCurrent.run(CURRENT_KEY, JSON.stringify({ driveId: row.driveId, path: row.path, version: row.version }));
         const object = await s3.getObject(getS3Key(row.orgId, row.driveId, row.path));
         const extracted = await extractIndexableText(
           object.body,
           object.contentType ?? detectMimeType(row.path)
         );
+        clearCurrent.run(CURRENT_KEY);
         // Nothing to embed: drop chunks of an older, text version too.
         if (extracted === null) {
           if (clearEmbeddings(db, row, "text")) result.skipped++;
@@ -328,6 +357,7 @@ async function runPendingEmbeddingsUnlocked(
         );
         result[outcome]++;
       } catch (err) {
+        clearCurrent.run(CURRENT_KEY);
         // indexFileEmbeddings marks its own failures; this covers the read.
         setStatus.run("failed", row.driveId, row.path, row.version);
         result.failed++;
