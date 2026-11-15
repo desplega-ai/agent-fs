@@ -31,6 +31,22 @@ export async function tree(
 
   // Build tree from flat S3 keys
   const root: TreeEntry[] = [];
+  // Folder lookup per sibling array, so nesting stays linear in the key count.
+  const dirIndex = new Map<TreeEntry[], Map<string, TreeEntry>>();
+  const findOrCreateDir = (siblings: TreeEntry[], name: string): TreeEntry => {
+    let dirs = dirIndex.get(siblings);
+    if (!dirs) {
+      dirs = new Map();
+      dirIndex.set(siblings, dirs);
+    }
+    let dir = dirs.get(name);
+    if (!dir) {
+      dir = { name, type: "directory", children: [] };
+      siblings.push(dir);
+      dirs.set(name, dir);
+    }
+    return dir;
+  };
 
   for (const obj of objects) {
     const relativePath = obj.key.slice(s3Prefix.length);
@@ -51,24 +67,12 @@ export async function tree(
 
       if (isDir && !isLast) {
         // Intermediate directory — find or create
-        let dir = current.find(
-          (e) => e.name === part && e.type === "directory"
-        );
-        if (!dir) {
-          dir = { name: part, type: "directory", children: [] };
-          current.push(dir);
-        }
+        const dir = findOrCreateDir(current, part);
         if (!dir.children) dir.children = [];
         current = dir.children;
       } else if (isDir && isLast) {
         // Trailing-slash directory entry
-        let dir = current.find(
-          (e) => e.name === part && e.type === "directory"
-        );
-        if (!dir) {
-          dir = { name: part, type: "directory", children: [] };
-          current.push(dir);
-        }
+        findOrCreateDir(current, part);
       } else {
         // File entry
         const fullPath = prefix + parts.slice(0, i + 1).join("/");
