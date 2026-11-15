@@ -244,6 +244,11 @@ async function setupLocalMinIO(autoYes: boolean) {
   let credentials: MinioCredentials;
   try {
     if (existing === "agent-fs-minio") {
+      // A container from an earlier onboard on a root-owned volume died at start.
+      const image = execSync("docker inspect --format='{{.Config.Image}}' agent-fs-minio", {
+        encoding: "utf-8",
+      }).trim();
+      if (image === MINIO_IMAGE) chownMinioVolume();
       execSync("docker start agent-fs-minio", { stdio: "inherit" });
       console.log("MinIO container started.");
       credentials = readContainerCredentials();
@@ -255,6 +260,7 @@ async function setupLocalMinIO(autoYes: boolean) {
       // docker-compose.yml pins. Its own entrypoint starts the server on
       // 9000/9001 and creates MINIO_DEFAULT_BUCKETS on first start.
       credentials = { user: "minioadmin", password: randomBytes(24).toString("hex") };
+      chownMinioVolume();
       execSync(
         "docker run -d --name agent-fs-minio " +
           "-p 127.0.0.1:9000:9000 -p 127.0.0.1:9001:9001 " +
@@ -273,11 +279,11 @@ async function setupLocalMinIO(autoYes: boolean) {
       console.log("MinIO container created.");
     }
 
-    // Always wait briefly and ensure bucket exists (containers from older
-    // installs run minio/minio, which does not read MINIO_DEFAULT_BUCKETS)
     console.log("Waiting for MinIO to be ready...");
-    await new Promise((r) => setTimeout(r, 2000));
+    await waitForMinio();
 
+    // Ensure the bucket exists (containers from older installs run
+    // minio/minio, which does not read MINIO_DEFAULT_BUCKETS)
     try {
       execSync(
         "docker exec agent-fs-minio sh -c " +
@@ -309,6 +315,61 @@ async function setupLocalMinIO(autoYes: boolean) {
   setConfigValue("s3.secretAccessKey", credentials.password);
 
   console.log("MinIO configured.");
+}
+
+const MINIO_READY_TIMEOUT_MS = 30_000;
+
+/**
+ * MINIO_IMAGE runs MinIO as uid 1001, which cannot write to a data volume left
+ * root-owned by an earlier minio/minio install. Hand the volume over first.
+ */
+function chownMinioVolume() {
+  execSync(
+    "docker run --rm --user 0 --entrypoint chown " +
+      "-v agent-fs-minio-data:/bitnami/minio/data " +
+      `${MINIO_IMAGE} -R 1001 /bitnami/minio/data`,
+    { stdio: "inherit" }
+  );
+}
+
+/**
+ * Waits until MinIO's health endpoint answers on the published port (the
+ * address the daemon uses; mc cannot run inside the bitnami image). Throws with
+ * the container's log tail if it stops or never answers, so onboard cannot
+ * report success over a dead container.
+ */
+async function waitForMinio() {
+  const deadline = Date.now() + MINIO_READY_TIMEOUT_MS;
+  while (true) {
+    const running = execSync("docker inspect --format='{{.State.Running}}' agent-fs-minio", {
+      encoding: "utf-8",
+    }).trim();
+    if (running !== "true") {
+      throw new Error(`MinIO container agent-fs-minio is not running.\n${minioLogTail()}`);
+    }
+    const ready = await fetch("http://127.0.0.1:9000/minio/health/live", {
+      signal: AbortSignal.timeout(1000),
+    }).then(
+      (res) => res.ok,
+      () => false
+    );
+    if (ready) return;
+    if (Date.now() > deadline) {
+      throw new Error(
+        `MinIO did not become ready within ${MINIO_READY_TIMEOUT_MS / 1000}s.\n${minioLogTail()}`
+      );
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+function minioLogTail(): string {
+  try {
+    const logs = execSync("docker logs --tail 20 agent-fs-minio 2>&1", { encoding: "utf-8" });
+    return `Last container logs (docker logs agent-fs-minio):\n${logs.trimEnd()}`;
+  } catch {
+    return "Inspect it with: docker logs agent-fs-minio";
+  }
 }
 
 interface MinioCredentials {
