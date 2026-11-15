@@ -322,6 +322,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 | Env Var | Config Path | Default | Notes |
 |---------|------------|---------|-------|
 | `AGENT_FS_MAX_UPLOAD_BYTES` | — | `52428800` (50 MiB) | Raw upload and HTTP body limit in bytes; positive safe integer, invalid values use the default. Restart the daemon after changing. |
+| `AGENT_FS_MAX_DRIVE_BYTES` | — | No limit | Storage limit per drive in bytes. Writes, copies, moves and reverts past it fail with `QUOTA_EXCEEDED`. With bucket versioning or local storage, every kept version counts, so deleting files does not free space. Unset or invalid means no limit. |
 | `AGENT_FS_HOME` | — | `~/.agent-fs` | Data directory (SQLite DB, logs, pid file) |
 | `AWS_ENDPOINT_URL_S3` / `S3_ENDPOINT` | `s3.endpoint` | `http://localhost:9000` | Tigris auto-injects `AWS_ENDPOINT_URL_S3` |
 | `AWS_ACCESS_KEY_ID` / `S3_ACCESS_KEY_ID` | `s3.accessKeyId` | — | Tigris auto-injects `AWS_ACCESS_KEY_ID` |

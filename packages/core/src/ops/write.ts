@@ -6,6 +6,7 @@ import {
   assertExpectedVersion,
   getHeadContentHash,
   createVersion,
+  assertDriveBudget,
 } from "./versioning.js";
 import { detectMimeType } from "./mime.js";
 import { ValidationError } from "../errors.js";
@@ -106,6 +107,8 @@ async function writeInternal(
         }
       }
     }
+
+    assertDriveBudget(ctx, size, [path]);
 
     // 1. Write to S3
     const contentType = detectMimeType(path);

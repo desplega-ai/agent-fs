@@ -4,6 +4,7 @@ import {
   getS3Key,
   createVersion,
   assertExpectedVersion,
+  assertDriveBudget,
 } from "./versioning.js";
 import { NotFoundError } from "../errors.js";
 import { detectMimeType } from "./mime.js";
@@ -44,6 +45,7 @@ export async function append(
     const contentType = detectMimeType(path);
     const contentHash = createHash("sha256").update(newContent).digest("hex");
 
+    assertDriveBudget(ctx, size, [path]);
     const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
 
     // 3. Create version

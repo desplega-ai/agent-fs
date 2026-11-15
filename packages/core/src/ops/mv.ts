@@ -5,6 +5,7 @@ import {
   getS3Key,
   createVersion,
   assertExpectedVersion,
+  assertDriveBudget,
 } from "./versioning.js";
 import { indexFile, indexedContent, removeFromIndex } from "../search/fts.js";
 import { readCurrentVersion } from "../search/pipeline.js";
@@ -53,6 +54,7 @@ export async function mv(
       }
       throw err;
     }
+    assertDriveBudget(ctx, head.size, [from, to]);
     const contentType = copiedMimeType(head.contentType, to);
     const copyResult = await ctx.s3.copyObject(
       fromKey,

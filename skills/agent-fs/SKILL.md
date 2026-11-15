@@ -723,6 +723,9 @@ values fall back to 50 MiB. The web UI discovers the limit from `/health`.
 JSON/MCP `write` stays at 10 MiB. FUSE retains a 64 MiB encoded IPC frame ceiling
 including protocol overhead; use HTTP raw uploads for larger files.
 
+An operator can cap each drive with `AGENT_FS_MAX_DRIVE_BYTES`. A write, `cp`,
+`mv` or `revert` past it fails with `QUOTA_EXCEEDED`; ask the operator to raise it.
+
 ## Own profile
 
 `agent-fs profile get` reads your profile. `agent-fs profile set --name "Taras"`

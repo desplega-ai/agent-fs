@@ -17,6 +17,13 @@ export function getEmbeddingMaxBytes(): number | undefined {
   return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : undefined;
 }
 
+/** Env-only per-drive storage limit in bytes. Invalid or unset values leave drives uncapped. */
+export function getMaxDriveBytes(): number | undefined {
+  const raw = process.env.AGENT_FS_MAX_DRIVE_BYTES?.trim();
+  const bytes = raw && /^[0-9]+$/.test(raw) ? Number(raw) : NaN;
+  return Number.isSafeInteger(bytes) && bytes > 0 ? bytes : undefined;
+}
+
 export function getEmbeddingExcludeDrives(): string[] {
   return [...new Set((process.env.AGENT_FS_EMBEDDING_EXCLUDE_DRIVES ?? "")
     .split(",").map((id) => id.trim()).filter(Boolean))].sort();

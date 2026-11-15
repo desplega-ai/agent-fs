@@ -1,8 +1,9 @@
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, notInArray } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext } from "./types.js";
 import { stripLeadingSlash } from "./paths.js";
-import { EditConflictError } from "../errors.js";
+import { AgentFSError, EditConflictError } from "../errors.js";
+import { getMaxDriveBytes } from "../config.js";
 import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { publishDriveEvent } from "../events/bus.js";
 import { enqueueFileWebhooks, notifyWebhooksEnqueued } from "../webhooks/outbox.js";
@@ -156,6 +157,40 @@ export async function getHeadContentHash(
     .get();
 
   return result?.contentHash ?? null;
+}
+
+/**
+ * Reject a write that would push the drive past AGENT_FS_MAX_DRIVE_BYTES.
+ * A versioning backend keeps every version, so all version sizes count;
+ * otherwise only live files count, minus the paths this write replaces.
+ */
+export function assertDriveBudget(ctx: OpContext, addedBytes: number, replacedPaths: string[]): void {
+  const max = getMaxDriveBytes();
+  if (max === undefined) return;
+  // shortcut: sums rows on every write (no drive_id index on file_versions); add a running counter if this shows up in profiles.
+  const row = ctx.s3.capabilities.versioning
+    ? ctx.db
+        .select({ n: sql<number>`COALESCE(SUM(${schema.fileVersions.size}), 0)` })
+        .from(schema.fileVersions)
+        .where(eq(schema.fileVersions.driveId, ctx.driveId))
+        .get()
+    : ctx.db
+        .select({ n: sql<number>`COALESCE(SUM(${schema.files.size}), 0)` })
+        .from(schema.files)
+        .where(and(
+          eq(schema.files.driveId, ctx.driveId),
+          eq(schema.files.isDeleted, false),
+          notInArray(schema.files.path, replacedPaths),
+        ))
+        .get();
+  const used = row?.n ?? 0;
+  if (used + addedBytes > max) {
+    throw new AgentFSError(
+      "QUOTA_EXCEEDED",
+      `Drive storage limit reached: ${used} of ${max} bytes used, this write needs ${addedBytes} more`,
+      "Ask the server operator to raise the drive storage limit",
+    );
+  }
 }
 
 /**
