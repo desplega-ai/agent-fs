@@ -188,14 +188,28 @@ export function plainSnippet(content: string, pattern: string): string {
   return (start > 0 ? "..." : "") + markedToHtml(text) + (end < content.length ? "..." : "");
 }
 
-/** Bare terms of an FTS5 query: no operators, column filters or quotes. A trailing `*` marks a prefix. */
+/**
+ * Highlighting uses at most this many distinct terms. Regex cost grows faster
+ * than linearly with the number of alternatives, so a query with thousands of
+ * terms would take seconds per large document. Terms past the limit still
+ * match in FTS5; they are only left out of the snippet window and highlight.
+ */
+const MAX_SNIPPET_TERMS = 32;
+
+/** Bare, distinct terms of an FTS5 query: no operators, column filters or quotes. A trailing `*` marks a prefix. */
 function queryTerms(pattern: string): { text: string; prefix: boolean }[] {
   const terms: { text: string; prefix: boolean }[] = [];
+  const seen = new Set<string>();
   const stripped = pattern.replace(/\{[^}]*\}\s*:|\b\w+\s*:/g, " ");
   for (const m of stripped.matchAll(/[\p{L}\p{N}]+(\*)?/gu)) {
     const text = m[0].replace(/\*$/, "");
     if (["AND", "OR", "NOT", "NEAR"].includes(text)) continue;
-    terms.push({ text, prefix: m[1] === "*" });
+    const prefix = m[1] === "*";
+    const key = `${text.toLowerCase()}${prefix ? "*" : ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    terms.push({ text, prefix });
+    if (terms.length === MAX_SNIPPET_TERMS) break;
   }
   return terms;
 }
