@@ -350,6 +350,10 @@ The `--drive` flag is a global option — place it before the subcommand: `agent
 
 Drive membership is explicit: `drive list` shows only drives you're a member of. Creating a drive automatically grants you admin membership on it; other users get access per drive: `member invite --to`, `drive invite` (current drive), or `member add` for existing org members. A plain `member invite` grants the default drive only.
 
+The HTTP drive list includes `fileCountLowerBound`, a metadata count capped at five live files, including nested files.
+Five means at least five. Older servers omit this field, and storage-only objects do not contribute.
+The live UI uses this summary for its star prompt without traversing folders.
+
 ### Config & Daemon
 
 | Command | Usage | Description |
