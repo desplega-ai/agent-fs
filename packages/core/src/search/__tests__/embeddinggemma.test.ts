@@ -116,7 +116,8 @@ function fakeVision() {
   return { provider, textModel, models, init, processor, fromBlob };
 }
 
-const part = { mime: "image/png", data: new Uint8Array([1, 2, 3]) };
+// A PNG signature and an IHDR header that declares 1x1 pixels.
+const part = { mime: "image/png", data: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1]) };
 
 describe("EmbeddingGemmaRuntime images", () => {
   test("selects a local path only when every required file exists", () => {
