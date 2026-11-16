@@ -5,7 +5,8 @@ import type { CatResult } from "@/api/types"
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-const CACHE_KEY = "liveui:uuid-cache"
+// The old cache contains permanent misses from the unsupported read operation.
+const CACHE_KEY = "liveui:uuid-cache:v2"
 
 export function isUuidLike(s: string): boolean {
   return UUID_RE.test(s)
@@ -38,10 +39,6 @@ function cacheKey(orgId: string, driveId: string, fullPath: string): string {
   return `${orgId}::${driveId}::${fullPath}`
 }
 
-interface ReadResult {
-  content?: string
-}
-
 async function tryRead(
   client: ReturnType<typeof useAuth>["client"],
   orgId: string,
@@ -49,14 +46,14 @@ async function tryRead(
   path: string,
 ): Promise<string | null> {
   try {
-    const result = await client.callOp<ReadResult | CatResult>(
+    const result = await client.callOp<CatResult>(
       orgId,
-      "read",
+      "cat",
       { path },
       driveId,
     )
-    if (result && typeof (result as ReadResult).content === "string") {
-      return (result as ReadResult).content as string
+    if (result && typeof result.content === "string") {
+      return result.content
     }
     return null
   } catch {
