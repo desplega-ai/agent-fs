@@ -158,6 +158,18 @@ export const fileVersions = sqliteTable(
   })
 );
 
+// storage_intents: paths a mutating op is changing in storage. See raw.ts.
+export const storageIntents = sqliteTable("storage_intents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  orgId: text("org_id").notNull(),
+  driveId: text("drive_id").notNull(),
+  path: text("path").notNull(),
+  op: text("op", { enum: ["write", "edit", "append", "revert", "rm", "mv", "cp"] }).notNull(),
+  author: text("author").notNull(),
+  message: text("message"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 // comments (document comments with threading)
 export const comments = sqliteTable("comments", {
   id: text("id").primaryKey(),

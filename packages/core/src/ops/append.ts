@@ -11,6 +11,7 @@ import { detectMimeType } from "./mime.js";
 import { indexTextForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
 import { withPathLock } from "./path-lock.js";
+import { withStorageIntent } from "./storage-intent.js";
 
 export async function append(
   ctx: OpContext,
@@ -46,22 +47,24 @@ export async function append(
     const contentHash = createHash("sha256").update(newContent).digest("hex");
 
     assertDriveBudget(ctx, size, [path]);
-    const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
+    return withStorageIntent(ctx, [{ path, op: "append", message: params.message }], async () => {
+      const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
 
-    // 3. Create version
-    const version = await createVersion(ctx, {
-      path,
-      s3VersionId: s3Result.versionId ?? "",
-      operation: "append",
-      message: params.message,
-      size,
-      etag: s3Result.etag,
-      contentType,
-      contentHash,
+      // 3. Create version
+      const version = await createVersion(ctx, {
+        path,
+        s3VersionId: s3Result.versionId ?? "",
+        operation: "append",
+        message: params.message,
+        size,
+        etag: s3Result.etag,
+        contentType,
+        contentHash,
+      });
+
+      await indexTextForSearch(ctx, path, newContent);
+
+      return { version, size };
     });
-
-    await indexTextForSearch(ctx, path, newContent);
-
-    return { version, size };
   });
 }

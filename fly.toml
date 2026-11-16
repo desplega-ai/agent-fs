@@ -5,6 +5,8 @@
 
 app = 'agent-fs-taras'
 primary_region = 'ams'
+# Shutdown waits up to 8 s for in-flight writes (packages/server/src/index.ts); Fly's default is 5 s.
+kill_timeout = 10
 
 [build]
   dockerfile = 'Dockerfile'

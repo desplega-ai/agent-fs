@@ -4,6 +4,7 @@ import {
   USER_API_KEYS_SQL,
   WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL,
   WEBHOOKS_SQL,
+  STORAGE_INTENTS_SQL,
 } from "./raw.js";
 
 /**
@@ -107,6 +108,10 @@ export function runMigrations(sqlite: Database): void {
   // Migration 3g: outbound webhooks (subscriptions + delivery outbox). Same
   // statements as CREATE_TABLES_SQL, all IF NOT EXISTS.
   sqlite.exec(WEBHOOKS_SQL);
+
+  // Migration 3l: storage intents, the crash-recovery journal for mutating
+  // ops. Same statement as CREATE_TABLES_SQL, IF NOT EXISTS.
+  sqlite.exec(STORAGE_INTENTS_SQL);
 
   // Migration 3h: index for the hourly delivery-log prune (status,
   // created_at). IF NOT EXISTS, so it is a no-op once present.
