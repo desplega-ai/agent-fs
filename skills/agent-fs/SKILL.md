@@ -137,7 +137,7 @@ symlinks are unsupported and throw `EPERM`.
 | `edit` | `agent-fs edit <path> --old <text> --new <text> [-m <msg>]` | Find-and-replace in file |
 | `append` | `agent-fs append <path> [--content <text>] [-m <msg>]` | Append to file (stdin or --content) |
 | `tail` | `agent-fs tail <path> [--lines <n>]` | Last N lines (default: 20) |
-| `ls` | `agent-fs ls [path]` | List directory contents (defaults to /) |
+| `ls` | `agent-fs ls [path]` | List immediate directory contents (defaults to /) |
 | `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps, embedding status: `pending`, `indexed`, `failed`, or `skipped`, `etag` of the current bytes: compare for equality to tell whether content changed) |
 | `reveal` | `agent-fs reveal <path>` | Everything needed to show one file in a tree, in one call: the `ls` listing of every ancestor (root first, as `listings: [{ path, entries }]`) plus the file's `stat`. Same permissions as `ls`; `NOT_FOUND` for a missing file, `VALIDATION_ERROR` for a path over 4096 characters or 128 levels deep. Prefer `ls`/`stat` for ordinary reads. |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
@@ -189,6 +189,9 @@ Every `diff` result carries `source`: `content` (both versions compared), `summa
 
 Search uses the active organization and drive. Check `org current` and `drive current`, or pass explicit `--org` and `--drive` flags.
 `glob`, `ls`, and `tree` read every S3 listing page. A drive with more than 1,000 objects remains searchable.
+`ls` reads metadata only for immediate file objects, in bounded queries using exact paths.
+Objects without live metadata remain visible with storage size and modification time.
+Folder validation limits concurrent storage checks when live metadata is absent.
 `search` and `vec-search` select semantic candidates within the active drive and count distinct files toward the limit.
 PDF text is searchable. `search` and `vec-search` results carry `page` for PDF text hits.
 With EmbeddingGemma 2, semantic search also finds PNG, JPEG, WebP, GIF, and the first 3 PDF pages as images.
