@@ -11,6 +11,7 @@ import { clearSearchData, indexBytesForSearch } from "./search-index.js";
 import { detectMimeType } from "./mime.js";
 import { withPathLock } from "./path-lock.js";
 import { finishRemove } from "./rm.js";
+import { favoritesAfterRemove } from "./favorite.js";
 
 /**
  * Crash consistency for ops that change storage and then the database.
@@ -109,6 +110,7 @@ async function reconcileIntent(deps: ReconcileDeps, row: IntentRow): Promise<str
         operation: schema.fileVersions.operation,
         contentHash: schema.fileVersions.contentHash,
         size: schema.fileVersions.size,
+        s3VersionId: schema.fileVersions.s3VersionId,
       })
       .from(schema.fileVersions)
       .where(and(eq(schema.fileVersions.path, path), eq(schema.fileVersions.driveId, row.driveId)))
@@ -122,14 +124,17 @@ async function reconcileIntent(deps: ReconcileDeps, row: IntentRow): Promise<str
       if (live) {
         await createVersion(ctx, { path, s3VersionId: "", operation: "delete", message: row.message ?? undefined });
         outcome = "recorded delete";
-        // shortcut: a recovered mv source skips favoritesAfterMove, so its stars are dropped, not moved; carry the destination in the intent if that matters.
-        if (row.op === "rm") await finishRemove(ctx, path);
       }
+      // Run even when the tombstone is already there: a crash between it and
+      // the cleanup leaves comments and stars on a deleted path. Both are
+      // idempotent.
+      if (row.op === "rm") await finishRemove(ctx, path);
+      // shortcut: a recovered mv source skips favoritesAfterMove, so its stars are dropped, not moved; carry the destination in the intent if that matters.
+      else if (row.op === "mv") await favoritesAfterRemove(ctx, path);
       clearSearchData(ctx, path, "all");
     } else {
       const contentHash = createHash("sha256").update(obj.body).digest("hex");
-      // Rows from before content_hash existed match on size.
-      const matches = live && (head.contentHash === null ? head.size === obj.body.byteLength : head.contentHash === contentHash);
+      const matches = live && (await headDescribes(ctx, row, head, obj, contentHash));
       const contentType = obj.contentType ?? detectMimeType(path);
       if (!matches) {
         await createVersion(ctx, {
@@ -150,6 +155,30 @@ async function reconcileIntent(deps: ReconcileDeps, row: IntentRow): Promise<str
     ctx.db.delete(schema.storageIntents).where(eq(schema.storageIntents.id, row.id)).run();
     return outcome;
   });
+}
+
+/**
+ * True when the head version row records exactly the stored bytes. A row from
+ * before content_hash existed has no hash, and its size cannot tell an
+ * equal-length overwrite apart, so read the bytes its version handle points
+ * at. Anything unverifiable counts as a mismatch: recording a version for
+ * unchanged bytes is harmless, keeping a row that names other bytes is not.
+ */
+async function headDescribes(
+  ctx: OpContext,
+  row: IntentRow,
+  head: { contentHash: string | null; size: number | null; s3VersionId: string },
+  obj: GetObjectResult,
+  contentHash: string
+): Promise<boolean> {
+  if (head.contentHash !== null) return head.contentHash === contentHash;
+  if (!head.s3VersionId || head.size !== obj.body.byteLength) return false;
+  try {
+    const prev = await ctx.s3.getObject(getS3Key(row.orgId, row.driveId, row.path), head.s3VersionId);
+    return createHash("sha256").update(prev.body).digest("hex") === contentHash;
+  } catch {
+    return false;
+  }
 }
 
 let sweeping: Promise<number> | null = null;
