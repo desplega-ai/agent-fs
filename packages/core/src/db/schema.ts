@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   sqliteTable,
   text,
@@ -126,6 +127,9 @@ export const files = sqliteTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.path, table.driveId] }),
+    liveDrivePathIdx: index("idx_files_live_drive_path")
+      .on(table.driveId, table.path)
+      .where(sql`${table.isDeleted} = 0 and ${table.path} not like '%/'`),
   })
 );
 
@@ -155,6 +159,8 @@ export const fileVersions = sqliteTable(
     pathDriveVersionUq: uniqueIndex(
       "file_versions_path_drive_version_uq"
     ).on(table.path, table.driveId, table.version),
+    driveCreatedIdx: index("idx_file_versions_drive_created")
+      .on(table.driveId, sql`${table.createdAt} desc`),
   })
 );
 

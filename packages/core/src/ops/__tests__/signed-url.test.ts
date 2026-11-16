@@ -1,9 +1,30 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, spyOn } from "bun:test";
 import { getOpDefinition, dispatchOp } from "../index.js";
 import { createTestContext } from "../../test-utils.js";
+import { getS3Key } from "../versioning.js";
 
 describe("signed-url op", () => {
   const opDef = getOpDefinition("signed-url")!;
+
+  test("checks storage once and refuses a missing object even when its metadata remains", async () => {
+    const { ctx, db } = createTestContext();
+    await dispatchOp(ctx, "write", { path: "/exists.txt", content: "content" });
+    const head = spyOn(ctx.s3, "headObject");
+    const presign = spyOn(ctx.s3, "getPresignedUrl");
+    try {
+      await dispatchOp(ctx, "signed-url", { path: "/exists.txt" });
+      expect(head).toHaveBeenCalledTimes(1);
+      expect(presign).toHaveBeenCalledTimes(1);
+      await ctx.s3.deleteObject(getS3Key(ctx.orgId, ctx.driveId, "/exists.txt"));
+      await expect(dispatchOp(ctx, "signed-url", { path: "/exists.txt" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+      expect(head).toHaveBeenCalledTimes(2);
+      expect(presign).toHaveBeenCalledTimes(1);
+    } finally {
+      head.mockRestore();
+      presign.mockRestore();
+      db.$client.close();
+    }
+  });
 
   test("is registered in op registry", () => {
     expect(opDef).toBeDefined();

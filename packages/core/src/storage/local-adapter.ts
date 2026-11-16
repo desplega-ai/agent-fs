@@ -11,9 +11,9 @@ import {
   legacyDelete,
   legacyGet,
   legacyHead,
-  legacyList,
   legacyPut,
 } from "./legacy-reserved-keys.js";
+import { listLocalObjects } from "./local-list.js";
 import type {
   StorageAdapter,
   StorageCapabilities,
@@ -230,66 +230,10 @@ export class LocalStorageAdapter implements StorageAdapter {
 
   async listObjects(
     prefix: string,
-    options?: { delimiter?: string; maxKeys?: number },
+    options?: { delimiter?: string; maxKeys?: number; maxDepth?: number },
   ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
     assertKeyInsideDrive(prefix);
-    const listing = await this.listAll(prefix, options?.delimiter);
-    const max = options?.maxKeys;
-    if (max === undefined) return listing;
-    const objects = listing.objects.slice(0, max);
-    return { objects, prefixes: listing.prefixes.slice(0, max - objects.length) };
-  }
-
-  private async listAll(
-    prefix: string,
-    delimiter: string | undefined,
-  ): Promise<{ objects: S3Object[]; prefixes: string[] }> {
-    const objects: S3Object[] = [];
-    const prefixes = new Set<string>();
-    let cursor: string | undefined;
-
-    // Drain every page (fs caps at ~1000 items/page and returns a cursor).
-    // The `_afs-blobs/…` prefix is a top-level sibling of `<orgId>/…`, so a
-    // drive-scoped prefix never matches it — blobs never surface here.
-    do {
-      const page = await this.files.list({
-        prefix,
-        ...(delimiter ? { delimiter } : {}),
-        ...(cursor ? { cursor } : {}),
-      });
-      for (const it of page.items) {
-        objects.push({
-          key: it.key,
-          size: it.size,
-          lastModified:
-            it.lastModified != null ? new Date(it.lastModified) : new Date(),
-          etag: it.etag,
-        });
-      }
-      for (const p of page.prefixes ?? []) prefixes.add(p);
-      cursor = page.cursor;
-    } while (cursor);
-
-    // Add the `.fls-tmp` files files-sdk 3 skips, grouped like S3 would.
-    const legacy = await legacyList(this.root, prefix);
-    if (legacy.length === 0) return { objects, prefixes: Array.from(prefixes) };
-    for (const it of legacy) {
-      const rest = it.key.slice(prefix.length);
-      const cut = delimiter ? rest.indexOf(delimiter) : -1;
-      if (delimiter && cut >= 0) {
-        prefixes.add(prefix + rest.slice(0, cut + delimiter.length));
-        continue;
-      }
-      objects.push({
-        key: it.key,
-        size: it.size,
-        lastModified: new Date(it.lastModified),
-        etag: it.etag,
-      });
-    }
-    const byKey = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-    objects.sort((a, b) => byKey(a.key, b.key));
-    return { objects, prefixes: Array.from(prefixes).sort(byKey) };
+    return listLocalObjects(this.root, prefix, options);
   }
 
   async headObject(key: string): Promise<HeadObjectResult> {

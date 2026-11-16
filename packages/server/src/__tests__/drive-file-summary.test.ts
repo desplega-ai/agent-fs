@@ -65,8 +65,17 @@ describe("drive file summary", () => {
     expect((await summary()).fileCountLowerBound).toBe(5);
   });
 
-  test("the summary query uses the existing drive index", async () => {
-    addFile("/nested/file.txt");
+  test("the summary index skips 100,000 tombstones and folder markers before the limit", async () => {
+    const insert = db.$client.prepare(
+      "INSERT INTO files (path, drive_id, size, author, created_at, modified_at, is_deleted) VALUES (?, ?, 1, ?, 0, 0, ?)"
+    );
+    db.$client.transaction(() => {
+      for (let i = 0; i < 50_000; i++) {
+        insert.run(`/a-deleted/${i}.txt`, driveId, owner.user.id, 1);
+        insert.run(`/b-marker/${i}/`, driveId, owner.user.id, 0);
+      }
+    })();
+    for (let i = 0; i < 5; i++) addFile(`/z-live/${i}.txt`);
     const prepare = spyOn(db.$client, "prepare");
     let query: string | undefined;
     try {
@@ -74,15 +83,19 @@ describe("drive file summary", () => {
         id: driveId, name: "default", isDefault: true,
       }]);
       expect(prepare.mock.calls.some(([sql]) => sql.includes('from "files"'))).toBe(false);
-      await summary();
+      expect((await summary()).fileCountLowerBound).toBe(5);
       query = prepare.mock.calls.map(([sql]) => sql).find((sql) => sql.includes('from "files"'));
     } finally {
       prepare.mockRestore();
     }
     expect(query).toBeDefined();
     const plan = db.$client.query(`EXPLAIN QUERY PLAN ${query}`).all(orgId, owner.user.id) as { detail: string }[];
-    expect(plan.some(({ detail }) => detail.includes("SEARCH files USING INDEX idx_files_drive_path"))).toBe(true);
+    expect(plan.some(({ detail }) => detail.includes("SEARCH files USING COVERING INDEX idx_files_live_drive_path"))).toBe(true);
     expect(plan.some(({ detail }) => detail.includes("SCAN files"))).toBe(false);
+    const index = db.$client.query("SELECT sql FROM sqlite_master WHERE name = 'idx_files_live_drive_path'").get() as { sql: string };
+    expect(index.sql).toContain("WHERE is_deleted = 0 AND path NOT LIKE '%/'");
+    db.$client.query("UPDATE files SET is_deleted = 1 WHERE drive_id = ? AND path LIKE '/z-live/%'").run(driveId);
+    expect((await summary()).fileCountLowerBound).toBe(0);
   });
 
   test("keeps counts within each visible drive and requires org membership", async () => {

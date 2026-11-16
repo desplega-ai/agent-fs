@@ -78,7 +78,7 @@ export function listDrivesForUser(
       isDefault: schema.drives.isDefault,
       // Only the HTTP drive list needs this summary. Other callers avoid file queries.
       ...(options.includeFileSummary ? {
-        // Count at most five live files, including nested files, without listing storage.
+        // The partial live-file index skips tombstones and folder markers before LIMIT.
         fileCountLowerBound: sql<number>`(
           select count(*) from (
             select 1 from ${schema.files}
