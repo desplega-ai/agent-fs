@@ -19,8 +19,7 @@ for (let i = 0; i < 20; i++) listings[""].push(file(`root-${pad(i)}.md`))
 const TARGET = "area-100/sub/deep/target.md"
 // Folders the user expanded on an earlier visit, persisted in localStorage.
 // The set only grows (a reveal adds the target's ancestors), so a long-lived
-// browser carries hundreds. Those above the target load after the reveal lands
-// and push it down.
+// browser carries hundreds. Offscreen expansion must stay saved without requests.
 const PREVIOUSLY_EXPANDED = Array.from({ length: 120 }, (_, a) => [`area-${pad(a)}`, `area-${pad(a)}/sub`])
   .flat()
   .filter((path) => !path.startsWith("area-100"))
@@ -130,7 +129,7 @@ async function recordTree(page: Page, ms: number) {
 }
 
 for (const reveal of [true, false]) {
-  test(`deep link reveals the file once while folders above it load (${reveal ? "reveal op" : "per-ancestor ls"})`, async ({ page }) => {
+  test(`deep link reveals the file without loading offscreen folders (${reveal ? "reveal op" : "per-ancestor ls"})`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 844 })
     const { ops } = await installFixture(page, { reveal })
     await page.goto(`/file/~/org/drive/${TARGET}`)
@@ -138,8 +137,11 @@ for (const reveal of [true, false]) {
     const result = await recordTree(page, 4500)
     await page.screenshot({ path: `test-results/tree-reveal-${reveal ? "reveal" : "ls"}.png` })
 
-    // The folders expanded on an earlier visit did load, after the reveal.
-    for (const path of PREVIOUSLY_EXPANDED) expect(ops).toContain(`ls ${path}`)
+    // Saved expansion stays intact without traversing offscreen folders.
+    expect(ops).not.toContain("ls area-050")
+    expect(ops.filter((op) => op.startsWith("ls ")).length).toBeLessThan(30)
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("liveui:tree:expanded")!))
+    expect(saved).toEqual(expect.arrayContaining(PREVIOUSLY_EXPANDED))
     await expect(page.locator(`[data-tree-path="${TARGET}"]`)).toBeInViewport()
     // Once painted, the target row and the row at the top never move.
     expect(result.rowTops).toHaveLength(1)
@@ -176,13 +178,12 @@ test("collapsing a folder above the viewport at the bottom of the sidebar keeps 
   const { ops } = await installFixture(page, { reveal: true })
   await page.goto(`/file/~/org/drive/${TARGET}`)
   await page.locator(`[data-tree-path="${TARGET}"]`).waitFor()
-  // Let every previously expanded listing land.
-  await expect.poll(() => PREVIOUSLY_EXPANDED.every((path) => ops.includes(`ls ${path}`)), { timeout: 10_000 }).toBe(true)
-  // The slowest of them answers 2.8 s after its request.
-  await sleep(3000)
-
+  // Demand this folder before testing collapse anchoring far below it.
+  await page.locator('[role="tabpanel"]').evaluate((el) => { el.scrollTop = 0 })
   const folder = page.locator('[data-tree-path="area-000"]')
   await folder.focus()
+  await page.locator('[data-tree-path="area-000/sub/deep"]').waitFor()
+  expect(ops).toContain("ls area-000/sub")
   const before = await page.evaluate(() => {
     const panel = document.querySelector<HTMLElement>('[role="tabpanel"]')!
     panel.scrollTop = panel.scrollHeight

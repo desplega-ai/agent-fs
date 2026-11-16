@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useParams } from "react-router"
 import { FolderOpen } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
@@ -16,7 +17,8 @@ import { useFavorites } from "@/hooks/use-favorites"
 import { treeExpansionStore, useExpandedPaths, useFocusedPath } from "@/stores/tree-expansion"
 import { useSearchInput } from "@/contexts/search-input"
 import { describeRequestError } from "@/lib/request-errors"
-import { fetchReveal } from "@/lib/reveal"
+import { ancestorPaths, revealFile, TREE_STALE_TIME } from "@/lib/reveal"
+import { createTreeListingLoader, demandedDirectories } from "@/lib/tree-loading"
 import { expandedDirsKey, flattenTree, listingsByPath, type TreeRow } from "@/lib/tree-rows"
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { DropdownMenu, DropdownMenuContent, createDropdownMenuHandle } from "@/components/ui/dropdown-menu"
@@ -33,33 +35,54 @@ const ROW_HEIGHT = 28
 /** Rows mounted above and below the viewport. */
 const OVERSCAN = 20
 
-function ancestorPaths(path: string): string[] {
-  const parts = path.split("/").filter(Boolean)
-  return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"))
-}
-
 // Module-level so useQueries keeps the combined result stable between renders.
 const combineListings = (results: { data?: LsResult }[]) => results.map((result) => result.data)
 
 export function FileTree() {
-  const { client, orgId, driveId } = useAuth()
+  const { credential, orgId, driveId } = useAuth()
   const { selectedFile } = useBrowser()
+  const params = useParams()
+  // Route selection is available before RouteParamsSync updates context.
+  // Wait for its scope too, so a switch cannot reveal in the previous drive.
+  if ((params.orgId && params.orgId !== orgId) || (params.driveId && params.driveId !== driveId)) return null
+  const selected = (params["*"] ?? selectedFile)?.replace(/^\/+/, "")
+  return <ScopedFileTree
+    key={JSON.stringify([credential.id, credential.endpoint, orgId, driveId])}
+    selectedPath={selected && !selected.endsWith("/") ? selected : null}
+  />
+}
+
+function ScopedFileTree({ selectedPath }: { selectedPath: string | null }) {
+  const { client, orgId, driveId } = useAuth()
   const queryClient = useQueryClient()
   const expandedPaths = useExpandedPaths()
+  const focusedPath = useFocusedPath()
+  const focusedRef = useRef(focusedPath)
+  focusedRef.current = focusedPath
+  const loadListing = useMemo(() => createTreeListingLoader(
+    (path, signal) => client.callOp<LsResult>(orgId!, "ls", { path }, driveId, { signal }),
+    (path) => focusedRef.current === path || focusedRef.current?.startsWith(`${path}/`) ? 0 : 1,
+  ), [client, orgId, driveId])
+  const [demanded, setDemanded] = useState<string[]>([])
+  const demandKey = JSON.stringify(demanded)
+  const onDemandChange = useCallback((paths: string[]) => {
+    setDemanded((previous) => JSON.stringify(previous) === JSON.stringify(paths) ? previous : paths)
+  }, [])
+  const [revealedSelection, setRevealedSelection] = useState<string | null>(null)
+  const selectionPending = !!selectedPath && selectedPath !== revealedSelection
   // Path the selection effect wants scrolled into view once its row exists.
   const [revealPath, setRevealPath] = useState<string | null>(null)
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isPending, error } = useQuery({
     queryKey: ["ls", orgId, driveId, ""],
-    queryFn: () => client.callOp<LsResult>(orgId!, "ls", {}, driveId),
-    enabled: !!orgId && !!driveId,
+    queryFn: ({ signal }) => client.callOp<LsResult>(orgId!, "ls", {}, driveId, { signal }),
+    enabled: !!orgId && !!driveId && !selectionPending,
+    staleTime: TREE_STALE_TIME,
   })
-  const treeReady = !!data
 
   // Which expanded folders are reachable depends on listings already loaded, so
-  // pick the queries from the cache. useQueries subscribes to them; each listing
-  // that resolves re-renders the tree and may surface deeper expanded folders,
-  // exactly like the per-row queries this replaces.
+  // subscribe to their cache entries. Only viewport and focus demand enable
+  // requests. Saved expansion alone must not trigger an entire traversal.
   const expandedDirs = data
     ? flattenTree(data, expandedPaths, (path) =>
         queryClient.getQueryData<LsResult>(["ls", orgId, driveId, path]),
@@ -68,8 +91,9 @@ export function FileTree() {
   const listings = useQueries({
     queries: expandedDirs.map((path) => ({
       queryKey: ["ls", orgId, driveId, path],
-      queryFn: () => client.callOp<LsResult>(orgId!, "ls", { path }, driveId),
-      enabled: !!orgId && !!driveId,
+      queryFn: ({ signal }) => loadListing(path, signal),
+      enabled: !!orgId && !!driveId && !selectionPending && demanded.includes(path),
+      staleTime: TREE_STALE_TIME,
     })),
     combine: combineListings,
   })
@@ -81,44 +105,24 @@ export function FileTree() {
   }, [data, expandedPaths, expandedKey, listings])
 
   useEffect(() => {
-    const path = selectedFile?.replace(/^\/+/, "")
-    if (!path || path.endsWith("/") || !treeReady) return
+    const path = selectedPath
+    if (!path || !orgId || !driveId) {
+      setRevealedSelection(null)
+      return
+    }
 
     const ancestors = ancestorPaths(path)
     let cancelled = false
 
-    // Fallback for servers without `reveal`. Each level's ls only starts once
-    // its parent listing loads, so a file d levels deep costs d serial round trips.
-    const revealPerAncestor = () => {
-      treeExpansionStore.expandMany(ancestors)
-
-      // The file may have been created by another client after an ls result was
-      // cached. Refresh only the listings needed to reveal this path; invalidating
-      // every expanded tree node would turn one selection into an unbounded fanout.
-      for (const listingPath of ["", ...ancestors]) {
-        void queryClient.invalidateQueries({
-          queryKey: ["ls", orgId, driveId, listingPath],
-          exact: true,
-        })
-      }
-    }
-
-    // One round trip: seed every ancestor's ls cache entry before expanding,
-    // so each level renders from cache the moment it is expanded.
+    // A cold selection gets its root from reveal. Document loading remains
+    // independent, and unrelated restored folders wait for this selection.
     const abort = new AbortController()
-    void fetchReveal(client, orgId!, driveId, path, abort.signal).then((result) => {
+    void revealFile(queryClient, client, orgId, driveId, path, abort.signal).catch(() => {
+      // Ordinary listings still recover the tree if reveal and fallback fail.
+    }).finally(() => {
       if (cancelled) return
-      if (!result) {
-        revealPerAncestor()
-        return
-      }
-      for (const listing of result.listings) {
-        queryClient.setQueryData<LsResult>(
-          ["ls", orgId, driveId, listing.path.replace(/^\/+/, "")],
-          { entries: listing.entries },
-        )
-      }
       treeExpansionStore.expandMany(ancestors)
+      setRevealedSelection(path)
     })
 
     // Off-screen rows are not in the DOM, so the virtual list scrolls to the
@@ -134,13 +138,25 @@ export function FileTree() {
       abort.abort()
       window.clearTimeout(timeoutId)
     }
-  }, [client, driveId, orgId, queryClient, selectedFile, treeReady])
+  }, [client, driveId, orgId, queryClient, selectedPath])
+
+  // Disabled queries retain their cache subscription. Cancel queued or active
+  // sidebar work when its folder leaves demand, unless another view needs it.
+  useEffect(() => {
+    if (selectionPending) return
+    for (const query of queryClient.getQueryCache().findAll({ queryKey: ["ls", orgId, driveId] })) {
+      const path = String(query.queryKey[3] ?? "")
+      if (path && !query.isActive() && query.state.fetchStatus !== "idle") {
+        void queryClient.cancelQueries({ queryKey: query.queryKey, exact: true })
+      }
+    }
+  }, [queryClient, orgId, driveId, demandKey, selectionPending])
 
   const handleRevealed = useCallback((path: string) => {
     setRevealPath((current) => (current === path ? null : current))
   }, [])
 
-  if (isLoading) {
+  if (isPending) {
     return (
       <div className="space-y-1 p-2">
         {Array.from({ length: 5 }).map((_, i) => (
@@ -180,6 +196,7 @@ export function FileTree() {
       rows={rows}
       revealPath={revealPath}
       onRevealed={handleRevealed}
+      onDemandChange={onDemandChange}
     />
   )
 }
@@ -199,13 +216,13 @@ interface VirtualTreeProps {
   rows: TreeRow[]
   revealPath: string | null
   onRevealed: (path: string) => void
+  onDemandChange: (paths: string[]) => void
 }
 
 /**
- * Renders only the rows near the viewport. Kept apart from FileTree so a
- * scroll re-renders this list, not the listing queries and flattening above.
+ * Render rows near the viewport. Notify FileTree only when row demand changes.
  */
-function VirtualTree({ rows, revealPath, onRevealed }: VirtualTreeProps) {
+function VirtualTree({ rows, revealPath, onRevealed, onDemandChange }: VirtualTreeProps) {
   const favorites = useFavorites()
   const { toggleFavorite } = favorites
   const toggleTreeFavorite = useCallback(
@@ -360,6 +377,11 @@ function VirtualTree({ rows, revealPath, onRevealed }: VirtualTreeProps) {
     syncWindow()
     onRevealed(revealPath)
   }, [revealPath, indexByPath, scrollElement, scrollMargin, syncWindow, onRevealed])
+
+  // Report the actual viewport, not pinned focus rows or DOM overscan.
+  useEffect(() => {
+    onDemandChange(demandedDirectories(rows, visible.first, visible.last, focusedPath))
+  }, [rows, visible, focusedPath, onDemandChange])
 
   // Keyboard navigation: move DOM focus once the target row is rendered. The
   // tab stop is always in `mountedIndexes`, so this lands on the render
