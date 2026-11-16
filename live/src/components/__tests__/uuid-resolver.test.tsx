@@ -1,5 +1,5 @@
 // Run with file isolation because this suite replaces the auth context.
-// From live/: bun test --isolate src/lib/__tests__/uuid-resolver.test.tsx
+// From live/: bun test --isolate src/components/__tests__/uuid-resolver.test.tsx
 import { afterAll, afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import type { Root } from "react-dom/client"
@@ -21,7 +21,7 @@ interface Session {
 
 let auth: Session
 mock.module("../../contexts/auth", () => ({ useAuth: () => auth }))
-const { useUuidName } = await import("../uuid-resolver")
+const { useUuidName } = await import("../../lib/uuid-resolver")
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const uuid = "d727c2aa-b15d-4267-b1ba-ce120c1e369c"
