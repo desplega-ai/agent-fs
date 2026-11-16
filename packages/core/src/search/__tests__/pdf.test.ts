@@ -251,7 +251,7 @@ describe("PDF page images", () => {
   test("keeps original page locators after a render error and cleans the document", async () => {
     const unpdf = await import("unpdf");
     const destroy = async () => {};
-    const pdf = { numPages: 3, loadingTask: { destroy } };
+    const pdf = { numPages: 3, loadingTask: { destroy }, getPage: async () => ({ getViewport: () => ({ width: 612, height: 792 }) }) };
     const open = spyOn(unpdf, "getDocumentProxy").mockResolvedValue(pdf as any);
     const cleanup = spyOn(pdf.loadingTask, "destroy");
     let inFlight = false;

@@ -20,6 +20,10 @@ const MAX_TOKENS = 8192;
 const IMAGE_TOKEN_BUDGET = 140;
 const VISION_IDLE_MS = 60_000;
 const VISION_IMAGE_LIMIT = 50;
+// Rasters are decoded whole in this shared worker before the processor shrinks them.
+const MAX_IMAGE_PIXELS = 40_000_000;
+const PDF_PAGE_WIDTH = 1024;
+const MAX_PDF_PAGE_PIXELS = PDF_PAGE_WIDTH * 4096;
 
 // The files a text-only q8 load by model id writes into the cache directory.
 const TEXT_MODEL_FILES = [
@@ -43,6 +47,39 @@ export function embeddingGemmaSource(cacheDir, vision) {
   const cached = join(cacheDir, MODEL);
   const files = vision ? VISION_MODEL_FILES : TEXT_MODEL_FILES;
   return files.every((file) => existsSync(join(cached, file))) ? cached : MODEL;
+}
+
+/** Reads the declared size of a PNG, JPEG, WebP or GIF without decoding it. Returns null for anything else. */
+export function imageSize(data) {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const ascii = (at, n) => String.fromCharCode(...data.subarray(at, at + n));
+  try {
+    if (view.getUint32(0) === 0x89504e47) return { width: view.getUint32(16), height: view.getUint32(20) };
+    if (ascii(0, 3) === "GIF") return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
+    if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+      const chunk = ascii(12, 4);
+      if (chunk === "VP8X") return { width: 1 + (view.getUint32(24, true) & 0xffffff), height: 1 + (view.getUint32(26, true) >>> 8) };
+      if (chunk === "VP8L") {
+        const bits = view.getUint32(21, true);
+        return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >>> 14) & 0x3fff) };
+      }
+      if (chunk === "VP8 ") return { width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff };
+      return null;
+    }
+    if (view.getUint16(0) !== 0xffd8) return null;
+    for (let at = 2; data[at] === 0xff;) {
+      const marker = data[at + 1];
+      if (marker === 0xff) at++;
+      else if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { width: view.getUint16(at + 7), height: view.getUint16(at + 5) };
+      } else if (marker === 0xda || marker === 0xd9) return null;
+      else if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) at += 2;
+      else at += 2 + view.getUint16(at + 2);
+    }
+  } catch {
+    // A truncated header reads past the end.
+  }
+  return null;
 }
 
 export class EmbeddingGemmaRuntime {
@@ -188,6 +225,11 @@ export class EmbeddingGemmaRuntime {
     try {
       const vectors = [];
       for (const { data } of parts) {
+        const size = imageSize(data);
+        if (!size) throw new EmbeddingProviderError("Image is not a readable PNG, JPEG, WebP or GIF.");
+        if (size.width * size.height > MAX_IMAGE_PIXELS) {
+          throw new EmbeddingProviderError(`Image exceeds ${MAX_IMAGE_PIXELS} pixels (${size.width}x${size.height}).`);
+        }
         await this.initVision();
         const image = await this.rawImage.fromBlob(new Blob([data.slice()]));
         const inputs = await this.visionProcessor(null, image);
@@ -235,9 +277,12 @@ export class EmbeddingGemmaRuntime {
       const pages = [];
       for (let page = 1; page <= Math.min(n, pdf.numPages); page++) {
         try {
+          const viewport = (await pdf.getPage(page)).getViewport({ scale: 1 });
+          // Tall pages render narrower so the page stays within the pixel bound.
+          const width = Math.floor(Math.min(PDF_PAGE_WIDTH, Math.sqrt(MAX_PDF_PAGE_PIXELS * viewport.width / viewport.height)));
           const buffer = await renderPageAsImage(pdf, page, {
             canvasImport: () => this.loadCanvas(),
-            width: 1024,
+            width,
           });
           pages.push({ page, data: new Uint8Array(buffer) });
         } catch (err) {

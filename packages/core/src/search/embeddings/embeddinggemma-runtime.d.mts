@@ -14,6 +14,7 @@ export interface WorkerScope {
   postMessage(message: WorkerReply): void;
 }
 
+export function imageSize(data: Uint8Array): { width: number; height: number } | null;
 export function embeddingGemmaSource(cacheDir: string, vision: boolean): string;
 export class EmbeddingGemmaRuntime implements EmbeddingProvider {
   readonly name: string;
