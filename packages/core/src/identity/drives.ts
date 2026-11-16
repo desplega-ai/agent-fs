@@ -68,13 +68,27 @@ export function listDrives(
 export function listDrivesForUser(
   db: DB,
   orgId: string,
-  userId: string
-): Array<{ id: string; name: string; isDefault: boolean }> {
+  userId: string,
+  options: { includeFileSummary?: boolean } = {}
+): Array<{ id: string; name: string; isDefault: boolean; fileCountLowerBound?: number }> {
   return db
     .select({
       id: schema.drives.id,
       name: schema.drives.name,
       isDefault: schema.drives.isDefault,
+      // Only the HTTP drive list needs this summary. Other callers avoid file queries.
+      ...(options.includeFileSummary ? {
+        // The partial live-file index skips tombstones and folder markers before LIMIT.
+        fileCountLowerBound: sql<number>`(
+          select count(*) from (
+            select 1 from ${schema.files}
+            where ${schema.files.driveId} = ${schema.drives.id}
+              and ${schema.files.isDeleted} = 0
+              and ${schema.files.path} not like '%/'
+            limit 5
+          )
+        )`,
+      } : {}),
     })
     .from(schema.drives)
     .innerJoin(
@@ -87,8 +101,7 @@ export function listDrivesForUser(
         eq(schema.driveMembers.userId, userId)
       )
     )
-    .all()
-    .map((d) => ({ id: d.id, name: d.name, isDefault: d.isDefault }));
+    .all();
 }
 
 /**

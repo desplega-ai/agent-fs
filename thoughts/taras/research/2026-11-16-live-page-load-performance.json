@@ -1,0 +1,711 @@
+{
+  "root": {
+    "longTasks": [],
+    "requests": [
+      {
+        "end": 57.700000047683716,
+        "start": 0.6000000238418579,
+        "status": 202,
+        "url": "/api/event"
+      },
+      {
+        "end": 57.60000002384186,
+        "start": 0.9000000357627869,
+        "status": 202,
+        "url": "/api/event"
+      },
+      {
+        "end": 3155.7000000476837,
+        "start": 19.5,
+        "status": 200,
+        "url": "/orgs/example-org/drives"
+      },
+      {
+        "end": 3149.900000035763,
+        "op": "ls",
+        "start": 20.200000047683716,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 2134.2000000476837,
+        "op": "ls",
+        "path": "",
+        "start": 21.600000023841858,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 3152.7000000476837,
+        "start": 25.400000035762787,
+        "status": 200,
+        "url": "/orgs/example-org/drives/example-drive/presence/example-session"
+      },
+      {
+        "end": 3219.800000011921,
+        "start": 26,
+        "status": 200,
+        "url": "/orgs/example-org/drives/example-drive/events"
+      },
+      {
+        "end": 3778,
+        "op": "ls",
+        "path": "/",
+        "start": 26.200000047683716,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 3777.7000000476837,
+        "op": "ls",
+        "start": 26.400000035762787,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 3231,
+        "op": "favorite-list",
+        "start": 26.600000023841858,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 3231.2000000476837,
+        "start": 26.80000001192093,
+        "status": 200,
+        "url": "/orgs/example-org/drives"
+      },
+      {
+        "end": 3221.7000000476837,
+        "op": "comment-notification-list",
+        "start": 27,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 3766.100000023842,
+        "op": "recent",
+        "start": 27.200000047683716,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 3234.900000035763,
+        "start": 27.400000035762787,
+        "status": 200,
+        "url": "/orgs/example-org/drives"
+      },
+      {
+        "end": 3235.2000000476837,
+        "path": null,
+        "start": 30.80000001192093,
+        "status": 200,
+        "url": "/orgs/example-org/drives/example-drive/presence/example-session"
+      },
+      {
+        "end": 3766.5,
+        "path": null,
+        "start": 3237.100000023842,
+        "status": 200,
+        "url": "/orgs/example-org/drives/example-drive/presence/example-session"
+      },
+      {
+        "end": 3867.300000011921,
+        "op": "ls",
+        "path": "/entry-1/",
+        "start": 3778.7000000476837,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 3949.5,
+        "op": "ls",
+        "path": "/entry-1/entry-2/",
+        "start": 3867.400000035763,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 4022.400000035763,
+        "op": "ls",
+        "path": "/entry-1/entry-2/entry-3/",
+        "start": 3949.800000011921,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 4098.400000035763,
+        "op": "ls",
+        "path": "/entry-1/entry-2/entry-3/entry-4/",
+        "start": 4022.800000011921,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 4196,
+        "op": "ls",
+        "path": "/entry-1/entry-2/entry-3/entry-4/entry-3/",
+        "start": 4098.700000047684,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 4273.100000023842,
+        "op": "ls",
+        "path": "/entry-1/entry-2/entry-3/entry-4/entry-3/entry-5/",
+        "start": 4196.800000011921,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 4365.800000011921,
+        "op": "ls",
+        "path": "/entry-6/",
+        "start": 4273.5,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 4448.400000035763,
+        "op": "ls",
+        "path": "/entry-6/entry-7/",
+        "start": 4366,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      }
+    ],
+    "start": 16636.599999964237
+  },
+  "document": {
+    "contentVisible": 1910,
+    "longTasks": [],
+    "requests": [
+      {
+        "end": 153.5,
+        "start": 0.30000001192092896,
+        "status": 202,
+        "url": "/api/event"
+      },
+      {
+        "end": 63.60000002384186,
+        "start": 0.699999988079071,
+        "status": 202,
+        "url": "/api/event"
+      },
+      {
+        "end": 837.6000000238419,
+        "op": "reveal",
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 31.900000035762787,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 838,
+        "op": "stat",
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 32.40000003576279,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 219.69999998807907,
+        "op": "comment-list",
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 32.60000002384186,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 211.5,
+        "op": "comment-list",
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 33.10000002384186,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 219.69999998807907,
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 45.30000001192093,
+        "status": 200,
+        "url": "/orgs/example-org/drives/example-drive/presence/example-session"
+      },
+      {
+        "end": 958.4000000357628,
+        "op": "signed-url",
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 883,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1868.6000000238419,
+        "start": 958.6999999880791,
+        "status": 200,
+        "url": "/example-storage/org/drives/drive/entry-8/entry-9.md"
+      },
+      {
+        "end": 1953.5,
+        "op": "favorite-list",
+        "start": 1899.1000000238419,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1971.800000011921,
+        "op": "stat",
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 1900.6000000238419,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 3351.199999988079,
+        "op": "comment-notification-list",
+        "start": 3277.600000023842,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 4164.699999988079,
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 4103.5,
+        "status": 200,
+        "url": "/orgs/example-org/drives/example-drive/presence/example-session"
+      }
+    ],
+    "start": 57561.39999997616
+  },
+  "restored": {
+    "contentVisible": 1105.4000000357628,
+    "instrumentedAt": 387,
+    "longTasks": [],
+    "requests": [
+      {
+        "end": 1154.1000000238419,
+        "op": "ls",
+        "path": "/",
+        "start": 806.2000000476837,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 935.7000000476837,
+        "start": 807.2000000476837,
+        "status": 200,
+        "url": "/orgs"
+      },
+      {
+        "end": 1188.7000000476837,
+        "start": 816.8000000119209,
+        "status": 200,
+        "url": "/orgs/example-org/drives/example-drive/events"
+      },
+      {
+        "end": 935.5,
+        "op": "favorite-list",
+        "start": 817.2000000476837,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 951,
+        "op": "signed-url",
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 818.6000000238419,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1188.6000000238419,
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 820,
+        "status": 200,
+        "url": "/orgs/example-org/drives/example-drive/presence/example-session"
+      },
+      {
+        "end": 952.3000000119209,
+        "op": "ls",
+        "path": "entry-10",
+        "start": 834.9000000357628,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 961.5,
+        "op": "ls",
+        "path": "entry-11",
+        "start": 835.4000000357628,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1204.7000000476837,
+        "op": "ls",
+        "path": "entry-12",
+        "start": 835.8000000119209,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1731.9000000357628,
+        "op": "ls",
+        "path": "entry-13",
+        "start": 836.1000000238419,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1731.6000000238419,
+        "op": "ls",
+        "path": "entry-14",
+        "start": 836.4000000357628,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1166.2000000476837,
+        "op": "ls",
+        "path": "entry-15",
+        "start": 836.7000000476837,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1731.300000011921,
+        "op": "ls",
+        "path": "entry-16",
+        "start": 837,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1732.1000000238419,
+        "op": "ls",
+        "path": "entry-17",
+        "start": 837.3000000119209,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1731.2000000476837,
+        "op": "ls",
+        "path": "entry-18",
+        "start": 837.5,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1730.2000000476837,
+        "op": "ls",
+        "path": "entry-19",
+        "start": 837.8000000119209,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1732.5,
+        "op": "ls",
+        "path": "entry-20",
+        "start": 838,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1730.4000000357628,
+        "op": "ls",
+        "path": "entry-21",
+        "start": 838.3000000119209,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1733,
+        "op": "ls",
+        "path": "entry-22",
+        "start": 838.5,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1732.4000000357628,
+        "op": "ls",
+        "path": "entry-23",
+        "start": 838.8000000119209,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1730.300000011921,
+        "op": "ls",
+        "path": "entry-24",
+        "start": 839.1000000238419,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1735,
+        "op": "ls",
+        "path": "entry-25",
+        "start": 839.3000000119209,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1732.800000011921,
+        "op": "ls",
+        "path": "entry-26",
+        "start": 839.6000000238419,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1733.2000000476837,
+        "op": "ls",
+        "path": "entry-5",
+        "start": 839.8000000119209,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1732.6000000238419,
+        "op": "ls",
+        "path": "entry-3",
+        "start": 840,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1732.7000000476837,
+        "op": "ls",
+        "path": "entry-4",
+        "start": 840.3000000119209,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1732.4000000357628,
+        "op": "reveal",
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 840.6000000238419,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1082.7000000476837,
+        "start": 961.3000000119209,
+        "status": 200,
+        "url": "/example-storage/org/drives/drive/entry-8/entry-9.md"
+      },
+      {
+        "end": 1189,
+        "op": "read",
+        "path": "entry-10/entry-27/meta.json",
+        "start": 965.6000000238419,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1191.300000011921,
+        "op": "read",
+        "path": "entry-10/entry-28/meta.json",
+        "start": 966.1000000238419,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1191.7000000476837,
+        "op": "read",
+        "path": "entry-10/entry-29/meta.json",
+        "start": 966.3000000119209,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1192.1000000238419,
+        "op": "read",
+        "path": "entry-10/entry-30/meta.json",
+        "start": 966.5,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1191.4000000357628,
+        "op": "read",
+        "path": "entry-10/entry-31/meta.json",
+        "start": 966.8000000119209,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1191.9000000357628,
+        "op": "read",
+        "path": "entry-10/entry-32/meta.json",
+        "start": 967.2000000476837,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1195.4000000357628,
+        "op": "read",
+        "path": "entry-11/entry-33/meta.json",
+        "start": 974,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1721.9000000357628,
+        "op": "stat",
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 1096.5,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1722.2000000476837,
+        "op": "ls",
+        "path": "/entry-1/",
+        "start": 1154.5,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1722.6000000238419,
+        "path": "entry-3/entry-8/entry-9.md",
+        "start": 1189.4000000357628,
+        "status": 200,
+        "url": "/orgs/example-org/drives/example-drive/presence/example-session"
+      },
+      {
+        "end": 1723.2000000476837,
+        "op": "read",
+        "path": "entry-10/entry-27/.name",
+        "start": 1189.800000011921,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1729.4000000357628,
+        "op": "read",
+        "path": "entry-10/entry-28/.name",
+        "start": 1192.5,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1725,
+        "op": "read",
+        "path": "entry-10/entry-31/.name",
+        "start": 1192.800000011921,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1729.7000000476837,
+        "op": "read",
+        "path": "entry-10/entry-29/.name",
+        "start": 1192.9000000357628,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1729.800000011921,
+        "op": "read",
+        "path": "entry-10/entry-32/.name",
+        "start": 1193,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1730,
+        "op": "read",
+        "path": "entry-10/entry-30/.name",
+        "start": 1193.5,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1730.1000000238419,
+        "op": "read",
+        "path": "entry-11/entry-33/.name",
+        "start": 1195.6000000238419,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1827.1000000238419,
+        "op": "ls",
+        "path": "/entry-1/entry-2/",
+        "start": 1723.800000011921,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1860.1000000238419,
+        "op": "read",
+        "path": "entry-5/entry-28/meta.json",
+        "start": 1794.1000000238419,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1984.9000000357628,
+        "op": "ls",
+        "path": "/entry-1/entry-2/entry-3/",
+        "start": 1832.4000000357628,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 1985.2000000476837,
+        "op": "read",
+        "path": "entry-5/entry-28/.name",
+        "start": 1860.2000000476837,
+        "status": 400,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 2066.800000011921,
+        "op": "ls",
+        "path": "/entry-1/entry-2/entry-3/entry-4/",
+        "start": 1985.5,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 2138.900000035763,
+        "op": "ls",
+        "path": "/entry-1/entry-2/entry-3/entry-4/entry-3/",
+        "start": 2067.100000023842,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 2678.2000000476837,
+        "op": "ls",
+        "path": "/entry-1/entry-2/entry-3/entry-4/entry-3/entry-5/",
+        "start": 2139.5,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 2796.100000023842,
+        "op": "ls",
+        "path": "/entry-6/",
+        "start": 2679.800000011921,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      },
+      {
+        "end": 2880.800000011921,
+        "op": "ls",
+        "path": "/entry-6/entry-7/",
+        "start": 2796.5,
+        "status": 200,
+        "url": "/orgs/example-org/ops"
+      }
+    ],
+    "start": 0
+  }
+}

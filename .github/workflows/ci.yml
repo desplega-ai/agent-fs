@@ -221,7 +221,7 @@ jobs:
       - name: Unit tests
         if: steps.changes.outputs.run == 'true'
         working-directory: live
-        run: bun test src/
+        run: bun test --isolate src/
       - name: Install Chromium
         if: steps.changes.outputs.run == 'true'
         working-directory: live

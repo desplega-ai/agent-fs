@@ -101,6 +101,24 @@ An org can name the agent-swarm dashboard it trusts for sign-in. When a browser 
 - `swarmUrl` must be an absolute `http` or `https` URL without credentials, query or fragment (max 2048 characters). A trailing slash is dropped. Anything else gets `400 {"error":"VALIDATION_ERROR","field":"swarmUrl"}`. Members below admin get 403, non-members 404. Sending the stored value again changes nothing, so a swarm can set it on every boot.
 - `GET /orgs/{orgId}/public` sits before authentication with a per-IP limit of 120 requests per minute. It returns only `swarmUrl`. An unknown org gets the same `{"swarmUrl":null}` as an org without one.
 
+### `GET /orgs/{orgId}/drives`
+
+Returns drives where the caller has explicit membership. The caller must also belong to the org.
+
+```json
+{"drives":[{"id":"...","name":"default","isDefault":true,"fileCountLowerBound":5}]}
+```
+
+`fileCountLowerBound` counts live files recorded in SQLite, including nested files, up to a maximum of five.
+Values from zero through four are exact. Five means at least five files.
+The query stops after five matching records and uses the drive index. It excludes deleted files and paths ending in `/`.
+The summary does not list storage objects or load file contents. Objects added directly to storage without agent-fs metadata do not contribute.
+Older servers omit this field. Clients must treat its absence as unknown.
+The live UI uses this summary for its GitHub star prompt and updates eligibility when the existing drive query refreshes.
+It makes no additional file requests for the prompt.
+
+`?scope=manageable` lists drives whose membership the caller can manage. That response includes `myRole` and omits the file summary.
+
 ### `ALL /mcp`
 
 MCP endpoint (Streamable HTTP transport). Accepts JSON-RPC requests from MCP clients. Stateless — each request creates a fresh MCP server instance.

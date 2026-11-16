@@ -1,4 +1,4 @@
-import { eq, and, like } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext, TreeParams, TreeResult, TreeEntry } from "./types.js";
 import { getS3Key } from "./versioning.js";
@@ -11,23 +11,38 @@ export async function tree(
   const prefix = normalizePrefix(params.path ?? "/");
   const s3Prefix = getS3Key(ctx.orgId, ctx.driveId, prefix);
 
-  // List ALL objects recursively (no delimiter)
-  const { objects } = await ctx.s3.listObjects(s3Prefix);
+  const listing = await ctx.s3.listObjects(
+    s3Prefix,
+    params.depth === undefined ? undefined : { maxDepth: params.depth }
+  );
+  // Adapters may ignore the depth hint. Keep the public depth rule here.
+  const objects = listing.objects.filter((object) =>
+    params.depth === undefined ||
+    object.key.slice(s3Prefix.length).split("/").filter(Boolean).length <= params.depth
+  );
 
-  // Get metadata from SQLite for files in this drive
-  const dbFiles = ctx.db
-    .select()
-    .from(schema.files)
-    .where(
-      and(
+  // Fetch only metadata for files that the storage listing can return.
+  const paths = Array.from(new Set(objects
+    .filter((object) => !object.key.endsWith("/"))
+    .map((object) => prefix + object.key.slice(s3Prefix.length).split("/").filter(Boolean).join("/"))));
+  const dbFileMap = new Map<string, { size: number; author: string; modifiedAt: Date }>();
+  for (let offset = 0; offset < paths.length; offset += 400) {
+    const rows = ctx.db
+      .select({
+        path: schema.files.path,
+        size: schema.files.size,
+        author: schema.files.author,
+        modifiedAt: schema.files.modifiedAt,
+      })
+      .from(schema.files)
+      .where(and(
         eq(schema.files.driveId, ctx.driveId),
-        like(schema.files.path, prefix + "%"),
-        eq(schema.files.isDeleted, false)
-      )
-    )
-    .all();
-
-  const dbFileMap = new Map(dbFiles.map((f) => [f.path, f]));
+        inArray(schema.files.path, paths.slice(offset, offset + 400)),
+        eq(schema.files.isDeleted, false),
+      ))
+      .all();
+    for (const row of rows) dbFileMap.set(row.path, row);
+  }
 
   // Build tree from flat S3 keys
   const root: TreeEntry[] = [];
@@ -55,9 +70,6 @@ export async function tree(
     const parts = relativePath.split("/").filter(Boolean);
     if (parts.length === 0) continue;
 
-    // Check depth limit
-    if (params.depth !== undefined && parts.length > params.depth) continue;
-
     let current = root;
 
     for (let i = 0; i < parts.length; i++) {
@@ -66,7 +78,7 @@ export async function tree(
       const isDir = !isLast || relativePath.endsWith("/");
 
       if (isDir && !isLast) {
-        // Intermediate directory — find or create
+        // Create an intermediate directory only once.
         const dir = findOrCreateDir(current, part);
         if (!dir.children) dir.children = [];
         current = dir.children;

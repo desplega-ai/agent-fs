@@ -3,6 +3,12 @@
 
 export const EMBEDDING_STATUS_COLUMN_SQL = "embedding_status TEXT DEFAULT 'pending' CHECK(embedding_status IN ('pending', 'indexed', 'failed', 'skipped'))";
 
+export const FILES_LIVE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_files_live_drive_path
+  ON files(drive_id, path) WHERE is_deleted = 0 AND path NOT LIKE '%/';`;
+
+export const FILE_VERSIONS_RECENT_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_file_versions_drive_created
+  ON file_versions(drive_id, created_at DESC);`;
+
 /**
  * Pending org invites for emails that have no account yet. Only the SHA-256 of
  * the accept token is stored. `drives` is a JSON array of { driveId, role }.
@@ -219,6 +225,8 @@ CREATE TABLE IF NOT EXISTS files (
 -- Support drive-scoped file listings and prefix scans.
 CREATE INDEX IF NOT EXISTS idx_files_drive_path ON files(drive_id, path);
 
+${FILES_LIVE_INDEX_SQL}
+
 CREATE TABLE IF NOT EXISTS file_versions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   path TEXT NOT NULL,
@@ -237,6 +245,8 @@ CREATE TABLE IF NOT EXISTS file_versions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS file_versions_path_drive_version_uq
   ON file_versions(path, drive_id, version);
+
+${FILE_VERSIONS_RECENT_INDEX_SQL}
 
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,

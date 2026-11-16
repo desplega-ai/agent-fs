@@ -1,5 +1,7 @@
 import { Database } from "bun:sqlite";
 import {
+  FILES_LIVE_INDEX_SQL,
+  FILE_VERSIONS_RECENT_INDEX_SQL,
   ORG_INVITES_SQL,
   USER_API_KEYS_SQL,
   WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL,
@@ -168,4 +170,8 @@ export function runMigrations(sqlite: Database): void {
       "JOIN org_members om ON om.org_id = d.org_id AND om.role = 'admin' " +
       "WHERE NOT EXISTS (SELECT 1 FROM drive_members dm WHERE dm.drive_id = d.id)"
   );
+
+  // Migration 5: bound live-file summaries and recent activity reads.
+  sqlite.exec(FILES_LIVE_INDEX_SQL);
+  sqlite.exec(FILE_VERSIONS_RECENT_INDEX_SQL);
 }
