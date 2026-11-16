@@ -71,7 +71,9 @@ jobs:
   # FUSE smoke (Linux-only): build the helper, run the in-container mount test.
   # macOS/Windows runners are excluded — FUSE is Linux-only by design.
   fuse-smoke:
-    runs-on: ubuntu-latest
+    # Pinned: the Docker smoke runs the host-built helper in an Ubuntu 24.04
+    # image, so the runner's glibc must not be newer than the image's.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -79,6 +81,11 @@ jobs:
         with:
           toolchain: stable
           components: clippy, rustfmt
+      # Caches ~/.cargo and the dependency artifacts in target/. PRs restore
+      # main's entry; merge-queue refs are throwaway, so they never save.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.event_name != 'merge_group' }}
       - name: Test FUSE helper
         working-directory: packages/fuse-helper
         run: cargo test
@@ -92,10 +99,26 @@ jobs:
         run: |
           cd packages/fuse-helper
           cargo build --release
+      # The runner and the image are both Ubuntu 24.04, so the container runs
+      # the helper built above instead of compiling it again. The `runtime`
+      # stage skips the Rust toolchain; its layers come from the GHA cache.
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          file: packages/fuse-helper/docker/Dockerfile.test
+          target: runtime
+          load: true
+          tags: agent-fs-fuse-test:ci
+          cache-from: type=gha,scope=fuse-smoke
+          cache-to: ${{ github.event_name != 'merge_group' && 'type=gha,scope=fuse-smoke,mode=min,ignore-error=true' || '' }}
       - name: Run Docker FUSE smoke
+        env:
+          AGENT_FS_FUSE_TEST_IMAGE: agent-fs-fuse-test:ci
+          AGENT_FS_FUSE_BIN: /work/target/release/agent-fs-fuse
         run: |
-          # The harness builds a Ubuntu 24.04 image with fuse3 + /dev/fuse and
-          # mounts the helper against a stub socket. Linux-only.
+          # Runs the image with fuse3 + /dev/fuse and mounts the helper against
+          # a stub socket. Linux-only.
           bash packages/fuse-helper/docker/run-mount-test.sh
 
   # Phase 5 will extend this with `bun run scripts/e2e.ts ... --fuse-only`
