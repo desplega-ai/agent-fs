@@ -129,6 +129,8 @@ export class AgentS3Client implements StorageAdapter {
     fn: (signal: AbortSignal, rearm: (ms: number) => void) => Promise<T>,
     callerSignal?: AbortSignal,
   ): Promise<T> {
+    // An abort that already happened never fires its event, so check it before any work.
+    callerSignal?.throwIfAborted();
     const ac = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let expire!: (err: Error) => void;
@@ -141,7 +143,11 @@ export class AgentS3Client implements StorageAdapter {
         ac.abort();
       }, ms);
     };
-    const forward = () => ac.abort(callerSignal?.reason);
+    // Writes never pass a caller signal, so a caller abort cannot cancel a PUT.
+    const forward = () => {
+      expire(callerSignal!.reason);
+      ac.abort(callerSignal!.reason);
+    };
     callerSignal?.addEventListener("abort", forward, { once: true });
     if (deadlineMs !== null) arm(deadlineMs);
     const work = fn(ac.signal, arm);

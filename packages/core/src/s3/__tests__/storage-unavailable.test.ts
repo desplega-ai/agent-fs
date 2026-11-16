@@ -75,4 +75,58 @@ describe("storage failures", () => {
     await c.deleteObject("o/drives/d/a.txt");
     expect(signals).toEqual([undefined, undefined]);
   });
+  test("an already-aborted caller signal sends no request and rejects with AbortError", async () => {
+    let requests = 0;
+    const s3 = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => {
+        requests++;
+        return new Response("bytes");
+      },
+    });
+    try {
+      const ac = new AbortController();
+      ac.abort();
+      const err = await client(`http://127.0.0.1:${s3.port}`)
+        .getObject("o/drives/d/x", undefined, { abortSignal: ac.signal })
+        .catch((e) => e);
+      expect(err?.name).toBe("AbortError");
+      expect(err).not.toBeInstanceOf(StorageUnavailableError);
+      expect(requests).toBe(0);
+    } finally {
+      s3.stop(true);
+    }
+  });
+
+  test("a caller abort after the request started rejects at once with AbortError", async () => {
+    let started!: () => void;
+    const requestSeen = new Promise<void>((r) => { started = r; });
+    // Answers headers, then never finishes the body.
+    const s3 = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => {
+        started();
+        return new Response(new ReadableStream({ start(c) { c.enqueue(new Uint8Array([1])); } }), {
+          headers: { "content-length": "10" },
+        });
+      },
+    });
+    try {
+      const ac = new AbortController();
+      const p = client(`http://127.0.0.1:${s3.port}`)
+        .getObject("o/drives/d/x", undefined, { abortSignal: ac.signal })
+        .catch((e) => e);
+      await requestSeen;
+      const t0 = Date.now();
+      ac.abort();
+      const err = await p;
+      expect(err?.name).toBe("AbortError");
+      expect(err).not.toBeInstanceOf(StorageUnavailableError);
+      expect(Date.now() - t0).toBeLessThan(1_000);
+    } finally {
+      s3.stop(true);
+    }
+  });
 });
