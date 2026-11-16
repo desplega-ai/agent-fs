@@ -5,30 +5,22 @@
 #
 # Intended for Darwin developers (no native FUSE) and CI runners that allow
 # --cap-add SYS_ADMIN --device /dev/fuse.
+#
+# Two stages:
+# - `runtime`: fuse3 + the stub server deps only. CI builds this target and
+#   runs a helper it already built on the host (AGENT_FS_FUSE_BIN).
+# - `dev` (the default, last stage): adds the Rust toolchain so the container
+#   can build the helper itself, for hosts whose binary cannot run here.
 
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        build-essential \
-        pkg-config \
         fuse3 \
         kmod \
         python3 \
         socat \
     && rm -rf /var/lib/apt/lists/*
-
-# Install rustup + a pinned stable toolchain. Pinning keeps the image
-# reproducible; bump as the host toolchain advances.
-ENV RUSTUP_HOME=/usr/local/rustup \
-    CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-        sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.86.0 && \
-    rustup component add rustfmt clippy
 
 # Allow non-root mounts (the helper drops privileges in v1.x; for now run as
 # root inside the container, which is fine since the container is disposable).
@@ -41,3 +33,22 @@ WORKDIR /work
 
 # Default to running the in-container harness script.
 ENTRYPOINT ["/work/packages/fuse-helper/docker/in-container-test.sh"]
+
+FROM runtime AS dev
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        build-essential \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install rustup + a pinned stable toolchain. Pinning keeps the image
+# reproducible; bump as the host toolchain advances.
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+        sh -s -- -y --no-modify-path --profile minimal --default-toolchain 1.86.0 && \
+    rustup component add rustfmt clippy

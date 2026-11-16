@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs INSIDE the agent-fs-fuse-test container.
 #
-# 1. Builds the helper from /work/packages/fuse-helper (bind-mounted source).
+# 1. Builds the helper from /work/packages/fuse-helper (bind-mounted source),
+#    unless AGENT_FS_FUSE_BIN names a binary built outside the container.
 # 2. Starts a tiny Python stub Unix server at /tmp/agent-fs.sock that answers
 #    msgpack Ping / ListDrives.
 # 3. Mounts the helper at /mnt/test.
@@ -11,10 +12,14 @@ set -euo pipefail
 
 cd /work/packages/fuse-helper
 
-echo "== cargo build --release =="
-cargo build --release
-
-BIN=/work/target/release/agent-fs-fuse
+if [ -n "${AGENT_FS_FUSE_BIN:-}" ]; then
+    BIN="$AGENT_FS_FUSE_BIN"
+    echo "== using prebuilt helper: $BIN =="
+else
+    echo "== cargo build --release =="
+    cargo build --release
+    BIN=/work/target/release/agent-fs-fuse
+fi
 test -x "$BIN" || { echo "binary missing: $BIN"; exit 1; }
 
 mkdir -p /mnt/test
