@@ -192,6 +192,10 @@ Search uses the active organization and drive. Check `org current` and `drive cu
 `ls` reads metadata only for immediate file objects, in bounded queries using exact paths.
 Objects without live metadata remain visible with storage size and modification time.
 Folder validation limits concurrent storage checks when live metadata is absent.
+`tree` reads metadata only for files within the requested depth. Local storage also stops traversal at that depth.
+S3 still reads descendant pages to preserve directory marker behavior. Use `ls` for immediate children of a large S3 folder.
+Local listings skip unrelated directories and stop when their object limit is satisfied.
+`recent` uses a drive and timestamp index. Existing databases receive that index and the live-file summary index at startup.
 `search` and `vec-search` select semantic candidates within the active drive and count distinct files toward the limit.
 PDF text is searchable. `search` and `vec-search` results carry `page` for PDF text hits.
 With EmbeddingGemma 2, semantic search also finds PNG, JPEG, WebP, GIF, and the first 3 PDF pages as images.

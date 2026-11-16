@@ -162,3 +162,22 @@ Scrolling loaded nearby folders. Selecting another file and reloading preserved 
 This local check does not measure production latency.
 
 The separate remaining-findings report records tree, recent-activity, local-storage, and storage-request decisions.
+
+## Final integration verification
+
+- `bun run typecheck`: passed.
+- `bun run test`: 2,674 passed, 64 skipped, and no failures.
+- `cd live && bun test --isolate src/`: 622 passed.
+- `cd live && pnpm build`: passed.
+- `cd live && pnpm test:e2e --workers=4`: 166 passed.
+- `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only`: 235 passed, 20 skipped.
+- `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"`: 258 passed, 12 skipped.
+
+The MinIO run used the cached Coollabs build of `RELEASE.2025-10-15T17-29-55Z` because registry pulls were unavailable.
+Its image digest was `sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9`.
+FUSE and optional model runs were skipped. These changes were not deployed to production.
+
+An older migration fixture omitted existing `is_deleted` and `created_at` columns. Updating that fixture allowed the complete repository suite to pass.
+Browser fixtures now provide the drive summary. Editor tests use the native document-navigation shortcuts on macOS.
+
+The complete disposition of secondary findings appears in [the remaining findings report](./2026-11-16-remaining-performance-findings.md).

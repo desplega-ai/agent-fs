@@ -208,11 +208,11 @@ describe("orgs.swarm_url migration", () => {
       CREATE TABLE org_members (org_id TEXT, user_id TEXT, role TEXT);
       CREATE TABLE drives (id TEXT PRIMARY KEY, org_id TEXT);
       CREATE TABLE drive_members (drive_id TEXT, user_id TEXT, role TEXT, PRIMARY KEY (drive_id, user_id));
-      CREATE TABLE file_versions (path TEXT, drive_id TEXT, version INTEGER);
+      CREATE TABLE file_versions (path TEXT, drive_id TEXT, version INTEGER, created_at INTEGER);
       CREATE TABLE comments (id TEXT PRIMARY KEY);
       CREATE TABLE shares (id TEXT PRIMARY KEY);
       CREATE TABLE content_chunks (id TEXT PRIMARY KEY);
-      CREATE TABLE files (path TEXT, drive_id TEXT);
+      CREATE TABLE files (path TEXT, drive_id TEXT, is_deleted INTEGER NOT NULL DEFAULT 0);
     `);
     sqlite.exec("INSERT INTO orgs (id, name, created_at) VALUES ('o1', 'old', 0)");
     runMigrations(sqlite);
