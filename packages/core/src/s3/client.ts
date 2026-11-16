@@ -43,8 +43,6 @@ const S3_MAX_ATTEMPTS = 3;
  * than the CLI's 60 s timeout. Bodies get 1 s more per MiB on top.
  */
 const S3_DEADLINE_MS = 15_000;
-// shortcut: a server-side copy does not know its size here; raise it if large copies time out.
-const S3_COPY_DEADLINE_MS = 60_000;
 
 /** Network-level failures: the request never got an HTTP answer. */
 const NETWORK_ERROR_CODES = new Set([
@@ -111,18 +109,23 @@ export class AgentS3Client implements StorageAdapter {
     this.versioningEnabled = config.versioningEnabled ?? false;
   }
 
-  /**
-   * Run one SDK call under a deadline. A call past its deadline, or one that
-   * fails to reach storage, throws StorageUnavailableError (HTTP 503); S3's own
-   * 4xx answers (NoSuchKey, AccessDenied) pass through unchanged. `rearm`
-   * restarts the deadline, for a body whose size is known only from the headers.
-   */
   private bodyDeadlineMs(bytes: number): number {
     return this.deadlineMs + Math.floor(bytes / (1024 * 1024)) * 1000;
   }
 
+  /**
+   * Run one SDK call. A call that fails to reach storage, or a read past its
+   * deadline, throws StorageUnavailableError (HTTP 503); S3's own 4xx answers
+   * (NoSuchKey, AccessDenied) pass through unchanged. `rearm` restarts the
+   * deadline, for a body whose size is known only from the headers.
+   *
+   * Writes get no deadline here (`deadlineMs: null`): closing a socket that
+   * still holds a PUT lets the kernel deliver it later, after a newer write to
+   * the same key, and the stale bytes win. The op answers on time instead and
+   * finishes in the background (ops/answer-within.ts).
+   */
   private async call<T>(
-    deadlineMs: number,
+    deadlineMs: number | null,
     fn: (signal: AbortSignal, rearm: (ms: number) => void) => Promise<T>,
     callerSignal?: AbortSignal,
   ): Promise<T> {
@@ -140,7 +143,7 @@ export class AgentS3Client implements StorageAdapter {
     };
     const forward = () => ac.abort(callerSignal?.reason);
     callerSignal?.addEventListener("abort", forward, { once: true });
-    arm(deadlineMs);
+    if (deadlineMs !== null) arm(deadlineMs);
     const work = fn(ac.signal, arm);
     work.catch(() => {}); // the loser of the race below must not surface as unhandled
     try {
@@ -165,7 +168,7 @@ export class AgentS3Client implements StorageAdapter {
   ): Promise<PutObjectResult> {
     assertKeyInsideDrive(key);
     const bytes = typeof body === "string" ? Buffer.from(body) : body;
-    const result = await this.call(this.bodyDeadlineMs(bytes.byteLength), (abortSignal) =>
+    const result = await this.call(null, () =>
       this.client.send(
         new PutObjectCommand({
           Bucket: this.bucket,
@@ -173,8 +176,7 @@ export class AgentS3Client implements StorageAdapter {
           Body: bytes,
           Metadata: metadata,
           ...(contentType && { ContentType: contentType }),
-        }),
-        { abortSignal }
+        })
       )
     );
     return {
@@ -212,15 +214,15 @@ export class AgentS3Client implements StorageAdapter {
 
   async deleteObject(key: string): Promise<void> {
     assertKeyInsideDrive(key);
-    await this.call(this.deadlineMs, (abortSignal) =>
-      this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }), { abortSignal })
+    await this.call(null, () =>
+      this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }))
     );
   }
 
   async copyObject(fromKey: string, toKey: string, contentType?: string): Promise<PutObjectResult> {
     assertKeyInsideDrive(fromKey);
     assertKeyInsideDrive(toKey);
-    const result = await this.call(S3_COPY_DEADLINE_MS, (abortSignal) => this.client.send(
+    const result = await this.call(null, () => this.client.send(
       new CopyObjectCommand({
         Bucket: this.bucket,
         // The SDK encodes `Key` but sends `CopySource` as given, and the
@@ -231,8 +233,7 @@ export class AgentS3Client implements StorageAdapter {
         Key: toKey,
         // COPY (the default) keeps the source type; REPLACE is the only way to set a new one.
         ...(contentType && { MetadataDirective: "REPLACE", ContentType: contentType }),
-      }),
-      { abortSignal }
+      })
     ));
     return {
       etag: result.CopyObjectResult?.ETag,

@@ -39,7 +39,7 @@ curl http://localhost:7433/health
 
 Readiness check. No auth required. Like `/health`, and also checks that the storage backend answers (cached for 5 s). `200 {"ok":true,"storage":"ok"}`, or `503 {"ok":false,"storage":"unavailable"}` while storage is down. Use `/health` for liveness and `/ready` to decide whether to route traffic.
 
-When storage is unreachable or does not answer within 15 s (plus 1 s per MiB of body), a request fails with `503 {"error":"STORAGE_UNAVAILABLE","retryable":true}` and a `Retry-After` header, never a bare `500`. A write that got this error may still have reached storage.
+When storage is unreachable or does not answer within 15 s (plus 1 s per MiB of body), a request fails with `503 {"error":"STORAGE_UNAVAILABLE","retryable":true}` and a `Retry-After` header, never a bare `500`. A write that got this error is not cancelled: it may still be applied, and the server then records it as usual.
 
 ### `POST /auth/register`
 

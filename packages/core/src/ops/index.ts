@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { answerWithin, STORAGE_WRITE_OPS } from "./answer-within.js";
 import type { OpContext } from "./types.js";
 import { checkPermission, getRequiredRole } from "../identity/rbac.js";
 import { ValidationError } from "../errors.js";
@@ -516,7 +517,10 @@ export async function dispatchOp(
       field: issues[0]?.path.join(".") || undefined,
     });
   }
-  const result = await op.handler(ctx, parsed.data);
+  const run = op.handler(ctx, parsed.data);
+  const result = STORAGE_WRITE_OPS.has(opName)
+    ? await answerWithin(run, typeof (parsed.data as { content?: unknown }).content === "string" ? Buffer.byteLength((parsed.data as { content: string }).content) : 0)
+    : await run;
   recordOp(opName);
 
   // Enrich results with appUrl when available

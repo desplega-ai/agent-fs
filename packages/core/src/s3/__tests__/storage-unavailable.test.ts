@@ -58,4 +58,21 @@ describe("storage failures", () => {
       s3.stop(true);
     }
   });
+
+  test("a write to storage is never cut off by the read deadline", async () => {
+    // A closed socket can still deliver a queued PUT after a newer one; the
+    // stale bytes would then overwrite an acknowledged write.
+    const c = client();
+    (c as unknown as { deadlineMs: number }).deadlineMs = 50;
+    const signals: Array<AbortSignal | undefined> = [];
+    (c as unknown as { client: unknown }).client = {
+      send(_cmd: unknown, o?: { abortSignal?: AbortSignal }) {
+        signals.push(o?.abortSignal);
+        return Bun.sleep(150).then(() => ({ ETag: "e" }));
+      },
+    };
+    expect((await c.putObject("o/drives/d/a.txt", "x")).etag).toBe("e");
+    await c.deleteObject("o/drives/d/a.txt");
+    expect(signals).toEqual([undefined, undefined]);
+  });
 });
