@@ -21,6 +21,8 @@ import {
   startWebhookWorker,
   stopWebhookWorker,
   countEnabledWebhookSubscriptions,
+  reconcileStorageIntents,
+  drainStorageIntents,
 } from "@/core";
 import type { Database } from "bun:sqlite";
 import type { EmbeddingProvider } from "@/core";
@@ -98,6 +100,21 @@ const embeddingMigration = provider
     },
   })
   : null;
+
+// Settle writes a crash or kill cut off between the storage call and the
+// database commit (ops/storage-intent.ts), before serving reads. Bounded so an
+// unreachable store cannot hold the boot; the rest finishes in the background
+// and anything still unsettled is retried by the sweep below.
+const logIntent = (msg: string) => console.log(msg);
+await Promise.race([
+  reconcileStorageIntents({ db, s3, embeddingProvider }, { log: logIntent }),
+  Bun.sleep(5_000),
+]);
+// Ops that failed mid-way (a storage timeout that may still have landed) leave
+// their intent behind; settle those once they are a minute old.
+setInterval(() => {
+  void reconcileStorageIntents({ db, s3, embeddingProvider }, { olderThanMs: 60_000, log: logIntent });
+}, 60_000).unref();
 
 // Create app
 const app = createApp(db, s3, embeddingProvider);
@@ -213,13 +230,20 @@ try {
 
 // Graceful shutdown
 // The final telemetry flush is bounded (~1.5s) so shutdown never hangs on it.
+const SHUTDOWN_DRAIN_MS = 8_000;
 let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log("Shutting down...");
-  server.stop();
   if (ipcServer) ipcServer.stop();
+  // Let in-flight requests and ops finish so no write exits between its
+  // storage call and its commit. Bounded under Docker's 10 s stop grace; a
+  // write cut off past it is settled by the intent sweep on the next boot.
+  await Promise.race([
+    Promise.all([server.stop(), drainStorageIntents()]),
+    Bun.sleep(SHUTDOWN_DRAIN_MS),
+  ]);
   // A send cut short keeps its row pending, so the next start resends it.
   await Promise.race([stopWebhookWorker().catch(() => {}), Bun.sleep(2000)]);
   await stopTelemetry().catch(() => {});

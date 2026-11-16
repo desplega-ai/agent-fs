@@ -14,6 +14,7 @@ import { detectMimeType } from "./mime.js";
 import { indexBytesForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
 import { withPathLock } from "./path-lock.js";
+import { withStorageIntent } from "./storage-intent.js";
 
 export async function revert(
   ctx: OpContext,
@@ -67,25 +68,27 @@ export async function revert(
     const contentType = detectMimeType(path);
     assertDriveBudget(ctx, oldContent.body.length, [path]);
 
-    // 3. Write it as the new current version
-    const s3Result = await ctx.s3.putObject(s3Key, oldContent.body, undefined, contentType);
-    const size = oldContent.body.length;
-    const contentHash = createHash("sha256").update(oldContent.body).digest("hex");
+    return withStorageIntent(ctx, [{ path, op: "revert", message: `Reverted to version ${params.version}` }], async () => {
+      // 3. Write it as the new current version
+      const s3Result = await ctx.s3.putObject(s3Key, oldContent.body, undefined, contentType);
+      const size = oldContent.body.length;
+      const contentHash = createHash("sha256").update(oldContent.body).digest("hex");
 
-    // 4. Create version record
-    const version = await createVersion(ctx, {
-      path,
-      s3VersionId: s3Result.versionId ?? "",
-      operation: "revert",
-      message: `Reverted to version ${params.version}`,
-      size,
-      etag: s3Result.etag,
-      contentType,
-      contentHash,
+      // 4. Create version record
+      const version = await createVersion(ctx, {
+        path,
+        s3VersionId: s3Result.versionId ?? "",
+        operation: "revert",
+        message: `Reverted to version ${params.version}`,
+        size,
+        etag: s3Result.etag,
+        contentType,
+        contentHash,
+      });
+
+      await indexBytesForSearch(ctx, path, oldContent.body, contentType);
+
+      return { version, revertedTo: params.version };
     });
-
-    await indexBytesForSearch(ctx, path, oldContent.body, contentType);
-
-    return { version, revertedTo: params.version };
   });
 }

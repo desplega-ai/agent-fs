@@ -137,6 +137,28 @@ export const WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL = `
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_prune ON webhook_deliveries(status, created_at);
 `;
 
+/**
+ * Storage intents: one row per path a mutating op is about to change in
+ * storage. The op writes the row before its storage call and deletes it after
+ * the version row and search index are committed. A row that outlives its op
+ * (crash, kill, failed request) marks a path whose storage and database may
+ * disagree; reconcileStorageIntents (ops/storage-intent.ts) settles it from the
+ * object store at boot and on a timer. created_at is epoch milliseconds.
+ * Shared with runMigrations, which adds the table to older databases.
+ */
+export const STORAGE_INTENTS_SQL = `
+CREATE TABLE IF NOT EXISTS storage_intents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id TEXT NOT NULL,
+  drive_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  op TEXT NOT NULL,
+  author TEXT NOT NULL,
+  message TEXT,
+  created_at INTEGER NOT NULL
+);
+`;
+
 export const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -331,6 +353,8 @@ ${USER_API_KEYS_SQL}
 ${WEBHOOKS_SQL}
 
 ${WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL}
+
+${STORAGE_INTENTS_SQL}
 
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
