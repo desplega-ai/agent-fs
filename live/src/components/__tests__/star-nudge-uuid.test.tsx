@@ -1,5 +1,5 @@
-// Run separately from lib tests, which replace the toast module globally.
-// From live/: bun test src/components/__tests__/star-nudge-uuid.test.tsx
+// Isolate files so library tests cannot replace this component's toast module.
+// From live/: bun test --isolate src/
 import { afterAll, afterEach, beforeEach, expect, spyOn, test } from "bun:test"
 import { GlobalRegistrator } from "@happy-dom/global-registrator"
 import type { Root } from "react-dom/client"
@@ -165,7 +165,7 @@ test("UUID labels use cat and persist a trimmed meta.json name", async () => {
   files[`${folder}/meta.json`] = JSON.stringify({ name: "  Agent One  " })
   await render(uuid)
   expect(host.querySelector("output")?.textContent).toBe("Agent One")
-  expect(ops).toEqual([{ op: "cat", path: `${folder}/meta.json`, driveId: "drive" }])
+  expect(ops).toEqual([{ op: "cat", path: `${folder}/meta.json`, limit: 1000, driveId: "drive" }])
   await act(async () => { queryClient.removeQueries({ queryKey: ["uuid-name"] }) })
   await render("ordinary-folder")
   await render(uuid)
@@ -179,8 +179,8 @@ test.each([undefined, "{bad json", '{"name":" "}'])("UUID labels use .name when 
   await render(uuid)
   expect(host.querySelector("output")?.textContent).toBe("Friendly Agent")
   expect(ops).toEqual([
-    { op: "cat", path: `${folder}/meta.json`, driveId: "drive" },
-    { op: "cat", path: `${folder}/.name`, driveId: "drive" },
+    { op: "cat", path: `${folder}/meta.json`, limit: 1000, driveId: "drive" },
+    { op: "cat", path: `${folder}/.name`, limit: 1, driveId: "drive" },
   ])
 })
 
@@ -201,5 +201,5 @@ test("misses from the unsupported read operation do not suppress corrected label
   files[`${folder}/meta.json`] = '{"name":"Recovered"}'
   await render(uuid)
   expect(host.querySelector("output")?.textContent).toBe("Recovered")
-  expect(ops).toEqual([{ op: "cat", path: `${folder}/meta.json`, driveId: "drive" }])
+  expect(ops).toEqual([{ op: "cat", path: `${folder}/meta.json`, limit: 1000, driveId: "drive" }])
 })

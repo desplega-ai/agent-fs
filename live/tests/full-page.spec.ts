@@ -38,7 +38,7 @@ async function installFixture(page: Page, { features = ["share-links", "html-sit
     let json: unknown
     if (url.pathname === "/auth/me") json = { userId: "qa", email: "qa@example.test", defaultOrgId: "org", defaultDriveId: "drive" }
     else if (url.pathname === "/orgs") json = { orgs: [{ id: "org", name: "QA" }] }
-    else if (url.pathname.endsWith("/drives")) json = { drives: [{ id: "drive", name: "QA", orgId: "org" }] }
+    else if (url.pathname.endsWith("/drives")) json = { drives: [{ id: "drive", name: "QA", orgId: "org", fileCountLowerBound: 5 }] }
     else if (url.pathname === "/content") {
       // `source: false` is a file whose bytes cannot be downloaded.
       if (!source) return route.abort()

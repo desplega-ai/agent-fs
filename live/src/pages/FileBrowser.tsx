@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useParams } from "react-router"
+import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
 import { FileViewer } from "@/components/viewers/FileViewer"
 import { MainWithComments } from "@/components/layout/MainWithComments"
@@ -10,7 +12,10 @@ import type { OutlineItem } from "@/lib/outline"
 export type ScrollToCommentCallback = (opts: { lineStart?: number; quotedContent?: string; commentId?: string }) => void
 
 export function FileBrowserPage() {
-  const { selectedFile } = useBrowser()
+  const { selectedFile: contextSelectedFile } = useBrowser()
+  const { orgId, driveId } = useAuth()
+  const params = useParams()
+  const selectedFile = params["*"] ?? contextSelectedFile
   const scrollToCommentRef = useRef<ScrollToCommentCallback | null>(null)
   const [outline, setOutline] = useState<OutlineItem[]>([])
   // Keyboard shortcuts are now registered globally in Shell — no per-page hook needed.
@@ -43,6 +48,9 @@ export function FileBrowserPage() {
   // Replace / Skip prompts stay reachable when the user opens a file mid-upload.
   // Bottom-left keeps it clear of the comments rail on the right.
   const uploadPanel = <UploadPanel className="absolute bottom-3 left-3 z-20" />
+
+  // Wait for route scope synchronization before starting file or folder requests.
+  if ((params.orgId && params.orgId !== orgId) || (params.driveId && params.driveId !== driveId)) return null
 
   if (folderPath !== null) {
     // Folder mode — comments rail is hidden by MainWithComments when filePath

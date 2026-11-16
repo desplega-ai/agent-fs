@@ -4,6 +4,7 @@ From `live/`:
 
 ```sh
 pnpm install --frozen-lockfile
+bun test --isolate src/
 pnpm exec playwright install chromium
 pnpm build
 pnpm test:e2e

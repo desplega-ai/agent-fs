@@ -50,11 +50,14 @@ afterAll(async () => {
 })
 
 async function mountTree(options: {
+  route?: string
   selected?: string
+  viewedFolder?: string
   expanded?: string[]
   cached?: Record<string, LsResult>
   supportsReveal?: boolean
   holdListings?: boolean
+  holdRootListings?: boolean
   holdReveal?: boolean
 } = {}) {
   localStorage.clear()
@@ -88,6 +91,7 @@ async function mountTree(options: {
     const params = JSON.parse(String(init?.body))
     const path = params.path ?? ""
     calls.push({ op: params.op, path, drive: params.driveId })
+    if (params.op === "recent") return Response.json({ entries: [] })
     if (params.op === "reveal") {
       if (options.supportsReveal === false) return Response.json({ error: "UNKNOWN_OP", message: "Unknown operation: reveal" }, { status: 400 })
       if (options.holdReveal) await new Promise<void>((resolve) => pending.push(resolve))
@@ -96,20 +100,25 @@ async function mountTree(options: {
       return Response.json({ path, stat: {}, listings: parents.map((p) => ({ path: p, entries: listings[p]?.entries ?? [] })) })
     }
     if (params.op !== "ls") throw new Error(`Unexpected operation: ${params.op}`)
-    if (path && options.holdListings) {
-      active++
-      peak = Math.max(peak, active)
-      await new Promise<void>((resolve, reject) => {
-        pending.push(resolve)
-        init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })
-      }).finally(() => active--)
+    active++
+    peak = Math.max(peak, active)
+    try {
+      if (options.holdListings && (path || options.holdRootListings)) {
+        await new Promise<void>((resolve, reject) => {
+          pending.push(resolve)
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true })
+        })
+      }
+      return Response.json(listings[path] ?? { entries: [file("entry.md")] })
+    } finally {
+      active--
     }
-    return Response.json(listings[path] ?? { entries: [file("entry.md")] })
   }) as typeof fetch
 
   const { AuthProvider, useAuth } = await import("@/contexts/auth")
   const { BrowserProvider, useBrowser } = await import("@/contexts/browser")
   const { FileTree } = await import("../FileTree")
+  const { FolderView } = await import("@/components/folder-view/FolderView")
   const { TooltipProvider } = await import("@/components/ui/tooltip")
   function Fixture() {
     const browser = useBrowser()
@@ -122,7 +131,10 @@ async function mountTree(options: {
       navigate(`/file/~/org/${drive}/${path}`)
     }
     useEffect(() => browser.setSelectedFile(params["*"] || null), [params["*"]])
-    return <FileTree />
+    return <>
+      <FileTree />
+      {options.viewedFolder !== undefined && <FolderView path={options.viewedFolder} />}
+    </>
   }
   host = document.createElement("div")
   host.style.overflowY = "auto"
@@ -132,9 +144,13 @@ async function mountTree(options: {
   root = createRoot(host)
   await act(() => root!.render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/file/~/org/drive/${options.selected ?? ""}`]}>
+      <MemoryRouter initialEntries={[options.route ?? `/file/~/org/drive/${options.selected ?? ""}`]}>
         <AuthProvider><BrowserProvider><TooltipProvider>
-          <Routes><Route path="/file/~/:orgId/:driveId/*" element={createElement(Fixture)} /></Routes>
+          <Routes>
+            <Route path="/file/~/:orgId/:driveId/*" element={createElement(Fixture)} />
+            <Route path="/members/~/:orgId/:driveId" element={createElement(Fixture)} />
+            <Route path="/webhooks/~/:orgId/:driveId" element={createElement(Fixture)} />
+          </Routes>
         </TooltipProvider></BrowserProvider></AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -146,6 +162,15 @@ async function mountTree(options: {
       pending.splice(0).forEach((resolve) => resolve())
     },
   }
+}
+
+for (const page of ["members", "webhooks"]) {
+  test(`${page} for another drive keeps the active drive tree`, async () => {
+    const fixture = await mountTree({ route: `/${page}/~/org/managed-drive` })
+    await until(() => host.querySelector('[data-tree-path="area-000"]') !== null)
+    expect(fixture.calls.filter((call) => call.op === "ls").map((call) => call.drive)).toEqual(["drive"])
+    expect(localStorage.getItem("agent-fs-active-drive")).toBe("drive")
+  })
 }
 
 test("restored folders load only on demand with at most four concurrent listings", async () => {
@@ -186,21 +211,50 @@ test("a cold nested selection uses reveal without a separate root listing", asyn
   expect(fixture.calls.filter((c) => c.op === "ls")).toEqual([])
 })
 
-test("invalidation still bounds concurrent listing requests", async () => {
-  const expanded = Array.from({ length: 20 }, (_, i) => folder(i))
-  const fixture = await mountTree({
-    expanded,
-    holdListings: true,
-    cached: Object.fromEntries([
-      ["", { entries: expanded.map(dir) }],
-      ...expanded.map((path) => [path, { entries: [] }]),
-    ]),
+for (const viewedFolder of [undefined, ""]) {
+  test(`invalidation bounds root and folder listings with ${viewedFolder === undefined ? "only the tree" : "a root folder view"}`, async () => {
+    const expanded = Array.from({ length: 20 }, (_, i) => folder(i))
+    const fixture = await mountTree({
+      expanded,
+      viewedFolder,
+      holdListings: true,
+      holdRootListings: true,
+      cached: Object.fromEntries([
+        ["", { entries: expanded.map(dir) }],
+        ...expanded.map((path) => [path, { entries: [] }]),
+      ]),
+    })
+    await until(() => host.querySelector('[data-tree-path="area-000"]') !== null)
+    await act(() => { void queryClient.invalidateQueries({ queryKey: ["ls", "org", "drive"] }) })
+    await until(() => fixture.calls.filter((c) => c.op === "ls").length >= 4)
+    expect(fixture.peak()).toBe(4)
+    expect(fixture.calls.filter((c) => c.op === "ls" && !c.path)).toHaveLength(1)
+    expect(fixture.calls.some((c) => c.path === "area-019")).toBe(false)
   })
-  await until(() => host.querySelector('[data-tree-path="area-000"]') !== null)
-  await act(() => { void queryClient.invalidateQueries({ queryKey: ["ls", "org", "drive"] }) })
-  await until(() => fixture.calls.filter((c) => c.op === "ls" && c.path).length >= 4)
-  expect(fixture.peak()).toBe(4)
-  expect(fixture.calls.some((c) => c.path === "area-019")).toBe(false)
+}
+
+test("a new selection cancels queued restored listings before its fallback", async () => {
+  const expanded = Array.from({ length: 20 }, (_, i) => folder(i))
+  const fixture = await mountTree({ expanded, holdListings: true, supportsReveal: false })
+  await until(() => fixture.calls.filter((call) => call.op === "ls" && call.path).length === 4)
+  await act(() => selectFile("area-900/sub/target.md"))
+  await until(() => fixture.calls.some((call) => call.op === "ls" && call.path === "area-900"))
+  expect(fixture.peak()).toBeLessThanOrEqual(4)
+  expect(fixture.calls.some((call) => call.path === "area-004")).toBe(false)
+  await act(() => fixture.releaseListings())
+  await until(() => host.querySelector('[data-tree-path="area-900/sub/target.md"]') !== null)
+})
+
+test("selection cancellation preserves a listing used by the folder view", async () => {
+  const fixture = await mountTree({
+    expanded: ["area-000"], viewedFolder: "area-000", holdListings: true, supportsReveal: false,
+  })
+  await until(() => fixture.calls.some((call) => call.op === "ls" && call.path === "area-000"))
+  await act(() => selectFile("area-900/sub/target.md"))
+  await until(() => fixture.calls.some((call) => call.op === "ls" && call.path === "area-900"))
+  expect(queryClient.getQueryState(["ls", "org", "drive", "area-000"])?.fetchStatus).toBe("fetching")
+  await act(() => fixture.releaseListings())
+  await until(() => host.querySelector('[data-tree-path="area-900/sub/target.md"]') !== null)
 })
 
 test("fresh ancestor listings reveal a selected file without network requests", async () => {

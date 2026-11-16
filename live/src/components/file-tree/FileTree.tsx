@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useParams } from "react-router"
+import { useMatch, useParams } from "react-router"
 import { FolderOpen } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
@@ -42,9 +42,13 @@ export function FileTree() {
   const { credential, orgId, driveId } = useAuth()
   const { selectedFile } = useBrowser()
   const params = useParams()
+  const membersRoute = useMatch("/members/~/:orgId/:driveId")
+  const webhooksRoute = useMatch("/webhooks/~/:orgId/:driveId")
   // Route selection is available before RouteParamsSync updates context.
   // Wait for its scope too, so a switch cannot reveal in the previous drive.
-  if ((params.orgId && params.orgId !== orgId) || (params.driveId && params.driveId !== driveId)) return null
+  // Members and webhooks manage a route drive without changing the active drive.
+  const syncsDrive = !membersRoute && !webhooksRoute
+  if ((params.orgId && params.orgId !== orgId) || (syncsDrive && params.driveId && params.driveId !== driveId)) return null
   const selected = (params["*"] ?? selectedFile)?.replace(/^\/+/, "")
   return <ScopedFileTree
     key={JSON.stringify([credential.id, credential.endpoint, orgId, driveId])}
@@ -61,7 +65,7 @@ function ScopedFileTree({ selectedPath }: { selectedPath: string | null }) {
   focusedRef.current = focusedPath
   const loadListing = useMemo(() => createTreeListingLoader(
     (path, signal) => client.callOp<LsResult>(orgId!, "ls", { path }, driveId, { signal }),
-    (path) => focusedRef.current === path || focusedRef.current?.startsWith(`${path}/`) ? 0 : 1,
+    (path) => !path ? 0 : focusedRef.current === path || focusedRef.current?.startsWith(`${path}/`) ? 1 : 2,
   ), [client, orgId, driveId])
   const [demanded, setDemanded] = useState<string[]>([])
   const demandKey = JSON.stringify(demanded)
@@ -75,7 +79,7 @@ function ScopedFileTree({ selectedPath }: { selectedPath: string | null }) {
 
   const { data, isPending, error } = useQuery({
     queryKey: ["ls", orgId, driveId, ""],
-    queryFn: ({ signal }) => client.callOp<LsResult>(orgId!, "ls", {}, driveId, { signal }),
+    queryFn: ({ signal }) => loadListing("", signal),
     enabled: !!orgId && !!driveId && !selectionPending,
     staleTime: TREE_STALE_TIME,
   })
@@ -143,14 +147,14 @@ function ScopedFileTree({ selectedPath }: { selectedPath: string | null }) {
   // Disabled queries retain their cache subscription. Cancel queued or active
   // sidebar work when its folder leaves demand, unless another view needs it.
   useEffect(() => {
-    if (selectionPending) return
+    const selectionParents = selectionPending && selectedPath ? new Set(ancestorPaths(selectedPath)) : null
     for (const query of queryClient.getQueryCache().findAll({ queryKey: ["ls", orgId, driveId] })) {
       const path = String(query.queryKey[3] ?? "")
-      if (path && !query.isActive() && query.state.fetchStatus !== "idle") {
+      if (path && !selectionParents?.has(path) && !query.isActive() && query.state.fetchStatus !== "idle") {
         void queryClient.cancelQueries({ queryKey: query.queryKey, exact: true })
       }
     }
-  }, [queryClient, orgId, driveId, demandKey, selectionPending])
+  }, [queryClient, orgId, driveId, demandKey, selectionPending, selectedPath])
 
   const handleRevealed = useCallback((path: string) => {
     setRevealPath((current) => (current === path ? null : current))

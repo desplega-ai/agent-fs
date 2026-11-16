@@ -138,6 +138,8 @@ for (const reveal of [true, false]) {
     await page.screenshot({ path: `test-results/tree-reveal-${reveal ? "reveal" : "ls"}.png` })
 
     // Saved expansion stays intact without traversing offscreen folders.
+    expect(ops.filter((op) => op === "ls ")).toHaveLength(reveal ? 0 : 1)
+    expect(ops).not.toContain("recent ")
     expect(ops).not.toContain("ls area-050")
     expect(ops.filter((op) => op.startsWith("ls ")).length).toBeLessThan(30)
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("liveui:tree:expanded")!))
