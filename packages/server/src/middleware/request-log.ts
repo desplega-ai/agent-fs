@@ -19,7 +19,7 @@ export function requestLogMiddleware(): MiddlewareHandler<AppEnv> {
 
   return async (c, next) => {
     const path = redactShareToken(c.req.path);
-    if (path === "/health") return next();
+    if (path === "/health" || path === "/ready") return next();
 
     const id = ++seq;
     const start = performance.now();

@@ -47,6 +47,7 @@ export {
   PermissionDeniedError,
   EditConflictError,
   IndexingInProgressError,
+  StorageUnavailableError,
   ValidationError,
   UnsupportedOperation,
   EmbeddingProviderError,

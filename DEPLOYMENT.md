@@ -330,6 +330,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 | `BUCKET_NAME` / `S3_BUCKET` | `s3.bucket` | `agentfs` | Tigris auto-injects `BUCKET_NAME` |
 | `AWS_REGION` / `S3_REGION` | `s3.region` | `us-east-1` | Tigris auto-injects `AWS_REGION` |
 | `S3_PROVIDER` | `s3.provider` | `minio` | Display-only (e.g., `minio`, `tigris`, `r2`) |
+| `S3_ENABLE_VERSIONING` | — | _(off)_ | `true` makes the server turn on bucket versioning at boot when it is off. Needed for `revert` and historical `diff`; versioning keeps every overwritten object. |
 | `S3_PUBLIC_ENDPOINT` | `s3.publicEndpoint` | _(falls back to `S3_ENDPOINT`)_ | Externally-reachable S3 endpoint used only when generating presigned URLs. Falls back to `S3_ENDPOINT`. |
 | `SERVER_PORT` | `server.port` | `7433` | |
 | `SERVER_HOST` | `server.host` | `127.0.0.1` | Set to `0.0.0.0` in containers |

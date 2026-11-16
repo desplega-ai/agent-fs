@@ -64,6 +64,12 @@ const s3 = createStorageAdapter(config.s3);
 // cannot clobber a forced-off override used by the e2e gating tests.
 try {
   s3.versioningEnabled = await s3.checkVersioningEnabled();
+  // Opt-in, since versioning keeps every overwritten object: without it a
+  // bucket cannot serve revert or historical diff.
+  if (!s3.versioningEnabled && process.env.S3_ENABLE_VERSIONING === "true") {
+    const enabled = await s3.enableVersioning();
+    console.log(enabled ? "storage bucket versioning enabled" : "could not enable storage bucket versioning (check the key's permissions)");
+  }
 } catch (err) {
   console.warn("Could not reconcile storage versioning capability:", err);
 }
@@ -125,6 +131,10 @@ const server = Bun.serve({
   maxRequestBodySize: config.server.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
   port: config.server.port,
   hostname: config.server.host,
+  // Bun closes a connection idle for 10 s by default, which dropped a GET that
+  // was still waiting on storage with no answer at all. Stay above the 15 s
+  // storage deadline so the client gets the 503 instead.
+  idleTimeout: 60,
 });
 
 console.log(`agent-fs daemon running on http://${server.hostname}:${server.port}`);

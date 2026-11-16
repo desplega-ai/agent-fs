@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
-import { createUser, DEFAULT_MAX_UPLOAD_BYTES, listUserOrgs } from "@/core";
+import { createUser, DEFAULT_MAX_UPLOAD_BYTES, listUserOrgs, StorageUnavailableError } from "@/core";
 import type { GetObjectResult } from "@/core";
 import { createApp } from "../app.js";
 
@@ -105,5 +105,32 @@ describe("POST /orgs/:orgId/ops internal errors", () => {
     const text = await res.text();
     expect(JSON.parse(text)).toEqual({ error: "INTERNAL_ERROR", message: "Internal server error" });
     for (const secret of leaked) expect(text).not.toContain(secret);
+  });
+});
+
+describe("storage unavailable", () => {
+  test("an op whose storage is down returns 503 with Retry-After, not 500", async () => {
+    const { post } = setup(new FailingGetS3(new StorageUnavailableError("Storage is unreachable")));
+    const res = await post(JSON.stringify({ op: "cat", path: "/a.txt" }));
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("5");
+    expect(await res.json()).toMatchObject({ error: "STORAGE_UNAVAILABLE", retryable: true });
+  });
+
+  test("/ready reports storage while /health stays up", async () => {
+    class DownS3 extends MockS3Client {
+      override async headObject(): Promise<never> {
+        throw new StorageUnavailableError("Storage is unreachable");
+      }
+    }
+    const down = createApp(createTestDb(), new DownS3());
+    expect((await down.request("/health")).status).toBe(200);
+    const res = await down.request("/ready");
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ ok: false, storage: "unavailable" });
+
+    // A missing probe key still proves storage answers.
+    const up = await createApp(createTestDb(), new MockS3Client()).request("/ready");
+    expect(up.status).toBe(200);
   });
 });

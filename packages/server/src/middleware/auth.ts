@@ -3,7 +3,7 @@ import { getUserByApiKey } from "@/core";
 import type { DB } from "@/core";
 
 // Paths that don't require authentication
-const PUBLIC_PATHS = ["/auth/register", "/health"];
+const PUBLIC_PATHS = ["/auth/register", "/health", "/ready"];
 
 /**
  * An org-scoped key (minted by an org admin) only reaches `/orgs/<scopeOrgId>`

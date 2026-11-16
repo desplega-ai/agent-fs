@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { VERSION, getConfig, DEFAULT_MAX_UPLOAD_BYTES, PresenceRegistry, getProfile } from "@/core";
+import { VERSION, getConfig, DEFAULT_MAX_UPLOAD_BYTES, PresenceRegistry, getProfile, StorageUnavailableError } from "@/core";
 import type { DB, StorageAdapter, EmbeddingProvider } from "@/core";
 import { createMcpServer } from "@/mcp/server.js";
 import type { AppEnv } from "./types.js";
@@ -23,6 +23,23 @@ import { eventRoutes } from "./routes/events.js";
 import { shareRoutes } from "./routes/share.js";
 import { siteRoutes } from "./routes/site.js";
 import { SERVER_FEATURES } from "./features.js";
+
+const READY_CACHE_MS = 5_000;
+const READY_TIMEOUT_MS = 3_000;
+const readyCache = new WeakMap<StorageAdapter, { at: number; ok: Promise<boolean> }>();
+
+/** Probe storage with a HEAD of a key that need not exist; cached so probes cost one call per 5 s. */
+function storageReachable(s3: StorageAdapter): Promise<boolean> {
+  const cached = readyCache.get(s3);
+  if (cached && Date.now() - cached.at < READY_CACHE_MS) return cached.ok;
+  const probe = s3.headObject("_afs-ready").then(
+    () => true,
+    (err) => !(err instanceof StorageUnavailableError),
+  );
+  const ok = Promise.race([probe, Bun.sleep(READY_TIMEOUT_MS).then(() => false)]);
+  readyCache.set(s3, { at: Date.now(), ok });
+  return ok;
+}
 
 export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: EmbeddingProvider | null = null) {
   const app = new Hono<AppEnv>();
@@ -104,6 +121,13 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
   // `features` lets clients (the live UI) detect newer capabilities without
   // probing: an older server simply omits the field.
   app.get("/health", (c) => c.json({ ok: true, version: VERSION, maxUploadBytes, features: [...SERVER_FEATURES] }));
+
+  // Readiness: /health only says the process is up. This also says storage
+  // answers, so a probe or load balancer can stop routing while it is down.
+  app.get("/ready", async (c) => {
+    const storage = await storageReachable(s3);
+    return c.json({ ok: storage, storage: storage ? "ok" : "unavailable" }, storage ? 200 : 503);
+  });
 
   // MCP endpoint — per-request stateless transport
   app.all("/mcp", async (c) => {

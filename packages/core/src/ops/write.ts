@@ -16,6 +16,7 @@ import { indexBytesForSearch, indexTextForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
 import { findMissingLinkTargets } from "./md-links.js";
 import { withPathLock } from "./path-lock.js";
+import { answerWithin } from "./answer-within.js";
 import { withStorageIntent } from "./storage-intent.js";
 
 /** Max file size: 10 MB. Protects SQLite FTS indexing and embedding costs. */
@@ -52,7 +53,7 @@ export async function writeRaw(
     driveId: ctx.driveId,
     requiredRole: "editor",
   });
-  const result = await writeInternal(ctx, params, { maxSize: getMaxUploadBytes() });
+  const result = await answerWithin(writeInternal(ctx, params, { maxSize: getMaxUploadBytes() }), params.bytes.byteLength);
   recordOp("write-raw");
   return result;
 }

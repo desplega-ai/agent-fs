@@ -75,6 +75,9 @@ function classifyError(e: any): ErrorResponse {
   if (e?.code === "QUOTA_EXCEEDED") {
     return err(413, "QUOTA_EXCEEDED", msg);
   }
+  if (name === "StorageUnavailableError") {
+    return err(503, "STORAGE_UNAVAILABLE", msg);
+  }
   if (name === "IndexingInProgressError") {
     return err(503, "INDEXING_IN_PROGRESS", msg);
   }
