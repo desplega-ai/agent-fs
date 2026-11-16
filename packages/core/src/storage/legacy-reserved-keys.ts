@@ -1,9 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { Dirent } from "node:fs";
 import {
   lstat,
   mkdir,
-  readdir,
   readFile,
   realpath,
   rename,
@@ -11,7 +9,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, resolve, sep } from "node:path";
 import { ValidationError } from "../errors.js";
 
 /**
@@ -54,15 +52,13 @@ const FS_TRAILING_NOISE = /(?<![. ])[. ]+$/u;
 const SDK_STAGING_NAME =
   /\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.fls-tmp$/;
 
+export const isLegacyStagingKey = (key: string): boolean => SDK_STAGING_NAME.test(basename(key));
+
 export interface LegacyObject {
   size: number;
   contentType: string;
   etag?: string;
   lastModified: number;
-}
-
-export interface LegacyListEntry extends LegacyObject {
-  key: string;
 }
 
 /** Same match files-sdk 3 uses to refuse a key, limited to the new suffix. */
@@ -256,66 +252,4 @@ export async function legacyDelete(root: string, key: string): Promise<void> {
     await rm(bodyPath, { force: true });
     await rm(bodyPath + SIDECAR_SUFFIX, { force: true });
   });
-}
-
-/**
- * Every file under `prefix` that files-sdk 3's `list` skips but 2.0.0 listed:
- * names ending in exactly `.fls-tmp`, minus sidecarless staging-shaped names.
- * Variants such as `.FLS-TMP` are still listed by files-sdk, so they are not
- * repeated here. Like files-sdk's walk from the root, no symlink is followed:
- * not one met in the walk, and not one in the prefix's own path (a
- * `link/` prefix whose `link` is a symlink lists nothing).
- */
-export async function legacyList(root: string, prefix: string): Promise<LegacyListEntry[]> {
-  const base = resolve(root);
-  const start = resolve(base, prefix.slice(0, prefix.lastIndexOf("/") + 1));
-  if (start !== base && !isInside(base, start)) throw outsideRoot(prefix);
-  const realBase = await realpath(base).catch((err) => {
-    if (isMissing(err)) return undefined;
-    throw err;
-  });
-  if (realBase === undefined) return [];
-  const found: LegacyListEntry[] = [];
-  const stack = [start];
-  for (let dir = stack.pop(); dir !== undefined; dir = stack.pop()) {
-    // A directory whose real path differs from its lexical one sits behind a
-    // symlink, in the prefix or swapped in during the walk: skip it.
-    const real = await realpath(dir).catch((err) => {
-      if (isMissing(err) || (err as { code?: unknown } | null)?.code === "ELOOP") return undefined;
-      throw err;
-    });
-    if (real !== join(realBase, relative(base, dir))) continue;
-    let entries: Dirent[];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch (err) {
-      if (isMissing(err)) continue;
-      throw err;
-    }
-    for (const entry of entries) {
-      const abs = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(abs);
-        continue;
-      }
-      if (!entry.isFile() || !entry.name.endsWith(TMP_SUFFIX)) continue;
-      const key = relative(base, abs).split(sep).join("/");
-      if (!key.startsWith(prefix)) continue;
-      const info = await lstat(abs).catch((err) => {
-        if (isMissing(err)) return undefined;
-        throw err;
-      });
-      if (!info?.isFile()) continue;
-      const sidecar = await readSidecar(abs);
-      if (!sidecar && SDK_STAGING_NAME.test(entry.name)) continue;
-      found.push({
-        key,
-        size: info.size,
-        contentType: sidecar?.contentType ?? DEFAULT_CONTENT_TYPE,
-        etag: sidecar?.etag,
-        lastModified: sidecar?.lastModified ?? info.mtimeMs,
-      });
-    }
-  }
-  return found;
 }

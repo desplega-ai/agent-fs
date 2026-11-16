@@ -12,6 +12,7 @@ import { invalidateDriveGlobListings } from "./glob-cache.js";
 import { normalizePath } from "./paths.js";
 import { NotFoundError, ValidationError } from "../errors.js";
 import { withPathLock } from "./path-lock.js";
+import { withStorageIntent } from "./storage-intent.js";
 
 export async function cp(
   ctx: OpContext,
@@ -48,31 +49,33 @@ export async function cp(
     }
     assertDriveBudget(ctx, head.size, [to]);
     const contentType = copiedMimeType(head.contentType, to);
-    const copyResult = await ctx.s3.copyObject(
-      fromKey,
-      toKey,
-      contentType === head.contentType ? undefined : contentType,
-    );
-    invalidateDriveGlobListings(ctx.orgId, ctx.driveId);
+    return withStorageIntent(ctx, [{ path: to, op: "cp", message: `Copied from ${from}` }], async () => {
+      const copyResult = await ctx.s3.copyObject(
+        fromKey,
+        toKey,
+        contentType === head.contentType ? undefined : contentType,
+      );
+      invalidateDriveGlobListings(ctx.orgId, ctx.driveId);
 
-    // Fetch destination bytes once for both content hash + FTS5 indexing.
-    const obj = await ctx.s3.getObject(toKey);
-    const contentHash = createHash("sha256").update(obj.body).digest("hex");
+      // Fetch destination bytes once for both content hash + FTS5 indexing.
+      const obj = await ctx.s3.getObject(toKey);
+      const contentHash = createHash("sha256").update(obj.body).digest("hex");
 
-    // 3. Create version on new path
-    const version = await createVersion(ctx, {
-      path: to,
-      s3VersionId: copyResult.versionId ?? "",
-      operation: "write",
-      message: `Copied from ${from}`,
-      size: head.size,
-      etag: copyResult.etag,
-      contentType,
-      contentHash,
+      // 3. Create version on new path
+      const version = await createVersion(ctx, {
+        path: to,
+        s3VersionId: copyResult.versionId ?? "",
+        operation: "write",
+        message: `Copied from ${from}`,
+        size: head.size,
+        etag: copyResult.etag,
+        contentType,
+        contentHash,
+      });
+
+      await indexBytesForSearch(ctx, to, obj.body, contentType);
+
+      return { from, to, version };
     });
-
-    await indexBytesForSearch(ctx, to, obj.body, contentType);
-
-    return { from, to, version };
   });
 }

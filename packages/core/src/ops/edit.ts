@@ -11,6 +11,7 @@ import { detectMimeType } from "./mime.js";
 import { indexTextForSearch } from "./search-index.js";
 import { normalizePath } from "./paths.js";
 import { withPathLock } from "./path-lock.js";
+import { withStorageIntent } from "./storage-intent.js";
 
 export async function edit(
   ctx: OpContext,
@@ -71,28 +72,30 @@ export async function edit(
     const contentHash = createHash("sha256").update(newContent).digest("hex");
 
     assertDriveBudget(ctx, size, [path]);
-    const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
+    return withStorageIntent(ctx, [{ path, op: "edit", message: params.message }], async () => {
+      const s3Result = await ctx.s3.putObject(s3Key, newContent, undefined, contentType);
 
-    // 4. Create version with diff summary
-    const diffSummary = JSON.stringify({
-      old: params.old_string,
-      new: params.new_string,
+      // 4. Create version with diff summary
+      const diffSummary = JSON.stringify({
+        old: params.old_string,
+        new: params.new_string,
+      });
+
+      const version = await createVersion(ctx, {
+        path,
+        s3VersionId: s3Result.versionId ?? "",
+        operation: "edit",
+        message: params.message,
+        diffSummary,
+        size,
+        etag: s3Result.etag,
+        contentType,
+        contentHash,
+      });
+
+      await indexTextForSearch(ctx, path, newContent);
+
+      return { version, path, changes: 1 };
     });
-
-    const version = await createVersion(ctx, {
-      path,
-      s3VersionId: s3Result.versionId ?? "",
-      operation: "edit",
-      message: params.message,
-      diffSummary,
-      size,
-      etag: s3Result.etag,
-      contentType,
-      contentHash,
-    });
-
-    await indexTextForSearch(ctx, path, newContent);
-
-    return { version, path, changes: 1 };
   });
 }

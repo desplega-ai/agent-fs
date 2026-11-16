@@ -171,7 +171,7 @@ export function orgRoutes(db: DB, appUrl?: string) {
     if (c.req.query("scope") === "manageable") {
       return c.json({ drives: listManageableDrives(db, orgId, user.id) });
     }
-    const drives = listDrivesForUser(db, orgId, user.id);
+    const drives = listDrivesForUser(db, orgId, user.id, { includeFileSummary: true });
     return c.json({ drives });
   });
 

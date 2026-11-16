@@ -4,6 +4,8 @@ import type { OpContext } from "./types.js";
 import { getS3Key } from "./versioning.js";
 import { normalizePrefix } from "./paths.js";
 
+const FOLDER_CHECK_CONCURRENCY = 8;
+
 /**
  * What a normalized path names in storage right now: `file`, `directory`, or
  * null when nothing is there.
@@ -52,14 +54,22 @@ export async function liveFolderPrefixes(
   prefixes: string[]
 ): Promise<string[]> {
   const driveKey = getS3Key(ctx.orgId, ctx.driveId, "/");
-  const live = await Promise.all(
-    prefixes.map(async (s3Prefix) => {
-      if (hasLiveFileRow(ctx, "/" + s3Prefix.slice(driveKey.length))) return true;
-      const { objects } = await ctx.s3.listObjects(s3Prefix, { maxKeys: 1 });
-      return objects.length > 0;
-    })
-  );
-  return prefixes.filter((_, i) => live[i]);
+  const livePrefixes: string[] = [];
+  // Limit storage reads when many prefixes lack live metadata.
+  for (let offset = 0; offset < prefixes.length; offset += FOLDER_CHECK_CONCURRENCY) {
+    const batch = prefixes.slice(offset, offset + FOLDER_CHECK_CONCURRENCY);
+    const live = await Promise.all(
+      batch.map(async (s3Prefix) => {
+        if (hasLiveFileRow(ctx, "/" + s3Prefix.slice(driveKey.length))) return true;
+        const { objects } = await ctx.s3.listObjects(s3Prefix, { maxKeys: 1 });
+        return objects.length > 0;
+      })
+    );
+    for (let i = 0; i < batch.length; i++) {
+      if (live[i]) livePrefixes.push(batch[i]);
+    }
+  }
+  return livePrefixes;
 }
 
 /** Whether a non-deleted file exists under the directory prefix `dir` (ends in `/`). */

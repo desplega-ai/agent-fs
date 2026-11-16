@@ -452,6 +452,8 @@ export interface Drive {
   id: string
   name: string
   orgId: string
+  /** Live files recorded in metadata, capped at five. Older servers omit this field. */
+  fileCountLowerBound?: number
 }
 
 export interface Org {

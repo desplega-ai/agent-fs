@@ -99,10 +99,13 @@ export interface StorageAdapter {
   /** `contentType` replaces the source object's type on the destination. */
   copyObject(fromKey: string, toKey: string, contentType?: string): Promise<PutObjectResult>;
 
-  /** `maxKeys` caps the result at that many objects plus prefixes. */
+  /**
+   * `maxKeys` caps the result at that many objects plus prefixes.
+   * `maxDepth` lets adapters skip deeper objects. Callers must still filter the result.
+   */
   listObjects(
     prefix: string,
-    options?: { delimiter?: string; maxKeys?: number },
+    options?: { delimiter?: string; maxKeys?: number; maxDepth?: number },
   ): Promise<{ objects: S3Object[]; prefixes: string[] }>;
 
   headObject(key: string): Promise<HeadObjectResult>;

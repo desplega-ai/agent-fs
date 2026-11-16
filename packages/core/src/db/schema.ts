@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   sqliteTable,
   text,
@@ -126,6 +127,9 @@ export const files = sqliteTable(
   },
   (table) => ({
     pk: primaryKey({ columns: [table.path, table.driveId] }),
+    liveDrivePathIdx: index("idx_files_live_drive_path")
+      .on(table.driveId, table.path)
+      .where(sql`${table.isDeleted} = 0 and ${table.path} not like '%/'`),
   })
 );
 
@@ -155,8 +159,22 @@ export const fileVersions = sqliteTable(
     pathDriveVersionUq: uniqueIndex(
       "file_versions_path_drive_version_uq"
     ).on(table.path, table.driveId, table.version),
+    driveCreatedIdx: index("idx_file_versions_drive_created")
+      .on(table.driveId, sql`${table.createdAt} desc`),
   })
 );
+
+// storage_intents: paths a mutating op is changing in storage. See raw.ts.
+export const storageIntents = sqliteTable("storage_intents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  orgId: text("org_id").notNull(),
+  driveId: text("drive_id").notNull(),
+  path: text("path").notNull(),
+  op: text("op", { enum: ["write", "edit", "append", "revert", "rm", "mv", "cp"] }).notNull(),
+  author: text("author").notNull(),
+  message: text("message"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
 
 // comments (document comments with threading)
 export const comments = sqliteTable("comments", {

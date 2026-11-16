@@ -137,7 +137,7 @@ symlinks are unsupported and throw `EPERM`.
 | `edit` | `agent-fs edit <path> --old <text> --new <text> [-m <msg>]` | Find-and-replace in file |
 | `append` | `agent-fs append <path> [--content <text>] [-m <msg>]` | Append to file (stdin or --content) |
 | `tail` | `agent-fs tail <path> [--lines <n>]` | Last N lines (default: 20) |
-| `ls` | `agent-fs ls [path]` | List directory contents (defaults to /) |
+| `ls` | `agent-fs ls [path]` | List immediate directory contents (defaults to /) |
 | `stat` | `agent-fs stat <path>` | Show file metadata (size, version, timestamps, embedding status: `pending`, `indexed`, `failed`, or `skipped`, `etag` of the current bytes: compare for equality to tell whether content changed) |
 | `reveal` | `agent-fs reveal <path>` | Everything needed to show one file in a tree, in one call: the `ls` listing of every ancestor (root first, as `listings: [{ path, entries }]`) plus the file's `stat`. Same permissions as `ls`; `NOT_FOUND` for a missing file, `VALIDATION_ERROR` for a path over 4096 characters or 128 levels deep. Prefer `ls`/`stat` for ordinary reads. |
 | `tree` | `agent-fs tree [path] [--depth <n>]` | Recursive directory listing |
@@ -189,6 +189,13 @@ Every `diff` result carries `source`: `content` (both versions compared), `summa
 
 Search uses the active organization and drive. Check `org current` and `drive current`, or pass explicit `--org` and `--drive` flags.
 `glob`, `ls`, and `tree` read every S3 listing page. A drive with more than 1,000 objects remains searchable.
+`ls` reads metadata only for immediate file objects, in bounded queries using exact paths.
+Objects without live metadata remain visible with storage size and modification time.
+Folder validation limits concurrent storage checks when live metadata is absent.
+`tree` reads metadata only for files within the requested depth. Local storage also stops traversal at that depth.
+S3 still reads descendant pages to preserve directory marker behavior. Use `ls` for immediate children of a large S3 folder.
+Local listings skip unrelated directories and stop when their object limit is satisfied.
+`recent` uses a drive and timestamp index. Existing databases receive that index and the live-file summary index at startup.
 `search` and `vec-search` select semantic candidates within the active drive and count distinct files toward the limit.
 PDF text is searchable. `search` and `vec-search` results carry `page` for PDF text hits.
 With EmbeddingGemma 2, semantic search also finds PNG, JPEG, WebP, GIF, and the first 3 PDF pages as images.
@@ -346,6 +353,10 @@ The `--drive` flag is a global option — place it before the subcommand: `agent
 | `drive invite` | `agent-fs drive invite <email> --role <role>` | Invite user to the org and grant `--role` on the current drive only |
 
 Drive membership is explicit: `drive list` shows only drives you're a member of. Creating a drive automatically grants you admin membership on it; other users get access per drive: `member invite --to`, `drive invite` (current drive), or `member add` for existing org members. A plain `member invite` grants the default drive only.
+
+The HTTP drive list includes `fileCountLowerBound`, a metadata count capped at five live files, including nested files.
+Five means at least five. Older servers omit this field, and storage-only objects do not contribute.
+The live UI uses this summary for its star prompt without traversing folders.
 
 ### Config & Daemon
 

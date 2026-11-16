@@ -1,9 +1,12 @@
 import { Database } from "bun:sqlite";
 import {
+  FILES_LIVE_INDEX_SQL,
+  FILE_VERSIONS_RECENT_INDEX_SQL,
   ORG_INVITES_SQL,
   USER_API_KEYS_SQL,
   WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL,
   WEBHOOKS_SQL,
+  STORAGE_INTENTS_SQL,
 } from "./raw.js";
 
 /**
@@ -108,6 +111,10 @@ export function runMigrations(sqlite: Database): void {
   // statements as CREATE_TABLES_SQL, all IF NOT EXISTS.
   sqlite.exec(WEBHOOKS_SQL);
 
+  // Migration 3l: storage intents, the crash-recovery journal for mutating
+  // ops. Same statement as CREATE_TABLES_SQL, IF NOT EXISTS.
+  sqlite.exec(STORAGE_INTENTS_SQL);
+
   // Migration 3h: index for the hourly delivery-log prune (status,
   // created_at). IF NOT EXISTS, so it is a no-op once present.
   sqlite.exec(WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL);
@@ -163,4 +170,8 @@ export function runMigrations(sqlite: Database): void {
       "JOIN org_members om ON om.org_id = d.org_id AND om.role = 'admin' " +
       "WHERE NOT EXISTS (SELECT 1 FROM drive_members dm WHERE dm.drive_id = d.id)"
   );
+
+  // Migration 5: bound live-file summaries and recent activity reads.
+  sqlite.exec(FILES_LIVE_INDEX_SQL);
+  sqlite.exec(FILE_VERSIONS_RECENT_INDEX_SQL);
 }

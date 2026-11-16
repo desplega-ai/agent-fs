@@ -3,6 +3,12 @@
 
 export const EMBEDDING_STATUS_COLUMN_SQL = "embedding_status TEXT DEFAULT 'pending' CHECK(embedding_status IN ('pending', 'indexed', 'failed', 'skipped'))";
 
+export const FILES_LIVE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_files_live_drive_path
+  ON files(drive_id, path) WHERE is_deleted = 0 AND path NOT LIKE '%/';`;
+
+export const FILE_VERSIONS_RECENT_INDEX_SQL = `CREATE INDEX IF NOT EXISTS idx_file_versions_drive_created
+  ON file_versions(drive_id, created_at DESC);`;
+
 /**
  * Pending org invites for emails that have no account yet. Only the SHA-256 of
  * the accept token is stored. `drives` is a JSON array of { driveId, role }.
@@ -137,6 +143,28 @@ export const WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL = `
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_prune ON webhook_deliveries(status, created_at);
 `;
 
+/**
+ * Storage intents: one row per path a mutating op is about to change in
+ * storage. The op writes the row before its storage call and deletes it after
+ * the version row and search index are committed. A row that outlives its op
+ * (crash, kill, failed request) marks a path whose storage and database may
+ * disagree; reconcileStorageIntents (ops/storage-intent.ts) settles it from the
+ * object store at boot and on a timer. created_at is epoch milliseconds.
+ * Shared with runMigrations, which adds the table to older databases.
+ */
+export const STORAGE_INTENTS_SQL = `
+CREATE TABLE IF NOT EXISTS storage_intents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  org_id TEXT NOT NULL,
+  drive_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  op TEXT NOT NULL,
+  author TEXT NOT NULL,
+  message TEXT,
+  created_at INTEGER NOT NULL
+);
+`;
+
 export const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -197,6 +225,8 @@ CREATE TABLE IF NOT EXISTS files (
 -- Support drive-scoped file listings and prefix scans.
 CREATE INDEX IF NOT EXISTS idx_files_drive_path ON files(drive_id, path);
 
+${FILES_LIVE_INDEX_SQL}
+
 CREATE TABLE IF NOT EXISTS file_versions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   path TEXT NOT NULL,
@@ -215,6 +245,8 @@ CREATE TABLE IF NOT EXISTS file_versions (
 
 CREATE UNIQUE INDEX IF NOT EXISTS file_versions_path_drive_version_uq
   ON file_versions(path, drive_id, version);
+
+${FILE_VERSIONS_RECENT_INDEX_SQL}
 
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,
@@ -331,6 +363,8 @@ ${USER_API_KEYS_SQL}
 ${WEBHOOKS_SQL}
 
 ${WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL}
+
+${STORAGE_INTENTS_SQL}
 
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -159,6 +159,8 @@ describe("Database initialization", () => {
       });
       const { ctx } = createTestContext();
       const opCtx = { ...ctx, db: loggedDb, orgId: "org-1", driveId: "drive-1" };
+      // ls reads metadata only for files returned by storage.
+      await ctx.s3.putObject("org-1/drives/drive-1/ls/existing.txt", "content");
       await ls(opCtx, { path: "/ls" });
       const lsQuery = queries.at(-1)!;
       await glob(opCtx, { pattern: "**", path: "/glob" });
@@ -173,7 +175,9 @@ describe("Database initialization", () => {
           .map((row) => row.detail)
           .join(" | ");
 
-      expect(queryPlan(lsQuery)).toContain("idx_files_drive_path");
+      expect(queryPlan(lsQuery)).toMatch(
+        /USING INDEX .*\((drive_id=\? AND path=\?|path=\? AND drive_id=\?)\)/
+      );
       expect(queryPlan(globQuery)).toContain("idx_files_drive_path");
     } finally {
       sqlite.close();

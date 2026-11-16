@@ -5,7 +5,9 @@ import type { CatResult } from "@/api/types"
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
-const CACHE_KEY = "liveui:uuid-cache"
+// Older caches contain unscoped labels and misses from incomplete metadata.
+const CACHE_KEY = "liveui:uuid-cache:v3"
+const MAX_METADATA_LINES = 1000
 
 export function isUuidLike(s: string): boolean {
   return UUID_RE.test(s)
@@ -34,29 +36,22 @@ function writeCache(cache: UuidCache): void {
   }
 }
 
-function cacheKey(orgId: string, driveId: string, fullPath: string): string {
-  return `${orgId}::${driveId}::${fullPath}`
-}
-
-interface ReadResult {
-  content?: string
-}
-
 async function tryRead(
   client: ReturnType<typeof useAuth>["client"],
   orgId: string,
   driveId: string,
   path: string,
-): Promise<string | null> {
+  limit: number,
+): Promise<CatResult | null> {
   try {
-    const result = await client.callOp<ReadResult | CatResult>(
+    const result = await client.callOp<CatResult>(
       orgId,
-      "read",
-      { path },
+      "cat",
+      { path, limit },
       driveId,
     )
-    if (result && typeof (result as ReadResult).content === "string") {
-      return (result as ReadResult).content as string
+    if (result && typeof result.content === "string") {
+      return result
     }
     return null
   } catch {
@@ -76,32 +71,36 @@ export function useUuidName(
   parentPath: string,
   uuid: string,
 ): string | null {
-  const { client, orgId, driveId } = useAuth()
+  const { client, credential, user, orgId, driveId } = useAuth()
   const fullPath = parentPath ? `${parentPath}/${uuid}` : uuid
+  const userId = user?.userId
+  const queryKey = ["uuid-name", credential.endpoint, credential.id, userId, orgId, driveId, fullPath]
 
-  const enabled = !!orgId && !!driveId && isUuidLike(uuid)
+  const enabled = !!userId && !!orgId && !!driveId && isUuidLike(uuid)
 
   const { data } = useQuery<string | null>({
-    queryKey: ["uuid-name", orgId, driveId, fullPath],
+    queryKey,
     enabled,
     staleTime: Infinity,
     gcTime: Infinity,
+    retry: false,
     queryFn: async () => {
-      if (!orgId || !driveId) return null
-      const key = cacheKey(orgId, driveId, fullPath)
+      if (!userId || !orgId || !driveId) return null
+      const key = JSON.stringify(queryKey)
       const cache = readCache()
       if (key in cache) return cache[key] ?? null
 
       // Try meta.json first.
-      const metaContent = await tryRead(
+      const metadata = await tryRead(
         client,
         orgId,
         driveId,
         `${fullPath}/meta.json`,
+        MAX_METADATA_LINES,
       )
-      if (metaContent) {
+      if (metadata?.content && !metadata.truncated) {
         try {
-          const parsed = JSON.parse(metaContent)
+          const parsed = JSON.parse(metadata.content)
           if (parsed && typeof parsed.name === "string" && parsed.name.trim()) {
             const name = parsed.name.trim()
             cache[key] = name
@@ -114,20 +113,24 @@ export function useUuidName(
       }
 
       // Fall back to .name.
-      const nameContent = await tryRead(
+      const nameFile = await tryRead(
         client,
         orgId,
         driveId,
         `${fullPath}/.name`,
+        1,
       )
-      if (nameContent) {
-        const firstLine = nameContent.split(/\r?\n/, 1)[0]?.trim() ?? ""
+      if (nameFile?.content) {
+        const firstLine = nameFile.content.split(/\r?\n/, 1)[0]?.trim() ?? ""
         if (firstLine) {
           cache[key] = firstLine
           writeCache(cache)
           return firstLine
         }
       }
+
+      // Keep incomplete metadata retryable when the folder mounts again.
+      if (metadata?.truncated) throw new Error("UUID metadata exceeds the line limit")
 
       cache[key] = null
       writeCache(cache)

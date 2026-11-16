@@ -157,6 +157,7 @@ const testEnv = (): NodeJS.ProcessEnv => {
   return {
     ...base,
     AGENT_FS_STORAGE_PROVIDER: "minio",
+    AGENT_FS_APP_URL: `http://127.0.0.1:${daemonPort}`,
     // Override S3 env vars to ensure daemon uses test MinIO, not .env values.
     S3_ENDPOINT: `http://localhost:${minioPort}`,
     S3_BUCKET: "agentfs",
@@ -1559,9 +1560,9 @@ async function runStandardTests(daemonUrl: string) {
   });
 
   if (localOnly) {
-    skipTest("glob and tree traverse S3 pages", "requires MinIO continuation tokens");
+    skipTest("glob, tree, and ls traverse S3 pages", "requires MinIO continuation tokens");
   } else {
-    await test("glob and tree traverse S3 pages", async () => {
+    await test("glob, tree, and ls traverse S3 pages", async () => {
       const { AgentS3Client } = await import("../packages/core/src/s3/client.js");
       const storage = new AgentS3Client({
         provider: "minio",
@@ -1586,6 +1587,23 @@ async function runStandardTests(daemonUrl: string) {
       const directory = runJson("tree /").tree.find((entry: any) => entry.name === "zz-search");
       assert(directory?.children?.some((entry: any) => entry.name === "ai-tinkerers-page-two.md"), true,
         "Recursive tree must include the file beyond page one");
+
+      const tracked = "/00-search-padding/zz-tracked.txt";
+      runJson(`write ${tracked} --content "tracked listing metadata"`);
+      runJson('write /00-search-padding/nested/child.txt --content "nested"');
+      const expected = runJson(`stat ${tracked}`);
+      const entries = runJson("ls /00-search-padding").entries;
+      assert(entries.filter((entry: any) => entry.type === "file").length, 1001,
+        "Listing must include storage-only files and the tracked file beyond page one");
+      const trackedEntry = entries.find((entry: any) => entry.name === "zz-tracked.txt");
+      assert(trackedEntry?.size, expected.size);
+      assert(trackedEntry?.author, expected.author);
+      assert(trackedEntry?.modifiedAt, expected.modifiedAt);
+      assert(entries.some((entry: any) => entry.name === "nested" && entry.type === "directory"), true);
+      assert(entries.some((entry: any) => entry.name === "child.txt"), false,
+        "Listing must not return descendant files");
+      assert(entries.find((entry: any) => entry.name === "0000.txt")?.size, 7,
+        "Storage-only files must retain storage metadata");
     });
   }
 

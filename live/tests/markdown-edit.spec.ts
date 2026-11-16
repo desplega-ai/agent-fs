@@ -115,12 +115,12 @@ test("rich editor scrolls with the wheel and the keyboard; the toolbar stays usa
   await expectToolbarUsable(page)
 
   await page.getByText("reports/<slug>/run-3.md", { exact: false }).click()
-  await page.keyboard.press("Control+End")
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End")
   await expect(page.getByText("Item 40b")).toBeInViewport()
   await expect.poll(() => scrollTop(scroller)).toBeGreaterThan(5000)
   await expectToolbarUsable(page)
 
-  await page.keyboard.press("Control+Home")
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home")
   await expect(page.getByRole("heading", { name: "Loop notes" })).toBeInViewport()
   await expect.poll(() => scrollTop(scroller)).toBeLessThan(100)
   await page.screenshot({ path: "test-results/markdown-edit-rich-scrolled.png" })
@@ -142,7 +142,7 @@ test("source editor scrolls with the wheel and the keyboard; the toolbar stays u
   await expectToolbarUsable(page)
 
   await page.locator(".monaco-editor .view-lines").click()
-  await page.keyboard.press("Control+End")
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End")
   await expect(page.locator(".monaco-editor .view-line", { hasText: "Item 40b" })).toBeInViewport()
   await expectToolbarUsable(page)
 })

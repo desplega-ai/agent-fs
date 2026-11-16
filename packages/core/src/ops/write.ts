@@ -17,6 +17,7 @@ import { normalizePath } from "./paths.js";
 import { findMissingLinkTargets } from "./md-links.js";
 import { withPathLock } from "./path-lock.js";
 import { answerWithin } from "./answer-within.js";
+import { withStorageIntent } from "./storage-intent.js";
 
 /** Max file size: 10 MB. Protects SQLite FTS indexing and embedding costs. */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -111,29 +112,31 @@ async function writeInternal(
 
     assertDriveBudget(ctx, size, [path]);
 
-    // 1. Write to S3
-    const contentType = detectMimeType(path);
-    const s3Result = await ctx.s3.putObject(s3Key, bytes, undefined, contentType);
+    return withStorageIntent(ctx, [{ path, op: "write", message: params.message }], async () => {
+      // 1. Write to S3
+      const contentType = detectMimeType(path);
+      const s3Result = await ctx.s3.putObject(s3Key, bytes, undefined, contentType);
 
-    // 2. Create version record
-    const version = await createVersion(ctx, {
-      path,
-      s3VersionId: s3Result.versionId ?? "",
-      operation: "write",
-      message: params.message,
-      size,
-      etag: s3Result.etag,
-      contentType,
-      contentHash,
+      // 2. Create version record
+      const version = await createVersion(ctx, {
+        path,
+        s3VersionId: s3Result.versionId ?? "",
+        operation: "write",
+        message: params.message,
+        size,
+        etag: s3Result.etag,
+        contentType,
+        contentHash,
+      });
+
+      if (params.indexableText !== undefined) {
+        await indexTextForSearch(ctx, path, params.indexableText);
+      } else {
+        await indexBytesForSearch(ctx, path, bytes, contentType);
+      }
+
+      return withLinkWarnings(ctx, params, { version, path, size, contentHash, deduped: false });
     });
-
-    if (params.indexableText !== undefined) {
-      await indexTextForSearch(ctx, path, params.indexableText);
-    } else {
-      await indexBytesForSearch(ctx, path, bytes, contentType);
-    }
-
-    return withLinkWarnings(ctx, params, { version, path, size, contentHash, deduped: false });
   });
 }
 

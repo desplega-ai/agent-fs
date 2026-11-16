@@ -85,6 +85,7 @@ export {
   createVersion,
 } from "./ops/versioning.js";
 export type { HeadVersionRow } from "./ops/versioning.js";
+export { reconcileStorageIntents, drainStorageIntents } from "./ops/storage-intent.js";
 export {
   shareCreate,
   shareRevoke,
