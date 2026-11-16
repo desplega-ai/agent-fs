@@ -35,6 +35,8 @@ services:
       S3_ACCESS_KEY_ID: minioadmin
       S3_SECRET_ACCESS_KEY: minioadmin
       BUCKET_NAME: agentfs
+      # Turn on bucket versioning at boot so revert and diff work.
+      S3_ENABLE_VERSIONING: "true"
     volumes:
       - agent-fs-data:/data
 

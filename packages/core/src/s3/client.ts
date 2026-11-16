@@ -22,6 +22,7 @@ import type {
   HeadObjectResult,
 } from "../storage/adapter.js";
 import { assertKeyInsideDrive } from "../storage/key-guard.js";
+import { StorageUnavailableError } from "../errors.js";
 
 // These value/result types now live in storage/adapter.ts (canonical home).
 // Re-exported here for back-compat with existing `s3/client.js` / `@/core` imports.
@@ -36,6 +37,31 @@ export type {
 const S3_CONNECTION_TIMEOUT_MS = 5_000;
 const S3_SOCKET_TIMEOUT_MS = 30_000;
 const S3_MAX_ATTEMPTS = 3;
+/**
+ * Total time one storage call may take, retries included. Without it a
+ * partition holds a request for 3 attempts x the 30 s socket timeout, longer
+ * than the CLI's 60 s timeout. Bodies get 1 s more per MiB on top.
+ */
+const S3_DEADLINE_MS = 15_000;
+// shortcut: a server-side copy does not know its size here; raise it if large copies time out.
+const S3_COPY_DEADLINE_MS = 60_000;
+
+/** Network-level failures: the request never got an HTTP answer. */
+const NETWORK_ERROR_CODES = new Set([
+  "ECONNREFUSED", "ECONNRESET", "ECONNABORTED", "EPIPE", "ETIMEDOUT",
+  "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "ConnectionRefused",
+]);
+
+/** True when an S3 error means "storage unreachable or failing", not "bad request". */
+export function isStorageUnavailable(err: any): boolean {
+  const status = err?.$metadata?.httpStatusCode;
+  if (typeof status === "number") return status >= 500;
+  return (
+    NETWORK_ERROR_CODES.has(err?.code) ||
+    ["TimeoutError", "RequestTimeout", "RequestTimeoutException"].includes(err?.name) ||
+    /socket hang up|socket connection was closed|unable to connect/i.test(String(err?.message ?? ""))
+  );
+}
 
 /** URL-encode each `/`-separated segment of a key, keeping the slashes. */
 function encodeCopySourceKey(key: string): string {
@@ -49,6 +75,8 @@ export class AgentS3Client implements StorageAdapter {
   private presignClient: S3Client;
   private bucket: string;
   versioningEnabled: boolean = false;
+  /** Per-call deadline; a field so tests can shorten it. */
+  private deadlineMs = S3_DEADLINE_MS;
 
   /** S3/MinIO supports both bucket versioning and native presigned URLs. */
   get capabilities(): StorageCapabilities {
@@ -83,6 +111,52 @@ export class AgentS3Client implements StorageAdapter {
     this.versioningEnabled = config.versioningEnabled ?? false;
   }
 
+  /**
+   * Run one SDK call under a deadline. A call past its deadline, or one that
+   * fails to reach storage, throws StorageUnavailableError (HTTP 503); S3's own
+   * 4xx answers (NoSuchKey, AccessDenied) pass through unchanged. `rearm`
+   * restarts the deadline, for a body whose size is known only from the headers.
+   */
+  private bodyDeadlineMs(bytes: number): number {
+    return this.deadlineMs + Math.floor(bytes / (1024 * 1024)) * 1000;
+  }
+
+  private async call<T>(
+    deadlineMs: number,
+    fn: (signal: AbortSignal, rearm: (ms: number) => void) => Promise<T>,
+    callerSignal?: AbortSignal,
+  ): Promise<T> {
+    const ac = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let expire!: (err: Error) => void;
+    // Raced as well as aborted: a body stream the SDK no longer watches still fails on time.
+    const deadline = new Promise<never>((_, reject) => { expire = reject; });
+    const arm = (ms: number) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        expire(new StorageUnavailableError(`Storage did not answer within ${Math.round(ms / 1000)} s`));
+        ac.abort();
+      }, ms);
+    };
+    const forward = () => ac.abort(callerSignal?.reason);
+    callerSignal?.addEventListener("abort", forward, { once: true });
+    arm(deadlineMs);
+    const work = fn(ac.signal, arm);
+    work.catch(() => {}); // the loser of the race below must not surface as unhandled
+    try {
+      return await Promise.race([work, deadline]);
+    } catch (err) {
+      if (err instanceof StorageUnavailableError) throw err;
+      if (!callerSignal?.aborted && isStorageUnavailable(err)) {
+        throw new StorageUnavailableError("Storage is unreachable", { cause: err });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      callerSignal?.removeEventListener("abort", forward);
+    }
+  }
+
   async putObject(
     key: string,
     body: string | Uint8Array,
@@ -90,14 +164,18 @@ export class AgentS3Client implements StorageAdapter {
     contentType?: string,
   ): Promise<PutObjectResult> {
     assertKeyInsideDrive(key);
-    const result = await this.client.send(
-      new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        Body: typeof body === "string" ? Buffer.from(body) : body,
-        Metadata: metadata,
-        ...(contentType && { ContentType: contentType }),
-      })
+    const bytes = typeof body === "string" ? Buffer.from(body) : body;
+    const result = await this.call(this.bodyDeadlineMs(bytes.byteLength), (abortSignal) =>
+      this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          Body: bytes,
+          Metadata: metadata,
+          ...(contentType && { ContentType: contentType }),
+        }),
+        { abortSignal }
+      )
     );
     return {
       etag: result.ETag,
@@ -111,38 +189,38 @@ export class AgentS3Client implements StorageAdapter {
     opts?: { abortSignal?: AbortSignal }
   ): Promise<GetObjectResult> {
     assertKeyInsideDrive(key);
-    const result = await this.client.send(
-      new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        ...(versionId && { VersionId: versionId }),
-      }),
-      { abortSignal: opts?.abortSignal }
-    );
-    const body = await result.Body!.transformToByteArray();
-    return {
-      body,
-      contentType: result.ContentType,
-      size: result.ContentLength,
-      versionId: result.VersionId,
-      etag: result.ETag,
-    };
+    return this.call(this.deadlineMs, async (abortSignal, rearm) => {
+      const result = await this.client.send(
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+          ...(versionId && { VersionId: versionId }),
+        }),
+        { abortSignal }
+      );
+      rearm(this.bodyDeadlineMs(result.ContentLength ?? 0));
+      const body = await result.Body!.transformToByteArray();
+      return {
+        body,
+        contentType: result.ContentType,
+        size: result.ContentLength,
+        versionId: result.VersionId,
+        etag: result.ETag,
+      };
+    }, opts?.abortSignal);
   }
 
   async deleteObject(key: string): Promise<void> {
     assertKeyInsideDrive(key);
-    await this.client.send(
-      new DeleteObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-      })
+    await this.call(this.deadlineMs, (abortSignal) =>
+      this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }), { abortSignal })
     );
   }
 
   async copyObject(fromKey: string, toKey: string, contentType?: string): Promise<PutObjectResult> {
     assertKeyInsideDrive(fromKey);
     assertKeyInsideDrive(toKey);
-    const result = await this.client.send(
+    const result = await this.call(S3_COPY_DEADLINE_MS, (abortSignal) => this.client.send(
       new CopyObjectCommand({
         Bucket: this.bucket,
         // The SDK encodes `Key` but sends `CopySource` as given, and the
@@ -153,8 +231,9 @@ export class AgentS3Client implements StorageAdapter {
         Key: toKey,
         // COPY (the default) keeps the source type; REPLACE is the only way to set a new one.
         ...(contentType && { MetadataDirective: "REPLACE", ContentType: contentType }),
-      })
-    );
+      }),
+      { abortSignal }
+    ));
     return {
       etag: result.CopyObjectResult?.ETag,
       versionId: result.VersionId,
@@ -173,15 +252,16 @@ export class AgentS3Client implements StorageAdapter {
     let continuationToken: string | undefined;
 
     while (true) {
-      const result = await this.client.send(
+      const result = await this.call(this.deadlineMs, (abortSignal) => this.client.send(
         new ListObjectsV2Command({
           Bucket: this.bucket,
           Prefix: prefix,
           ...(options?.delimiter !== undefined && { Delimiter: options.delimiter }),
           ...(options?.maxKeys !== undefined && { MaxKeys: options.maxKeys }),
           ...(continuationToken !== undefined && { ContinuationToken: continuationToken }),
-        })
-      );
+        }),
+        { abortSignal }
+      ));
 
       objects.push(
         ...(result.Contents ?? []).map((obj) => ({
@@ -215,11 +295,8 @@ export class AgentS3Client implements StorageAdapter {
 
   async headObject(key: string): Promise<HeadObjectResult> {
     assertKeyInsideDrive(key);
-    const result = await this.client.send(
-      new HeadObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-      })
+    const result = await this.call(this.deadlineMs, (abortSignal) =>
+      this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }), { abortSignal })
     );
     return {
       contentType: result.ContentType,
@@ -232,11 +309,8 @@ export class AgentS3Client implements StorageAdapter {
 
   async listObjectVersions(key: string): Promise<S3ObjectVersion[]> {
     assertKeyInsideDrive(key);
-    const result = await this.client.send(
-      new ListObjectVersionsCommand({
-        Bucket: this.bucket,
-        Prefix: key,
-      })
+    const result = await this.call(this.deadlineMs, (abortSignal) =>
+      this.client.send(new ListObjectVersionsCommand({ Bucket: this.bucket, Prefix: key }), { abortSignal })
     );
     return (result.Versions ?? [])
       .filter((v) => v.Key === key)
@@ -250,8 +324,8 @@ export class AgentS3Client implements StorageAdapter {
 
   async checkVersioningEnabled(): Promise<boolean> {
     try {
-      const result = await this.client.send(
-        new GetBucketVersioningCommand({ Bucket: this.bucket })
+      const result = await this.call(this.deadlineMs, (abortSignal) =>
+        this.client.send(new GetBucketVersioningCommand({ Bucket: this.bucket }), { abortSignal })
       );
       return result.Status === "Enabled";
     } catch {
@@ -261,11 +335,14 @@ export class AgentS3Client implements StorageAdapter {
 
   async enableVersioning(): Promise<boolean> {
     try {
-      await this.client.send(
-        new PutBucketVersioningCommand({
-          Bucket: this.bucket,
-          VersioningConfiguration: { Status: "Enabled" },
-        })
+      await this.call(this.deadlineMs, (abortSignal) =>
+        this.client.send(
+          new PutBucketVersioningCommand({
+            Bucket: this.bucket,
+            VersioningConfiguration: { Status: "Enabled" },
+          }),
+          { abortSignal }
+        )
       );
       this.versioningEnabled = true;
       return true;

@@ -23,6 +23,8 @@ export function assertCapability(
   backend?: string,
 ): void {
   if (!adapter.capabilities[cap]) {
-    throw new UnsupportedOperation(operation, backend);
+    throw new UnsupportedOperation(operation, backend, cap === "versioning" ? {
+      suggestion: "Bucket versioning is off. Turn it on in the storage provider, or set S3_ENABLE_VERSIONING=true and restart the server",
+    } : undefined);
   }
 }

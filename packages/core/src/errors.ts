@@ -92,6 +92,27 @@ export class IndexingInProgressError extends AgentFSError {
   }
 }
 
+/**
+ * The storage backend did not answer in time or could not be reached. The
+ * request may succeed if retried; nothing about it says the server is broken.
+ */
+export class StorageUnavailableError extends AgentFSError {
+  readonly retryable = true;
+
+  constructor(message: string, opts?: { cause?: unknown }) {
+    super(
+      "STORAGE_UNAVAILABLE",
+      message,
+      "The storage backend is unreachable or slow. Retry in a few seconds"
+    );
+    (this as { cause?: unknown }).cause = opts?.cause;
+  }
+
+  toJSON() {
+    return { ...super.toJSON(), retryable: true };
+  }
+}
+
 export class ValidationError extends AgentFSError {
   readonly field?: string;
 

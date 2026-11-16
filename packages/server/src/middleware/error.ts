@@ -9,6 +9,7 @@ import {
   UnsupportedOperation,
   EmbeddingProviderError,
   PresenceLimitError,
+  StorageUnavailableError,
 } from "@/core";
 import { redactShareToken } from "./request-log.js";
 
@@ -17,6 +18,7 @@ function getStatusCode(err: Error): number {
   if (err instanceof PermissionDeniedError) return 403;
   if (err instanceof EditConflictError) return 409;
   if (err instanceof IndexingInProgressError) return 503;
+  if (err instanceof StorageUnavailableError) return 503;
   if (err instanceof ValidationError) return 400;
   // 422 Unprocessable: the request was well-formed but the active storage
   // backend can't satisfy it. Distinct from the generic 400 so clients don't
@@ -31,6 +33,10 @@ function getStatusCode(err: Error): number {
 
 export function handleError(err: Error, c: Context) {
   if (err instanceof AgentFSError) {
+    if (err instanceof StorageUnavailableError) {
+      console.error(`storage unavailable on ${c.req.method} ${redactShareToken(c.req.path)}:`, (err as { cause?: unknown }).cause ?? err.message);
+      c.header("Retry-After", "5");
+    }
     return c.json(err.toJSON(), getStatusCode(err) as any);
   }
 
