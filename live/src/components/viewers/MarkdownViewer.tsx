@@ -27,7 +27,7 @@ import {
 import { useLocalStorage } from "@/hooks/use-local-storage"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { Kbd } from "@/components/ui/kbd"
-import { slugify, scrollToHeading, scrollBehavior, type OutlineItem } from "@/lib/outline"
+import { headingFromHash, linkHeading, slugify, scrollToHeading, scrollBehavior, type OutlineItem } from "@/lib/outline"
 import { computeActiveHeadings } from "@/hooks/use-active-headings"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
 import { commentButtonPosition, commentFormStyle, useCommentSheet, usePopoverViewport, useRestoreWindowScroll, useTouchSelection, VIEWPORT_MARGIN } from "@/lib/comment-popover"
@@ -194,6 +194,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
     }
   }
 
+  const jumpedFor = useRef<string | null>(null)
   // Post-render: scan the rendered headings, give each a stable id, and report
   // the outline up. Single source of truth — the outline UI (desktop tab and
   // mobile selector) jumps to these ids.
@@ -215,7 +216,24 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
     })
     setOutline(items)
     onOutlineChange?.(items)
-  }, [body, onOutlineChange])
+    // A link to a section (`file.md#setup`) opens on that heading, once per file. Headings of the
+    // previous file never match a jump: the file only counts as done once its heading is found.
+    const id = jumpedFor.current !== path && headingFromHash(window.location.hash, items.map((i) => i.id))
+    if (id) {
+      jumpedFor.current = path
+      scrollToHeading(id)
+    }
+  }, [body, path, onOutlineChange])
+
+  // A fragment that changes while the file is open jumps too.
+  useEffect(() => {
+    const jump = () => {
+      const id = headingFromHash(window.location.hash, outline.map((i) => i.id))
+      if (id) scrollToHeading(id)
+    }
+    window.addEventListener("hashchange", jump)
+    return () => window.removeEventListener("hashchange", jump)
+  }, [outline])
 
   // Paint each comment's resolved range. The hovered or revealed comment is
   // emphasized, and pulses when hovered from its sidebar card.
@@ -505,7 +523,7 @@ export function MarkdownViewer({ content, path, comments, className, onScrollToC
               {outline.map((item) => (
                 <DropdownMenuItem
                   key={item.id}
-                  onClick={() => scrollToHeading(item.id)}
+                  onClick={() => { scrollToHeading(item.id); linkHeading(item.id) }}
                   className={cn("truncate", item.id === mobileActiveId && "font-medium text-foreground")}
                   style={{ paddingLeft: `${(item.level - minOutlineLevel) * 12 + 8}px` }}
                 >

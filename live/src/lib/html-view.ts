@@ -33,6 +33,18 @@ export function withCommentsFlag(url: string): string {
   return `${url}${url.includes("?") ? "&" : "?"}__afs_comments=1`
 }
 
+/**
+ * The page's frame URL with the viewer's own fragment, so a link such as
+ * `…/page.html#screen=home` reaches the page. A sign-in key hand-off
+ * fragment (`#key=…`) never goes into the frame.
+ */
+export function withFragment(url: string, hash: string): string {
+  const fragment = hash.replace(/^#/, "")
+  // URLSearchParams decodes names too, so an encoded `%6Bey=` is caught as well.
+  if (!fragment || new URLSearchParams(fragment).has("key")) return url
+  return `${url.replace(/#.*$/, "")}#${fragment}`
+}
+
 export function isHtmlPath(path: string): boolean {
   const name = path.split("/").pop() ?? ""
   const dot = name.lastIndexOf(".")

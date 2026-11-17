@@ -9,6 +9,7 @@ import {
   resolveHtmlViewUrl,
   siteUrlFor,
   supportsHtmlSites,
+  withFragment,
   type HtmlViewDeps,
 } from "../html-view"
 
@@ -236,5 +237,27 @@ describe("drive-root confirm", () => {
     expect(isRootHtmlApproved("org", "drive2", "index.html", storage)).toBe(false)
     expect(isRootHtmlApproved("org", "drive", "other.html", storage)).toBe(false)
     expect(JSON.parse(storage.data.get(HTML_ROOT_OK_KEY)!)).toEqual({ "org/drive/index.html": true })
+  })
+})
+
+describe("withFragment", () => {
+  test("adds the viewer's fragment to the frame URL", () => {
+    expect(withFragment("https://s.example/t/page.html?__afs_comments=1", "#screen=home&theme=dark"))
+      .toBe("https://s.example/t/page.html?__afs_comments=1#screen=home&theme=dark")
+  })
+
+  test("leaves the URL alone without a fragment", () => {
+    expect(withFragment("https://s.example/t/page.html", "")).toBe("https://s.example/t/page.html")
+    expect(withFragment("https://s.example/t/page.html", "#")).toBe("https://s.example/t/page.html")
+  })
+
+  test("replaces a fragment the URL already has", () => {
+    expect(withFragment("https://s.example/t/page.html#old", "#new")).toBe("https://s.example/t/page.html#new")
+  })
+
+  test("never passes a key hand-off fragment to the page", () => {
+    expect(withFragment("https://s.example/t/page.html", "#key=afs_secret&apiUrl=x")).toBe("https://s.example/t/page.html")
+    expect(withFragment("https://s.example/t/page.html", "#apiUrl=x&key=afs_secret")).toBe("https://s.example/t/page.html")
+    expect(withFragment("https://s.example/t/page.html", "#%6Bey=afs_secret")).toBe("https://s.example/t/page.html")
   })
 })
