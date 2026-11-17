@@ -17,10 +17,12 @@ import { useBrowser } from "@/contexts/browser"
 import { treeExpansionStore } from "@/stores/tree-expansion"
 import { toast } from "@/stores/toast"
 import { downloadFile } from "@/lib/download"
+import { fileLink } from "@/lib/drive-links"
 import { supportsShareLinks } from "@/lib/share-link"
 import { supportsHtmlSites } from "@/lib/html-view"
 import { healthQueryOptions } from "@/lib/upload-limit"
 import { useFavorites } from "@/hooks/use-favorites"
+import { useAllDrives } from "@/hooks/use-all-drives"
 import {
   ContextMenuContent,
   ContextMenuItem,
@@ -57,12 +59,13 @@ export function FileTreeMenuItems({
   const { selectFile } = useBrowser()
   const { data: health } = useQuery(healthQueryOptions(client))
   const favorites = useFavorites()
+  const { drives: allDrives } = useAllDrives()
 
   const { path: fullPath, name, isDir } = target
 
   const deepLink =
     orgId && driveId
-      ? `${window.location.origin}/file/~/${orgId}/${driveId}/${fullPath}`
+      ? fileLink(window.location.origin, orgId, driveId, fullPath, allDrives)
       : null
 
   const handleOpen = () => {

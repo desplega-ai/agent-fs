@@ -3,6 +3,7 @@ export const ROUTE_TEMPLATES: [RegExp, string][] = [
   [/^\/credentials\/?$/, "/credentials"],
   [/^\/files\/?$/, "/files"],
   [/^\/orgs\/[^/]+\/files(\/.*)?$/, "/orgs/:orgId/files/*"],
+  [/^\/d\/[^/]+(\/.*)?$/, "/d/:driveName/*"],
   [/^\/file\/~\/[^/]+\/[^/]+(\/.*)?$/, "/file/~/:orgId/:driveId/*"],
   [/^\/detail\/~\/[^/]+\/[^/]+(\/.*)?$/, "/detail/~/:orgId/:driveId/*"],
   [/^\/sql\/~\/[^/]+\/[^/]+\/?$/, "/sql/~/:orgId/:driveId"],

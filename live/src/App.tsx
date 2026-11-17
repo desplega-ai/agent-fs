@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useRef } from "react"
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useMatch, useNavigate, useParams } from "react-router"
+import { BrowserRouter, Routes, Route, Navigate, Link, Outlet, useLocation, useMatch, useNavigate, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/toaster"
@@ -18,6 +18,8 @@ import { MembersPage } from "@/pages/Members"
 import { SharedLinksPage } from "@/pages/SharedLinks"
 import { WebhooksPage } from "@/pages/Webhooks"
 import { Spinner } from "@/components/ui/spinner"
+import { useAllDrives } from "@/hooks/use-all-drives"
+import { drivesNamed } from "@/lib/drive-links"
 import { PresenceConnection } from "@/components/presence/PresenceConnection"
 import { StarNudge } from "@/components/StarNudge"
 
@@ -257,6 +259,65 @@ function OrgFileRedirectInner() {
   return <Navigate to={`/file/~/${orgId}/${driveId}/${filePath}`} replace />
 }
 
+/**
+ * Resolves /d/:driveName/* to /file/~/:orgId/:driveId/* by the drive's name,
+ * among the drives the viewer can open. Several drives with that name get a
+ * choice; none gets a message.
+ */
+function DriveNameRedirect() {
+  const params = useParams()
+  const location = useLocation()
+  const { orgs } = useAuth()
+  const { drives, loaded, failed } = useAllDrives()
+  const name = params.driveName ?? ""
+  // The raw path, still encoded: the decoded splat would turn a %23 in a file name into a fragment.
+  const filePath = location.pathname.split("/").slice(3).join("/")
+
+  if (failed) {
+    return (
+      <div className="flex h-screen items-center justify-center p-4 text-center text-sm">
+        Couldn’t load your drives to find “{name}”. Reload the page to try again.
+      </div>
+    )
+  }
+
+  if (!loaded) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Spinner />
+      </div>
+    )
+  }
+
+  const matches = drivesNamed(drives, name)
+  const target = (orgId: string, driveId: string) => ({
+    pathname: `/file/~/${orgId}/${driveId}/${filePath}`,
+    search: location.search,
+    hash: location.hash,
+  })
+  if (matches.length === 1) return <Navigate to={target(matches[0].orgId, matches[0].id)} replace />
+
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-3 p-4 text-center">
+      {matches.length === 0 ? (
+        <p className="text-sm">None of your drives is named “{name}”.</p>
+      ) : (
+        <>
+          <p className="text-sm">Several of your drives are named “{name}”. Which one?</p>
+          {matches.map((d) => (
+            <Link key={d.id} to={target(d.orgId, d.id)} replace className="text-sm underline">
+              {d.name} in {orgs.find((o) => o.id === d.orgId)?.name ?? d.orgId}
+            </Link>
+          ))}
+        </>
+      )}
+      <Link to="/files" className="text-xs text-muted-foreground underline">
+        Go to your files
+      </Link>
+    </div>
+  )
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
@@ -271,6 +332,7 @@ export default function App() {
                 <Route path="/invite/:token" element={<AcceptInvitePage />} />
                 <Route element={<AuthenticatedLayout />}>
                   <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
+                  <Route path="/d/:driveName/*" element={<DriveNameRedirect />} />
                   <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
                   <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
                   <Route path="/page/~/:orgId/:driveId/*" element={<PresentRoute />} />

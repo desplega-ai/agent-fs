@@ -16,6 +16,8 @@ interface AuthContextValue {
   client: AgentFsClient
   user: MeResponse | undefined
   orgs: Org[]
+  /** The org list has answered (`orgs` is complete). */
+  orgsLoaded: boolean
   orgId: string | null
   orgName: string | null
   setOrgId: (id: string) => void
@@ -147,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         client,
         user,
         orgs,
+        orgsLoaded: orgsData !== undefined,
         orgId,
         orgName,
         setOrgId,

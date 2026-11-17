@@ -1,9 +1,11 @@
 import { useCallback, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth"
+import { useAllDrives } from "@/hooks/use-all-drives"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { copyability, copyFileText, TooLargeToCopyError } from "@/lib/copy-contents"
 import { downloadFile } from "@/lib/download"
+import { fileLink } from "@/lib/drive-links"
 import { downloadFileText, fileContentKey, loadFileContent, type CachedFileContent } from "@/lib/file-content-cache"
 import { fileStatQueryKey } from "@/lib/file-stat-query"
 import { supportsShareLinks } from "@/lib/share-link"
@@ -17,6 +19,7 @@ import { toast } from "@/stores/toast"
  */
 export function useFileActions(path: string) {
   const { client, orgId, driveId } = useAuth()
+  const { drives: allDrives } = useAllDrives()
   const queryClient = useQueryClient()
   const { data: stat } = useFileStat(path)
   const [copiedContents, setCopiedContents] = useState(false)
@@ -73,8 +76,7 @@ export function useFileActions(path: string) {
 
   const copyLink = useCallback(async () => {
     if (!orgId || !driveId) return
-    const cleanPath = path.startsWith("/") ? path.slice(1) : path
-    const url = `${window.location.origin}/file/~/${orgId}/${driveId}/${cleanPath}`
+    const url = fileLink(window.location.origin, orgId, driveId, path, allDrives)
     try {
       await navigator.clipboard.writeText(url)
       setCopiedLink(true)
@@ -83,7 +85,7 @@ export function useFileActions(path: string) {
     } catch {
       toast.error("Couldn't copy link")
     }
-  }, [path, orgId, driveId])
+  }, [path, orgId, driveId, allDrives])
 
   // Hidden on servers that cannot mint share links (older `/health`, or unreachable).
   const canShareLink = canShare && supportsShareLinks(health)
