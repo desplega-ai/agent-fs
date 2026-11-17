@@ -53,7 +53,7 @@ export function FileTreeMenuItems({
   target: TreeMenuTarget
   onDialog: (dialog: TreeDialog) => void
 }) {
-  const { client, orgId, driveId } = useAuth()
+  const { client, orgId, driveId, drivePath } = useAuth()
   const { selectFile } = useBrowser()
   const { data: health } = useQuery(healthQueryOptions(client))
   const favorites = useFavorites()
@@ -62,7 +62,7 @@ export function FileTreeMenuItems({
 
   const deepLink =
     orgId && driveId
-      ? `${window.location.origin}/file/~/${orgId}/${driveId}/${fullPath}`
+      ? `${window.location.origin}${drivePath("file", orgId, driveId, fullPath)}`
       : null
 
   const handleOpen = () => {

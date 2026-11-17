@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router"
 import { useQuery } from "@tanstack/react-query"
 import { isQueryablePath } from "@/lib/sql-engine/types"
 import { isHtmlPath, supportsHtmlSites } from "@/lib/html-view"
-import { enterFullscreen, isMarkdownPath, presentUrl } from "@/lib/present"
+import { enterFullscreen, isMarkdownPath } from "@/lib/present"
 import { healthQueryOptions } from "@/lib/upload-limit"
 import { useAuth } from "@/contexts/auth"
 import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
@@ -148,7 +148,7 @@ interface FileViewerProps {
 
 export function FileViewer({ path, className, showExpandButton = true, showHeader = true, onScrollToCommentRef, onOutlineChange }: FileViewerProps) {
   const navigate = useNavigate()
-  const { client, orgId, driveId } = useAuth()
+  const { client, orgId, driveId, drivePath } = useAuth()
   const { data: stat, refetch: refetchStat } = useFileStat(path)
   const { data: commentsData } = useComments(path)
   const { data: health } = useQuery(healthQueryOptions(client))
@@ -384,7 +384,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   // The full page also hosts version history; `history` lands there with the
   // panel already open (FileDetail reads it from the navigation state).
   const openDetail = (opts?: { history?: boolean }) =>
-    navigate(`/detail/~/${orgId}/${driveId}/${path}`, opts?.history ? { state: { history: true } } : undefined)
+    navigate(drivePath("detail", orgId ?? "", driveId, path), opts?.history ? { state: { history: true } } : undefined)
   if (showExpandButton) {
     fileShortcuts.f = (e) => {
       e.preventDefault()
@@ -400,7 +400,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   const onPresent = (isHtml || isMd) && orgId && driveId
     ? () => {
       enterFullscreen()
-      navigate(presentUrl(orgId, driveId, path))
+      navigate(drivePath("page", orgId, driveId, path))
     }
     : undefined
   if (onPresent) {
@@ -414,7 +414,7 @@ export function FileViewer({ path, className, showExpandButton = true, showHeade
   // get a direct entry point into the SQL workbench, pre-bound to this file.
   const onQuery =
     isQueryablePath(path) && orgId && driveId
-      ? () => navigate(`/sql/~/${orgId}/${driveId}?path=${encodeURIComponent(path)}`)
+      ? () => navigate(`${drivePath("sql", orgId, driveId)}?path=${encodeURIComponent(path)}`)
       : undefined
   if (onQuery) {
     fileShortcuts.q = (e) => {

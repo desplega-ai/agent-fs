@@ -22,7 +22,7 @@ import { toast } from "@/stores/toast"
  * (the invite accept page) that must stay where they are.
  */
 export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}) {
-  const { credential, switchAccount, user, orgId, driveId } = useAuth()
+  const { credential, switchAccount, user, orgId, driveId, drivePath } = useAuth()
   const { data: health } = useHealth()
   const showShares = !!orgId && !!driveId && supportsShareList(health)
   const [editingProfile, setEditingProfile] = useState(false)
@@ -59,7 +59,7 @@ export function AccountSwitcher({ onSwitched }: { onSwitched?: () => void } = {}
           </>
         )}
         {showShares && (
-          <DropdownMenuItem onClick={() => navigate(`/shares/~/${orgId}/${driveId}`)}>
+          <DropdownMenuItem onClick={() => orgId && navigate(drivePath("shares", orgId, driveId))}>
             <Link2 className="size-3" />
             <span>Shared links</span>
           </DropdownMenuItem>

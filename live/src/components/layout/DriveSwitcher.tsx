@@ -21,7 +21,7 @@ import { Kbd } from "@/components/ui/kbd"
 import { toast } from "@/stores/toast"
 
 export function DriveSwitcher() {
-  const { drives, driveId, driveName, setDriveId, orgId } = useAuth()
+  const { drives, driveId, driveName, setDriveId, orgId, drivePath } = useAuth()
   const { setSelectedFile } = useBrowser()
   const navigate = useNavigate()
   const displayName = driveName || driveId.slice(0, 8)
@@ -63,7 +63,7 @@ export function DriveSwitcher() {
               setDriveId(drive.id)
               setSelectedFile(null)
               toast(`Switched to ${drive.name}`)
-              navigate(orgId ? `/file/~/${orgId}/${drive.id}/` : "/files")
+              navigate(orgId ? drivePath("file", orgId, drive.id) : "/files")
             }}
           >
             <HardDrive className="size-3 text-muted-foreground" />
@@ -74,14 +74,14 @@ export function DriveSwitcher() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           disabled={!orgId || !driveId}
-          onClick={() => navigate(`/members/~/${orgId}/${driveId}`)}
+          onClick={() => orgId && navigate(drivePath("members", orgId, driveId))}
         >
           <Users className="size-3 text-muted-foreground" />
           <span className="flex-1">Members</span>
           <DropdownMenuShortcut>⇧M</DropdownMenuShortcut>
         </DropdownMenuItem>
         {canManageWebhooks && (
-          <DropdownMenuItem onClick={() => navigate(`/webhooks/~/${orgId}/${driveId}`)}>
+          <DropdownMenuItem onClick={() => orgId && navigate(drivePath("webhooks", orgId, driveId))}>
             <Webhook className="size-3 text-muted-foreground" />
             <span className="flex-1">Webhooks</span>
           </DropdownMenuItem>

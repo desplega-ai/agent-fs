@@ -18,6 +18,7 @@ import { MembersPage } from "@/pages/Members"
 import { SharedLinksPage } from "@/pages/SharedLinks"
 import { WebhooksPage } from "@/pages/Webhooks"
 import { Spinner } from "@/components/ui/spinner"
+import { DriveScope, DriveScopeGate } from "@/components/DriveScope"
 import { PresenceConnection } from "@/components/presence/PresenceConnection"
 import { StarNudge } from "@/components/StarNudge"
 
@@ -35,8 +36,8 @@ const queryClient = new QueryClient({
 
 /**
  * Layout that hoists AuthProvider + BrowserProvider above the authenticated
- * routes so providers stay mounted across in-app navigation. Per-route URL
- * params are synced into the providers via <RouteParamsSync/>.
+ * routes so providers stay mounted across in-app navigation. Drive routes
+ * sync their org and drive into the providers through <DriveScope/>.
  */
 function AuthenticatedLayout() {
   // The sticky star toast would sit on top of a presented page.
@@ -128,47 +129,55 @@ function RouteParamsSync({ syncFile = true, syncDrive = true }: { syncFile?: boo
   return null
 }
 
+// Each drive route below is mounted at both address forms, `/<view>/~/<org
+// id>/<drive id>` and `/<view>/<org name>/<drive name>`, with the same element,
+// so DriveScope can move an address to the name form without a remount.
+
 function FileRoute() {
   return (
-    <>
-      <RouteParamsSync />
+    <DriveScope view="file">
       <Shell>
-        <FileBrowserPage />
+        <DriveScopeGate>
+          <FileBrowserPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
 function DetailRoute() {
   return (
-    <>
-      <RouteParamsSync />
+    <DriveScope view="detail">
       <Shell>
-        <FileDetailPage />
+        <DriveScopeGate>
+          <FileDetailPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
 function PresentRoute() {
   return (
-    <>
-      <RouteParamsSync />
-      <PresentPage />
-    </>
+    <DriveScope view="page">
+      <DriveScopeGate>
+        <PresentPage />
+      </DriveScopeGate>
+    </DriveScope>
   )
 }
 
 function SqlRoute() {
   return (
-    <>
-      <RouteParamsSync />
+    <DriveScope view="sql">
       <Shell>
-        <Suspense fallback={<div className="flex h-full items-center justify-center"><Spinner /></div>}>
-          <SqlPage />
-        </Suspense>
+        <DriveScopeGate>
+          <Suspense fallback={<div className="flex h-full items-center justify-center"><Spinner /></div>}>
+            <SqlPage />
+          </Suspense>
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
@@ -179,12 +188,13 @@ function SqlRoute() {
  */
 function MembersRoute() {
   return (
-    <>
-      <RouteParamsSync syncFile={false} syncDrive={false} />
+    <DriveScope view="members" syncFile={false} syncDrive={false}>
       <Shell>
-        <MembersPage />
+        <DriveScopeGate>
+          <MembersPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
@@ -194,24 +204,26 @@ function MembersRoute() {
  */
 function SharedLinksRoute() {
   return (
-    <>
-      <RouteParamsSync syncFile={false} />
+    <DriveScope view="shares" syncFile={false}>
       <Shell>
-        <SharedLinksPage />
+        <DriveScopeGate>
+          <SharedLinksPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
 /** Like Members: the drive comes from the URL and the active drive stays put. */
 function WebhooksRoute() {
   return (
-    <>
-      <RouteParamsSync syncFile={false} syncDrive={false} />
+    <DriveScope view="webhooks" syncFile={false} syncDrive={false}>
       <Shell>
-        <WebhooksPage />
+        <DriveScopeGate>
+          <WebhooksPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
@@ -272,12 +284,19 @@ export default function App() {
                 <Route element={<AuthenticatedLayout />}>
                   <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
                   <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
+                  <Route path="/file/:orgName/:driveName/*" element={<FileRoute />} />
                   <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
+                  <Route path="/detail/:orgName/:driveName/*" element={<DetailRoute />} />
                   <Route path="/page/~/:orgId/:driveId/*" element={<PresentRoute />} />
+                  <Route path="/page/:orgName/:driveName/*" element={<PresentRoute />} />
                   <Route path="/sql/~/:orgId/:driveId" element={<SqlRoute />} />
+                  <Route path="/sql/:orgName/:driveName" element={<SqlRoute />} />
                   <Route path="/members/~/:orgId/:driveId" element={<MembersRoute />} />
+                  <Route path="/members/:orgName/:driveName" element={<MembersRoute />} />
                   <Route path="/shares/~/:orgId/:driveId" element={<SharedLinksRoute />} />
+                  <Route path="/shares/:orgName/:driveName" element={<SharedLinksRoute />} />
                   <Route path="/webhooks/~/:orgId/:driveId" element={<WebhooksRoute />} />
+                  <Route path="/webhooks/:orgName/:driveName" element={<WebhooksRoute />} />
                   <Route path="/keys" element={<ApiKeysRoute />} />
                   <Route path="/files" element={<FilesRoute />} />
                   <Route path="*" element={<Navigate to="/files" replace />} />

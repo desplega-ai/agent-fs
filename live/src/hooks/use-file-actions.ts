@@ -16,7 +16,7 @@ import { toast } from "@/stores/toast"
  * `shift+y`, `d`), so a button click and its shortcut do exactly the same thing.
  */
 export function useFileActions(path: string) {
-  const { client, orgId, driveId } = useAuth()
+  const { client, orgId, driveId, drivePath } = useAuth()
   const queryClient = useQueryClient()
   const { data: stat } = useFileStat(path)
   const [copiedContents, setCopiedContents] = useState(false)
@@ -73,8 +73,7 @@ export function useFileActions(path: string) {
 
   const copyLink = useCallback(async () => {
     if (!orgId || !driveId) return
-    const cleanPath = path.startsWith("/") ? path.slice(1) : path
-    const url = `${window.location.origin}/file/~/${orgId}/${driveId}/${cleanPath}`
+    const url = `${window.location.origin}${drivePath("file", orgId, driveId, path)}`
     try {
       await navigator.clipboard.writeText(url)
       setCopiedLink(true)
@@ -83,7 +82,7 @@ export function useFileActions(path: string) {
     } catch {
       toast.error("Couldn't copy link")
     }
-  }, [path, orgId, driveId])
+  }, [path, orgId, driveId, drivePath])
 
   // Hidden on servers that cannot mint share links (older `/health`, or unreachable).
   const canShareLink = canShare && supportsShareLinks(health)

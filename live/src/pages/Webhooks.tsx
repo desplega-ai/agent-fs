@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from "react"
-import { useParams } from "react-router"
 import { useQueryClient } from "@tanstack/react-query"
 import { HardDrive, KeyRound, Plus, RotateCw, Send, Trash2, Webhook as WebhookIcon } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
+import { useRouteDrive } from "@/components/DriveScope"
 import { useIsOrgAdmin, useManageableDrives } from "@/hooks/use-org-members"
 import {
   createWebhook,
@@ -57,9 +57,7 @@ const eventLabel = (type: string) => WEBHOOK_EVENT_TYPES.find((e) => e.value ===
  * in the state of the dialog that shows it and goes away when that closes.
  */
 export function WebhooksPage() {
-  const params = useParams()
-  const orgId = params.orgId ?? null
-  const driveId = params.driveId ?? null
+  const { orgId, driveId } = useRouteDrive()
   const { drives } = useAuth()
   const manageable = useManageableDrives(orgId)
   const isOrgAdmin = useIsOrgAdmin()

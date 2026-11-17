@@ -22,7 +22,7 @@ import { useHealth } from "@/hooks/use-health"
 import { useFileActions } from "@/hooks/use-file-actions"
 import { useDocumentTitle } from "@/hooks/use-document-title"
 import { isQueryablePath } from "@/lib/sql-engine/types"
-import { canPresent, enterFullscreen, presentUrl } from "@/lib/present"
+import { canPresent, enterFullscreen } from "@/lib/present"
 import { useKeyboardShortcuts, type ShortcutMap } from "@/hooks/use-keyboard-shortcuts"
 import { uiChromeStore } from "@/stores/ui-chrome"
 import type { ScrollToCommentCallback } from "@/pages/FileBrowser"
@@ -31,7 +31,7 @@ import type { OutlineItem } from "@/lib/outline"
 export function FileDetailPage() {
   const params = useParams()
   const navigate = useNavigate()
-  const { orgId, driveId } = useAuth()
+  const { orgId, driveId, drivePath } = useAuth()
   const scrollToCommentRef = useRef<ScrollToCommentCallback | null>(null)
   const [outline, setOutline] = useState<OutlineItem[]>([])
   // The viewer's "Version history" button (and H) land here with the panel open.
@@ -65,7 +65,7 @@ export function FileDetailPage() {
   const onPresent = filePath && canPresent(filePath, health) && orgId && driveId
     ? () => {
       enterFullscreen()
-      navigate(presentUrl(orgId, driveId, filePath))
+      navigate(drivePath("page", orgId, driveId, filePath))
     }
     : undefined
   const shortcuts: ShortcutMap = {}
@@ -115,7 +115,7 @@ export function FileDetailPage() {
                       variant="ghost"
                       size="icon-xs"
                       onClick={() =>
-                        navigate(`/sql/~/${orgId}/${driveId}?path=${encodeURIComponent(filePath)}`)
+                        orgId && navigate(`${drivePath("sql", orgId, driveId)}?path=${encodeURIComponent(filePath)}`)
                       }
                       className="text-muted-foreground"
                       aria-label="Query with SQL"

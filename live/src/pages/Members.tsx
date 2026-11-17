@@ -1,7 +1,8 @@
 import { useMemo, useState, type FormEvent } from "react"
-import { useNavigate, useParams } from "react-router"
+import { useNavigate } from "react-router"
 import { Check, ChevronDown, HardDrive, Trash2, UserPlus, Users } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
+import { useRouteDrive } from "@/components/DriveScope"
 import {
   useDriveMemberMutations,
   useDriveMembersAdmin,
@@ -45,9 +46,7 @@ type PendingSelfChange = { kind: "remove" } | { kind: "demote"; role: MemberRole
  * admin endpoint's 403 decides which view renders.
  */
 export function MembersPage() {
-  const params = useParams()
-  const orgId = params.orgId ?? null
-  const driveId = params.driveId ?? null
+  const { orgId, driveId } = useRouteDrive()
   const { drives } = useAuth()
   const { data: manageable } = useManageableDrives(orgId)
   const admin = useDriveMembersAdmin(orgId, driveId)
@@ -133,6 +132,7 @@ function DrivePickerMenu({
   drives: { id: string; name: string }[] | undefined
 }) {
   const navigate = useNavigate()
+  const { drivePath } = useAuth()
   const label = (
     <>
       <HardDrive className="size-3.5 shrink-0" />
@@ -154,7 +154,7 @@ function DrivePickerMenu({
       />
       <DropdownMenuContent align="start">
         {drives.map((d) => (
-          <DropdownMenuItem key={d.id} onClick={() => navigate(`/members/~/${orgId}/${d.id}`)}>
+          <DropdownMenuItem key={d.id} onClick={() => orgId && navigate(drivePath("members", orgId, d.id))}>
             <HardDrive className="size-3 text-muted-foreground" />
             <span className="flex-1 truncate">{d.name}</span>
             {d.id === driveId && <Check className="ml-auto size-3 text-primary" />}
@@ -217,7 +217,7 @@ function AdminMembers({
   names: { userId: string; displayName: string | null }[] | undefined
 }) {
   const navigate = useNavigate()
-  const { user, drives, driveId: activeDriveId, setDriveId } = useAuth()
+  const { user, drives, driveId: activeDriveId, setDriveId, drivePath } = useAuth()
   const orgMembers = useOrgMembers()
   const { add, updateRole, remove } = useDriveMemberMutations(orgId, driveId)
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
@@ -268,7 +268,7 @@ function AdminMembers({
           const next = drives.find((d) => d.id !== driveId)
           if (next) {
             setDriveId(next.id)
-            navigate(`/file/~/${orgId}/${next.id}/`)
+            navigate(orgId ? drivePath("file", orgId, next.id) : "/files")
           } else {
             navigate("/files")
           }

@@ -97,6 +97,7 @@ test("Enter and Space on a folder-view star toggle it and never open the entry",
   await page.goto("/file/~/org/drive/docs/")
   const star = page.getByRole("button", { name: "Add a.md to favorites" })
   await expect(star).toBeAttached()
+  await expect(page).toHaveURL(/\/file\/QA\/QA\//)
   const urlBefore = page.url()
 
   await star.focus()
@@ -129,7 +130,7 @@ test("the Favorites tab lists stars, opens them, and unstars without navigating"
 
   // Opening a favorite navigates to it.
   await list.getByRole("button", { name: "notes.md Drive root" }).click()
-  await expect(page).toHaveURL(/\/file\/~\/org\/drive\/notes\.md$/)
+  await expect(page).toHaveURL(/\/file\/QA\/QA\/notes\.md$/)
 })
 
 test("the open file's header star toggles the favorite", async ({ page }) => {
@@ -138,7 +139,7 @@ test("the open file's header star toggles the favorite", async ({ page }) => {
   const header = page.getByRole("button", { name: "Add notes.md to favorites" }).first()
   await header.click()
   await expect(page.getByRole("button", { name: "Remove notes.md from favorites" }).first()).toHaveAttribute("aria-pressed", "true")
-  await expect(page).toHaveURL(/\/file\/~\/org\/drive\/notes\.md$/)
+  await expect(page).toHaveURL(/\/file\/QA\/QA\/notes\.md$/)
   await expect.poll(() => [...calls]).toEqual(["add /notes.md"])
 })
 

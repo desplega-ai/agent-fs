@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 export function DrivePicker() {
-  const { drives, driveId, driveName, setDriveId, orgId, orgName } = useAuth()
+  const { drives, driveId, driveName, setDriveId, orgId, orgName, drivePath } = useAuth()
   const navigate = useNavigate()
   const hasMultiple = drives.length > 1
 
@@ -17,7 +17,7 @@ export function DrivePicker() {
   const pickDrive = (id: string) => {
     if (id === driveId) return
     setDriveId(id)
-    navigate(orgId ? `/file/~/${orgId}/${id}/` : "/files")
+    navigate(orgId ? drivePath("file", orgId, id) : "/files")
   }
 
   return (

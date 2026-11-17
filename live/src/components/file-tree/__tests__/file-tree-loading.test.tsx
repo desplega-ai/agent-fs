@@ -148,6 +148,7 @@ async function mountTree(options: {
         <AuthProvider><BrowserProvider><TooltipProvider>
           <Routes>
             <Route path="/file/~/:orgId/:driveId/*" element={createElement(Fixture)} />
+            <Route path="/file/:orgName/:driveName/*" element={createElement(Fixture)} />
             <Route path="/members/~/:orgId/:driveId" element={createElement(Fixture)} />
             <Route path="/webhooks/~/:orgId/:driveId" element={createElement(Fixture)} />
           </Routes>

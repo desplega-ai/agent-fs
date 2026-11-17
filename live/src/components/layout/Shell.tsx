@@ -69,7 +69,7 @@ function ShellInner({ sidebar, children }: ShellProps) {
   const setHelpOpen = useSetHelpOpen()
   const { focus: focusSearch } = useSearchInput()
   const { cycleTheme } = useThemeContext()
-  const { orgId, driveId } = useAuth()
+  const { orgId, driveId, drivePath } = useAuth()
   const navigate = useNavigate()
 
   // Register the left-sidebar toggle into the UI chrome store so the shortcut
@@ -139,7 +139,7 @@ function ShellInner({ sidebar, children }: ShellProps) {
     "shift+m": (e) => {
       if (!orgId || !driveId) return
       e.preventDefault()
-      navigate(`/members/~/${orgId}/${driveId}`)
+      navigate(drivePath("members", orgId, driveId))
     },
     "?": (e) => {
       e.preventDefault()

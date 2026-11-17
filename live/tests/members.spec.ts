@@ -114,12 +114,12 @@ test("the drive switcher and ⇧M open the active drive's Members page", async (
 
   await page.locator("[data-drive-switcher]").click()
   await page.getByRole("menuitem", { name: /Members/ }).click()
-  await expect(page).toHaveURL(/\/members\/~\/org\/work$/)
+  await expect(page).toHaveURL(/\/members\/QA%20org\/work$/)
   await expect(page.getByRole("heading", { name: "Members" })).toBeVisible()
 
   await page.goto("/file/~/org/work/")
   await page.locator("body").press("Shift+M")
-  await expect(page).toHaveURL(/\/members\/~\/org\/work$/)
+  await expect(page).toHaveURL(/\/members\/QA%20org\/work$/)
 
   await page.locator("body").press("?")
   await expect(page.getByRole("dialog").getByText("Drive members")).toBeVisible()
@@ -225,7 +225,7 @@ test("a pending self-removal does not follow you to another drive", async ({ pag
   const pickDrive = async (from: string, to: string) => {
     await page.getByRole("button", { name: `Drive: ${from}` }).click()
     await page.getByRole("menuitem", { name: to }).click()
-    await expect(page).toHaveURL(new RegExp(`/members/~/org/${to}$`))
+    await expect(page).toHaveURL(new RegExp(`/members/QA%20org/${to}$`))
   }
 
   await pickDrive("ledger", "work")
