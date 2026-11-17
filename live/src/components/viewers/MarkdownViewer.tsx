@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, isValidElement, Fragment, type MutableRefObject, type ReactNode } from "react"
+import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo, isValidElement, type MutableRefObject, type ReactNode } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import rehypeHighlight from "rehype-highlight"
@@ -8,6 +8,7 @@ import { AddComment } from "@/components/comments/AddComment"
 import { MermaidDiagram } from "./MermaidDiagram"
 import { MarkdownImage, MarkdownDocContext } from "./MarkdownImage"
 import { CodeBlock } from "./CodeBlock"
+import { extractFrontmatter, FrontmatterBlock } from "./Frontmatter"
 import { SwarmEmbedPlaceholder } from "./SwarmEmbedPlaceholder"
 import { remarkSwarmEmbed, SWARM_EMBED_ELEMENT } from "@/lib/swarm-embed"
 import { MarkdownPresence } from "@/components/presence/MarkdownPresence"
@@ -71,114 +72,6 @@ const markdownComponents: Components = {
   // slot for it.
   [SWARM_EMBED_ELEMENT]: ({ node: _node, ...props }: Record<string, unknown>) => <SwarmEmbedPlaceholder {...props} />,
 } as Components
-
-type FrontmatterValue = string | number | boolean | null | FrontmatterValue[]
-type FrontmatterRecord = Record<string, FrontmatterValue>
-
-function parseScalar(raw: string): FrontmatterValue {
-  const v = raw.trim()
-  if (v === "" || v === "~" || v === "null") return null
-  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-    return v.slice(1, -1)
-  }
-  if (v === "true") return true
-  if (v === "false") return false
-  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v)
-  return v
-}
-
-/**
- * Extract leading YAML frontmatter (delimited by `---` lines) and parse the
- * common subset: `key: scalar`, inline `[a, b]` arrays, and block `- item`
- * lists. Anything beyond that falls through as a string. Returns the parsed
- * record (or null if no frontmatter) plus the markdown body with the block
- * stripped.
- */
-function extractFrontmatter(content: string): { frontmatter: FrontmatterRecord | null; body: string } {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content)
-  if (!match) return { frontmatter: null, body: content }
-  const body = content.slice(match[0].length)
-  const lines = match[1].split(/\r?\n/)
-  const result: FrontmatterRecord = {}
-  let i = 0
-  while (i < lines.length) {
-    const line = lines[i]
-    if (!line.trim() || line.trimStart().startsWith("#")) { i++; continue }
-    const m = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
-    if (!m) { i++; continue }
-    const key = m[1]
-    const rest = m[2]
-    if (rest.trim() === "") {
-      const items: FrontmatterValue[] = []
-      i++
-      while (i < lines.length) {
-        const child = lines[i]
-        if (!child.startsWith("  ") && !child.startsWith("\t") && child.trim() !== "") break
-        const trimmed = child.replace(/^(?:\t|  )/, "")
-        if (trimmed.startsWith("- ")) items.push(parseScalar(trimmed.slice(2)))
-        i++
-      }
-      result[key] = items
-      continue
-    }
-    if (rest.trim().startsWith("[") && rest.trim().endsWith("]")) {
-      const inner = rest.trim().slice(1, -1).trim()
-      result[key] = inner ? inner.split(/\s*,\s*/).map(parseScalar) : []
-    } else {
-      result[key] = parseScalar(rest)
-    }
-    i++
-  }
-  return { frontmatter: Object.keys(result).length ? result : null, body }
-}
-
-function FrontmatterValueDisplay({ value }: { value: FrontmatterValue }) {
-  if (value === null) {
-    return <span className="text-muted-foreground italic">null</span>
-  }
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return <span className="text-muted-foreground italic">empty</span>
-    }
-    return (
-      <div className="flex flex-wrap gap-1.5">
-        {value.map((item, i) => (
-          <span
-            key={i}
-            className="inline-flex rounded-md bg-accent px-1.5 py-0.5 text-xs text-foreground"
-          >
-            {item === null ? "null" : String(item)}
-          </span>
-        ))}
-      </div>
-    )
-  }
-  if (typeof value === "boolean" || typeof value === "number") {
-    return <span className="font-mono text-xs">{String(value)}</span>
-  }
-  return <span className="break-words">{value}</span>
-}
-
-function FrontmatterBlock({ data }: { data: FrontmatterRecord }) {
-  const entries = Object.entries(data)
-  if (entries.length === 0) return null
-  return (
-    <div className="not-prose mb-6 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm">
-      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2">
-        {entries.map(([key, value]) => (
-          <Fragment key={key}>
-            <dt className="self-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              {key}
-            </dt>
-            <dd className="min-w-0 self-center">
-              <FrontmatterValueDisplay value={value} />
-            </dd>
-          </Fragment>
-        ))}
-      </dl>
-    </div>
-  )
-}
 
 // CSS Custom Highlight API: paints exact text ranges without touching the DOM
 // (wrapping text in elements would break native selection). Older browsers
