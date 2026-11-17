@@ -120,6 +120,37 @@ describe("createHtmlCommentBridge", () => {
     expect(h.received).toEqual([{ type: "activate", id: "c1" }, { type: "reset" }])
   })
 
+  test("a load for a fragment-only src change keeps the session", () => {
+    const h = harness()
+    h.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
+    h.load()
+    h.bridge.sameDocument()
+    h.bridge.sameDocument()
+    h.load()
+    h.load()
+    h.send({ type: `${P}activate`, v: 1, id: "c1" })
+    h.load() // a real navigation to a page without the overlay still ends it
+    expect(h.received).toEqual([{ type: "activate", id: "c1" }, { type: "reset" }])
+  })
+
+  test("a bye clears pending fragment-only loads; before a hello there is nothing to keep", () => {
+    const h = harness()
+    h.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
+    h.load()
+    h.bridge.sameDocument()
+    h.send({ type: `${P}bye`, v: 1 }) // the page navigated instead
+    h.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
+    h.load()
+    h.load() // no hello since the last load
+    expect(h.received).toEqual([{ type: "reset" }, { type: "reset" }])
+    const g = harness()
+    g.bridge.sameDocument()
+    g.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
+    g.load()
+    g.load()
+    expect(g.received).toEqual([{ type: "reset" }])
+  })
+
   test("dispose stops listening", () => {
     const h = harness()
     h.bridge.dispose()
