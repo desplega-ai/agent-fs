@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ListTree, Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
-import { scrollToHeading, type OutlineItem } from "@/lib/outline"
+import { linkHeading, scrollToHeading, type OutlineItem } from "@/lib/outline"
 import { useActiveHeadings } from "@/hooks/use-active-headings"
 
 interface OutlineProps {
@@ -106,6 +106,7 @@ export function Outline({ items, onJump, className }: OutlineProps) {
                 }}
                 onClick={() => {
                   scrollToHeading(item.id)
+                  linkHeading(item.id)
                   onJump?.()
                 }}
                 title={item.text}

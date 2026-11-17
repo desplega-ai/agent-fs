@@ -26,6 +26,19 @@ export function slugify(text: string): string {
     .replace(/^-+|-+$/g, "")
 }
 
+/** The heading a URL fragment names (`#setup` → `setup`), when the document has it. */
+export function headingFromHash(hash: string, ids: string[]): string | null {
+  let id = hash.replace(/^#/, "")
+  try { id = decodeURIComponent(id) } catch { return null }
+  return ids.includes(id) ? id : null
+}
+
+/** Put a heading in the address bar, so the URL can be copied as a link to that section. */
+export function linkHeading(id: string): void {
+  if (typeof window === "undefined") return
+  window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}#${encodeURIComponent(id)}`)
+}
+
 /** Whether the user asked the OS to minimize non-essential motion. */
 export function prefersReducedMotion(): boolean {
   return (

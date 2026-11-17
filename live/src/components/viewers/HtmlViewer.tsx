@@ -3,7 +3,7 @@ import { Globe, MessageSquare } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useHealth } from "@/hooks/use-health"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
-import { approveRootHtml, folderOf, isRootHtmlApproved, resolveHtmlViewUrl, supportsHtmlComments, withCommentsFlag } from "@/lib/html-view"
+import { approveRootHtml, folderOf, isRootHtmlApproved, resolveHtmlViewUrl, supportsHtmlComments, withCommentsFlag, withFragment } from "@/lib/html-view"
 import { captureQuote, resolveAnchor } from "@/lib/comment-anchor"
 import { createHtmlCommentBridge, type HighlightRange, type HtmlCommentBridge } from "@/lib/html-comment-bridge"
 import { frameTextSpace, htmlSourceTextSpace } from "@/lib/html-text-space"
@@ -56,6 +56,18 @@ function useHtmlViewUrl(path: string, enabled: boolean, reloadKey: number) {
   return { url, error, isLoading }
 }
 
+/** The address bar's fragment: read again for each file, and kept current while the page is open. */
+function useLocationHash(path: string) {
+  const [hash, setHash] = useState(() => window.location.hash)
+  useEffect(() => {
+    const update = () => setHash(window.location.hash)
+    update()
+    window.addEventListener("hashchange", update)
+    return () => window.removeEventListener("hashchange", update)
+  }, [path])
+  return hash
+}
+
 interface HtmlViewerProps {
   path: string
   className?: string
@@ -78,6 +90,7 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
   const atRoot = folderOf(path) === "/"
   const [confirmed, setConfirmed] = useState(() => !atRoot || (!!orgId && !!driveId && isRootHtmlApproved(orgId, driveId, path)))
   const { url, error, isLoading } = useHtmlViewUrl(path, confirmed, reloadKey)
+  const hash = useLocationHash(path)
 
   if (!confirmed) {
     return (
@@ -122,7 +135,7 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
     )
   }
 
-  const src = commenting ? withCommentsFlag(url) : url
+  const src = withFragment(commenting ? withCommentsFlag(url) : url, hash)
   return (
     <div className={cn("relative flex flex-col", className)}>
       <iframe
