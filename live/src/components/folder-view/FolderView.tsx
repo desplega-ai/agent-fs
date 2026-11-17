@@ -36,7 +36,7 @@ interface FolderViewProps {
  * current folder. The header carries the New and Upload dropdowns.
  */
 export function FolderView({ path }: FolderViewProps) {
-  const { client, orgId, driveId } = useAuth()
+  const { client, orgId, driveId, drivePath } = useAuth()
   const { data: health } = useHealth()
   const uploadLimitLabel = `${uploadLimitBytes(health) / 1024 / 1024} MB`
   const { selectFile, setSelectedFile } = useBrowser()
@@ -72,7 +72,7 @@ export function FolderView({ path }: FolderViewProps) {
       // sync `selectedFile` to the new splat (with trailing slash) which the
       // FileBrowserPage treats as folder-mode.
       setSelectedFile(null)
-      navigate(`/file/~/${orgId}/${driveId}/${childPath}/`)
+      navigate(drivePath("file", orgId, driveId, `${childPath}/`))
     } else {
       selectFile(childPath)
     }

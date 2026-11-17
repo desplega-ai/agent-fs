@@ -331,11 +331,20 @@ describe("deep links through the connect form", () => {
       "/detail/~/o/d/a.md",
       "/sql/~/o/d",
       "/members/~/o/d",
+      "/page/~/o/d/a.md",
+      "/shares/~/o/d",
+      "/webhooks/~/o/d",
+      "/file/acme/team%20notes/a.md",
+      "/file/acme/docs/",
+      "/detail/acme/docs/a.md",
+      "/page/acme/docs/a.html",
+      "/sql/acme/docs?path=a.csv",
+      "/members/acme/docs",
       "/orgs/o/files/x",
       "/keys",
       "/files",
     ]) expect(isAppReturnPath(ok)).toBe(true)
-    for (const bad of ["//evil.test/file/~/o/d/a", "https://evil.test/", "/credentials", "/file/~/o", "javascript:alert(1)", "/files#x"]) {
+    for (const bad of ["//evil.test/file/~/o/d/a", "https://evil.test/", "/credentials", "/file/~/o", "/file/acme", "/sql/acme/docs/x", "javascript:alert(1)", "/files#x"]) {
       expect(isAppReturnPath(bad)).toBe(false)
     }
   })
@@ -349,6 +358,8 @@ describe("deep links through the connect form", () => {
       "/file/~/o/d/.%2E/x",
       "/orgs/o/files/..",
       "/file/~/o/d/a\\..\\x",
+      "/file/acme/docs/../../credentials",
+      "/file/../docs/a.md",
     ]) expect(isAppReturnPath(bad)).toBe(false)
     for (const ok of ["/file/~/o/d/.hidden/a.md", "/file/~/o/d/a..b.md", "/file/~/o/d/a.md?x=..%2F.."]) {
       expect(isAppReturnPath(ok)).toBe(true)
@@ -359,6 +370,8 @@ describe("deep links through the connect form", () => {
     expect(orgIdFromAppPath("/file/~/org-1/d/a.md")).toBe("org-1")
     expect(orgIdFromAppPath("/members/~/org-2/d")).toBe("org-2")
     expect(orgIdFromAppPath("/orgs/org-3/files/")).toBe("org-3")
+    expect(orgIdFromAppPath("/page/~/org-4/d/a.md")).toBe("org-4")
+    expect(orgIdFromAppPath("/file/acme/docs/a.md")).toBeNull()
     expect(orgIdFromAppPath("/files")).toBeNull()
   })
 

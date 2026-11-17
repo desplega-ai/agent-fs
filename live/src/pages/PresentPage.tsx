@@ -20,14 +20,13 @@ import type { OutlineItem } from "@/lib/outline"
 
 export function PresentPage() {
   const params = useParams()
-  const { orgId, driveId } = useAuth()
+  const { orgId, driveId, drivePath } = useAuth()
   const { data: health, isLoading: healthLoading } = useHealth()
 
   const filePath = params["*"] ?? ""
   const presentable = !healthLoading && canPresent(filePath, health)
   const isHtml = presentable && isHtmlPath(filePath)
-  // Per segment, so a `#` or `?` in a name stays part of the path.
-  const fileUrl = `/file/~/${params.orgId}/${params.driveId}/${filePath.split("/").map(encodeURIComponent).join("/")}`
+  const fileUrl = drivePath("file", orgId ?? "", driveId, filePath)
   useDocumentTitle(filePath.split("/").pop() || null)
   // Present took the browser full screen; leaving the page gives it back.
   useEffect(() => exitFullscreen, [])

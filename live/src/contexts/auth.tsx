@@ -10,6 +10,7 @@ import {
 } from "@/stores/credentials"
 import { treeExpansionStore } from "@/stores/tree-expansion"
 import { credentialsRedirect } from "@/lib/key-handoff"
+import { drivePathFor, isAdminView, namesFor, withManaged, type DriveLists, type DriveView } from "@/lib/drive-route"
 
 interface AuthContextValue {
   credential: Credential
@@ -18,6 +19,8 @@ interface AuthContextValue {
   orgs: Org[]
   /** The org list has answered (`orgs` is complete). */
   orgsLoaded: boolean
+  /** The org list failed to load. */
+  orgsFailed: boolean
   orgId: string | null
   orgName: string | null
   setOrgId: (id: string) => void
@@ -25,6 +28,11 @@ interface AuthContextValue {
   driveId: string
   driveName: string | null
   setDriveId: (id: string) => void
+  /**
+   * The app address of `view` for a drive, by org and drive name when those
+   * are known and name no other drive the viewer can reach, by ID otherwise.
+   */
+  drivePath: (view: DriveView, orgId: string, driveId: string, path?: string) => string
   switchAccount: (id: string) => void
   isLoading: boolean
   error: string | null
@@ -68,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // An org-scoped key gets 403 on the org list; it can read its one org.
   const scopedOrgId = user?.scopedOrgId ?? null
-  const { data: orgsData } = useQuery({
+  const { data: orgsData, isError: orgsError } = useQuery({
     queryKey: ["orgs", credential?.id, scopedOrgId],
     queryFn: async () => (scopedOrgId ? { orgs: [await client!.getOrg(scopedOrgId)] } : client!.getOrgs()),
     enabled: !!client && !!user,
@@ -117,6 +125,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [queryClient])
 
+  // Reads the drive lists already cached; one not loaded yet gives the ID form.
+  // Members and webhooks names must also be unique among managed drives, as
+  // DriveScope resolves them there.
+  const drivePath = useCallback((view: DriveView, linkOrgId: string, linkDriveId: string, path = "") => {
+    const lists: DriveLists = (id) => {
+      const own = queryClient.getQueryData<{ drives: Drive[] }>(["drives", id])?.drives
+      if (!own || !isAdminView(view)) return own
+      const managed = queryClient.getQueryData<{ drives: Drive[] }>(["manageable-drives", id])?.drives
+      return managed && withManaged(own, managed)
+    }
+    const ids = { orgId: linkOrgId, driveId: linkDriveId }
+    return drivePathFor(view, ids, namesFor(orgs, lists, ids), path)
+    // drivesData: recompute once the current org's list lands in the cache.
+  }, [orgs, drivesData, queryClient])
+
   const switchAccount = useCallback((id: string) => {
     setStoredActive(id)
     setCredentialId(id)
@@ -150,6 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         orgs,
         orgsLoaded: orgsData !== undefined,
+        orgsFailed: orgsError && orgsData === undefined,
         orgId,
         orgName,
         setOrgId,
@@ -157,6 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         driveId,
         driveName,
         setDriveId,
+        drivePath,
         switchAccount,
         isLoading: meLoading,
         error,

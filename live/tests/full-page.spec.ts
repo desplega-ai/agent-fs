@@ -165,7 +165,7 @@ test("a presented Markdown file renders and takes a comment on a selection", asy
   await expect(page.locator("aside").getByText("Say more")).toBeVisible()
   await expect(page.locator("aside").getByRole("button", { name: /Outline/ })).toBeVisible()
   await page.getByRole("link", { name: "Back to file" }).click()
-  await expect(page).toHaveURL("/file/~/org/drive/notes.md")
+  await expect(page).toHaveURL("/file/QA/QA/notes.md")
 })
 
 test("a presented HTML page gets the comment overlay and lists its comments", async ({ page }) => {
@@ -186,7 +186,7 @@ test("Back to file opens the file view", async ({ page }) => {
   await installFixture(page)
   await present(page)
   await page.getByRole("link", { name: "Back to file" }).click()
-  await expect(page).toHaveURL("/file/~/org/drive/qa.html")
+  await expect(page).toHaveURL("/file/QA/QA/qa.html")
   await expect(page.locator("header")).toBeVisible()
   // The same drive nudges outside the presented page.
   await expect(page.getByText("Enjoying agent-fs?")).toBeVisible()
@@ -206,12 +206,12 @@ test("a file name with #, ? and % survives both links", async ({ page }) => {
   await installFixture(page)
   await page.goto(`/detail/~/org/drive/${encodeURIComponent(ODD_NAME)}`)
   await page.getByRole("button", { name: "Present" }).click()
-  await expect(page).toHaveURL(`/page/~/org/drive/${encodeURIComponent(ODD_NAME)}`)
+  await expect(page).toHaveURL(`/page/QA/QA/${encodeURIComponent(ODD_NAME)}`)
   await page.getByRole("button", { name: "Render", exact: true }).click()
   await expect(page.locator("iframe")).toHaveAttribute("title", ODD_NAME)
 
   await page.getByRole("link", { name: "Back to file" }).click()
-  await expect(page).toHaveURL(`/file/~/org/drive/${encodeURIComponent(ODD_NAME)}`)
+  await expect(page).toHaveURL(`/file/QA/QA/${encodeURIComponent(ODD_NAME)}`)
   await expect(page.locator(`iframe[title="${ODD_NAME}"]`)).toBeVisible()
 })
 
@@ -229,7 +229,7 @@ test("a presented page cannot reach the app or navigate it", async ({ page }) =>
   await expect(frame.locator("#doc")).toHaveText("blocked")
   await expect(frame.locator("#storage")).toHaveText("blocked")
   await expect(frame.locator("#top")).toHaveText("blocked")
-  await expect(page).toHaveURL("/page/~/org/drive/qa.html")
+  await expect(page).toHaveURL("/page/QA/QA/qa.html")
   const sandbox = await page.locator("iframe").getAttribute("sandbox")
 
   // The same sandbox as the file view's frame.
@@ -252,7 +252,7 @@ test("a file that is neither HTML nor Markdown shows a message and the way back"
   await expect(page.getByText("Only HTML and Markdown files can be presented.")).toBeVisible()
   await expect(page.locator("iframe")).toHaveCount(0)
   await expect(page.locator("aside")).toHaveCount(0)
-  await expect(page.getByRole("link", { name: "Back to file" })).toHaveAttribute("href", "/file/~/org/drive/data.csv")
+  await expect(page.getByRole("link", { name: "Back to file" })).toHaveAttribute("href", "/file/QA/QA/data.csv")
 })
 
 test("a server without html-sites does not render the page", async ({ page }) => {
@@ -277,13 +277,13 @@ for (const [view, route] of [["file", "/file/~/org/drive/reports/page.html"], ["
     if (view === "file") await page.screenshot({ path: testInfo.outputPath("viewer-header.png") })
 
     await page.getByRole("button", { name: "Present" }).click()
-    await expect(page).toHaveURL("/page/~/org/drive/reports/page.html")
+    await expect(page).toHaveURL("/page/QA/QA/reports/page.html")
     await expect.poll(() => isFullscreen(page)).toBe(true)
     await expect(page.locator("header")).toHaveCount(0)
 
     // Leaving the page gives the screen back.
     await page.getByRole("link", { name: "Back to file" }).click()
-    await expect(page).toHaveURL("/file/~/org/drive/reports/page.html")
+    await expect(page).toHaveURL("/file/QA/QA/reports/page.html")
     await expect.poll(() => isFullscreen(page)).toBe(false)
   })
 }
@@ -294,7 +294,7 @@ test("P presents the file from the file view", async ({ page }) => {
   await page.goto("/file/~/org/drive/reports/page.html")
   await expect(page.locator('iframe[title="reports/page.html"]')).toBeVisible()
   await page.keyboard.press("p")
-  await expect(page).toHaveURL("/page/~/org/drive/reports/page.html")
+  await expect(page).toHaveURL("/page/QA/QA/reports/page.html")
   await expect.poll(() => isFullscreen(page)).toBe(true)
 })
 
@@ -311,13 +311,13 @@ test("Present sits next to Open full page for HTML and Markdown, not for other f
   await expect(page.getByRole("heading", { name: "Notes" })).toBeVisible()
   await expect(header.getByRole("button", { name: "Present" })).toBeVisible()
   await page.keyboard.press("p")
-  await expect(page).toHaveURL("/page/~/org/drive/notes.md")
+  await expect(page).toHaveURL("/page/QA/QA/notes.md")
 
   await page.goto("/file/~/org/drive/data.csv")
   await expect(header.getByRole("button", { name: "Open full page" })).toBeVisible()
   await expect(header.getByRole("button", { name: "Present" })).toHaveCount(0)
   await page.keyboard.press("p")
-  await expect(page).toHaveURL("/file/~/org/drive/data.csv")
+  await expect(page).toHaveURL("/file/QA/QA/data.csv")
 })
 
 test("the detail toolbar offers Present for HTML and Markdown, not for other files", async ({ page }, testInfo) => {

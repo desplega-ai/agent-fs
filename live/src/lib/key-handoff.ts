@@ -207,7 +207,11 @@ export function endpointHost(url: string): string {
   }
 }
 
-const APP_PATH = /^\/(?:(?:file|detail)\/~\/[^/?#]+\/[^/?#]+(?:\/[^?#]*)?|(?:sql|members)\/~\/[^/?#]+\/[^/?#]+\/?|orgs\/[^/?#]+\/files(?:\/[^?#]*)?|keys|files)(?:\?[^#]*)?$/
+/** An org and drive in an address: `~/<org id>/<drive id>` or `<org name>/<drive name>`. */
+const DRIVE_SCOPE = String.raw`(?:~\/[^/?#]+|(?!~\/)[^/?#]+)\/[^/?#]+`
+const APP_PATH = new RegExp(
+  String.raw`^\/(?:(?:file|detail|page)\/${DRIVE_SCOPE}(?:\/[^?#]*)?|(?:sql|members|shares|webhooks)\/${DRIVE_SCOPE}\/?|orgs\/[^/?#]+\/files(?:\/[^?#]*)?|keys|files)(?:\?[^#]*)?$`,
+)
 
 /** A `.` or `..` path segment, also percent-encoded or after a backslash, which browsers read as `/`. */
 const DOT_SEGMENT = /[/\\](?:\.|%2e){1,2}(?=[/\\]|$)/i
@@ -217,9 +221,9 @@ export function isAppReturnPath(next: string): boolean {
   return APP_PATH.test(next) && !DOT_SEGMENT.test(next.split("?")[0])
 }
 
-/** The org a deep link points into, if any. */
+/** The org a deep link points into, if any. A link by name has none before sign-in. */
 export function orgIdFromAppPath(path: string): string | null {
-  const match = /^\/(?:(?:file|detail|sql|members)\/~\/([^/?#]+)|orgs\/([^/?#]+)\/files)/.exec(path)
+  const match = /^\/(?:(?:file|detail|page|sql|members|shares|webhooks)\/~\/([^/?#]+)|orgs\/([^/?#]+)\/files)/.exec(path)
   const raw = match?.[1] ?? match?.[2]
   if (!raw) return null
   try {

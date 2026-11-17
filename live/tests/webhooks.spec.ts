@@ -34,7 +34,7 @@ test("an org admin creates, tests, disables, rotates and deletes a webhook, and 
   await page.goto("/file/~/org/work/")
   await page.locator("[data-drive-switcher]").click()
   await page.getByRole("menuitem", { name: /Webhooks/ }).click()
-  await expect(page).toHaveURL(/\/webhooks\/~\/org\/work$/)
+  await expect(page).toHaveURL(/\/webhooks\/QA%20org\/work$/)
   await expect(page.getByRole("heading", { name: "Webhooks" })).toBeVisible()
   // The org admin sees the org-wide hook next to the drive's own.
   await expect(hookRow(page, "https://ops.example.test/agent-fs").getByText("Every drive in the org")).toBeVisible()

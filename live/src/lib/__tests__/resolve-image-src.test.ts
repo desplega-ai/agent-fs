@@ -7,6 +7,18 @@ const DOC_PATH = "misc/id/dir/test.md"
 const CURRENT_ORIGIN = "https://live.agent-fs.dev"
 
 describe("resolveImageSrc", () => {
+  test("a viewer URL by org and drive name is left for the caller to resolve", () => {
+    expect(resolveImageSrc("https://live.agent-fs.dev/file/acme/team%20notes/img/a%20b.png", DOC_PATH, ROUTE_ORG, ROUTE_DRIVE, CURRENT_ORIGIN)).toEqual({
+      kind: "drive-name",
+      orgName: "acme",
+      driveName: "team notes",
+      path: "img/a b.png",
+    })
+    // Another origin is just an external image, and a short ID form is not a name.
+    expect(resolveImageSrc("https://cdn.example/file/acme/docs/a.png", DOC_PATH, ROUTE_ORG, ROUTE_DRIVE, CURRENT_ORIGIN).kind).toBe("external")
+    expect(resolveImageSrc("https://live.agent-fs.dev/file/~/x/y/a.png", DOC_PATH, ROUTE_ORG, ROUTE_DRIVE, CURRENT_ORIGIN).kind).toBe("external")
+  })
+
   test("live-host URL resolves to drive when it matches the current origin", () => {
     const src =
       "https://live.agent-fs.dev/file/~/4fdbb8e2-f63b-4977-95be-6e18019f0e86/99d03b30-1ffd-4ddd-b332-1244b511b230/thoughts/0d022f19-38ff-4d32-95b2-315fc0864114/research/2026-08-19-merge-queue-ci-gate-flow-light.png"

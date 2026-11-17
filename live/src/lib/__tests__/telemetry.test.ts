@@ -79,6 +79,11 @@ describe("live telemetry", () => {
     expect(routeTemplate("/detail/~/o1/d1/x")).toBe("/detail/~/:orgId/:driveId/*")
     expect(routeTemplate("/sql/~/o1/d1")).toBe("/sql/~/:orgId/:driveId")
     expect(routeTemplate("/members/~/o1/d1")).toBe("/members/~/:orgId/:driveId")
+    expect(routeTemplate("/page/~/o1/d1/a.md")).toBe("/page/~/:orgId/:driveId/*")
+    expect(routeTemplate("/webhooks/~/o1/d1")).toBe("/webhooks/~/:orgId/:driveId")
+    // By name, the template never carries the names.
+    expect(routeTemplate("/file/acme/secret-drive/a/b.md")).toBe("/file/:orgName/:driveName/*")
+    expect(routeTemplate("/shares/acme/secret-drive")).toBe("/shares/:orgName/:driveName")
     expect(routeTemplate("/invite/abc123")).toBe("/invite/:token")
     expect(routeTemplate("/invite")).toBe("/invite")
     expect(routeTemplate("/someone@example.com/private")).toBe("other")

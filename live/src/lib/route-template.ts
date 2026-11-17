@@ -1,13 +1,29 @@
 /** Route templates from App.tsx. Keep in sync when routes change. */
+const DRIVE_VIEWS: [string, boolean][] = [
+  ["file", true],
+  ["detail", true],
+  ["page", true],
+  ["sql", false],
+  ["members", false],
+  ["shares", false],
+  ["webhooks", false],
+]
+
+/** Both address forms of each drive view; the ID form first, as a name form matches it too. */
+const DRIVE_TEMPLATES: [RegExp, string][] = DRIVE_VIEWS.flatMap(([view, withPath]): [RegExp, string][] => {
+  const rest = withPath ? "(\\/.*)?" : "\\/?"
+  const tail = withPath ? "/*" : ""
+  return [
+    [new RegExp(`^\\/${view}\\/~\\/[^/]+\\/[^/]+${rest}$`), `/${view}/~/:orgId/:driveId${tail}`],
+    [new RegExp(`^\\/${view}\\/[^/]+\\/[^/]+${rest}$`), `/${view}/:orgName/:driveName${tail}`],
+  ]
+})
+
 export const ROUTE_TEMPLATES: [RegExp, string][] = [
   [/^\/credentials\/?$/, "/credentials"],
   [/^\/files\/?$/, "/files"],
   [/^\/orgs\/[^/]+\/files(\/.*)?$/, "/orgs/:orgId/files/*"],
-  [/^\/d\/[^/]+(\/.*)?$/, "/d/:driveName/*"],
-  [/^\/file\/~\/[^/]+\/[^/]+(\/.*)?$/, "/file/~/:orgId/:driveId/*"],
-  [/^\/detail\/~\/[^/]+\/[^/]+(\/.*)?$/, "/detail/~/:orgId/:driveId/*"],
-  [/^\/sql\/~\/[^/]+\/[^/]+\/?$/, "/sql/~/:orgId/:driveId"],
-  [/^\/members\/~\/[^/]+\/[^/]+\/?$/, "/members/~/:orgId/:driveId"],
+  ...DRIVE_TEMPLATES,
   [/^\/invite\/?$/, "/invite"],
   [/^\/invite\/[^/]+\/?$/, "/invite/:token"],
   [/^\/?$/, "/"],

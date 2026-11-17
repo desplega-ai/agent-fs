@@ -141,7 +141,9 @@ export function SharedLinksPage() {
 
 function SharedLinkRow({ item, orgId, viewerId }: { item: ShareListItem; orgId: string; viewerId?: string }) {
   const Icon = item.kind === "site" ? Folder : FileText
-  const target = `/file/~/${orgId}/${item.drive.id}/${item.path.replace(/^\/+/, "")}`
+  const { drivePath } = useAuth()
+  // Each row opens its own drive, not the one in the address.
+  const target = drivePath("file", orgId, item.drive.id, item.path)
   return (
     <li className="flex items-start gap-3 px-3 py-2.5">
       <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />

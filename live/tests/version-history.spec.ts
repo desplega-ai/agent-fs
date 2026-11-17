@@ -58,7 +58,7 @@ test("full width and open full page use different icons", async ({ page }) => {
 test("the file view's Version history button opens the full page with history expanded", async ({ page }) => {
   await page.goto("/file/~/org/drive/notes.md")
   await page.getByRole("button", { name: "Version history" }).click()
-  await expect(page).toHaveURL(/\/detail\/~\/org\/drive\/notes\.md$/)
+  await expect(page).toHaveURL(/\/detail\/QA\/QA\/notes\.md$/)
   await expect(historyPanel(page)).toHaveAttribute("aria-expanded", "true")
   await expect(page.getByText("Tighten intro")).toBeVisible()
 })
@@ -67,7 +67,7 @@ test("H on the file view opens the full page with history expanded", async ({ pa
   await page.goto("/file/~/org/drive/notes.md")
   await expect(page.getByRole("button", { name: "Version history" })).toBeVisible()
   await page.keyboard.press("h")
-  await expect(page).toHaveURL(/\/detail\/~\/org\/drive\/notes\.md$/)
+  await expect(page).toHaveURL(/\/detail\/QA\/QA\/notes\.md$/)
   await expect(historyPanel(page)).toHaveAttribute("aria-expanded", "true")
 })
 
@@ -75,7 +75,7 @@ test("F still opens the full page with history collapsed; the toolbar button and
   await page.goto("/file/~/org/drive/notes.md")
   await expect(page.getByRole("button", { name: "Open full page" })).toBeVisible()
   await page.keyboard.press("f")
-  await expect(page).toHaveURL(/\/detail\/~\/org\/drive\/notes\.md$/)
+  await expect(page).toHaveURL(/\/detail\/QA\/QA\/notes\.md$/)
   await expect(historyPanel(page)).toHaveAttribute("aria-expanded", "false")
 
   const toggle = page.getByRole("button", { name: "Version history", exact: true })

@@ -36,7 +36,7 @@ interface NewEntryDialogProps {
  * Callers mount it only while open, so every opening starts with fresh state.
  */
 export function NewEntryDialog({ kind, basePath, open, onOpenChange }: NewEntryDialogProps) {
-  const { orgId, driveId } = useAuth()
+  const { orgId, driveId, drivePath } = useAuth()
   const { setSelectedFile, navigateToFolder } = useBrowser()
   const navigate = useNavigate()
   const { createFile, createFolder } = useFileMutations()
@@ -66,7 +66,7 @@ export function NewEntryDialog({ kind, basePath, open, onOpenChange }: NewEntryD
         toast.success("File created", { description: path })
         onOpenChange(false)
         setSelectedFile(path)
-        navigate(`/file/~/${orgId}/${driveId}/${path}?edit=1`)
+        navigate(`${drivePath("file", orgId ?? "", driveId, path)}?edit=1`)
       } else {
         const folder = await createFolder(basePath, normalized.path)
         // Reveal the new folder in the tree, then open it.

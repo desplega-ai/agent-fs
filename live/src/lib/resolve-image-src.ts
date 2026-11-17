@@ -10,10 +10,14 @@
 
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 const DRIVE_VIEWER_PATH = new RegExp(`^/file/~/(${UUID})/(${UUID})/(.+)$`)
+/** The same viewer address by org and drive name. The names are still encoded. */
+const DRIVE_VIEWER_NAME_PATH = /^\/file\/((?!~\/)[^/]+)\/([^/]+)\/(.+)$/
 
 export type ImageSrcResolution =
   | { kind: "external"; url: string }
   | { kind: "drive"; orgId: string; driveId: string; path: string }
+  /** A viewer address by name; the caller resolves the names to a drive. */
+  | { kind: "drive-name"; orgName: string; driveName: string; path: string }
 
 /**
  * @param src Raw `src` attribute from the parsed markdown image node.
@@ -41,6 +45,15 @@ export function resolveImageSrc(
           orgId: match[1],
           driveId: match[2],
           path: safeDecodeURIComponent(match[3]),
+        }
+      }
+      const named = DRIVE_VIEWER_NAME_PATH.exec(url.pathname)
+      if (named) {
+        return {
+          kind: "drive-name",
+          orgName: safeDecodeURIComponent(named[1]),
+          driveName: safeDecodeURIComponent(named[2]),
+          path: safeDecodeURIComponent(named[3]),
         }
       }
     }

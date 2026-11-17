@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useMatch, useParams } from "react-router"
+import { useParams } from "react-router"
 import { FolderOpen } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useBrowser } from "@/contexts/browser"
+import { useDriveScope } from "@/components/DriveScope"
 import { FileTreeNode } from "./FileTreeNode"
 import {
   FileTreeContextMenu,
@@ -42,13 +43,11 @@ export function FileTree() {
   const { credential, orgId, driveId } = useAuth()
   const { selectedFile } = useBrowser()
   const params = useParams()
-  const membersRoute = useMatch("/members/~/:orgId/:driveId")
-  const webhooksRoute = useMatch("/webhooks/~/:orgId/:driveId")
-  // Route selection is available before RouteParamsSync updates context.
-  // Wait for its scope too, so a switch cannot reveal in the previous drive.
-  // Members and webhooks manage a route drive without changing the active drive.
-  const syncsDrive = !membersRoute && !webhooksRoute
-  if ((params.orgId && params.orgId !== orgId) || (syncsDrive && params.driveId && params.driveId !== driveId)) return null
+  const scope = useDriveScope()
+  // Route selection is available before DriveScope updates context. Wait for
+  // its scope too, so a switch cannot reveal in the previous drive. Members
+  // and webhooks manage a route drive without changing the active drive.
+  if (scope && !scope.inContext) return null
   const selected = (params["*"] ?? selectedFile)?.replace(/^\/+/, "")
   return <ScopedFileTree
     key={JSON.stringify([credential.id, credential.endpoint, orgId, driveId])}

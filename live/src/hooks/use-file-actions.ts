@@ -1,11 +1,9 @@
 import { useCallback, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/contexts/auth"
-import { useAllDrives } from "@/hooks/use-all-drives"
 import { useFileStat } from "@/hooks/use-file-stat"
 import { copyability, copyFileText, TooLargeToCopyError } from "@/lib/copy-contents"
 import { downloadFile } from "@/lib/download"
-import { fileLink } from "@/lib/drive-links"
 import { downloadFileText, fileContentKey, loadFileContent, type CachedFileContent } from "@/lib/file-content-cache"
 import { fileStatQueryKey } from "@/lib/file-stat-query"
 import { supportsShareLinks } from "@/lib/share-link"
@@ -18,8 +16,7 @@ import { toast } from "@/stores/toast"
  * `shift+y`, `d`), so a button click and its shortcut do exactly the same thing.
  */
 export function useFileActions(path: string) {
-  const { client, orgId, driveId } = useAuth()
-  const { drives: allDrives } = useAllDrives()
+  const { client, orgId, driveId, drivePath } = useAuth()
   const queryClient = useQueryClient()
   const { data: stat } = useFileStat(path)
   const [copiedContents, setCopiedContents] = useState(false)
@@ -76,7 +73,7 @@ export function useFileActions(path: string) {
 
   const copyLink = useCallback(async () => {
     if (!orgId || !driveId) return
-    const url = fileLink(window.location.origin, orgId, driveId, path, allDrives)
+    const url = `${window.location.origin}${drivePath("file", orgId, driveId, path)}`
     try {
       await navigator.clipboard.writeText(url)
       setCopiedLink(true)
@@ -85,7 +82,7 @@ export function useFileActions(path: string) {
     } catch {
       toast.error("Couldn't copy link")
     }
-  }, [path, orgId, driveId, allDrives])
+  }, [path, orgId, driveId, drivePath])
 
   // Hidden on servers that cannot mint share links (older `/health`, or unreachable).
   const canShareLink = canShare && supportsShareLinks(health)

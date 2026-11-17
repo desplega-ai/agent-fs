@@ -21,7 +21,7 @@ interface BrowserContextValue {
 const BrowserContext = createContext<BrowserContextValue | null>(null)
 
 export function BrowserProvider({ children }: { children: ReactNode }) {
-  const { credential, orgId, driveId } = useAuth()
+  const { credential, orgId, driveId, drivePath } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [currentPath, setCurrentPath] = useState("")
@@ -34,7 +34,7 @@ export function BrowserProvider({ children }: { children: ReactNode }) {
   // Observe selection rather than only selectFile() so cold deep links and
   // detail routes are recorded too. The store ignores folder paths.
   useEffect(() => {
-    if (!recentScope || !selectedFile) return
+    if (!recentScope || !selectedFile || !orgId || !driveId) return
 
     // Auth scope updates can briefly precede RouteParamsSync when switching
     // accounts or drives. Only record when the URL belongs to this scope so a
@@ -42,35 +42,34 @@ export function BrowserProvider({ children }: { children: ReactNode }) {
     const routePrefixes = [
       `/file/~/${orgId}/${driveId}/`,
       `/detail/~/${orgId}/${driveId}/`,
+      drivePath("file", orgId, driveId),
+      drivePath("detail", orgId, driveId),
     ]
     if (!routePrefixes.some((prefix) => location.pathname.startsWith(prefix))) return
 
     recordRecentFile(recentScope, selectedFile)
-  }, [driveId, location.pathname, orgId, recentScope, selectedFile])
+  }, [driveId, drivePath, location.pathname, orgId, recentScope, selectedFile])
 
   const navigateToFolder = useCallback((path: string) => {
     setCurrentPath(path)
     setSelectedFile(null)
     if (orgId && driveId) {
       const clean = path.replace(/^\/+|\/+$/g, "")
-      const target = clean
-        ? `/file/~/${orgId}/${driveId}/${clean}/`
-        : `/file/~/${orgId}/${driveId}/`
-      navigate(target)
+      navigate(drivePath("file", orgId, driveId, clean ? `${clean}/` : ""))
     } else {
       navigate("/files")
     }
-  }, [navigate, orgId, driveId])
+  }, [navigate, orgId, driveId, drivePath])
 
   const selectFile = useCallback((path: string | null, options?: { page?: number }) => {
     setSelectedFile(path)
     if (path && orgId && driveId) {
       const query = options?.page ? `?page=${options.page}` : ""
-      navigate(`/file/~/${orgId}/${driveId}/${path}${query}`)
+      navigate(`${drivePath("file", orgId, driveId, path)}${query}`)
     } else {
       navigate("/files")
     }
-  }, [navigate, orgId, driveId])
+  }, [navigate, orgId, driveId, drivePath])
 
   return (
     <BrowserContext.Provider

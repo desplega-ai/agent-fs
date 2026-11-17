@@ -3,6 +3,7 @@ import { ImageOff } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useDriveImageUrl } from "@/hooks/use-signed-url"
 import { resolveImageSrc } from "@/lib/resolve-image-src"
+import { useDriveResolution } from "@/hooks/use-drive-resolution"
 import { ExpandableImage } from "./ExpandableImage"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -41,6 +42,19 @@ export function MarkdownImage({ src, alt, title }: MarkdownImageProps) {
     return <ExpandableImage src={resolution.url} alt={alt} title={title} />
   }
 
+  if (resolution.kind === "drive-name") {
+    return (
+      <NamedDriveImage
+        orgName={resolution.orgName}
+        driveName={resolution.driveName}
+        path={resolution.path}
+        alt={alt}
+        title={title}
+        hasRetriedRef={hasRetried}
+      />
+    )
+  }
+
   return (
     <DriveImage
       orgId={resolution.orgId}
@@ -50,6 +64,44 @@ export function MarkdownImage({ src, alt, title }: MarkdownImageProps) {
       title={title}
       hasRetriedRef={hasRetried}
     />
+  )
+}
+
+/**
+ * An image linked by org and drive name. It loads only once the names point at
+ * exactly one drive the viewer can open; never the first match or the drive of
+ * the document.
+ */
+function NamedDriveImage({
+  orgName,
+  driveName,
+  path,
+  alt,
+  title,
+  hasRetriedRef,
+}: {
+  orgName: string
+  driveName: string
+  path: string
+  alt?: string
+  title?: string
+  hasRetriedRef: React.MutableRefObject<boolean>
+}) {
+  const resolution = useDriveResolution({ names: { org: orgName, drive: driveName } })
+  if (resolution.status === "ready") {
+    const { orgId, driveId } = resolution.ids
+    return <DriveImage orgId={orgId} driveId={driveId} path={path} alt={alt} title={title} hasRetriedRef={hasRetriedRef} />
+  }
+  if (resolution.status === "loading") return <ImagePlaceholder><Spinner size="sm" /></ImagePlaceholder>
+  const reason = resolution.status === "ambiguous" ? "more than one drive has that name" : resolution.status === "failed" ? "couldn’t load your drives" : "no such drive"
+  return (
+    <ImagePlaceholder>
+      <span className="flex items-center gap-2">
+        <ImageOff className="size-4 shrink-0" />
+        {alt && <span>{alt}</span>}
+      </span>
+      <span className="text-xs">Image not available: {reason}</span>
+    </ImagePlaceholder>
   )
 }
 

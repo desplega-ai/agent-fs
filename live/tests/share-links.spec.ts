@@ -193,7 +193,7 @@ test("the Shared links page lists links from every drive and revokes on the link
   await page.goto("/files")
   await page.getByRole("button", { name: /QA/ }).last().click()
   await page.getByRole("menuitem", { name: "Shared links" }).click()
-  await expect(page).toHaveURL(/\/shares\/~\/org\/drive$/)
+  await expect(page).toHaveURL(/\/shares\/QA\/QA$/)
 
   const list = page.getByRole("list", { name: "Shared links" })
   await expect(list.getByRole("listitem")).toHaveCount(3)

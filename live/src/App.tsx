@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useRef } from "react"
-import { BrowserRouter, Routes, Route, Navigate, Link, Outlet, useLocation, useMatch, useNavigate, useParams } from "react-router"
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation, useMatch, useNavigate, useParams } from "react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/toaster"
@@ -18,8 +18,7 @@ import { MembersPage } from "@/pages/Members"
 import { SharedLinksPage } from "@/pages/SharedLinks"
 import { WebhooksPage } from "@/pages/Webhooks"
 import { Spinner } from "@/components/ui/spinner"
-import { useAllDrives } from "@/hooks/use-all-drives"
-import { drivesNamed } from "@/lib/drive-links"
+import { DriveScope, DriveScopeGate } from "@/components/DriveScope"
 import { PresenceConnection } from "@/components/presence/PresenceConnection"
 import { StarNudge } from "@/components/StarNudge"
 
@@ -37,8 +36,8 @@ const queryClient = new QueryClient({
 
 /**
  * Layout that hoists AuthProvider + BrowserProvider above the authenticated
- * routes so providers stay mounted across in-app navigation. Per-route URL
- * params are synced into the providers via <RouteParamsSync/>.
+ * routes so providers stay mounted across in-app navigation. Drive routes
+ * sync their org and drive into the providers through <DriveScope/>.
  */
 function AuthenticatedLayout() {
   // The sticky star toast would sit on top of a presented page.
@@ -130,47 +129,55 @@ function RouteParamsSync({ syncFile = true, syncDrive = true }: { syncFile?: boo
   return null
 }
 
+// Each drive route below is mounted at both address forms, `/<view>/~/<org
+// id>/<drive id>` and `/<view>/<org name>/<drive name>`, with the same element,
+// so DriveScope can move an address to the name form without a remount.
+
 function FileRoute() {
   return (
-    <>
-      <RouteParamsSync />
+    <DriveScope view="file">
       <Shell>
-        <FileBrowserPage />
+        <DriveScopeGate>
+          <FileBrowserPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
 function DetailRoute() {
   return (
-    <>
-      <RouteParamsSync />
+    <DriveScope view="detail">
       <Shell>
-        <FileDetailPage />
+        <DriveScopeGate>
+          <FileDetailPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
 function PresentRoute() {
   return (
-    <>
-      <RouteParamsSync />
-      <PresentPage />
-    </>
+    <DriveScope view="page">
+      <DriveScopeGate>
+        <PresentPage />
+      </DriveScopeGate>
+    </DriveScope>
   )
 }
 
 function SqlRoute() {
   return (
-    <>
-      <RouteParamsSync />
+    <DriveScope view="sql">
       <Shell>
-        <Suspense fallback={<div className="flex h-full items-center justify-center"><Spinner /></div>}>
-          <SqlPage />
-        </Suspense>
+        <DriveScopeGate>
+          <Suspense fallback={<div className="flex h-full items-center justify-center"><Spinner /></div>}>
+            <SqlPage />
+          </Suspense>
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
@@ -181,12 +188,13 @@ function SqlRoute() {
  */
 function MembersRoute() {
   return (
-    <>
-      <RouteParamsSync syncFile={false} syncDrive={false} />
+    <DriveScope view="members" syncFile={false} syncDrive={false}>
       <Shell>
-        <MembersPage />
+        <DriveScopeGate>
+          <MembersPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
@@ -196,24 +204,26 @@ function MembersRoute() {
  */
 function SharedLinksRoute() {
   return (
-    <>
-      <RouteParamsSync syncFile={false} />
+    <DriveScope view="shares" syncFile={false}>
       <Shell>
-        <SharedLinksPage />
+        <DriveScopeGate>
+          <SharedLinksPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
 /** Like Members: the drive comes from the URL and the active drive stays put. */
 function WebhooksRoute() {
   return (
-    <>
-      <RouteParamsSync syncFile={false} syncDrive={false} />
+    <DriveScope view="webhooks" syncFile={false} syncDrive={false}>
       <Shell>
-        <WebhooksPage />
+        <DriveScopeGate>
+          <WebhooksPage />
+        </DriveScopeGate>
       </Shell>
-    </>
+    </DriveScope>
   )
 }
 
@@ -259,65 +269,6 @@ function OrgFileRedirectInner() {
   return <Navigate to={`/file/~/${orgId}/${driveId}/${filePath}`} replace />
 }
 
-/**
- * Resolves /d/:driveName/* to /file/~/:orgId/:driveId/* by the drive's name,
- * among the drives the viewer can open. Several drives with that name get a
- * choice; none gets a message.
- */
-function DriveNameRedirect() {
-  const params = useParams()
-  const location = useLocation()
-  const { orgs } = useAuth()
-  const { drives, loaded, failed } = useAllDrives()
-  const name = params.driveName ?? ""
-  // The raw path, still encoded: the decoded splat would turn a %23 in a file name into a fragment.
-  const filePath = location.pathname.split("/").slice(3).join("/")
-
-  if (failed) {
-    return (
-      <div className="flex h-screen items-center justify-center p-4 text-center text-sm">
-        Couldn’t load your drives to find “{name}”. Reload the page to try again.
-      </div>
-    )
-  }
-
-  if (!loaded) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <Spinner />
-      </div>
-    )
-  }
-
-  const matches = drivesNamed(drives, name)
-  const target = (orgId: string, driveId: string) => ({
-    pathname: `/file/~/${orgId}/${driveId}/${filePath}`,
-    search: location.search,
-    hash: location.hash,
-  })
-  if (matches.length === 1) return <Navigate to={target(matches[0].orgId, matches[0].id)} replace />
-
-  return (
-    <div className="flex h-screen flex-col items-center justify-center gap-3 p-4 text-center">
-      {matches.length === 0 ? (
-        <p className="text-sm">None of your drives is named “{name}”.</p>
-      ) : (
-        <>
-          <p className="text-sm">Several of your drives are named “{name}”. Which one?</p>
-          {matches.map((d) => (
-            <Link key={d.id} to={target(d.orgId, d.id)} replace className="text-sm underline">
-              {d.name} in {orgs.find((o) => o.id === d.orgId)?.name ?? d.orgId}
-            </Link>
-          ))}
-        </>
-      )}
-      <Link to="/files" className="text-xs text-muted-foreground underline">
-        Go to your files
-      </Link>
-    </div>
-  )
-}
-
 export default function App() {
   return (
     <ErrorBoundary>
@@ -332,14 +283,20 @@ export default function App() {
                 <Route path="/invite/:token" element={<AcceptInvitePage />} />
                 <Route element={<AuthenticatedLayout />}>
                   <Route path="/orgs/:orgId/files/*" element={<OrgFileRedirect />} />
-                  <Route path="/d/:driveName/*" element={<DriveNameRedirect />} />
                   <Route path="/file/~/:orgId/:driveId/*" element={<FileRoute />} />
+                  <Route path="/file/:orgName/:driveName/*" element={<FileRoute />} />
                   <Route path="/detail/~/:orgId/:driveId/*" element={<DetailRoute />} />
+                  <Route path="/detail/:orgName/:driveName/*" element={<DetailRoute />} />
                   <Route path="/page/~/:orgId/:driveId/*" element={<PresentRoute />} />
+                  <Route path="/page/:orgName/:driveName/*" element={<PresentRoute />} />
                   <Route path="/sql/~/:orgId/:driveId" element={<SqlRoute />} />
+                  <Route path="/sql/:orgName/:driveName" element={<SqlRoute />} />
                   <Route path="/members/~/:orgId/:driveId" element={<MembersRoute />} />
+                  <Route path="/members/:orgName/:driveName" element={<MembersRoute />} />
                   <Route path="/shares/~/:orgId/:driveId" element={<SharedLinksRoute />} />
+                  <Route path="/shares/:orgName/:driveName" element={<SharedLinksRoute />} />
                   <Route path="/webhooks/~/:orgId/:driveId" element={<WebhooksRoute />} />
+                  <Route path="/webhooks/:orgName/:driveName" element={<WebhooksRoute />} />
                   <Route path="/keys" element={<ApiKeysRoute />} />
                   <Route path="/files" element={<FilesRoute />} />
                   <Route path="*" element={<Navigate to="/files" replace />} />
