@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react"
 import { Globe, MessageSquare } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useHealth } from "@/hooks/use-health"
@@ -135,7 +135,8 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
     )
   }
 
-  const src = withFragment(commenting ? withCommentsFlag(url) : url, hash)
+  const frameUrl = commenting ? withCommentsFlag(url) : url
+  const src = withFragment(frameUrl, hash)
   return (
     <div className={cn("relative flex flex-col", className)}>
       <iframe
@@ -150,6 +151,7 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
       {commenting && (
         <HtmlComments
           frameRef={frameRef}
+          frameUrl={frameUrl}
           src={src}
           reloadKey={reloadKey}
           path={path}
@@ -168,8 +170,11 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
  * the line fallback; the overlay only paints the resolved ranges. The Comment
  * button floats over the frame at the selection.
  */
-function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScrollToCommentRef }: {
+function HtmlComments({ frameRef, frameUrl, src, reloadKey, path, comments, content, onScrollToCommentRef }: {
   frameRef: RefObject<HTMLIFrameElement | null>
+  /** The page's URL: a new one is a new document, so a new bridge. */
+  frameUrl: string
+  /** What the frame was given: `frameUrl` with the address bar's fragment. */
   src: string
   reloadKey: number
   path: string
@@ -204,7 +209,7 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
     if (!frame) return
     setFrameText(null)
     clear()
-    const bridge = createHtmlCommentBridge(frame, new URL(src, location.href).pathname, (msg) => {
+    const bridge = createHtmlCommentBridge(frame, new URL(frameUrl, location.href).pathname, (msg) => {
       if (msg.type === "text") setFrameText(msg.text)
       else if (msg.type === "reset") {
         // The frame left the page: its text and any composer belong to that page.
@@ -225,7 +230,16 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
       bridgeRef.current = null
       commentAnchors.setHovered(null, "doc")
     }
-  }, [frameRef, src, reloadKey, clear])
+  }, [frameRef, frameUrl, reloadKey, clear])
+
+  // A fragment-only change keeps the document, but Chromium fires the frame's
+  // load event for it. That load lands after this commit, so a layout effect
+  // tells the bridge in time.
+  const lastSrc = useRef(src)
+  useLayoutEffect(() => {
+    if (lastSrc.current !== src && bridgeRef.current) bridgeRef.current.sameDocument()
+    lastSrc.current = src
+  }, [src])
 
   // Ranges and states only: comment bodies and authors never enter the frame.
   useEffect(() => {

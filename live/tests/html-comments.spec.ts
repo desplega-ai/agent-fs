@@ -380,3 +380,21 @@ test("a line-only comment finds text written with named, numeric and hex referen
     .toEqual(["Café earnings, été & more"])
   await expect(page.getByText("anchor lost", { exact: true })).toHaveCount(0)
 })
+
+test("commenting stays on when the link's fragment changes", async ({ page }) => {
+  const f = fixture()
+  await installFixture(page, f)
+  await page.goto("/file/~/org/drive/reports/page.html#screen=home")
+  const frameEl = page.locator(FRAME)
+  await expect(frameEl).toHaveAttribute("src", "http://fixture.test/site/tok/page.html?__afs_comments=1#screen=home")
+  await expect.poll(() => highlightSizes(page)).not.toBeNull()
+  await page.evaluate(() => { location.hash = "#screen=next" })
+  await expect(frameEl).toHaveAttribute("src", "http://fixture.test/site/tok/page.html?__afs_comments=1#screen=next")
+  // Only the fragment changed: the frame keeps its document, and its overlay.
+  expect(f.siteUrls).toHaveLength(1)
+  await page.waitForTimeout(300) // the load Chromium fires for the fragment change
+  await startComment(page, "After the fragment changed")
+  await page.getByRole("button", { name: "Send comment" }).click()
+  await expect.poll(() => f.adds.length).toBe(1)
+  expect(f.adds[0]).toMatchObject({ quote: { exact: "Revenue grew & churn fell this quarter." } })
+})

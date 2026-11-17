@@ -67,6 +67,11 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
 
 export interface HtmlCommentBridge {
   post(msg: HostMessage): void
+  /**
+   * The frame's src changed only in its fragment. The page that said hello
+   * stays, so the load event Chromium still fires for it keeps the session.
+   */
+  sameDocument(): void
   dispose(): void
 }
 
@@ -94,6 +99,9 @@ export function createHtmlCommentBridge(
   // that is loading or just loaded.
   let helloSinceLoad = false
   let pendingText: string | null = null
+  // Loads still to come for fragment-only src changes. A hello or bye means a
+  // real navigation, which clears them.
+  let sameDocumentLoads = 0
   let disposed = false
   const unhost = () => {
     pendingText = null
@@ -102,6 +110,10 @@ export function createHtmlCommentBridge(
     onMessage({ type: "reset" })
   }
   const onLoad = () => {
+    if (sameDocumentLoads > 0) {
+      sameDocumentLoads--
+      return
+    }
     if (!helloSinceLoad) unhost()
     helloSinceLoad = false
   }
@@ -117,6 +129,7 @@ export function createHtmlCommentBridge(
     if (!frame.contentWindow || e.source !== frame.contentWindow) return
     const msg = parseFrameMessage(e.data)
     if (!msg) return
+    if (msg.type === "hello" || msg.type === "bye") sameDocumentLoads = 0
     if (msg.type === "hello" && msg.path === path) {
       hosted = helloSinceLoad = true
       return post({ type: "host" })
@@ -141,6 +154,9 @@ export function createHtmlCommentBridge(
   frame.addEventListener("load", onLoad)
   return {
     post,
+    sameDocument() {
+      if (hosted) sameDocumentLoads++
+    },
     dispose() {
       disposed = true
       win.removeEventListener("message", listener)
