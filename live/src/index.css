@@ -414,6 +414,42 @@
   font-weight: 600;
 }
 
+/* Inline code in rendered markdown (preview and rich editor), styled like
+   Slack's: colored mono text on a faint tinted chip, no typography backticks.
+   Text colors keep WCAG AA (4.5:1) against the chip in both themes.
+   `:not(pre code)` leaves fenced blocks alone; the extra specificity outranks
+   the typography plugin and MDXEditor's inline code rule. */
+:root {
+  --inline-code: #cf1a52;
+  --inline-code-bg: rgb(29 28 29 / 0.04);
+  --inline-code-border: rgb(29 28 29 / 0.13);
+}
+.dark {
+  --inline-code: #e8912d;
+  --inline-code-bg: rgb(255 255 255 / 0.06);
+  --inline-code-border: rgb(255 255 255 / 0.15);
+}
+.prose code:not(pre code, .not-prose code) {
+  color: var(--inline-code);
+  background: var(--inline-code-bg);
+  border: 1px solid var(--inline-code-border);
+  border-radius: 3px;
+  padding: 2px 3px 1px;
+  font-size: 0.85em;
+  font-weight: inherit;
+}
+.prose code:not(pre code, .not-prose code)::before,
+.prose code:not(pre code, .not-prose code)::after {
+  content: none;
+}
+/* The rich editor wraps the text in its own styled span (or strong/em). */
+.prose code:not(pre code, .not-prose code) > * {
+  color: inherit;
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+
 /* MDXEditor (rich markdown edit mode). Its stylesheet reads Radix-style scale
    variables (base 1..12, accent 1..12); remap them to the app tokens so both
    themes follow the app palette. The class is set on the editor root and on
