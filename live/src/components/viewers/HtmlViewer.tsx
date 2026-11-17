@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react"
 import { Globe, MessageSquare } from "lucide-react"
 import { useAuth } from "@/contexts/auth"
 import { useHealth } from "@/hooks/use-health"
@@ -135,7 +135,8 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
     )
   }
 
-  const src = withFragment(commenting ? withCommentsFlag(url) : url, hash)
+  const pageSrc = commenting ? withCommentsFlag(url) : url
+  const src = withFragment(pageSrc, hash)
   return (
     <div className={cn("relative flex flex-col", className)}>
       <iframe
@@ -150,7 +151,8 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
       {commenting && (
         <HtmlComments
           frameRef={frameRef}
-          src={src}
+          src={pageSrc}
+          fragment={src.slice(pageSrc.length)}
           reloadKey={reloadKey}
           path={path}
           comments={comments}
@@ -168,9 +170,12 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
  * the line fallback; the overlay only paints the resolved ranges. The Comment
  * button floats over the frame at the selection.
  */
-function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScrollToCommentRef }: {
+function HtmlComments({ frameRef, src, fragment, reloadKey, path, comments, content, onScrollToCommentRef }: {
   frameRef: RefObject<HTMLIFrameElement | null>
+  /** The page's address without the fragment: a fragment change keeps the page, so it keeps the bridge too. */
   src: string
+  /** The fragment on the frame's address, `#…` or empty. */
+  fragment: string
   reloadKey: number
   path: string
   comments?: CommentListEntry[]
@@ -226,6 +231,15 @@ function HtmlComments({ frameRef, src, reloadKey, path, comments, content, onScr
       commentAnchors.setHovered(null, "doc")
     }
   }, [frameRef, src, reloadKey, clear])
+
+  // Before the browser handles the new address: a layout effect runs right
+  // after the frame's src changes, ahead of the load it fires.
+  const lastFragment = useRef(fragment)
+  useLayoutEffect(() => {
+    if (fragment === lastFragment.current) return
+    lastFragment.current = fragment
+    bridgeRef.current?.expectFragmentLoad()
+  }, [fragment])
 
   // Ranges and states only: comment bodies and authors never enter the frame.
   useEffect(() => {
