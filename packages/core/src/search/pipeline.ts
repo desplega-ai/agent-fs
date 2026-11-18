@@ -297,12 +297,22 @@ export async function indexFileEmbeddings(
   }
 }
 
+/** Text the on-write jobs may hold in memory while they wait for or use a slot. */
+export const MAX_QUEUED_EMBED_CHARS = 8_000_000;
+let queuedChars = 0;
+
+/**
+ * Marks the file `pending` and queues an embedding job that holds `content`.
+ * Returns `false` when the queue already holds `MAX_QUEUED_EMBED_CHARS` of text:
+ * the file stays `pending` and the caller must start `schedulePendingEmbeddings`,
+ * which reads it back from storage.
+ */
 export function scheduleEmbedding(
   db: DB,
   provider: EmbeddingProvider | null,
   params: { path: string; driveId: string; content: string; pageStarts?: number[] }
-): void {
-  if (!provider) return;
+): boolean {
+  if (!provider) return true;
 
   // Set pending synchronously so status is accurate during async window
   db.update(schema.files)
@@ -317,7 +327,10 @@ export function scheduleEmbedding(
 
   // Callers schedule after createVersion(), so this is the version of `content`.
   const version = readCurrentVersion(db, params);
-  if (version === undefined) return;
+  if (version === undefined) return true;
+  const chars = params.content.length;
+  if (queuedChars + chars > MAX_QUEUED_EMBED_CHARS) return false;
+  queuedChars += chars;
 
   embeddingSemaphore.acquire().then(async (release) => {
     try {
@@ -325,7 +338,9 @@ export function scheduleEmbedding(
     } catch (e) {
       console.error("Embedding failed", { path: params.path, error: e });
     } finally {
+      queuedChars -= chars;
       release();
     }
   });
+  return true;
 }
