@@ -380,3 +380,19 @@ test("a line-only comment finds text written with named, numeric and hex referen
     .toEqual(["Café earnings, été & more"])
   await expect(page.getByText("anchor lost", { exact: true })).toHaveCount(0)
 })
+
+test("changing only the address fragment keeps commenting on the page", async ({ page }) => {
+  await installFixture(page, fixture())
+  await page.goto("/file/~/org/drive/reports/page.html#screen=home")
+  const frame = page.frameLocator(FRAME)
+  const button = page.getByRole("button", { name: "Comment", exact: true })
+  await frame.locator("#target").click({ clickCount: 3 })
+  await expect(button).toBeVisible()
+
+  // A fragment-only change: the frame jumps within the same page, no reload and no new hello.
+  await page.evaluate(() => { location.hash = "screen=next" })
+  await expect(page.locator(FRAME)).toHaveAttribute("src", /#screen=next$/)
+  await frame.locator("h1").click()
+  await frame.locator("#target").click({ clickCount: 3 })
+  await expect(button).toBeVisible()
+})

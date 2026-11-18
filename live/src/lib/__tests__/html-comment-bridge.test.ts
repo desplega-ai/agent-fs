@@ -120,6 +120,29 @@ describe("createHtmlCommentBridge", () => {
     expect(h.received).toEqual([{ type: "activate", id: "c1" }, { type: "reset" }])
   })
 
+  test("the load a fragment-only change fires keeps the session; a later one still ends it", () => {
+    const h = harness()
+    h.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
+    h.load()
+    h.bridge.expectFragmentLoad()
+    h.load() // same page, new fragment: no hello comes
+    h.send({ type: `${P}activate`, v: 1, id: "c1" })
+    h.load() // a real navigation to a page without the overlay
+    h.send({ type: `${P}activate`, v: 1, id: "c2" })
+    expect(h.received).toEqual([{ type: "activate", id: "c1" }, { type: "reset" }])
+  })
+
+  test("a bye before the expected load means a real navigation: the session ends", () => {
+    const h = harness()
+    h.send({ type: `${P}hello`, v: 1, path: "/site/t/a.html" })
+    h.load()
+    h.bridge.expectFragmentLoad()
+    h.send({ type: `${P}bye`, v: 1 })
+    h.load() // the next page has no overlay
+    h.send({ type: `${P}activate`, v: 1, id: "c1" })
+    expect(h.received).toEqual([{ type: "reset" }])
+  })
+
   test("dispose stops listening", () => {
     const h = harness()
     h.bridge.dispose()

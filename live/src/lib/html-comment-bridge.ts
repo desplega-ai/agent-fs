@@ -67,6 +67,13 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
 
 export interface HtmlCommentBridge {
   post(msg: HostMessage): void
+  /**
+   * The host is changing only the fragment of the frame's address. Chrome
+   * fires a load for that while the page stays, without a new hello, so the
+   * next load keeps the session. A hello or bye first means a real
+   * navigation, which settles the session as usual.
+   */
+  expectFragmentLoad(): void
   dispose(): void
 }
 
@@ -95,6 +102,7 @@ export function createHtmlCommentBridge(
   let helloSinceLoad = false
   let pendingText: string | null = null
   let disposed = false
+  let fragmentLoad = false
   const unhost = () => {
     pendingText = null
     if (!hosted) return
@@ -102,7 +110,8 @@ export function createHtmlCommentBridge(
     onMessage({ type: "reset" })
   }
   const onLoad = () => {
-    if (!helloSinceLoad) unhost()
+    if (!helloSinceLoad && !fragmentLoad) unhost()
+    fragmentLoad = false
     helloSinceLoad = false
   }
   const schedule = globalThis.requestAnimationFrame?.bind(globalThis) ?? ((cb: () => void) => setTimeout(cb, 16))
@@ -117,6 +126,7 @@ export function createHtmlCommentBridge(
     if (!frame.contentWindow || e.source !== frame.contentWindow) return
     const msg = parseFrameMessage(e.data)
     if (!msg) return
+    if (msg.type === "hello" || msg.type === "bye") fragmentLoad = false
     if (msg.type === "hello" && msg.path === path) {
       hosted = helloSinceLoad = true
       return post({ type: "host" })
@@ -141,6 +151,9 @@ export function createHtmlCommentBridge(
   frame.addEventListener("load", onLoad)
   return {
     post,
+    expectFragmentLoad() {
+      fragmentLoad = true
+    },
     dispose() {
       disposed = true
       win.removeEventListener("message", listener)
