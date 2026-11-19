@@ -376,3 +376,34 @@ async function runPendingEmbeddingsUnlocked(
 
   return result;
 }
+
+const scheduledRuns = new WeakMap<DB, { running: Promise<void>; rerun: boolean }>();
+
+/**
+ * Embeds `pending` files in the background, reading each from storage. A request
+ * during a run causes another pass after it, so a file queued behind the cursor is not missed.
+ */
+export function schedulePendingEmbeddings(db: DB, s3: StorageAdapter, provider: EmbeddingProvider): Promise<void> {
+  const active = scheduledRuns.get(db);
+  if (active) {
+    active.rerun = true;
+    return active.running;
+  }
+  const state = { running: Promise.resolve(), rerun: false };
+  state.running = (async () => {
+    try {
+      do {
+        state.rerun = false;
+        await runPendingEmbeddings(db, s3, provider, {
+          cpuShare: migrationCpuShare(process.env.AGENT_FS_EMBEDDING_MIGRATION_CPU_SHARE),
+        });
+      } while (state.rerun);
+    } catch (err) {
+      console.error(`[agent-fs] pending embedding run stopped: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      scheduledRuns.delete(db);
+    }
+  })();
+  scheduledRuns.set(db, state);
+  return state.running;
+}

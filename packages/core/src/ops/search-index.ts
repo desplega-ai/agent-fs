@@ -4,6 +4,7 @@ import { removeFromIndex, indexFile } from "../search/fts.js";
 import { deleteChunks, readCurrentVersion, scheduleEmbedding, type ChunkDeleteScope } from "../search/pipeline.js";
 import { canRenderPdfPages } from "../search/pdf.js";
 import { imageEligible, queueImageEmbeddings } from "../search/image-embedding.js";
+import { schedulePendingEmbeddings } from "../search/embedding-migration.js";
 import type { OpContext } from "./types.js";
 import { detectMimeType, extractIndexableText } from "./mime.js";
 
@@ -41,12 +42,13 @@ export async function indexTextForSearch(
     clearSearchData(ctx, path, "image");
   }
   indexFile(ctx.db, { path, driveId: ctx.driveId, content });
-  scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
+  const queued = scheduleEmbedding(ctx.db, ctx.embeddingProvider ?? null, {
     path,
     driveId: ctx.driveId,
     content,
     pageStarts,
   });
+  if (!queued) void schedulePendingEmbeddings(ctx.db, ctx.s3, ctx.embeddingProvider!);
 }
 
 export async function indexBytesForSearch(
