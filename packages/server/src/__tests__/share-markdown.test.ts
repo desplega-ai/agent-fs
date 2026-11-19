@@ -161,6 +161,7 @@ describe("share markdown: bounded work on hostile input", () => {
     ["unmatched backtick runs", Array.from({ length: 600 }, (_, i) => "`".repeat(i + 1)).join(" x ")],
     ["one long backtick run", "`".repeat(200_000)],
     ["unclosed frontmatter", "---\n" + "k: v\n".repeat(50_000)],
+    ["heading with display math full of '<'", "# $$" + "<".repeat(120_000) + "$$\n"],
     ["many footnotes", Array.from({ length: 5_000 }, (_, i) => `r[^f${i}]`).join(" ") + "\n\n" + Array.from({ length: 5_000 }, (_, i) => `[^f${i}]: d`).join("\n")],
   ] as const) {
     test(name, () => {
