@@ -245,7 +245,8 @@ const FRAGMENT_HREF = /^#[^\s"'<>`]{0,200}$/;
 
 function stripTags(html: string): string {
   return html
-    .replace(/<[^>]*>/g, "")
+    // `[^<>]` keeps a run of "<" with no ">" (raw math source in headings) linear.
+    .replace(/<[^<>]*>/g, "")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
