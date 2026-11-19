@@ -6,6 +6,8 @@ import type { AppEnv } from "../types.js";
 
 const MAX_STREAMS_PER_USER = 8;
 const HEARTBEAT_MS = 5000;
+// Writes still waiting on the client; past this the client has stopped reading and the stream closes.
+const MAX_QUEUED_WRITES = 1000;
 
 export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: PresenceRegistry) {
   const router = new Hono<AppEnv>();
@@ -67,19 +69,24 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: Prese
           abort();
           return;
         }
-        let pending = stream.writeSSE({
+        let pending: Promise<unknown> = stream.writeSSE({
           event: "ready",
           data: JSON.stringify({ driveId, at: new Date().toISOString() }),
         });
+        let queued = 0;
+        const enqueue = (write: () => Promise<unknown>) => {
+          if (++queued > MAX_QUEUED_WRITES) return abort();
+          pending = pending.then(write).finally(() => { queued--; });
+        };
         if (withPresence) {
           const snapshot = withPresence.snapshot(driveId);
           pending = pending.then(() => stream.writeSSE({ event: "presence.snapshot", data: JSON.stringify(snapshot) }));
           unsubscribePresence = withPresence.subscribe(driveId, (event) => {
-            pending = pending.then(() => stream.writeSSE({ event: event.type, data: JSON.stringify(event) }));
+            enqueue(() => stream.writeSSE({ event: event.type, data: JSON.stringify(event) }));
           });
         }
         unsubscribe = subscribeDrive(driveId, (event) => {
-          pending = pending.then(() => stream.writeSSE({
+          enqueue(() => stream.writeSSE({
             event: event.type,
             data: JSON.stringify(event),
           }));
@@ -93,7 +100,7 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: Prese
             abort();
             return;
           }
-          pending = pending.then(async () => { await stream.write(": ping\n\n"); });
+          enqueue(() => stream.write(": ping\n\n"));
         }, heartbeatMs);
         await pending;
         await done;
