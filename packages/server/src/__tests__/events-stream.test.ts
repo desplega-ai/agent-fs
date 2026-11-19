@@ -244,6 +244,44 @@ describe("drive stream cleanup without sockets", () => {
     }
   });
 
+  test("a stream whose client stops reading closes while a reading stream gets every event", async () => {
+    const fixture = createTestContext();
+    const app = createApp(fixture.db, fixture.s3);
+    const subscriptions = trackSubscriptions();
+    const open = async () => frames(await app.request(`/orgs/${fixture.orgId}/drives/${fixture.driveId}/events`, {
+      headers: { Authorization: `Bearer ${fixture.apiKey}` },
+    }));
+    const stalled = await open();
+    const active = await open();
+    const events = 3000;
+    try {
+      expect(await stalled.next()).toStartWith("event: ready\n");
+      expect(await active.next()).toStartWith("event: ready\n");
+      let received = 0;
+      const drain = (async () => {
+        while (received < events) if ((await active.next()).startsWith("event: file.changed\n")) received++;
+      })();
+      for (let i = 0; i < events; i++) {
+        core.publishDriveEvent({
+          type: "file.changed", driveId: fixture.driveId, path: `/f-${i}.md`, version: i + 1,
+          operation: "write", actor: fixture.userId, at: new Date().toISOString(),
+        });
+        if ((i + 1) % 50 === 0) await Bun.sleep(1);
+      }
+      await drain;
+      expect(received).toBe(events);
+      await waitForCleanup(subscriptions.listeners, 1);
+      let chunks = 0;
+      while (!(await stalled.reader.read()).done) chunks++;
+      expect(chunks).toBeLessThan(events);
+    } finally {
+      await stalled.reader.cancel().catch(() => {});
+      await active.reader.cancel().catch(() => {});
+      await waitForCleanup(subscriptions.listeners);
+      subscriptions.restore();
+    }
+  }, 20_000);
+
   test("membership revocation closes the stream on the next heartbeat", async () => {
     const fixture = createTestContext();
     const subscriptions = trackSubscriptions();
