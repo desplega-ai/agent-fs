@@ -161,10 +161,7 @@ export class ApiClient {
       headers.set("X-Agent-FS-Message", encodeURIComponent(opts.message));
       headers.set("X-Agent-FS-Message-Encoding", "percent");
     }
-    // The server's raw route matches everything between `/files/` and
-    // `/raw`. The path may already start with `/`; strip leading slashes
-    // so URI encoding doesn't double them up.
-    const encoded = encodeURI(path.replace(/^\/+/, ""));
+    const encoded = encodeRawPath(path);
     const url = `${this.baseUrl}/orgs/${orgId}/drives/${driveId}/files/${encoded}/raw`;
 
     // Cast the Uint8Array body via BufferSource. fetch's lib.dom type is
@@ -213,7 +210,7 @@ export class ApiClient {
     if (this.apiKey) {
       headers.set("Authorization", `Bearer ${this.apiKey}`);
     }
-    const encoded = encodeURI(path.replace(/^\/+/, ""));
+    const encoded = encodeRawPath(path);
     const url = `${this.baseUrl}/orgs/${orgId}/drives/${driveId}/files/${encoded}/raw`;
 
     const res = await this.fetchWithTimeout(url, { method: "GET", headers }, true);
@@ -267,6 +264,16 @@ export class ApiClient {
     }
     throw new Error("Unreachable");
   }
+}
+
+/**
+ * The raw route matches everything between `/files/` and `/raw` and
+ * decodeURIComponent()s it. Encode per segment: encodeURI would leave `#`
+ * and `?` raw, cutting the URL short. Leading slashes are dropped because
+ * the route supplies one.
+ */
+export function encodeRawPath(path: string): string {
+  return path.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
 }
 
 function getTimeoutMs(value: string | undefined): number {

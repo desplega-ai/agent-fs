@@ -100,6 +100,16 @@ describe("ApiClient", () => {
     expect(get.contentHash).toBe(put.contentHash);
   });
 
+  test("putRaw() and getRaw() round-trip names with #, ? and spaces", async () => {
+    const client = await makeClient();
+    const path = "/notes/a#1 what?.md";
+    await client.putRaw(orgId, driveId, path, new TextEncoder().encode("hash"));
+    const get = await client.getRaw(orgId, driveId, path);
+    expect(new TextDecoder().decode(get.bytes)).toBe("hash");
+    const ls = await client.callOp(orgId, "ls", { driveId, path: "/notes" });
+    expect(ls.entries.map((e: any) => e.name)).toContain("a#1 what?.md");
+  });
+
   test("putRaw() keeps markdown link warnings from the server", async () => {
     const client = await makeClient();
 

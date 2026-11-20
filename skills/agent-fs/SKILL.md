@@ -23,7 +23,9 @@ description: >-
   unmount agent-fs as a Linux FUSE filesystem ("mount agent-fs", "fuse mount",
   "fuse", "remote mount", "sandbox mount", "expose drives as files",
   "use cat/grep/mv on my agent-fs files", "umount the drive", "mount a remote
-  drive", "mount from sprite", "mount from e2b", "mount from hetzner"). Also use
+  drive", "mount from sprite", "mount from e2b", "mount from hetzner"), or mount
+  a drive in Finder on macOS ("mount on my mac", "agent-fs in Finder", "open in
+  agent-fs web", "mount at login"). Also use
   when the user wants to use agent-fs as a just-bash filesystem. Also use when the
   user wants to set up agent-fs without Docker or S3 ("local filesystem backend",
   "filesystem storage", "no docker", "onboard --filesystem", "store files on disk").
@@ -386,6 +388,18 @@ FUSE writes require the `editor` role or better on the drive — on drives where
 | `mount --remote` | `agent-fs mount <path> --remote [--api-url <url>] [--api-key <key>]` | Mount against a remote agent-fs HTTP API. Reads `apiUrl`/`apiKey` from `~/.agent-fs/config.json` or `AGENT_FS_API_URL`/`AGENT_FS_API_KEY` env if flags omitted. Prefer env over `--api-key` (the latter exposes the key in `ps`). |
 | `umount` | `agent-fs umount <path>` | Unmount the FUSE mountpoint. |
 | `mount status` | `agent-fs mount status` | Show whether a mount is active and where. |
+
+### macOS mount (NFS)
+
+On macOS, `agent-fs mount` mounts one drive (the active org/drive, or `--org`/`--drive`) at `~/agent-fs` through a local NFS server on `127.0.0.1` and the built-in `mount_nfs`. No macFUSE, no kext. File contents stay in memory and never touch local disk; writes upload on close (NFS COMMIT) or after 2 s idle. Step-by-step test guide: `TEST-ON-MAC.md`.
+
+| Command | Usage | Description |
+|---------|-------|-------------|
+| `mount` (macOS) | `agent-fs mount [path] [--foreground]` | Mount the drive at `path` (default `~/agent-fs`). |
+| `mount --install` | `agent-fs mount [path] --install` | Mount at every login (LaunchAgent `dev.agent-fs.mount`) and add the Finder Quick Action "Open in agent-fs". `--uninstall` reverses both. |
+| `mount --serve-only` | `agent-fs mount --serve-only [--port <n>]` | Run the NFS server without mounting (any OS); prints the `mount_nfs` / `mount -t nfs` line to run yourself. |
+| `unmount` | `agent-fs unmount [path]` | Upload pending writes, unmount, stop the server (alias of `umount`). |
+| `open` | `agent-fs open <local path> [--print]` | Open a file or folder from the mount in the web app (`appUrl`, default `https://live.agent-fs.dev`). |
 
 ## Common Workflows
 
