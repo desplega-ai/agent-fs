@@ -1,84 +1,104 @@
 # agent-fs
 
-See [PRODUCT.md](./PRODUCT.md) for product vision and positioning (agent-fs is to files what agentmail is to email).
+Bun monorepo: `packages/{core, cli, mcp, server}`. Product vision and positioning: [PRODUCT.md](./PRODUCT.md) (agent-fs is to files what agentmail is to email).
 
-Bun monorepo: `packages/{core, cli, mcp, server}`
+## Key decisions
 
-## Pull request description
+- CLI binary: `agent-fs` (hyphenated, matches the repo name). npm package: `@desplega.ai/agent-fs` (`agent-fs` is squatted on npm).
+- Internal packages, workspace-only and not published: `@desplega.ai/agent-fs-core`, `@desplega.ai/agent-fs-server`, `@desplega.ai/agent-fs-mcp`. Import aliases in all source imports: `@/core`, `@/server`, `@/mcp` (tsconfig paths).
+- Runtime target: Bun only, no Node.js support. Publish with `bun publish` (auth through `NPM_CONFIG_TOKEN`), not `npm publish`.
+- Config paths: `AGENT_FS_HOME`, `~/.agent-fs/`, `agent-fs.db`, `agent-fs.pid`, `agent-fs.log`. Env vars: `AGENT_FS_API_URL`, `AGENT_FS_API_KEY`, `AGENT_FS_HOME`.
+- Docker names: `agent-fs-minio`, `agent-fs-minio-data`. Local user: `local@agent-fs.local`.
 
-Every PR, from anyone, fills the org template [desplega-ai/.github/pull_request_template.md](https://github.com/desplega-ai/.github/blob/main/pull_request_template.md): keep its `**Why:**` and `**Risk:**` lines and its `##` headings.
-`gh pr create --body` and `--fill` skip the template. Write the body to a file and pass `--body-file`.
-Check the file with the org checker: `git clone --depth 1 https://github.com/desplega-ai/.github /tmp/desplega-github && cd /tmp/desplega-github/pr-body && PR_TEMPLATE_PATH=../pull_request_template.md bun scripts/check-pr-body.ts --title "<title>" --body-file <absolute path>`.
-A red **PR Body** check fails the required `ci` job and blocks the merge. Editing the description re-runs it; no push needed.
+## Pull requests
 
-## Commands
+Every PR, from anyone, fills the org template [desplega-ai/.github/pull_request_template.md](https://github.com/desplega-ai/.github/blob/main/pull_request_template.md): keep its `**Why:**`, `**Risk:**` and `**Urgency:**` lines and its `##` headings. `gh pr create --body` and `--fill` skip the template, so write the body to a file, check it with the org checker, then pass it with `--body-file`:
 
-- `bun install` — install dependencies
-- `bun run typecheck` — TypeScript type checking (`tsc --build`)
-- `bun run build` — bundle CLI for npm to `packages/cli/dist/cli.js`
-- `bun run test` — run tests (manual/integration tests auto-skip without env)
-- `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` — CLI E2E tests (requires Docker for MinIO)
-- `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only` — credential-free local-filesystem E2E mode used in CI
+```bash
+git clone --depth 1 https://github.com/desplega-ai/.github /tmp/desplega-github
+cd /tmp/desplega-github/pr-body && PR_TEMPLATE_PATH=../pull_request_template.md \
+  bun scripts/check-pr-body.ts --title "<title>" --body-file <absolute path>
+```
 
-## Releasing & Deployment
+A red **PR Body** check fails the required `ci` job and blocks the merge. Editing the description re-runs it, with no push.
 
-**[RELEASING.md](./RELEASING.md) is the source of truth for the release process** — read it before touching versions, release scripts, or the publish workflows. Do not restate its mechanics elsewhere; link to it.
+- `## Before / after` is required on every PR. Show what a user or an agent sees change: CLI output or an API result as a `diff` block, a screenshot pair for `live/` or `landing/`, or the line `No visible change: <reason>` for a change that nobody can see.
+- For a `fix:` title, `## Verified` shows the control on `main`: the failure before the fix.
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for deployment targets (npm package contents, Docker/GHCR, Fly.io, env vars).
+<important if="you need to run commands to install, type check, build or test">
 
-Short version: releases are automatic. A version change landing on `main` triggers tag + publish.
+| Command | What it does |
+|---|---|
+| `bun install` | Install dependencies |
+| `bun run typecheck` | TypeScript type checking (`tsc --build`) |
+| `bun run build` | Bundle the CLI for npm to `packages/cli/dist/cli.js` |
+| `bun run test` | Run tests (manual and integration tests skip themselves without env) |
+| `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --"` | CLI E2E tests (needs Docker for MinIO) |
+| `bun run scripts/e2e.ts "bun run packages/cli/src/index.ts --" --local-only` | Local-filesystem E2E mode, no credentials. CI uses it |
+
+</important>
+
+<important if="you are changing core ops, CLI commands or MCP tools, or writing a plan or research document that involves them">
+
+Check these three, and list them as explicit steps in a plan or research document:
+
+1. **Skill update.** A new op or command, or changed behavior, also changes `skills/agent-fs/SKILL.md`: command tables, description triggers, workflow examples.
+2. **E2E coverage.** A new op gets tests in `scripts/e2e.ts`.
+3. **Version bump.** Run `./scripts/release.sh <version>` (patch for fixes and features, minor for breaking changes). It bumps every target at once, including `.claude-plugin/plugin.json`, and the release publishes when it reaches `main`.
+
+`scripts/e2e.ts` starts an isolated backend and a daemon on a random port, then runs the CLI and MCP tests end to end. CI uses `--local-only` (local filesystem, no Docker). The default mode also covers MinIO presigned URLs and Docker FUSE: run it as a regression check when you modify core ops, CLI commands or MCP. If a core change breaks something, extend the E2E suite to cover it.
+
+</important>
+
+<important if="you are touching versions, release scripts, publish workflows, Dockerfiles or the Bun version">
+
+[RELEASING.md](./RELEASING.md) is the source of truth for the release process. Read it first, and link to it instead of restating its mechanics. Deployment targets (npm package contents, Docker/GHCR, Fly.io, env vars): [DEPLOYMENT.md](./DEPLOYMENT.md).
+
+Releases are automatic: a version change that lands on `main` triggers the tag and the publish.
 
 ```bash
 ./scripts/release.sh 0.13.0   # sync every version target, commit, push
 ```
 
-Never bump a version by hand-editing `package.json` — `scripts/sync-versions.ts` owns every place the version appears, and CI fails a partial bump.
+- Bump a version only through that script. `scripts/sync-versions.ts` owns every place the version appears (every `package.json`, the FUSE `Cargo.toml`, `.claude-plugin/plugin.json`), and CI fails a partial bump.
+- `sync-versions.ts --check` runs on every PR and before every tag ([RELEASING.md § Version targets](./RELEASING.md#version-targets)). It requires that `bun.lock` workspace versions move with the release version, and that one exact Bun version is pinned in `package.json` `packageManager`, both `Dockerfile` `FROM oven/bun:` tags and every workflow `bun-version:`.
+- Pin the exact Bun number in those three places together. A floating `oven/bun:1.4` tag lets the image and CI drift apart.
+- Run `bun install --frozen-lockfile` after any dependency or version change, so that the lockfile is committed with it.
 
-Two more invariants that `sync-versions.ts --check` enforces on every PR and before every tag (details in [RELEASING.md § Version targets](./RELEASING.md#version-targets)): `bun.lock` workspace versions move with the release version, and the bun version is pinned to the same exact number in `package.json` `packageManager`, both `Dockerfile` `FROM oven/bun:` tags, and every workflow `bun-version:`. Never use a floating `oven/bun:1.4` tag. Bump the three places together, and run `bun install --frozen-lockfile` after any dependency or version change so the lockfile is committed with it.
+</important>
 
-## Release Checklist (applies to plans, research, and Plan mode)
+<important if="you are working in live/ or landing/">
 
-When making changes to core ops, CLI commands, or MCP tools, always check:
-
-1. **Skill update** — If a new op/command was added or existing behavior changed, update `skills/agent-fs/SKILL.md` (command tables, description triggers, workflow examples).
-2. **E2E coverage** — If a new op was added, add corresponding tests to `scripts/e2e.ts`.
-3. **Version bump** — Run `./scripts/release.sh <version>` (patch for fixes/features, minor for breaking changes). This bumps every target at once — including `.claude-plugin/plugin.json`, which must never be edited by hand — and publishes automatically once it reaches `main`.
-
-Plans and research documents MUST include these as explicit steps when they involve core/CLI/MCP changes.
-
-## E2E Tests
-
-`scripts/e2e.ts` spins up an isolated backend, starts a daemon on a random port, and runs the CLI + MCP tests end-to-end. CI uses `--local-only` for credential-free local-filesystem coverage without Docker; the default mode additionally covers MinIO presigned URLs and Docker FUSE. Run the default mode as a regression check when modifying core ops, CLI commands, or MCP. If a core change breaks something, extend the E2E suite to cover it.
-
-## Gotcha: `live/` and `landing/` are pnpm, not bun
-
-The root + `packages/*` use bun. **`live/` and `landing/` both use pnpm** (Vercel deploys them with `pnpm install`). Add deps there with `pnpm add <pkg>` so the local `pnpm-lock.yaml` stays the source of truth — running `bun add` creates a stale `bun.lock` and the Vercel preview deploy fails because pnpm's lockfile no longer matches `package.json`. The "Bun-only" runtime decision below applies to the CLI/server, not to these two web apps.
+`live/` and `landing/` use pnpm, not bun: Vercel deploys them with `pnpm install`. Add a dependency there with `pnpm add <pkg>`, so that `pnpm-lock.yaml` stays the source of truth. `bun add` creates a stale `bun.lock`, and the Vercel preview deploy then fails because pnpm's lockfile no longer matches `package.json`. The Bun-only runtime decision applies to the CLI and the server, not to these two web apps.
 
 `landing/` notes:
-- Vite SPA (`landing/src/`); doc pages render at `/docs/<slug>` via client-side routing in `App.tsx`.
-- Docs content is imported from the repo's top-level `docs/` via `?raw` (see `landing/src/content/docs.ts`) and additionally synced to `landing/public/docs/` by `landing/scripts/generate-markdown.ts` (runs in `pnpm build`).
-- `landing/content/markdown.ts` is the source of truth for `/llms.txt` and `/md/index.md` — update it when adding new doc pages so agents discover them.
-- Theme handling lives in `landing/src/lib/theme.tsx` (light/dark, persisted to `localStorage`); CSS vars are defined in `landing/src/index.css` with `:root.light { ... }` overrides. An inline pre-paint script in `landing/index.html` sets the class before React mounts to avoid FOUC.
 
-## Gotcha: Stale `.js` files in `src/` dirs
+- Vite SPA (`landing/src/`). Doc pages render at `/docs/<slug>` through client-side routing in `App.tsx`.
+- Docs content is imported from the top-level `docs/` with `?raw` (`landing/src/content/docs.ts`), and `landing/scripts/generate-markdown.ts` also syncs it to `landing/public/docs/` (it runs in `pnpm build`).
+- `landing/content/markdown.ts` is the source of truth for `/llms.txt` and `/md/index.md`. Update it when you add a doc page, so that agents discover it.
+- Theme handling is in `landing/src/lib/theme.tsx` (light and dark, persisted to `localStorage`). CSS variables are in `landing/src/index.css`, with `:root.light { ... }` overrides. An inline pre-paint script in `landing/index.html` sets the class before React mounts, which avoids a flash of the wrong theme.
 
-`tsc --build` outputs compiled `.js`/`.d.ts` files to `dist/` via `outDir`. However, if `dist/` is ever missing or a previous misconfiguration wrote outputs to `src/`, stale `.js` files can linger in `packages/*/src/`. **Bun prefers `.js` over `.ts` when an import specifies `.js` extension**, so these stale files silently shadow the real `.ts` source — causing baffling runtime bugs (e.g., calling an old async function that's now sync). If you see inexplicable runtime behavior that contradicts the source, check for `.js` files in `src/` dirs: `find packages/*/src -maxdepth 1 -name "*.js"` and delete them.
+</important>
 
-## FUSE helper (`packages/fuse-helper/`)
+<important if="runtime behavior contradicts the TypeScript source, or you changed tsconfig or build output paths">
 
-Rust crate that exposes `agent-fs` drives as a Linux FUSE filesystem. Built independently from the Bun monorepo (it's a `cargo` workspace member rooted at `/Cargo.toml`).
+Look for stale `.js` files in `src/` directories. `tsc --build` writes `.js` and `.d.ts` files to `dist/` through `outDir`. If `dist/` was ever missing, or an earlier misconfiguration wrote outputs to `src/`, stale `.js` files can remain in `packages/*/src/`. Bun prefers `.js` over `.ts` when an import names the `.js` extension, so a stale file silently shadows the real source (for example a call reaches an old async function that is now sync). Find them with `find packages/*/src -maxdepth 1 -name "*.js"` and delete them.
 
-- **Host build (Darwin/Linux dev):** `cd packages/fuse-helper && cargo build --release` — compiles + checks the binary. On Darwin it builds but cannot mount; use the Docker harness for mount tests.
-- **macOS mount testing:** `packages/fuse-helper/docker/run-mount-test.sh` — Ubuntu 24.04 + `fuse3` + `/dev/fuse`, mounts the helper against a stub Unix socket, asserts the mount table.
-- **Cross build for release artifacts:** `cross build --release --target x86_64-unknown-linux-musl` (and `aarch64-unknown-linux-musl`) — produces stripped static musl binaries ≤ 5 MB that feed the per-platform npm sub-packages in `@desplega.ai/agent-fs-fuse-linux-{x64,arm64}`.
-- **Tests:** `cargo test` runs unit tests + `tests/ipc_roundtrip.rs` (stub Unix server, 100-way multiplex check) and `tests/filesystem_smoke.rs` (MockIpc-backed open/write/release coverage). No `/dev/fuse` needed.
-- **Lint/format:** `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`.
+</important>
 
-The `target/` directory is gitignored. `Cargo.lock` is committed (binary crate).
+<important if="you are working on the FUSE helper (packages/fuse-helper, packages/fuse-helper-linux-x64, packages/fuse-helper-linux-arm64) or the mount command">
 
-### Local dev — bypassing the published sub-package
+`packages/fuse-helper/` is a Rust crate that exposes agent-fs drives as a Linux FUSE filesystem. It builds apart from the Bun monorepo: it is a `cargo` workspace member rooted at `/Cargo.toml`. `target/` is gitignored, and `Cargo.lock` is committed (binary crate).
 
-On Darwin (or any host without the published Linux binary), the CLI's binary resolver looks for `@desplega.ai/agent-fs-fuse-linux-<arch>` via `optionalDependencies` and fails on Darwin (the sub-package's `os: ["linux"]` constraint prevents install). To bypass:
+| Task | Command |
+|---|---|
+| Host build (Darwin or Linux) | `cd packages/fuse-helper && cargo build --release`. On Darwin it builds but cannot mount |
+| Mount test on macOS | `packages/fuse-helper/docker/run-mount-test.sh`: Ubuntu 24.04 with `fuse3` and `/dev/fuse`, mounts the helper against a stub Unix socket and asserts the mount table |
+| Cross build for release | `cross build --release --target x86_64-unknown-linux-musl` (and `aarch64-unknown-linux-musl`): stripped static musl binaries of 5 MB or less, which feed `@desplega.ai/agent-fs-fuse-linux-{x64,arm64}` |
+| Tests | `cargo test`: unit tests, `tests/ipc_roundtrip.rs` (stub Unix server, 100-way multiplex check) and `tests/filesystem_smoke.rs` (MockIpc-backed open, write, release). No `/dev/fuse` needed |
+| Lint and format | `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` |
+
+**Local dev without the published sub-package.** The CLI's binary resolver looks for `@desplega.ai/agent-fs-fuse-linux-<arch>` through `optionalDependencies`. On Darwin that fails, because the sub-package's `os: ["linux"]` constraint prevents the install. Use your own build:
 
 ```bash
 cd packages/fuse-helper && cargo build --release
@@ -86,27 +106,16 @@ export AGENT_FS_FUSE_BIN="$PWD/target/release/agent-fs-fuse"
 agent-fs mount /tmp/m
 ```
 
-`AGENT_FS_FUSE_BIN` takes precedence over the sub-package resolver, so the helper you just built is used. On Darwin the build succeeds but the mount call still fails — use `packages/fuse-helper/docker/run-mount-test.sh` for end-to-end mount tests.
+`AGENT_FS_FUSE_BIN` takes precedence over the sub-package resolver. On Darwin the build succeeds but the mount call still fails: use `packages/fuse-helper/docker/run-mount-test.sh` for an end-to-end mount test.
 
-The CLI also looks for `packages/cli/dist/fuse-bin.manifest.json` (a SHA-256 manifest of the published binaries) to verify what it spawns. The manifest is generated by `bun run packages/cli/scripts/build-fuse-manifest.ts` during the release workflow. Locally, the manifest is usually absent — the CLI prints a warning and proceeds.
+The CLI also reads `packages/cli/dist/fuse-bin.manifest.json`, a SHA-256 manifest of the published binaries, to verify what it spawns. `bun run packages/cli/scripts/build-fuse-manifest.ts` generates it in the release workflow. Locally it is usually absent: the CLI prints a warning and continues.
 
-### Per-platform sub-packages (`packages/fuse-helper-linux-{x64,arm64}/`)
+**Per-platform sub-packages** (`packages/fuse-helper-linux-{x64,arm64}/`). Each one is a thin wrapper around the cross-compiled binary, published to npm on its own as `@desplega.ai/agent-fs-fuse-linux-x64` and `-linux-arm64`. It holds only `package.json`, `README.md` and `bin/agent-fs-fuse`. The release workflow fills `bin/`, and locally it holds only `.gitkeep`. The main `@desplega.ai/agent-fs` package lists both in `optionalDependencies`, pinned to the exact main version. `scripts/sync-versions.ts <version>` keeps them in lockstep.
 
-Each sub-package is a thin wrapper around the cross-compiled binary, published independently to npm as `@desplega.ai/agent-fs-fuse-linux-x64` / `-linux-arm64`. They contain only `package.json`, `README.md`, and `bin/agent-fs-fuse` (populated by the release workflow — locally the `bin/` dir is empty except for `.gitkeep`). The main `@desplega.ai/agent-fs` package lists both in `optionalDependencies`, pinned to the exact main version. `scripts/sync-versions.ts <version>` rewrites every `package.json`, the FUSE Cargo.toml, and `.claude-plugin/plugin.json` together so they stay in lockstep.
+</important>
 
-## Storage backends
+<important if="you are changing storage adapters (packages/core/src/storage) or bumping files-sdk">
 
-`packages/core/src/storage/factory.ts` picks one of two adapters. `provider: "local"` uses `LocalStorageAdapter`, the only code that imports [`files-sdk`](https://github.com/haydenbleasel/files-sdk) (its `files-sdk/fs` adapter). Every other provider goes through `AgentS3Client` (AWS SDK v3), so a remote store works only if it speaks the S3 API. files-sdk's other provider adapters (Convex, Upstash Blob, Vercel Blob, …) are not wired in. When bumping files-sdk across a major, read its CHANGELOG for `Files`, `files-sdk/fs`, `head`/`list` result shapes and error codes, and run `packages/core/src/storage/__tests__/` plus the `--local-only` E2E.
+`packages/core/src/storage/factory.ts` picks one of two adapters. `provider: "local"` uses `LocalStorageAdapter`, the only code that imports [`files-sdk`](https://github.com/haydenbleasel/files-sdk) (its `files-sdk/fs` adapter). Every other provider goes through `AgentS3Client` (AWS SDK v3), so a remote store works only if it speaks the S3 API. The other provider adapters of files-sdk (Convex, Upstash Blob, Vercel Blob and more) are not wired in. When you bump files-sdk across a major version, read its CHANGELOG for `Files`, `files-sdk/fs`, the `head` and `list` result shapes and the error codes, then run `packages/core/src/storage/__tests__/` and the `--local-only` E2E.
 
-## Key Decisions
-
-- **CLI binary name:** `agent-fs` (hyphenated, matches repo name)
-- **npm package:** `@desplega.ai/agent-fs` (`agent-fs` is squatted on npm)
-- **Internal package names:** `@desplega.ai/agent-fs-core`, `@desplega.ai/agent-fs-server`, `@desplega.ai/agent-fs-mcp` (workspace-only, not published)
-- **Import aliases:** `@/core`, `@/server`, `@/mcp` via tsconfig paths (used in all source imports)
-- **Config paths:** `AGENT_FS_HOME`, `~/.agent-fs/`, `agent-fs.db`, `agent-fs.pid`, `agent-fs.log`
-- **Docker names:** `agent-fs-minio`, `agent-fs-minio-data`
-- **Local user:** `local@agent-fs.local`
-- **Env vars:** `AGENT_FS_API_URL`, `AGENT_FS_API_KEY`, `AGENT_FS_HOME`
-- **npm publishing:** `bun publish` (not `npm publish`), auth via `NPM_CONFIG_TOKEN`
-- **Runtime target:** Bun-only, no Node.js support
+</important>
