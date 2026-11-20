@@ -10,6 +10,11 @@ import { XdrReader, XdrWriter } from "../xdr.js";
 class MemDrive implements DriveApi {
   files = new Map<string, Uint8Array>();
   calls: string[] = [];
+  /** When set, uploads wait on it, so a test can act while one is in flight. */
+  gate?: Promise<void>;
+  uploading?: () => void;
+  failRemove = false;
+  failMove = false;
 
   constructor(init: Record<string, string>) {
     for (const [p, c] of Object.entries(init)) this.files.set(p, new TextEncoder().encode(c));
@@ -34,14 +39,21 @@ class MemDrive implements DriveApi {
   }
   async write(p: string, bytes: Uint8Array) {
     this.calls.push(`write ${p} ${new TextDecoder().decode(bytes)}`);
-    this.files.set(p, bytes.slice());
+    const copy = bytes.slice();
+    if (this.gate) {
+      this.uploading?.();
+      await this.gate;
+    }
+    this.files.set(p, copy);
   }
   async remove(p: string) {
     this.calls.push(`rm ${p}`);
+    if (this.failRemove) throw new Error("offline");
     this.files.delete(p);
   }
   async move(from: string, to: string) {
     this.calls.push(`mv ${from} ${to}`);
+    if (this.failMove) throw new Error("offline");
     this.files.set(to, this.files.get(from)!);
     this.files.delete(from);
   }
@@ -111,6 +123,32 @@ async function write(server: NfsServer, fh: Uint8Array, offset: number, data: st
   const bytes = enc(data);
   const r = await rpc(server, 100003, 7, (w) => w.opaque(fh).u64(offset).u32(bytes.length).u32(0).opaque(bytes));
   expect(r.u32()).toBe(0);
+}
+
+/** A WRITE with the given stable_how; returns the status and the committed level. */
+async function stableWrite(server: NfsServer, fh: Uint8Array, data: string, stable: number) {
+  const bytes = enc(data);
+  const r = await rpc(server, 100003, 7, (w) => w.opaque(fh).u64(0).u32(bytes.length).u32(stable).opaque(bytes));
+  const status = r.u32();
+  r.bool(); // pre_op_attr: none
+  if (r.bool()) skipFattr(r);
+  if (status !== 0) return { status };
+  r.u32(); // count
+  return { status, committed: r.u32() };
+}
+
+/** Hold every upload until release(); started resolves once one is in flight. */
+function holdUploads(drive: MemDrive) {
+  let release!: () => void;
+  drive.gate = new Promise<void>((r) => (release = r));
+  const started = new Promise<void>((r) => (drive.uploading = r));
+  return {
+    started,
+    release: () => {
+      drive.gate = undefined;
+      release();
+    },
+  };
 }
 
 async function commit(server: NfsServer, fh: Uint8Array) {
@@ -340,5 +378,120 @@ describe("NFSv3 server over an agent-fs drive", () => {
     } finally {
       await server.close();
     }
+  });
+});
+
+describe("write durability and ordering against the drive", () => {
+  test("DATA_SYNC and FILE_SYNC writes reply only after the upload lands; UNSTABLE stays buffered", async () => {
+    const { server, drive } = setup({ "/a.md": "old" });
+    const fh = (await lookup(server, await mnt(server), "a.md")).fh!;
+    expect(await stableWrite(server, fh, "buf", 0)).toEqual({ status: 0, committed: 0 });
+    expect(drive.text("/a.md")).toBe("old");
+
+    for (const stable of [1, 2]) {
+      const hold = holdUploads(drive);
+      let settled = false;
+      const reply = stableWrite(server, fh, `sy${stable}`, stable).finally(() => (settled = true));
+      await hold.started;
+      await Bun.sleep(10);
+      expect(settled).toBe(false);
+      hold.release();
+      expect(await reply).toEqual({ status: 0, committed: 2 });
+      expect(drive.text("/a.md")).toBe(`sy${stable}`);
+    }
+  });
+
+  test("a FILE_SYNC write whose upload fails returns IO and keeps the bytes pending", async () => {
+    const { server, drive, vfs } = setup({ "/a.md": "old" });
+    const fh = (await lookup(server, await mnt(server), "a.md")).fh!;
+    drive.write = async () => {
+      throw new Error("permission denied");
+    };
+    expect((await stableWrite(server, fh, "new", 2)).status).toBe(5);
+    expect(vfs.pending()).toEqual(["/a.md"]);
+    expect(await readAll(server, fh)).toBe("new");
+  });
+
+  test("a failed remove keeps the unsaved bytes", async () => {
+    const { drive, vfs } = setup({ "/a.md": "old" });
+    await vfs.write("/a.md", 0, enc("new"));
+    drive.failRemove = true;
+    await expect(vfs.remove("/", "a.md")).rejects.toThrow("offline");
+    expect(new TextDecoder().decode((await vfs.read("/a.md", 0, 10)).data)).toBe("new");
+    expect(vfs.pending()).toEqual(["/a.md"]);
+  });
+
+  test("a failed rename keeps the target's unsaved bytes", async () => {
+    const { drive, vfs } = setup({ "/src.md": "source", "/dst.md": "old" });
+    await vfs.write("/dst.md", 0, enc("NEW"));
+    drive.failMove = true;
+    await expect(vfs.rename("/", "src.md", "/", "dst.md")).rejects.toThrow("offline");
+    expect(new TextDecoder().decode((await vfs.read("/dst.md", 0, 10)).data)).toBe("NEW");
+    expect(vfs.pending()).toEqual(["/dst.md"]);
+  });
+
+  test("rename over a file whose upload is running: the renamed file wins", async () => {
+    const { drive, vfs } = setup({ "/target.md": "old", "/temp.md": "replacement" });
+    await vfs.write("/target.md", 0, enc("STALE"));
+    const hold = holdUploads(drive);
+    const upload = vfs.flush("/target.md");
+    await hold.started;
+    const rename = vfs.rename("/", "temp.md", "/", "target.md");
+    await Bun.sleep(10);
+    hold.release();
+    await Promise.all([upload, rename]);
+    expect(drive.text("/target.md")).toBe("replacement");
+    expect(drive.files.has("/temp.md")).toBe(false);
+    expect(vfs.pending()).toEqual([]);
+  });
+
+  test("remove of a file whose upload is running: it stays deleted", async () => {
+    const { drive, vfs } = setup({ "/a.md": "old" });
+    await vfs.write("/a.md", 0, enc("new"));
+    const hold = holdUploads(drive);
+    const upload = vfs.flush("/a.md");
+    await hold.started;
+    const remove = vfs.remove("/", "a.md");
+    await Bun.sleep(10);
+    hold.release();
+    await Promise.all([upload, remove]);
+    expect(drive.files.has("/a.md")).toBe(false);
+    expect(vfs.pending()).toEqual([]);
+  });
+
+  test("a write still loading the old bytes when remove arrives cannot bring the file back", async () => {
+    const { drive, vfs } = setup({ "/a.md": "old" });
+    const realRead = drive.read.bind(drive);
+    let reading!: () => void;
+    let releaseRead!: () => void;
+    const started = new Promise<void>((r) => (reading = r));
+    const held = new Promise<void>((r) => (releaseRead = r));
+    drive.read = async (p) => {
+      const bytes = await realRead(p);
+      reading();
+      await held;
+      return bytes;
+    };
+    const write = vfs.write("/a.md", 0, enc("new")).catch(() => {});
+    await started;
+    const remove = vfs.remove("/", "a.md");
+    await Bun.sleep(10);
+    releaseRead();
+    await Promise.all([write, remove]);
+    await vfs.flushAll();
+    expect(drive.files.has("/a.md")).toBe(false);
+    expect(vfs.pending()).toEqual([]);
+  });
+
+  test("renaming an unsaved folder moves its idle uploads to the new path", async () => {
+    const { drive, vfs } = setup({}, 15);
+    await vfs.mkdir("/", "folder");
+    await vfs.create("/folder", "new.md", false);
+    await vfs.write("/folder/new.md", 0, enc("new"));
+    await vfs.rename("/", "folder", "/", "renamed");
+    await Bun.sleep(80);
+    expect(drive.text("/renamed/new.md")).toBe("new");
+    expect(drive.files.has("/folder/new.md")).toBe(false);
+    expect(vfs.pending()).toEqual([]);
   });
 });

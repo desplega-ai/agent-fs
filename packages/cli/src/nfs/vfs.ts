@@ -60,6 +60,8 @@ export interface VfsOptions {
 }
 
 interface Dirty {
+  /** Where the buffer lives now; its timer flushes this path, so a rename retargets it. */
+  path: string;
   buf: Uint8Array;
   len: number;
   gen: number;
@@ -67,7 +69,6 @@ interface Dirty {
   mtimeMs: number;
   localOnly: boolean;
   timer?: ReturnType<typeof setTimeout>;
-  flushing?: Promise<void>;
 }
 
 interface Listing {
@@ -112,7 +113,8 @@ export class Vfs {
   private content = new Map<string, Cached>();
   private contentBytes = 0;
   private dirty = new Map<string, Dirty>();
-  private dirtyLoads = new Map<string, Promise<Dirty>>();
+  // Per-path queue: uploads, buffer loads, remove and rename of a path run one at a time.
+  private locks = new Map<string, Promise<void>>();
   private virtualDirs = new Set<string>();
   private listTtlMs: number;
   private flushIdleMs: number;
@@ -128,6 +130,7 @@ export class Vfs {
     this.log = opts.log ?? ((m) => console.error(m));
     // Spotlight skips a volume with this file at its root; indexing would download the whole drive.
     this.dirty.set("/.metadata_never_index", {
+      path: "/.metadata_never_index",
       buf: new Uint8Array(0),
       len: 0,
       gen: 0,
@@ -288,28 +291,47 @@ export class Vfs {
   private async dirtyFor(path: string, keepContent: boolean): Promise<Dirty> {
     const existing = this.dirty.get(path);
     if (existing) return existing;
-    let load = this.dirtyLoads.get(path);
-    if (!load) {
-      load = (async () => {
-        const attr = await this.exists(path);
-        if (attr?.type === "directory") throw new FsError(NFS3ERR_ISDIR);
-        const bytes = attr && keepContent ? await this.fetch(path, attr) : new Uint8Array(0);
-        const raced = this.dirty.get(path);
-        if (raced) return raced;
-        const d: Dirty = {
-          buf: bytes.slice(),
-          len: bytes.length,
-          gen: 0,
-          flushedGen: 0,
-          mtimeMs: Date.now(),
-          localOnly: isLocalOnly(path),
-        };
-        this.dirty.set(path, d);
-        return d;
-      })().finally(() => this.dirtyLoads.delete(path));
-      this.dirtyLoads.set(path, load);
+    return this.withPaths([path], async () => {
+      const raced = this.dirty.get(path);
+      if (raced) return raced;
+      const attr = await this.exists(path);
+      if (attr?.type === "directory") throw new FsError(NFS3ERR_ISDIR);
+      // A write that lost the race with a remove must not bring the file back.
+      if (!attr && keepContent) throw new FsError(NFS3ERR_STALE);
+      const bytes = attr && keepContent ? await this.fetch(path, attr) : new Uint8Array(0);
+      const d: Dirty = {
+        path,
+        buf: bytes.slice(),
+        len: bytes.length,
+        gen: 0,
+        flushedGen: 0,
+        mtimeMs: Date.now(),
+        localOnly: isLocalOnly(path),
+      };
+      this.dirty.set(path, d);
+      return d;
+    });
+  }
+
+  /** Run fn holding every path's lock, taken in sorted order so two callers never deadlock. */
+  private async withPaths<T>(paths: string[], fn: () => Promise<T>): Promise<T> {
+    const releases: Array<() => void> = [];
+    try {
+      for (const p of [...new Set(paths)].sort()) {
+        const prev = this.locks.get(p) ?? Promise.resolve();
+        let release!: () => void;
+        const tail = prev.then(() => new Promise<void>((r) => (release = r)));
+        this.locks.set(p, tail);
+        await prev;
+        releases.push(() => {
+          release();
+          if (this.locks.get(p) === tail) this.locks.delete(p);
+        });
+      }
+      return await fn();
+    } finally {
+      for (const r of releases) r();
     }
-    return load;
   }
 
   private resize(d: Dirty, len: number): void {
@@ -323,25 +345,51 @@ export class Vfs {
     d.len = len;
   }
 
-  private touched(path: string, d: Dirty): void {
+  private touched(d: Dirty): void {
     d.gen++;
     d.mtimeMs = Date.now();
-    if (!d.localOnly) this.schedule(path, d, this.flushIdleMs);
+    if (!d.localOnly) this.schedule(d, this.flushIdleMs);
   }
 
-  private schedule(path: string, d: Dirty, delayMs: number): void {
-    if (d.timer) clearTimeout(d.timer);
+  private schedule(d: Dirty, delayMs: number): void {
+    this.stopTimer(d);
     d.timer = setTimeout(() => {
       d.timer = undefined;
-      this.flush(path).catch(() => {});
+      this.flush(d.path).catch(() => {});
     }, delayMs);
+  }
+
+  private stopTimer(d: Dirty | undefined): void {
+    if (d?.timer) clearTimeout(d.timer);
+    if (d) d.timer = undefined;
+  }
+
+  /** Re-arm the idle upload of a buffer whose remote mutation failed, so its bytes still land. */
+  private keep(d: Dirty | undefined): void {
+    if (d && this.dirty.get(d.path) === d && !d.localOnly && d.gen !== d.flushedGen) {
+      this.schedule(d, this.flushIdleMs);
+    }
+  }
+
+  /** Move a buffer to a new path. It uploads there if it became a real file, and stops if it became Finder metadata. */
+  private rekey(d: Dirty, to: string): void {
+    if (this.dirty.get(d.path) === d) this.dirty.delete(d.path);
+    const wasLocal = d.localOnly;
+    d.path = to;
+    d.localOnly = isLocalOnly(to);
+    this.dirty.set(to, d);
+    if (d.localOnly) this.stopTimer(d);
+    else if (wasLocal) {
+      d.flushedGen = -1;
+      this.touched(d);
+    } else if (d.gen !== d.flushedGen) this.schedule(d, this.flushIdleMs);
   }
 
   async write(path: string, offset: number, data: Uint8Array): Promise<Attr> {
     const d = await this.dirtyFor(path, true);
     if (offset + data.length > d.len) this.resize(d, offset + data.length);
     d.buf.set(data, offset);
-    this.touched(path, d);
+    this.touched(d);
     return this.attr(path);
   }
 
@@ -351,7 +399,7 @@ export class Vfs {
     if (attr.size === size && !this.dirty.has(path)) return attr;
     const d = await this.dirtyFor(path, size > 0);
     this.resize(d, size);
-    this.touched(path, d);
+    this.touched(d);
     return this.attr(path);
   }
 
@@ -365,7 +413,7 @@ export class Vfs {
       return { path, attr: found };
     }
     const d = await this.dirtyFor(path, false);
-    this.touched(path, d);
+    this.touched(d);
     return { path, attr: await this.attr(path) };
   }
 
@@ -384,14 +432,22 @@ export class Vfs {
     const path = this.child(dir, name);
     const attr = await this.attr(path);
     if (attr.type === "directory") throw new FsError(NFS3ERR_ISDIR);
-    const d = this.dirty.get(path);
-    if (d?.timer) clearTimeout(d.timer);
-    this.dirty.delete(path);
-    const onServer = (await this.listing(dir)).entries.has(name);
-    if (onServer && !isLocalOnly(path)) await this.api.remove(path);
-    this.forget(path);
-    this.dropListing(dir);
-    this.dropId(path);
+    // The lock waits out a running upload of this path, so its bytes cannot land after the delete.
+    await this.withPaths([path], async () => {
+      const d = this.dirty.get(path);
+      this.stopTimer(d);
+      const onServer = (await this.listing(dir)).entries.has(name);
+      try {
+        if (onServer && !isLocalOnly(path)) await this.api.remove(path);
+      } catch (err) {
+        this.keep(d);
+        throw err;
+      }
+      this.dirty.delete(path);
+      this.forget(path);
+      this.dropListing(dir);
+      this.dropId(path);
+    });
   }
 
   async rmdir(dir: string, name: string): Promise<void> {
@@ -414,64 +470,68 @@ export class Vfs {
     if (target?.type === "directory" && attr.type !== "directory") throw new FsError(NFS3ERR_ISDIR);
 
     if (attr.type === "directory") {
-      // shortcut: only folders that exist solely in memory can move; moving a
-      // stored folder needs a server-side prefix move.
-      if (!this.virtualDirs.has(from) || (await this.listing(from)).entries.size > 0) {
-        throw new FsError(NFS3ERR_NOTSUPP, "renaming a stored folder is not supported yet");
-      }
       if (target) throw new FsError(NFS3ERR_EXIST);
-      for (const p of [...this.virtualDirs]) {
-        if (p === from || p.startsWith(`${from}/`)) {
-          this.virtualDirs.delete(p);
-          this.virtualDirs.add(to + p.slice(from.length));
-        }
+      const under = (p: string) => p === from || p.startsWith(`${from}/`);
+      for (;;) {
+        // Lock every buffer inside the folder, so none is mid-upload while it moves.
+        const inside = [...this.dirty.keys()].filter(under);
+        const moved = await this.withPaths([from, to, ...inside], async () => {
+          if ([...this.dirty.keys()].filter(under).join("\0") !== inside.join("\0")) return false;
+          this.dropListing(from);
+          // shortcut: only folders that exist solely in memory can move; moving a
+          // stored folder needs a server-side prefix move.
+          if (!this.virtualDirs.has(from) || (await this.listing(from)).entries.size > 0) {
+            throw new FsError(NFS3ERR_NOTSUPP, "renaming a stored folder is not supported yet");
+          }
+          for (const p of [...this.virtualDirs]) {
+            if (under(p)) {
+              this.virtualDirs.delete(p);
+              this.virtualDirs.add(to + p.slice(from.length));
+            }
+          }
+          for (const p of inside) this.rekey(this.dirty.get(p)!, to + p.slice(from.length));
+          this.moveId(from, to);
+          return true;
+        });
+        if (moved) return;
       }
-      for (const [p, d] of [...this.dirty]) {
-        if (p.startsWith(`${from}/`)) {
-          this.dirty.delete(p);
-          this.dirty.set(to + p.slice(from.length), d);
+    }
+
+    // Both locks: an upload of either path finishes before the move, and a buffer
+    // is dropped only once the drive has taken the move.
+    await this.withPaths([from, to], async () => {
+      const d = this.dirty.get(from);
+      const td = this.dirty.get(to);
+      if (d?.localOnly || (d && isLocalOnly(to))) {
+        // Memory-only on at least one side: move the buffer, upload if it became a real file.
+        this.stopTimer(td);
+        this.dirty.delete(to);
+        this.rekey(d, to);
+      } else if (isLocalOnly(to)) {
+        throw new FsError(NFS3ERR_ACCES);
+      } else {
+        if (d) await this.flushLocked(from);
+        this.stopTimer(td);
+        try {
+          await this.api.move(from, to);
+        } catch (err) {
+          this.keep(td);
+          throw err;
         }
+        if (this.dirty.get(to) === td) this.dirty.delete(to);
+        // A write that landed during the upload follows the file to its new name.
+        const raced = this.dirty.get(from);
+        if (raced) this.rekey(raced, to);
       }
+      const moved = this.content.get(from);
+      this.forget(from);
+      this.forget(to);
+      if (moved) this.remember(to, moved.bytes, moved.mtimeMs);
+      this.dropListing(fromDir);
+      this.dropListing(toDir);
+      this.dropId(to);
       this.moveId(from, to);
-      return;
-    }
-
-    const td = this.dirty.get(to);
-    if (td?.timer) clearTimeout(td.timer);
-    this.dirty.delete(to);
-
-    const d = this.dirty.get(from);
-    if (d?.localOnly || (d && isLocalOnly(to))) {
-      // Memory-only on at least one side: move the buffer, upload if it became a real file.
-      this.dirty.delete(from);
-      d.localOnly = isLocalOnly(to);
-      this.dirty.set(to, d);
-      if (!d.localOnly) {
-        d.flushedGen = -1;
-        this.touched(to, d);
-      }
-    } else if (isLocalOnly(to)) {
-      throw new FsError(NFS3ERR_ACCES);
-    } else {
-      if (d) await this.flush(from);
-      await this.api.move(from, to);
-      // A write that landed during the upload follows the file to its new name.
-      const raced = this.dirty.get(from);
-      if (raced) {
-        this.dirty.delete(from);
-        this.dirty.set(to, raced);
-        raced.flushedGen = -1;
-        this.touched(to, raced);
-      }
-    }
-    const moved = this.content.get(from);
-    this.forget(from);
-    this.forget(to);
-    if (moved) this.remember(to, moved.bytes, moved.mtimeMs);
-    this.dropListing(fromDir);
-    this.dropListing(toDir);
-    this.dropId(to);
-    this.moveId(from, to);
+    });
   }
 
   private moveId(from: string, to: string): void {
@@ -497,45 +557,35 @@ export class Vfs {
 
   /** Upload a file's RAM buffer now. Resolves once the drive holds those bytes. */
   async flush(path: string): Promise<void> {
-    for (;;) {
-      const d = this.dirty.get(path);
-      if (!d || d.localOnly) return;
-      if (d.flushing) {
-        await d.flushing.catch(() => {});
-        continue;
-      }
-      if (d.gen === d.flushedGen) return;
-      if (d.timer) {
-        clearTimeout(d.timer);
-        d.timer = undefined;
-      }
-      const gen = d.gen;
-      const snapshot = d.buf.slice(0, d.len);
-      d.flushing = this.api.write(path, snapshot);
-      try {
-        await d.flushing;
-      } catch (err: any) {
-        // Keep the bytes and retry; COMMIT still reports the failure to the client.
-        this.log(`agent-fs nfs: upload of ${path} failed, retrying in ${this.retryMs / 1000}s: ${err.message}`);
-        if (this.dirty.get(path) === d) this.schedule(path, d, this.retryMs);
-        throw err;
-      } finally {
-        d.flushing = undefined;
-      }
-      d.flushedGen = gen;
-      this.remember(path, snapshot, d.mtimeMs);
-      const listing = this.listings.get(parentOf(path));
-      listing?.entries.set(baseName(path), {
-        name: baseName(path),
-        type: "file",
-        size: snapshot.length,
-        mtimeMs: d.mtimeMs,
-      });
-      if (d.gen === gen && this.dirty.get(path) === d) {
-        this.dirty.delete(path);
-        if (!listing) this.dropListing(parentOf(path));
-      }
-      return;
+    await this.withPaths([path], () => this.flushLocked(path));
+  }
+
+  private async flushLocked(path: string): Promise<void> {
+    const d = this.dirty.get(path);
+    if (!d || d.localOnly || d.gen === d.flushedGen) return;
+    this.stopTimer(d);
+    const gen = d.gen;
+    const snapshot = d.buf.slice(0, d.len);
+    try {
+      await this.api.write(path, snapshot);
+    } catch (err: any) {
+      // Keep the bytes and retry; COMMIT still reports the failure to the client.
+      this.log(`agent-fs nfs: upload of ${path} failed, retrying in ${this.retryMs / 1000}s: ${err.message}`);
+      if (this.dirty.get(path) === d) this.schedule(d, this.retryMs);
+      throw err;
+    }
+    d.flushedGen = gen;
+    this.remember(path, snapshot, d.mtimeMs);
+    const listing = this.listings.get(parentOf(path));
+    listing?.entries.set(baseName(path), {
+      name: baseName(path),
+      type: "file",
+      size: snapshot.length,
+      mtimeMs: d.mtimeMs,
+    });
+    if (d.gen === gen && this.dirty.get(path) === d) {
+      this.dirty.delete(path);
+      if (!listing) this.dropListing(parentOf(path));
     }
   }
 

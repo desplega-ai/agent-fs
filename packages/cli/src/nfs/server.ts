@@ -25,6 +25,7 @@ const PROG_MOUNT = 100005;
 const NF3REG = 1;
 const NF3DIR = 2;
 const UNSTABLE = 0;
+const FILE_SYNC = 2;
 const FSF3_HOMOGENEOUS = 0x08;
 const FSF3_CANSETTIME = 0x10;
 const IO_SIZE = 1024 * 1024;
@@ -299,16 +300,22 @@ export class NfsServer {
         return true;
       }
 
-      case 7: { // WRITE: buffered in RAM; durable after COMMIT.
+      case 7: { // WRITE: buffered in RAM and durable after COMMIT, unless the client asks for a synchronous write.
         const path = vfs.pathOf(r.opaque(64));
         const offset = Number(r.u64());
         r.u32(); // count (the opaque carries its own length)
-        r.u32(); // stable_how requested; we always answer UNSTABLE
+        const stable = r.u32();
         const data = r.opaque(IO_SIZE);
-        const a = await vfs.write(path, offset, data);
+        let a = await vfs.write(path, offset, data);
+        // DATA_SYNC / FILE_SYNC (RFC 1813 3.3.7): reply only once the drive holds the
+        // bytes. The upload sends the whole file, so FILE_SYNC covers both.
+        if (stable !== UNSTABLE) {
+          await vfs.flush(path);
+          a = await vfs.attr(path);
+        }
         w.u32(0).u32(0);
         this.postOp(w, a);
-        w.u32(data.length).u32(UNSTABLE).fixed(this.writeVerf);
+        w.u32(data.length).u32(stable === UNSTABLE ? UNSTABLE : FILE_SYNC).fixed(this.writeVerf);
         return true;
       }
 
