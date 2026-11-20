@@ -577,13 +577,23 @@ describe("write durability and ordering against the drive", () => {
       await held;
       return realRemove(p);
     };
+    // Barrier: dirtyFor queues on the path lock before its first await, so once it is called the truncate waits behind remove.
+    const spied = vfs as unknown as { dirtyFor: (path: string, mode: string) => Promise<unknown> };
+    const realDirtyFor = spied.dirtyFor.bind(vfs);
+    let queued!: () => void;
+    const waiting = new Promise<void>((r) => (queued = r));
+    spied.dirtyFor = (path, mode) => {
+      const out = realDirtyFor(path, mode);
+      if (mode === "truncate") queued();
+      return out;
+    };
     const remove = vfs.remove("/", "a.md");
     await started;
     const truncate = vfs.setSize("/a.md", 0).then(
       () => "ok",
       (e) => e.status,
     );
-    await Bun.sleep(10);
+    await waiting;
     releaseRemove();
     await remove;
     expect(await truncate).toBe(70); // NFS3ERR_STALE
