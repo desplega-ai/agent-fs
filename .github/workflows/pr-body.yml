@@ -18,9 +18,9 @@ concurrency:
 
 jobs:
   pr-body:
-    uses: desplega-ai/.github/.github/workflows/pr-body.yml@aa9436df8f0ef570f033e78dc68d1ef052add22c
+    uses: desplega-ai/.github/.github/workflows/pr-body.yml@a8433e424034adb12a3d734e52a0ca93a3603176
     with:
-      ref: aa9436df8f0ef570f033e78dc68d1ef052add22c
+      ref: a8433e424034adb12a3d734e52a0ca93a3603176
       gate-workflow: ci.yml
       gate-job: ci
     permissions:

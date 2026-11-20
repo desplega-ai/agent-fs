@@ -51,7 +51,7 @@ jobs:
       # merge here. pr-body.yml re-runs this job after a description edit.
       # Skips on push and merge_group.
       - name: Require a green PR Body
-        uses: desplega-ai/.github/actions/require-pr-body@aa9436df8f0ef570f033e78dc68d1ef052add22c
+        uses: desplega-ai/.github/actions/require-pr-body@a8433e424034adb12a3d734e52a0ca93a3603176
 
   # Credential-free CLI/API/MCP coverage. The local filesystem adapter keeps
   # this job fork-safe and Docker-free; MinIO presigned URLs stay covered by
