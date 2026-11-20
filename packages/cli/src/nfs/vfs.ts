@@ -116,6 +116,8 @@ export class Vfs {
   // Per-path queue: uploads, buffer loads, remove and rename of a path run one at a time.
   private locks = new Map<string, Promise<void>>();
   private virtualDirs = new Set<string>();
+  // Bumped when a folder moves or goes away, so a buffer load that looked at the tree before it looks again.
+  private treeEpoch = 0;
   private listTtlMs: number;
   private flushIdleMs: number;
   private retryMs: number;
@@ -287,18 +289,34 @@ export class Vfs {
     return { data, eof: end >= bytes.length, attr };
   }
 
-  /** The RAM write buffer for a file, loading its current bytes on first use. */
-  private async dirtyFor(path: string, keepContent: boolean): Promise<Dirty> {
+  /**
+   * The RAM write buffer for a file. "load" keeps its current bytes, "truncate" starts empty,
+   * and both need the file to exist: one that lost the race with a remove must not bring it back.
+   * Only "create" and "exclusive" may make a new file, and only in a folder that still exists.
+   */
+  private async dirtyFor(path: string, mode: "load" | "truncate" | "create" | "exclusive"): Promise<Dirty> {
     const existing = this.dirty.get(path);
+    if (existing && mode === "exclusive") throw new FsError(NFS3ERR_EXIST);
     if (existing) return existing;
     return this.withPaths([path], async () => {
-      const raced = this.dirty.get(path);
-      if (raced) return raced;
-      const attr = await this.exists(path);
-      if (attr?.type === "directory") throw new FsError(NFS3ERR_ISDIR);
-      // A write that lost the race with a remove must not bring the file back.
-      if (!attr && keepContent) throw new FsError(NFS3ERR_STALE);
-      const bytes = attr && keepContent ? await this.fetch(path, attr) : new Uint8Array(0);
+      let attr: Attr | null;
+      let bytes: Uint8Array;
+      for (;;) {
+        const raced = this.dirty.get(path);
+        if (raced && mode === "exclusive") throw new FsError(NFS3ERR_EXIST);
+        if (raced) return raced;
+        const epoch = this.treeEpoch;
+        const creating = mode === "create" || mode === "exclusive";
+        if (creating) await this.requireDir(parentOf(path));
+        attr = await this.exists(path);
+        if (attr?.type === "directory") throw new FsError(creating ? NFS3ERR_EXIST : NFS3ERR_ISDIR);
+        if (attr && mode === "exclusive") throw new FsError(NFS3ERR_EXIST);
+        if (!attr && !creating) throw new FsError(NFS3ERR_STALE);
+        // A create that finds the file keeps its bytes; only an explicit truncate empties it.
+        bytes = attr && mode !== "truncate" ? await this.fetch(path, attr) : new Uint8Array(0);
+        // No await from here on: a folder that moved while we looked means look again.
+        if (epoch === this.treeEpoch) break;
+      }
       const d: Dirty = {
         path,
         buf: bytes.slice(),
@@ -386,7 +404,7 @@ export class Vfs {
   }
 
   async write(path: string, offset: number, data: Uint8Array): Promise<Attr> {
-    const d = await this.dirtyFor(path, true);
+    const d = await this.dirtyFor(path, "load");
     if (offset + data.length > d.len) this.resize(d, offset + data.length);
     d.buf.set(data, offset);
     this.touched(d);
@@ -397,7 +415,7 @@ export class Vfs {
     const attr = await this.attr(path);
     if (attr.type === "directory") throw new FsError(NFS3ERR_ISDIR);
     if (attr.size === size && !this.dirty.has(path)) return attr;
-    const d = await this.dirtyFor(path, size > 0);
+    const d = await this.dirtyFor(path, size > 0 ? "load" : "truncate");
     this.resize(d, size);
     this.touched(d);
     return this.attr(path);
@@ -412,7 +430,7 @@ export class Vfs {
       if (exclusive || found.type === "directory") throw new FsError(NFS3ERR_EXIST);
       return { path, attr: found };
     }
-    const d = await this.dirtyFor(path, false);
+    const d = await this.dirtyFor(path, exclusive ? "exclusive" : "create");
     this.touched(d);
     return { path, attr: await this.attr(path) };
   }
@@ -455,7 +473,13 @@ export class Vfs {
     const attr = await this.attr(path);
     if (attr.type !== "directory") throw new FsError(NFS3ERR_NOTDIR);
     if ((await this.readdir(path)).length > 0) throw new FsError(NFS3ERR_NOTEMPTY);
+    // A child made while readdir ran keeps the folder.
+    const inside = `${path}/`;
+    if ([...this.dirty.keys(), ...this.virtualDirs].some((p) => p.startsWith(inside))) {
+      throw new FsError(NFS3ERR_NOTEMPTY);
+    }
     this.virtualDirs.delete(path);
+    this.treeEpoch++;
     this.dropId(path);
   }
 
@@ -463,6 +487,8 @@ export class Vfs {
     const from = this.child(fromDir, fromName);
     const to = this.child(toDir, toName);
     if (from === to) return;
+    // A folder that moves or goes away before the move commits sends us back to re-check both sides.
+    const epoch = this.treeEpoch;
     await this.requireDir(toDir);
     if (REFUSED.test(toName)) throw new FsError(NFS3ERR_ACCES);
     const attr = await this.attr(from);
@@ -476,13 +502,17 @@ export class Vfs {
         // Lock every buffer inside the folder, so none is mid-upload while it moves.
         const inside = [...this.dirty.keys()].filter(under);
         const moved = await this.withPaths([from, to, ...inside], async () => {
-          if ([...this.dirty.keys()].filter(under).join("\0") !== inside.join("\0")) return false;
           this.dropListing(from);
           // shortcut: only folders that exist solely in memory can move; moving a
           // stored folder needs a server-side prefix move.
           if (!this.virtualDirs.has(from) || (await this.listing(from)).entries.size > 0) {
             throw new FsError(NFS3ERR_NOTSUPP, "renaming a stored folder is not supported yet");
           }
+          // Checked after the last await: a buffer made meanwhile is not locked yet, so lock it and retry.
+          // From here to the return nothing awaits, so no new buffer can slip in under the old path.
+          if (this.treeEpoch !== epoch) return "again";
+          if ([...this.dirty.keys()].filter(under).join("\0") !== inside.join("\0")) return false;
+          this.treeEpoch++;
           for (const p of [...this.virtualDirs]) {
             if (under(p)) {
               this.virtualDirs.delete(p);
@@ -493,13 +523,15 @@ export class Vfs {
           this.moveId(from, to);
           return true;
         });
+        if (moved === "again") return this.rename(fromDir, fromName, toDir, toName);
         if (moved) return;
       }
     }
 
     // Both locks: an upload of either path finishes before the move, and a buffer
     // is dropped only once the drive has taken the move.
-    await this.withPaths([from, to], async () => {
+    const again = await this.withPaths([from, to], async () => {
+      if (this.treeEpoch !== epoch) return true;
       const d = this.dirty.get(from);
       const td = this.dirty.get(to);
       if (d?.localOnly || (d && isLocalOnly(to))) {
@@ -531,7 +563,9 @@ export class Vfs {
       this.dropListing(toDir);
       this.dropId(to);
       this.moveId(from, to);
+      return false;
     });
+    if (again) return this.rename(fromDir, fromName, toDir, toName);
   }
 
   private moveId(from: string, to: string): void {

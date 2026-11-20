@@ -494,4 +494,125 @@ describe("write durability and ordering against the drive", () => {
     expect(drive.files.has("/folder/new.md")).toBe(false);
     expect(vfs.pending()).toEqual([]);
   });
+
+  test("a truncate waiting behind remove cannot bring the file back empty", async () => {
+    const { drive, vfs } = setup({ "/a.md": "old" });
+    const realRemove = drive.remove.bind(drive);
+    let removing!: () => void;
+    let releaseRemove!: () => void;
+    const started = new Promise<void>((r) => (removing = r));
+    const held = new Promise<void>((r) => (releaseRemove = r));
+    drive.remove = async (p) => {
+      removing();
+      await held;
+      return realRemove(p);
+    };
+    const remove = vfs.remove("/", "a.md");
+    await started;
+    const truncate = vfs.setSize("/a.md", 0).then(
+      () => "ok",
+      (e) => e.status,
+    );
+    await Bun.sleep(10);
+    releaseRemove();
+    await remove;
+    expect(await truncate).toBe(70); // NFS3ERR_STALE
+    await vfs.flushAll();
+    expect(drive.files.has("/a.md")).toBe(false);
+    expect(vfs.pending()).toEqual([]);
+  });
+
+  test("a file made while a folder rename checks the drive moves with the folder", async () => {
+    const { drive, vfs } = setup({});
+    await vfs.mkdir("/", "a");
+    await vfs.mkdir("/a", "sub");
+    const realList = drive.list.bind(drive);
+    let listing!: () => void;
+    let releaseList!: () => void;
+    const started = new Promise<void>((r) => (listing = r));
+    const held = new Promise<void>((r) => (releaseList = r));
+    let hold = true;
+    drive.list = async (p) => {
+      if (p === "/a" && hold) {
+        hold = false;
+        listing();
+        await held;
+      }
+      return realList(p);
+    };
+    const rename = vfs.rename("/", "a", "/", "b");
+    await started;
+    await vfs.create("/a/sub", "child.md", false);
+    await vfs.write("/a/sub/child.md", 0, enc("new"));
+    releaseList();
+    await rename;
+    await vfs.flushAll();
+    expect(drive.text("/b/sub/child.md")).toBe("new");
+    expect(drive.files.has("/a/sub/child.md")).toBe(false);
+    expect(vfs.pending()).toEqual([]);
+  });
+
+  test("a create still checking its folder when the folder is renamed fails instead of landing at the old path", async () => {
+    const { drive, vfs } = setup({});
+    await vfs.mkdir("/", "a");
+    await vfs.mkdir("/a", "sub");
+    const realList = drive.list.bind(drive);
+    let listing!: () => void;
+    let releaseList!: () => void;
+    const started = new Promise<void>((r) => (listing = r));
+    const held = new Promise<void>((r) => (releaseList = r));
+    let subLists = 0;
+    drive.list = async (p) => {
+      // The second look at /a/sub is the one create makes while holding the file's lock.
+      if (p === "/a/sub" && ++subLists === 2) {
+        listing();
+        await held;
+      }
+      return realList(p);
+    };
+    const create = vfs.create("/a/sub", "child.md", false).then(
+      () => "ok",
+      (e) => e.status,
+    );
+    await started;
+    await vfs.rename("/", "a", "/", "b");
+    releaseList();
+    expect(await create).toBe(2); // NFS3ERR_NOENT
+    await vfs.flushAll();
+    expect([...drive.files.keys()]).toEqual([]);
+    expect(vfs.pending()).toEqual([]);
+  });
+
+  test("a file renamed into a folder that moves meanwhile fails instead of landing at the old path", async () => {
+    const { drive, vfs } = setup({});
+    await vfs.mkdir("/", "a");
+    await vfs.mkdir("/a", "sub");
+    await vfs.create("/", "f.md", false);
+    await vfs.write("/f.md", 0, enc("mine"));
+    const realList = drive.list.bind(drive);
+    let listing!: () => void;
+    let releaseList!: () => void;
+    const started = new Promise<void>((r) => (listing = r));
+    const held = new Promise<void>((r) => (releaseList = r));
+    let hold = true;
+    drive.list = async (p) => {
+      if (p === "/a/sub" && hold) {
+        hold = false;
+        listing();
+        await held;
+      }
+      return realList(p);
+    };
+    const move = vfs.rename("/", "f.md", "/a/sub", "f.md").then(
+      () => "ok",
+      (e) => e.status,
+    );
+    await started;
+    await vfs.rename("/", "a", "/", "b");
+    releaseList();
+    expect(await move).toBe(2); // NFS3ERR_NOENT
+    await vfs.flushAll();
+    expect([...drive.files.keys()]).toEqual(["/f.md"]);
+    expect(vfs.pending()).toEqual([]);
+  });
 });
