@@ -197,6 +197,14 @@ describe("NFSv3 server over an agent-fs drive", () => {
     expect((await lookup(server, root, "missing.md")).status).toBe(2);
   });
 
+  test("an entry the drive names '.' is hidden; the rest of the folder still lists", async () => {
+    // A key stored with a "./" segment makes the ls op return an entry named ".".
+    const { server } = setup({ "/./stray.md": "x", "/t.csv": "a,b" });
+    const root = await mnt(server);
+    expect((await readdirNames(server, root)).sort()).toEqual([".metadata_never_index", "t.csv"]);
+    expect(await readAll(server, (await lookup(server, root, "t.csv")).fh!)).toBe("a,b");
+  });
+
   test("MNT of a sub-folder roots the export there; a missing one is refused", async () => {
     const { server } = setup({ "/notes/a.md": "# A" });
     const notes = await mnt(server, "/notes");

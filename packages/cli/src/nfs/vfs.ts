@@ -93,6 +93,13 @@ export function isLocalOnly(path: string): boolean {
   return path.split("/").some((seg) => LOCAL_ONLY.test(seg));
 }
 
+/** NFS3_OK, or the status for a name that cannot be one path segment. */
+function nameStatus(name: string): number {
+  if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\0")) return NFS3ERR_INVAL;
+  if (new TextEncoder().encode(name).length > 255) return NFS3ERR_NAMETOOLONG;
+  return NFS3_OK;
+}
+
 function parentOf(path: string): string {
   const i = path.lastIndexOf("/");
   return i <= 0 ? "/" : path.slice(0, i);
@@ -173,10 +180,8 @@ export class Vfs {
   }
 
   child(dir: string, name: string): string {
-    if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\0")) {
-      throw new FsError(NFS3ERR_INVAL, `bad name: ${name}`);
-    }
-    if (new TextEncoder().encode(name).length > 255) throw new FsError(NFS3ERR_NAMETOOLONG);
+    const status = nameStatus(name);
+    if (status !== NFS3_OK) throw new FsError(status, `bad name: ${name}`);
     return dir === "/" ? `/${name}` : `${dir}/${name}`;
   }
 
@@ -188,7 +193,9 @@ export class Vfs {
     let load = this.listingLoads.get(dir);
     if (!load) {
       load = (async () => {
-        const entries = isLocalOnly(dir) ? [] : await this.api.list(dir);
+        // A drive can hold a key with a "." segment, which ls reports as an entry named ".".
+        // NFS cannot address such a name, so hide it: one bad entry must not fail the whole folder.
+        const entries = (isLocalOnly(dir) ? [] : await this.api.list(dir)).filter((e) => nameStatus(e.name) === NFS3_OK);
         const listing = { at: Date.now(), entries: new Map(entries.map((e) => [e.name, e])) };
         this.listings.set(dir, listing);
         return listing;
