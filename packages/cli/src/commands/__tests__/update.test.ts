@@ -13,6 +13,7 @@ describe("detectInstallMethod", () => {
     ["/usr/local/lib/node_modules/@desplega.ai/agent-fs/dist/cli.js", "npm"],
     ["/Users/t/Library/pnpm/global/5/node_modules/@desplega.ai/agent-fs/dist/cli.js", "pnpm"],
     ["/home/t/.local/share/pnpm/global/5/.pnpm/@desplega.ai+agent-fs@0.18.35/node_modules/@desplega.ai/agent-fs/dist/cli.js", "pnpm"],
+    ["/home/t/.local/share/pnpm/store/v11/links/@desplega.ai/agent-fs/0.18.35/b863dbc2/node_modules/@desplega.ai/agent-fs/dist/cli.js", "pnpm"],
     ["/Users/t/.npm/_npx/abc123/node_modules/@desplega.ai/agent-fs/dist/cli.js", "npx"],
     ["/Users/t/code/agent-fs/packages/cli/dist/cli.js", "source"],
     ["C:\\Users\\t\\AppData\\Roaming\\npm\\node_modules\\@desplega.ai\\agent-fs\\dist\\cli.js", "npm"],
@@ -44,33 +45,46 @@ describe("compareVersions", () => {
 });
 
 // Runs the whole `update` action in a child bun (spawn reads PATH at startup)
-// against a sandboxed pnpm global dir and a fake pnpm that retargets the link.
+// against a sandboxed pnpm global dir and a fake pnpm that mimics one layout:
+// pnpm 10 links global/5/node_modules/<pkg> into .pnpm/<pkg>@<v>; pnpm 11+
+// gives each global package its own global/v11/<hash>/node_modules, linked
+// into store/v11/links, and `pnpm root -g` answers global/v11.
 describe("update action with pnpm", () => {
   const PKG = "@desplega.ai/agent-fs";
   const latest = VERSION.replace(/\d+$/, (n) => String(Number(n) + 1));
   const dirs: string[] = [];
   afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-  function runUpdate(opts: { prune?: boolean; noPnpm?: boolean }) {
+  function runUpdate(opts: { layout: "pnpm10" | "pnpm12"; prune?: boolean; noPnpm?: boolean }) {
     const root = mkdtempSync(join(tmpdir(), "agent-fs-update-"));
     dirs.push(root);
-    const globalRoot = join(root, "pnpm/global/5/node_modules");
-    const pkgDir = (v: string) => join(globalRoot, `.pnpm/@desplega.ai+agent-fs@${v}/node_modules`, PKG);
+    const home = join(root, "pnpm");
+    const pnpm12 = opts.layout === "pnpm12";
+    const globalRoot = pnpm12 ? join(home, "global/v11") : join(home, "global/5/node_modules");
+    const pkgDir = (v: string) =>
+      pnpm12
+        ? join(home, `store/v11/links/@desplega.ai/agent-fs/${v}/abc/node_modules`, PKG)
+        : join(globalRoot, `.pnpm/@desplega.ai+agent-fs@${v}/node_modules`, PKG);
+    const link = (v: string) => (pnpm12 ? join(globalRoot, `hash-${v}/node_modules`, PKG) : join(globalRoot, PKG));
     for (const v of [VERSION, latest]) {
       mkdirSync(join(pkgDir(v), "dist"), { recursive: true });
       writeFileSync(join(pkgDir(v), "dist/cli.js"), `console.log(${JSON.stringify(v)});\n`);
     }
-    const link = join(globalRoot, PKG);
-    mkdirSync(join(link, ".."), { recursive: true });
-    symlinkSync(pkgDir(VERSION), link);
+    mkdirSync(join(link(VERSION), ".."), { recursive: true });
+    symlinkSync(pkgDir(VERSION), link(VERSION));
     const bin = join(root, "bin");
     mkdirSync(bin);
     if (!opts.noPnpm) {
+      const ls = JSON.stringify([{ path: globalRoot, dependencies: { [PKG]: { version: latest, path: link(latest) } } }]);
+      const install = pnpm12
+        ? `/bin/rm -rf '${join(link(VERSION), "../../..")}'\n/bin/mkdir -p '${join(link(latest), "..")}'\n`
+        : `/bin/rm '${link(VERSION)}'\n`;
       const prune = opts.prune ? `/bin/rm -rf '${pkgDir(VERSION)}'\n` : "";
       writeFileSync(
         join(bin, "pnpm"),
         `#!/bin/sh\nif [ "$1" = root ]; then echo '${globalRoot}'; exit 0; fi\n` +
-          `/bin/rm '${link}'\n/bin/ln -s '${pkgDir(latest)}' '${link}'\n${prune}exit 0\n`
+          `if [ "$1" = ls ]; then echo '${ls}'; exit 0; fi\n` +
+          `${install}/bin/ln -s '${pkgDir(latest)}' '${link(latest)}'\n${prune}exit 0\n`
       );
       chmodSync(join(bin, "pnpm"), 0o755);
     }
@@ -90,20 +104,22 @@ describe("update action with pnpm", () => {
     return { code: r.exitCode, out: r.stdout.toString() + r.stderr.toString() };
   }
 
-  test("verifies the retargeted link when the old version dir is kept", () => {
-    const r = runUpdate({});
-    expect(r.out).toContain(`agent-fs ${VERSION} -> ${latest}`);
-    expect(r.code).toBe(0);
-  });
+  describe.each(["pnpm10", "pnpm12"] as const)("%s layout", (layout) => {
+    test("verifies the new install when the old version dir is kept", () => {
+      const r = runUpdate({ layout });
+      expect(r.out).toContain(`agent-fs ${VERSION} -> ${latest}`);
+      expect(r.code).toBe(0);
+    });
 
-  test("verifies the retargeted link when the old version dir is pruned", () => {
-    const r = runUpdate({ prune: true });
-    expect(r.out).toContain(`agent-fs ${VERSION} -> ${latest}`);
-    expect(r.code).toBe(0);
+    test("verifies the new install when the old version dir is pruned", () => {
+      const r = runUpdate({ layout, prune: true });
+      expect(r.out).toContain(`agent-fs ${VERSION} -> ${latest}`);
+      expect(r.code).toBe(0);
+    });
   });
 
   test("reports a missing installer instead of crashing", () => {
-    const r = runUpdate({ noPnpm: true });
+    const r = runUpdate({ layout: "pnpm10", noPnpm: true });
     expect(r.out).toContain("Update failed: cannot run pnpm");
     expect(r.code).toBe(1);
   });
