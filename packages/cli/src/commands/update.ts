@@ -3,6 +3,7 @@
 
 import { Command } from "commander";
 import { realpathSync } from "node:fs";
+import { join } from "node:path";
 import { VERSION } from "@/core";
 
 const PKG = "@desplega.ai/agent-fs";
@@ -44,6 +45,34 @@ export function compareVersions(a: string, b: string): number {
     if (d !== 0) return d < 0 ? -1 : 1;
   }
   return 0;
+}
+
+/** Run a command; `why` says what went wrong when it cannot start or does not exit 0. */
+function run(cmd: string[], stdout: "inherit" | "pipe"): { out: string; why?: string } {
+  try {
+    const r = Bun.spawnSync(cmd, { stdout, stderr: stdout });
+    const out = r.stdout?.toString() ?? "";
+    if (r.exitCode === 0) return { out };
+    const err = r.stderr?.toString().trim();
+    const how = r.signalCode ? `was killed by ${r.signalCode}` : `exited with ${r.exitCode}`;
+    return { out, why: `${cmd[0]} ${how}${err ? `: ${err}` : ""}` };
+  } catch (e: any) {
+    return { out: "", why: `cannot run ${cmd[0]}: ${e.message}` };
+  }
+}
+
+/**
+ * The CLI entry to run after the install. Bun realpaths argv[1], so a pnpm
+ * install resolves into a version-specific .pnpm/<pkg>@OLD directory that the
+ * upgrade leaves behind or prunes; ask pnpm for its stable global link instead.
+ */
+function installedEntry(method: InstallMethod, cliPath: string): string {
+  const marker = `/node_modules/${PKG}/`;
+  const p = cliPath.replace(/\\/g, "/");
+  if (method !== "pnpm" || !p.includes(marker)) return cliPath;
+  const root = run(["pnpm", "root", "-g"], "pipe");
+  if (root.why || !root.out.trim()) return process.argv[1]; // no answer: keep the path we were started from
+  return join(root.out.trim(), PKG, p.slice(p.lastIndexOf(marker) + marker.length));
 }
 
 async function fetchLatestVersion(): Promise<string> {
@@ -90,15 +119,16 @@ export function updateCommand() {
       }
 
       console.log(`Updating agent-fs ${VERSION} -> ${latest} (${cmd.join(" ")})`);
-      const run = Bun.spawnSync(cmd, { stdout: "inherit", stderr: "inherit" });
-      if (run.exitCode !== 0) {
-        console.error(`Update failed: ${cmd[0]} exited with ${run.exitCode}`);
+      const install = run(cmd, "inherit");
+      if (install.why) {
+        console.error(`Update failed: ${install.why}`);
         process.exit(1);
       }
 
       // Re-run the reinstalled CLI to confirm what is on disk now.
-      const check = Bun.spawnSync([process.execPath, cliPath, "--version"]);
-      const now = check.stdout.toString().trim() || "unknown";
+      const check = run([process.execPath, installedEntry(method, cliPath), "--version"], "pipe");
+      if (check.why) console.error(`Cannot run the updated CLI: ${check.why}`);
+      const now = (!check.why && check.out.trim()) || "unknown";
       console.log(`agent-fs ${VERSION} -> ${now}`);
       if (now !== latest) {
         console.error(`Warning: expected ${latest} after the update, found ${now}.`);
