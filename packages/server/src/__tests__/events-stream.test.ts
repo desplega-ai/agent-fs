@@ -3,6 +3,7 @@ import * as core from "@/core";
 import { createTestContext } from "../../../core/src/test-utils.js";
 import { createApp } from "../app.js";
 import { Hono } from "hono";
+import * as net from "node:net";
 import { authMiddleware } from "../middleware/auth.js";
 import { eventRoutes } from "../routes/events.js";
 import type { AppEnv } from "../types.js";
@@ -49,6 +50,15 @@ function payload(frame: string) {
   return JSON.parse(frame.split("\n").find((line) => line.startsWith("data: "))!.slice(6));
 }
 
+// Reads until the stream ends; an errored body (the server closing a client that is behind) also ends it.
+async function readToEnd(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  let chunks = 0;
+  try {
+    while (!(await reader.read()).done) chunks++;
+  } catch {}
+  return chunks;
+}
+
 async function waitForCleanup(listeners: Set<symbol>, expected = 0) {
   const deadline = Date.now() + 2000;
   while (listeners.size !== expected && Date.now() < deadline) await Bun.sleep(10);
@@ -67,7 +77,8 @@ describe("drive stream over HTTP", () => {
     subscriptions = trackSubscriptions();
     controllers = [];
     const app = createApp(fixture.db, fixture.s3);
-    server = Bun.serve({ port: 0, fetch: app.fetch });
+    // Same idle timeout as the daemon, so a stream left open shows up as a 60 s wait.
+    server = Bun.serve({ port: 0, fetch: app.fetch, idleTimeout: 60 });
     url = `http://127.0.0.1:${server.port}`;
   });
 
@@ -176,6 +187,39 @@ describe("drive stream over HTTP", () => {
     expect(subscriptions.listeners.size).toBe(8);
   });
 
+  test("a stream closed for not reading reaches the client as EOF within 2 seconds", async () => {
+    const socket = net.connect(server!.port!, "127.0.0.1");
+    try {
+      await new Promise((resolve) => socket.once("connect", resolve));
+      let endedAt = 0;
+      socket.on("close", () => { endedAt ||= Date.now(); });
+      socket.on("end", () => { endedAt ||= Date.now(); });
+      const firstChunk = new Promise((resolve) => socket.once("data", resolve));
+      socket.on("data", () => {});
+      socket.write(`GET /orgs/${fixture.orgId}/drives/${fixture.driveId}/events HTTP/1.1\r\nHost: test\r\nAuthorization: Bearer ${fixture.apiKey}\r\n\r\n`);
+      await firstChunk;
+      expect(subscriptions.listeners.size).toBe(1);
+      // Stop reading, then publish large events until the server closes the stream.
+      socket.pause();
+      const filler = "x".repeat(20_000);
+      for (let i = 0; subscriptions.listeners.size > 0 && i < 20_000; i++) {
+        core.publishDriveEvent({
+          type: "file.changed", driveId: fixture.driveId, path: `/${filler}-${i}.md`, version: i + 1,
+          operation: "write", actor: fixture.userId, at: new Date().toISOString(),
+        });
+        if ((i + 1) % 50 === 0) await Bun.sleep(1);
+      }
+      expect(subscriptions.listeners.size).toBe(0);
+      const closedAt = Date.now();
+      socket.resume();
+      while (!endedAt && Date.now() - closedAt < 5000) await Bun.sleep(20);
+      expect(endedAt).toBeGreaterThan(0);
+      expect(endedAt - closedAt).toBeLessThan(2000);
+    } finally {
+      socket.destroy();
+    }
+  }, 20_000);
+
 });
 
 describe("drive stream cleanup without sockets", () => {
@@ -271,9 +315,7 @@ describe("drive stream cleanup without sockets", () => {
       await drain;
       expect(received).toBe(events);
       await waitForCleanup(subscriptions.listeners, 1);
-      let chunks = 0;
-      while (!(await stalled.reader.read()).done) chunks++;
-      expect(chunks).toBeLessThan(events);
+      expect(await readToEnd(stalled.reader)).toBeLessThan(events);
     } finally {
       await stalled.reader.cancel().catch(() => {});
       await active.reader.cancel().catch(() => {});
