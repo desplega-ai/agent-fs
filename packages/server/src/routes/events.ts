@@ -39,12 +39,15 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: Prese
       else streams.set(userId, remaining);
     };
 
-    return streamSSE(c, async (stream) => {
+    // Errors the response body; set when the body below is built.
+    let failBody = () => {};
+    const response = streamSSE(c, async (stream) => {
       let unsubscribe = () => {};
       let unsubscribePresence = () => {};
       let timer: ReturnType<typeof setInterval> | undefined;
       let finish!: () => void;
       let cleaned = false;
+      let queued = 0;
       const done = new Promise<void>((resolve) => { finish = resolve; });
       const cleanup = () => {
         if (cleaned) return;
@@ -58,6 +61,9 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: Prese
         finish();
       };
       const abort = () => {
+        // Bun drops a clean end queued behind unsent bytes, so a client that is
+        // behind would see no EOF until idleTimeout. Error the body instead.
+        if (queued > 0) failBody();
         stream.abort();
         cleanup();
       };
@@ -73,7 +79,6 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: Prese
           event: "ready",
           data: JSON.stringify({ driveId, at: new Date().toISOString() }),
         });
-        let queued = 0;
         const enqueue = (write: () => Promise<unknown>) => {
           if (++queued > MAX_QUEUED_WRITES) return abort();
           pending = pending.then(write).finally(() => { queued--; });
@@ -108,6 +113,24 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: Prese
         cleanup();
       }
     });
+    const source = response.body!.getReader();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // No reason: Bun logs an errored body's reason as an uncaught error.
+        failBody = () => controller.error();
+      },
+      async pull(controller) {
+        const { done, value } = await source.read();
+        try {
+          if (done) controller.close();
+          else controller.enqueue(value);
+        } catch {
+          // Already errored by failBody.
+        }
+      },
+      cancel: (reason) => source.cancel(reason),
+    });
+    return new Response(body, response);
   });
 
   return router;
