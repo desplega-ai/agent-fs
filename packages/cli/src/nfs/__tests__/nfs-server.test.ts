@@ -13,6 +13,8 @@ class MemDrive implements DriveApi {
   /** When set, uploads wait on it, so a test can act while one is in flight. */
   gate?: Promise<void>;
   uploading?: () => void;
+  /** When set, downloads wait on it, so a test can start several reads of one file. */
+  readGate?: Promise<void>;
   failRemove = false;
   failMove = false;
 
@@ -33,6 +35,7 @@ class MemDrive implements DriveApi {
   }
   async read(p: string) {
     this.calls.push(`read ${p}`);
+    await this.readGate;
     const b = this.files.get(p);
     if (!b) throw new Error("not found");
     return b;
@@ -112,6 +115,15 @@ async function lookup(server: NfsServer, dir: Uint8Array, name: string) {
 
 async function readAll(server: NfsServer, fh: Uint8Array) {
   const r = await rpc(server, 100003, 6, (w) => w.opaque(fh).u64(0).u32(1 << 20));
+  expect(r.u32()).toBe(0);
+  if (r.bool()) skipFattr(r);
+  r.u32();
+  r.bool();
+  return new TextDecoder().decode(r.opaque());
+}
+
+async function readAt(server: NfsServer, fh: Uint8Array, offset: number, count: number) {
+  const r = await rpc(server, 100003, 6, (w) => w.opaque(fh).u64(offset).u32(count));
   expect(r.u32()).toBe(0);
   if (r.bool()) skipFattr(r);
   r.u32();
@@ -203,6 +215,43 @@ describe("NFSv3 server over an agent-fs drive", () => {
     const root = await mnt(server);
     expect((await readdirNames(server, root)).sort()).toEqual([".metadata_never_index", "t.csv"]);
     expect(await readAll(server, (await lookup(server, root, "t.csv")).fh!)).toBe("a,b");
+  });
+
+  test("parallel READs of one file share a single download (macOS reads ahead 16 at a time)", async () => {
+    const { server, drive } = setup({ "/big.bin": "0123456789abcdef" });
+    const fh = (await lookup(server, await mnt(server), "big.bin")).fh!;
+    let release!: () => void;
+    drive.readGate = new Promise<void>((r) => (release = r));
+    const reads = [0, 4, 8, 12].map((offset) => readAt(server, fh, offset, 4));
+    await Bun.sleep(5);
+    release();
+    expect(await Promise.all(reads)).toEqual(["0123", "4567", "89ab", "cdef"]);
+    expect(drive.calls.filter((c) => c === "read /big.bin")).toHaveLength(1);
+  });
+
+  test("a file larger than the cache downloads once for a sequential read, and leaves when another file is read", async () => {
+    const drive = new MemDrive({ "/big.bin": "0123456789", "/s.txt": "ab" });
+    const server = new NfsServer(new Vfs(drive, { cacheBytes: 4, listTtlMs: 0, log: () => {} }), { log: () => {} });
+    const root = await mnt(server);
+    const big = (await lookup(server, root, "big.bin")).fh!;
+    const small = (await lookup(server, root, "s.txt")).fh!;
+    const downloads = () => drive.calls.filter((c) => c === "read /big.bin").length;
+    expect([await readAt(server, big, 0, 4), await readAt(server, big, 4, 4), await readAt(server, big, 8, 4)]).toEqual(["0123", "4567", "89"]);
+    expect(downloads()).toBe(1);
+    // The cache stays bounded: the next file takes the place of the large one.
+    expect(await readAt(server, small, 0, 4)).toBe("ab");
+    expect(await readAt(server, big, 0, 4)).toBe("0123");
+    expect(downloads()).toBe(2);
+  });
+
+  test("a folder shows the mount time, not 1970: the drive stores no time for it", async () => {
+    const before = Date.now();
+    const { vfs, drive } = setup({ "/notes/a.md": "# A" });
+    const list = drive.list.bind(drive);
+    drive.list = async (dir) => (await list(dir)).map((e) => (e.type === "directory" ? { ...e, mtimeMs: 0 } : e));
+    expect((await vfs.attr("/")).mtimeMs).toBeGreaterThanOrEqual(before);
+    expect((await vfs.attr("/notes")).mtimeMs).toBeGreaterThanOrEqual(before);
+    expect((await vfs.attr("/notes/a.md")).mtimeMs).toBe(1_700_000_000_000);
   });
 
   test("MNT of a sub-folder roots the export there; a missing one is refused", async () => {

@@ -1,7 +1,7 @@
 // The filesystem the NFS server exposes: one agent-fs drive, held in memory.
 //
 // Nothing touches local disk. Reads fetch the whole file into a bounded RAM
-// cache; writes collect in a RAM buffer per file and upload on NFS COMMIT
+// cache (the newest file stays even when it is larger); writes collect in a RAM buffer per file and upload on NFS COMMIT
 // (the client sends it on close) or after FLUSH_IDLE_MS of quiet.
 // macOS metadata files (.DS_Store, ._*) stay in memory and never upload.
 
@@ -112,12 +112,14 @@ function baseName(path: string): string {
 export class Vfs {
   /** 8 random bytes per server run: handles from an earlier run are STALE, never mis-mapped. */
   readonly boot = randomBytes(8);
+  private readonly startedMs = Date.now();
   private paths = new Map<number, string>([[ROOT_ID, "/"]]);
   private ids = new Map<string, number>([["/", ROOT_ID]]);
   private nextId = ROOT_ID + 1;
   private listings = new Map<string, Listing>();
   private listingLoads = new Map<string, Promise<Listing>>();
   private content = new Map<string, Cached>();
+  private fetches = new Map<string, Promise<Uint8Array>>();
   private contentBytes = 0;
   private dirty = new Map<string, Dirty>();
   // Per-path queue: uploads, buffer loads, remove and rename of a path run one at a time.
@@ -210,13 +212,15 @@ export class Vfs {
   }
 
   async attr(path: string): Promise<Attr> {
-    if (path === "/") return { id: ROOT_ID, type: "directory", size: 0, mtimeMs: 0 };
+    // The drive stores no time for a folder. Use the mount time: 0 shows in Finder as 1 Jan 1970.
+    if (path === "/") return { id: ROOT_ID, type: "directory", size: 0, mtimeMs: this.startedMs };
     const d = this.dirty.get(path);
     if (d) return { id: this.idFor(path), type: "file", size: d.len, mtimeMs: d.mtimeMs };
-    if (this.virtualDirs.has(path)) return { id: this.idFor(path), type: "directory", size: 0, mtimeMs: 0 };
+    if (this.virtualDirs.has(path)) return { id: this.idFor(path), type: "directory", size: 0, mtimeMs: this.startedMs };
     const e = (await this.listing(parentOf(path))).entries.get(baseName(path));
     if (!e) throw new FsError(NFS3ERR_NOENT);
-    return { id: this.idFor(path), type: e.type, size: e.size, mtimeMs: e.mtimeMs };
+    const mtimeMs = e.type === "directory" && !e.mtimeMs ? this.startedMs : e.mtimeMs;
+    return { id: this.idFor(path), type: e.type, size: e.size, mtimeMs };
   }
 
   private async exists(path: string): Promise<Attr | null> {
@@ -263,18 +267,30 @@ export class Vfs {
       this.content.set(path, hit);
       return hit.bytes;
     }
-    const bytes = await this.api.read(path);
-    this.remember(path, bytes, attr.mtimeMs);
-    return bytes;
+    // The macOS client reads ahead with up to 16 READs at once; they share one download.
+    const key = `${path}\0${attr.size}\0${attr.mtimeMs}`;
+    let load = this.fetches.get(key);
+    if (!load) {
+      load = this.api
+        .read(path)
+        .then((bytes) => {
+          this.remember(path, bytes, attr.mtimeMs);
+          return bytes;
+        })
+        .finally(() => this.fetches.delete(key));
+      this.fetches.set(key, load);
+    }
+    return load;
   }
 
   private remember(path: string, bytes: Uint8Array, mtimeMs: number): void {
     this.forget(path);
-    if (bytes.length > this.cacheBytes) return;
     this.content.set(path, { bytes, size: bytes.length, mtimeMs });
     this.contentBytes += bytes.length;
+    // Oldest first, but the newest stays even above the cap: without it every
+    // READ of a file larger than the cache would download the whole file again.
     for (const [p, c] of this.content) {
-      if (this.contentBytes <= this.cacheBytes) break;
+      if (this.contentBytes <= this.cacheBytes || p === path) break;
       this.content.delete(p);
       this.contentBytes -= c.bytes.length;
     }
