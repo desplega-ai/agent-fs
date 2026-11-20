@@ -1,7 +1,7 @@
 // The filesystem the NFS server exposes: one agent-fs drive, held in memory.
 //
 // Nothing touches local disk. Reads fetch the whole file into a bounded RAM
-// cache (the newest file stays even when it is larger); writes collect in a RAM buffer per file and upload on NFS COMMIT
+// cache (the newest downloaded or uploaded file stays even when it is larger); writes collect in a RAM buffer per file and upload on NFS COMMIT
 // (the client sends it on close) or after FLUSH_IDLE_MS of quiet.
 // macOS metadata files (.DS_Store, ._*) stay in memory and never upload.
 
@@ -74,6 +74,8 @@ interface Dirty {
 interface Listing {
   at: number;
   entries: Map<string, DriveEntry>;
+  /** Entries on the drive that NFS cannot name. Not listed, but the folder is not empty. */
+  hidden: number;
 }
 
 interface Cached {
@@ -197,8 +199,9 @@ export class Vfs {
       load = (async () => {
         // A drive can hold a key with a "." segment, which ls reports as an entry named ".".
         // NFS cannot address such a name, so hide it: one bad entry must not fail the whole folder.
-        const entries = (isLocalOnly(dir) ? [] : await this.api.list(dir)).filter((e) => nameStatus(e.name) === NFS3_OK);
-        const listing = { at: Date.now(), entries: new Map(entries.map((e) => [e.name, e])) };
+        const all = isLocalOnly(dir) ? [] : await this.api.list(dir);
+        const entries = all.filter((e) => nameStatus(e.name) === NFS3_OK);
+        const listing = { at: Date.now(), entries: new Map(entries.map((e) => [e.name, e])), hidden: all.length - entries.length };
         this.listings.set(dir, listing);
         return listing;
       })().finally(() => this.listingLoads.delete(dir));
@@ -537,7 +540,7 @@ export class Vfs {
     const path = this.child(dir, name);
     const attr = await this.attr(path);
     if (attr.type !== "directory") throw new FsError(NFS3ERR_NOTDIR);
-    if ((await this.readdir(path)).length > 0) throw new FsError(NFS3ERR_NOTEMPTY);
+    if ((await this.readdir(path)).length > 0 || (await this.listing(path)).hidden > 0) throw new FsError(NFS3ERR_NOTEMPTY);
     // A child made while readdir ran keeps the folder.
     const inside = `${path}/`;
     if ([...this.dirty.keys(), ...this.virtualDirs].some((p) => p.startsWith(inside))) {
@@ -574,7 +577,8 @@ export class Vfs {
           this.dropListing(from);
           // shortcut: only folders that exist solely in memory can move; moving a
           // stored folder needs a server-side prefix move.
-          if (!this.virtualDirs.has(from) || (await this.listing(from)).entries.size > 0) {
+          const stored = await this.listing(from);
+          if (!this.virtualDirs.has(from) || stored.entries.size > 0 || stored.hidden > 0) {
             throw new FsError(NFS3ERR_NOTSUPP, "renaming a stored folder is not supported yet");
           }
           // Checked after the last await: a buffer made meanwhile is not locked yet, so lock it and retry.

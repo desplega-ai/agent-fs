@@ -136,7 +136,7 @@ rm -rf ~/.agent-fs-src ~/.bun/bin/agent-fs
 
 ## Known limits
 
-- A file is downloaded whole, once, and held in memory, because the server has no range reads yet. The read cache is 256 MB; a larger file stays in memory until another file is read. Large files (multi-GB video) are slow and use that much RAM.
+- A file is downloaded whole, once, and held in memory, because the server has no range reads yet. The read cache is 256 MB; a larger file stays in memory until another file is downloaded or saved. Large files (multi-GB video) are slow and use that much RAM.
 - Unsaved writes are held in RAM. If the CLI is killed with `kill -9` before an upload, those bytes are lost. A clean `agent-fs unmount` uploads first.
 - Last writer wins: a save from the Mac overwrites a concurrent agent edit (the server keeps both versions in history).
 - Renaming a folder that already exists on the drive fails. Renaming files works, and so does renaming a new empty folder.

@@ -84,6 +84,15 @@ async function unmountPath(mountpoint: string): Promise<boolean> {
   return (await run(["/usr/sbin/diskutil", "unmount", "force", mountpoint])).code === 0;
 }
 
+/** Unmount what a dead server left at `path`. Stops the CLI when the unmount fails: touching a dead mount fails or hangs. */
+async function clearStaleMount(path: string): Promise<void> {
+  if (!(await isMounted(path))) return;
+  console.error(`Clearing a stale mount at ${path}`);
+  if (await unmountPath(path)) return;
+  console.error(`Could not unmount ${path}. Close files open there and retry, or: sudo umount -f ${path}`);
+  process.exit(1);
+}
+
 function defaultMountpoint(): string {
   return join(homedir(), "agent-fs");
 }
@@ -183,18 +192,12 @@ async function serve(
     // A server that died leaves a dead mount behind, and mkdir, realpath or readdir on it
     // fail or hang. Clear it by name first: the mount table needs no file access.
     for (const stale of new Set([readDeadNfsState()?.mountpoint, mountpoint])) {
-      if (stale && (await isMounted(stale))) {
-        console.error(`Clearing a stale mount at ${stale}`);
-        await unmountPath(stale);
-      }
+      if (stale) await clearStaleMount(stale);
     }
     mkdirSync(mountpoint, { recursive: true });
     mountpoint = realpathSync(mountpoint);
     // The same check on the real path, for a mountpoint given through a symlink.
-    if (await isMounted(mountpoint)) {
-      console.error(`Clearing a stale mount at ${mountpoint}`);
-      await unmountPath(mountpoint);
-    }
+    await clearStaleMount(mountpoint);
     if (readdirSync(mountpoint).length > 0) {
       console.error(`Mountpoint is not empty: ${mountpoint}`);
       process.exit(1);
@@ -270,9 +273,13 @@ export async function runNfsUnmount(pathArg?: string): Promise<void> {
     console.error(`Could not unmount ${mountpoint}. Close files open there and retry, or: sudo umount -f ${mountpoint}`);
     process.exit(1);
   }
-  if (dead) clearNfsState(dead.pid);
+  // Keep the record while the dead mount is still there (unmount was given a different path),
+  // so `mount status` can still report it.
+  const deadStays = !!dead?.mountpoint && (await isMounted(dead.mountpoint));
+  if (dead && !deadStays) clearNfsState(dead.pid);
   if (!state && !mounted) {
-    console.log("No agent-fs NFS mount is running.");
+    if (deadStays) console.log(`${pathArg} is not mounted. A dead mount is at ${dead!.mountpoint}: run \`agent-fs unmount\` with no path.`);
+    else console.log("No agent-fs NFS mount is running.");
     return;
   }
   console.log(`Unmounted ${mountpoint ?? `NFS server (port ${state?.port})`}${state ? "" : " (its server was gone)"}`);

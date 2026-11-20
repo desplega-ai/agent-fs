@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { deadNfsMount, runNfsUnmount } from "../../commands/nfs-mount.js";
 import {
   launchAgentPlist,
   mountNfsArgv,
@@ -112,5 +113,15 @@ describe("mount state file", () => {
     writeNfsState({ pid: gone.pid, ...mount });
     expect(readNfsState()).toBeNull();
     expect(readDeadNfsState()).toEqual({ pid: gone.pid, ...mount });
+  });
+
+  // Reads the macOS mount table. "/" stands in for a dead mount: it is always mounted, and unmount is never called on it.
+  test.skipIf(process.platform !== "darwin")("unmount of a different path keeps the record of a dead mount that is still mounted", async () => {
+    const gone = Bun.spawn(["/usr/bin/true"]);
+    await gone.exited;
+    writeNfsState({ pid: gone.pid, ...mount, mountpoint: "/" });
+    expect((await deadNfsMount())?.mountpoint).toBe("/");
+    await runNfsUnmount(join(home, "not-a-mount"));
+    expect((await deadNfsMount())?.mountpoint).toBe("/");
   });
 });

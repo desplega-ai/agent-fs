@@ -217,16 +217,29 @@ describe("NFSv3 server over an agent-fs drive", () => {
     expect(await readAll(server, (await lookup(server, root, "t.csv")).fh!)).toBe("a,b");
   });
 
+  test("a folder that holds only a hidden entry is not empty: rmdir refuses it", async () => {
+    const { server, drive } = setup({ "/d/./stray.md": "x" });
+    const root = await mnt(server);
+    expect(await readdirNames(server, (await lookup(server, root, "d")).fh!)).toEqual([]);
+    const r = await rpc(server, 100003, 13, (w) => w.opaque(root).string("d"));
+    expect(r.u32()).toBe(66); // NFS3ERR_NOTEMPTY
+    expect(drive.text("/d/./stray.md")).toBe("x");
+  });
+
   test("parallel READs of one file share a single download (macOS reads ahead 16 at a time)", async () => {
     const { server, drive } = setup({ "/big.bin": "0123456789abcdef" });
     const fh = (await lookup(server, await mnt(server), "big.bin")).fh!;
     let release!: () => void;
     drive.readGate = new Promise<void>((r) => (release = r));
+    const downloads = () => drive.calls.filter((c) => c === "read /big.bin");
     const reads = [0, 4, 8, 12].map((offset) => readAt(server, fh, offset, 4));
+    // Not a timing wait: up to the gate a READ only awaits resolved promises, so one
+    // macrotask turn brings all four there. Without sharing, four downloads wait here.
     await Bun.sleep(5);
+    expect(downloads()).toHaveLength(1);
     release();
     expect(await Promise.all(reads)).toEqual(["0123", "4567", "89ab", "cdef"]);
-    expect(drive.calls.filter((c) => c === "read /big.bin")).toHaveLength(1);
+    expect(downloads()).toHaveLength(1);
   });
 
   test("a file larger than the cache downloads once for a sequential read, and leaves when another file is read", async () => {
