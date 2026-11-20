@@ -116,6 +116,8 @@ export class Vfs {
   // Per-path queue: uploads, buffer loads, remove and rename of a path run one at a time.
   private locks = new Map<string, Promise<void>>();
   private virtualDirs = new Set<string>();
+  // create, mkdir, remove, rmdir and rename run one at a time, so their outcome is always that of some serial order.
+  private namespace: Promise<void> = Promise.resolve();
   // Bumped when a folder moves or goes away, so a buffer load that looked at the tree before it looks again.
   private treeEpoch = 0;
   private listTtlMs: number;
@@ -352,6 +354,30 @@ export class Vfs {
     }
   }
 
+  /**
+   * Run a namespace change after every earlier one. A folder path given by the client stands for
+   * its handle, so a folder that an earlier change moved is followed to its new path.
+   */
+  private async serial<T>(dirs: string[], fn: (...dirs: string[]) => Promise<T>): Promise<T> {
+    const ids = dirs.map((d) => this.ids.get(d));
+    const prev = this.namespace;
+    let release!: () => void;
+    this.namespace = new Promise<void>((r) => (release = r));
+    await prev;
+    try {
+      const now = dirs.map((d, i) => {
+        const id = ids[i];
+        if (id === undefined) return d;
+        const path = this.paths.get(id);
+        if (path === undefined) throw new FsError(NFS3ERR_STALE);
+        return path;
+      });
+      return await fn(...now);
+    } finally {
+      release();
+    }
+  }
+
   private resize(d: Dirty, len: number): void {
     if (len > d.buf.length) {
       const next = new Uint8Array(Math.max(len, d.buf.length * 2, 4096));
@@ -421,7 +447,11 @@ export class Vfs {
     return this.attr(path);
   }
 
-  async create(dir: string, name: string, exclusive: boolean): Promise<{ path: string; attr: Attr }> {
+  create(dir: string, name: string, exclusive: boolean): Promise<{ path: string; attr: Attr }> {
+    return this.serial([dir], (d) => this.createLocked(d, name, exclusive));
+  }
+
+  private async createLocked(dir: string, name: string, exclusive: boolean): Promise<{ path: string; attr: Attr }> {
     await this.requireDir(dir);
     const path = this.child(dir, name);
     if (REFUSED.test(name)) throw new FsError(NFS3ERR_ACCES);
@@ -435,7 +465,11 @@ export class Vfs {
     return { path, attr: await this.attr(path) };
   }
 
-  async mkdir(dir: string, name: string): Promise<{ path: string; attr: Attr }> {
+  mkdir(dir: string, name: string): Promise<{ path: string; attr: Attr }> {
+    return this.serial([dir], (d) => this.mkdirLocked(d, name));
+  }
+
+  private async mkdirLocked(dir: string, name: string): Promise<{ path: string; attr: Attr }> {
     await this.requireDir(dir);
     const path = this.child(dir, name);
     if (REFUSED.test(name)) throw new FsError(NFS3ERR_ACCES);
@@ -446,7 +480,11 @@ export class Vfs {
     return { path, attr: await this.attr(path) };
   }
 
-  async remove(dir: string, name: string): Promise<void> {
+  remove(dir: string, name: string): Promise<void> {
+    return this.serial([dir], (d) => this.removeLocked(d, name));
+  }
+
+  private async removeLocked(dir: string, name: string): Promise<void> {
     const path = this.child(dir, name);
     const attr = await this.attr(path);
     if (attr.type === "directory") throw new FsError(NFS3ERR_ISDIR);
@@ -468,7 +506,11 @@ export class Vfs {
     });
   }
 
-  async rmdir(dir: string, name: string): Promise<void> {
+  rmdir(dir: string, name: string): Promise<void> {
+    return this.serial([dir], (d) => this.rmdirLocked(d, name));
+  }
+
+  private async rmdirLocked(dir: string, name: string): Promise<void> {
     const path = this.child(dir, name);
     const attr = await this.attr(path);
     if (attr.type !== "directory") throw new FsError(NFS3ERR_NOTDIR);
@@ -483,7 +525,11 @@ export class Vfs {
     this.dropId(path);
   }
 
-  async rename(fromDir: string, fromName: string, toDir: string, toName: string): Promise<void> {
+  rename(fromDir: string, fromName: string, toDir: string, toName: string): Promise<void> {
+    return this.serial([fromDir, toDir], (f, t) => this.renameLocked(f, fromName, t, toName));
+  }
+
+  private async renameLocked(fromDir: string, fromName: string, toDir: string, toName: string): Promise<void> {
     const from = this.child(fromDir, fromName);
     const to = this.child(toDir, toName);
     if (from === to) return;
@@ -523,7 +569,7 @@ export class Vfs {
           this.moveId(from, to);
           return true;
         });
-        if (moved === "again") return this.rename(fromDir, fromName, toDir, toName);
+        if (moved === "again") return this.renameLocked(fromDir, fromName, toDir, toName);
         if (moved) return;
       }
     }
@@ -565,7 +611,7 @@ export class Vfs {
       this.moveId(from, to);
       return false;
     });
-    if (again) return this.rename(fromDir, fromName, toDir, toName);
+    if (again) return this.renameLocked(fromDir, fromName, toDir, toName);
   }
 
   private moveId(from: string, to: string): void {
