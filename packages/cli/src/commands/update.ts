@@ -64,15 +64,22 @@ function run(cmd: string[], stdout: "inherit" | "pipe"): { out: string; why?: st
 /**
  * The CLI entry to run after the install. Bun realpaths argv[1], so a pnpm
  * install resolves into a version-specific .pnpm/<pkg>@OLD directory that the
- * upgrade leaves behind or prunes; ask pnpm for its stable global link instead.
+ * upgrade leaves behind or prunes; ask pnpm where the package is installed now.
+ * Not `pnpm root -g`: from pnpm 11 that is global/v11, and each global package
+ * sits in its own global/v11/<hash>/node_modules below it.
  */
 function installedEntry(method: InstallMethod, cliPath: string): string {
   const marker = `/node_modules/${PKG}/`;
   const p = cliPath.replace(/\\/g, "/");
   if (method !== "pnpm" || !p.includes(marker)) return cliPath;
-  const root = run(["pnpm", "root", "-g"], "pipe");
-  if (root.why || !root.out.trim()) return process.argv[1]; // no answer: keep the path we were started from
-  return join(root.out.trim(), PKG, p.slice(p.lastIndexOf(marker) + marker.length));
+  const ls = run(["pnpm", "ls", "-g", "--json", "--depth", "0"], "pipe");
+  let dir: string | undefined;
+  try {
+    const projects = JSON.parse(ls.out) as { dependencies?: Record<string, { path?: string }> }[];
+    dir = projects.map((project) => project.dependencies?.[PKG]?.path).find(Boolean);
+  } catch {}
+  if (ls.why || !dir) return process.argv[1]; // no answer: keep the path we were started from
+  return join(dir, p.slice(p.lastIndexOf(marker) + marker.length));
 }
 
 async function fetchLatestVersion(): Promise<string> {
