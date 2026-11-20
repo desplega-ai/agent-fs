@@ -399,7 +399,7 @@ On macOS, `agent-fs mount` mounts one drive (the active org/drive, or `--org`/`-
 | `mount` (macOS) | `agent-fs mount [path] [--foreground]` | Mount the drive at `path` (default `~/agent-fs`). |
 | `mount --install` | `agent-fs mount [path] --install` | Mount at every login (LaunchAgent `dev.agent-fs.mount`) and add the Finder Quick Action "Open in agent-fs". `--uninstall` reverses both. |
 | `mount --serve-only` | `agent-fs mount --serve-only [--port <n>]` | Run the NFS server without mounting (any OS); prints the `mount_nfs` / `mount -t nfs` line to run yourself. |
-| `unmount` | `agent-fs unmount [path]` | Upload pending writes, unmount, stop the server (alias of `umount`). |
+| `unmount` | `agent-fs unmount [path]` | Upload pending writes, unmount, stop the server (alias of `umount`). Also clears a dead mount left by a server that was killed; `agent-fs mount status` reports one. |
 | `open` | `agent-fs open <local path> [--print]` | Open a file or folder from the mount in the web app (`appUrl`, default `https://live.agent-fs.dev`). |
 
 ## Common Workflows

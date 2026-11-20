@@ -131,12 +131,12 @@ rm -rf ~/.agent-fs-src ~/.bun/bin/agent-fs
 ## When something breaks
 
 - Logs: `tail -50 ~/.agent-fs/mount.log`
-- A stuck mount (Finder beach ball after the server died): `diskutil unmount force ~/agent-fs`, then `agent-fs mount`.
+- A dead mount (the server was killed: Finder shows an empty folder, then error 100060): `agent-fs mount status` reports it. Run `agent-fs unmount`, then `agent-fs mount`. With `--install`, launchd remounts it within about 30 s.
 - Run attached to see every error: `agent-fs mount --foreground` (Ctrl-C unmounts).
 
 ## Known limits
 
-- Each read fetches the whole file into memory, because the server has no range reads yet. Large files (multi-GB video) are slow and use that much RAM.
+- A file is downloaded whole, once, and held in memory, because the server has no range reads yet. The read cache is 256 MB; a larger file stays in memory until another file is read. Large files (multi-GB video) are slow and use that much RAM.
 - Unsaved writes are held in RAM. If the CLI is killed with `kill -9` before an upload, those bytes are lost. A clean `agent-fs unmount` uploads first.
 - Last writer wins: a save from the Mac overwrites a concurrent agent edit (the server keeps both versions in history).
 - Renaming a folder that already exists on the drive fails. Renaming files works, and so does renaming a new empty folder.
@@ -149,8 +149,19 @@ rm -rf ~/.agent-fs-src ~/.bun/bin/agent-fs
 
 Tested on Linux (no root, so no kernel mount): the NFS server end to end with the independent libnfs client (`nfs-ls`, `nfs-cat`, `nfs-cp`, `nfs-stat`) against a real agent-fs daemon. That covers listing 300 files, reading md and csv, writing new files, a 3 MB binary round trip, and unicode, `#` and space file names.
 
-Not tested anywhere yet (Mac-only):
+Tested on a Mac (macOS 26.6, Apple Silicon, Bun 1.4.4), against a hosted server and a local daemon:
 
-- `mount_nfs` without sudo, and the exact mount options on current macOS.
-- Finder, TextEdit and VS Code behaviour on the mount (atomic saves, Quick Look, Spotlight).
-- The LaunchAgent at login, and the Quick Action appearing in Finder.
+- `mount_nfs` without sudo, with the mount options above.
+- From the shell: read, write, overwrite, append, truncate, rename, delete, `mkdir`, `rm -rf`, `cp`, `ditto`, extended attributes, an atomic save (temp file, then rename), and names with a space and `#`.
+- A folder with 1,200 entries, and a drive root that holds an entry named `.`.
+- A 30 MB binary round trip. One sequential read downloads the file once.
+- Agent-side create, overwrite and delete show up on the mount within seconds.
+- Finder: browsing, copying a file in, Get Info, and saving from an editor.
+- `--install`: the LaunchAgent mounts, launchd remounts after `kill -9` of the server, a clean `agent-fs unmount` is not restarted, and `--uninstall` removes the LaunchAgent and the Quick Action.
+
+Not tested yet:
+
+- A real logout and login with the LaunchAgent installed.
+- The Quick Action in the Finder menu.
+- A file larger than the 256 MB read cache on a real mount (covered by a unit test only).
+- Spotlight on the mount.

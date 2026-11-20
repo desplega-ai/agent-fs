@@ -1,7 +1,13 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   launchAgentPlist,
   mountNfsArgv,
+  readDeadNfsState,
+  readNfsState,
+  writeNfsState,
   quickActionScript,
   quickActionWflow,
   webUrlFor,
@@ -70,5 +76,41 @@ describe("LaunchAgent and Quick Action", () => {
         `for f in "$@"; do '/Users/t/.bun/bin/bun' '/Users/t/it'\\''s/cli.js' open "$f"; done\n`
     );
     expect(quickActionWflow(script)).toContain("for f in &quot;$@&quot;");
+  });
+});
+
+describe("mount state file", () => {
+  let home: string;
+  let saved: string | undefined;
+  const mount = { mountpoint: "/Users/t/agent-fs", port: 20490, orgId: "org-1", driveId: "drive-1", appUrl: "https://live.agent-fs.dev" };
+
+  beforeEach(() => {
+    saved = process.env.AGENT_FS_HOME;
+    home = mkdtempSync(join(tmpdir(), "agent-fs-state-"));
+    process.env.AGENT_FS_HOME = home;
+  });
+  afterEach(() => {
+    if (saved === undefined) delete process.env.AGENT_FS_HOME;
+    else process.env.AGENT_FS_HOME = saved;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  test("no state file: neither a running nor a dead mount", () => {
+    expect(readNfsState()).toBeNull();
+    expect(readDeadNfsState()).toBeNull();
+  });
+
+  test("a running server is the live mount", () => {
+    writeNfsState({ pid: process.pid, ...mount });
+    expect(readNfsState()?.mountpoint).toBe(mount.mountpoint);
+    expect(readDeadNfsState()).toBeNull();
+  });
+
+  test("a server killed before it cleaned up leaves a dead mount that unmount can still find", async () => {
+    const gone = Bun.spawn(["/usr/bin/true"]);
+    await gone.exited;
+    writeNfsState({ pid: gone.pid, ...mount });
+    expect(readNfsState()).toBeNull();
+    expect(readDeadNfsState()).toEqual({ pid: gone.pid, ...mount });
   });
 });

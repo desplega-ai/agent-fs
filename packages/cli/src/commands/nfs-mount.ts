@@ -31,9 +31,11 @@ import {
   quickActionInfoPlist,
   quickActionScript,
   quickActionWflow,
+  readDeadNfsState,
   readNfsState,
   webUrlFor,
   writeNfsState,
+  type NfsMountState,
 } from "../lib/macos-mount.js";
 
 export interface NfsMountOpts {
@@ -178,9 +180,17 @@ async function serve(
   let mountpoint = mountpointArg;
 
   if (mountpoint) {
+    // A server that died leaves a dead mount behind, and mkdir, realpath or readdir on it
+    // fail or hang. Clear it by name first: the mount table needs no file access.
+    for (const stale of new Set([readDeadNfsState()?.mountpoint, mountpoint])) {
+      if (stale && (await isMounted(stale))) {
+        console.error(`Clearing a stale mount at ${stale}`);
+        await unmountPath(stale);
+      }
+    }
     mkdirSync(mountpoint, { recursive: true });
     mountpoint = realpathSync(mountpoint);
-    // A crashed earlier run leaves a dead mount behind; reading it would hang.
+    // The same check on the real path, for a mountpoint given through a symlink.
     if (await isMounted(mountpoint)) {
       console.error(`Clearing a stale mount at ${mountpoint}`);
       await unmountPath(mountpoint);
@@ -252,18 +262,26 @@ export async function runNfsUnmount(pathArg?: string): Promise<void> {
     const deadline = Date.now() + 35_000;
     while (Date.now() < deadline && readNfsState()) await Bun.sleep(200);
   }
-  const mountpoint = state?.mountpoint ?? (pathArg ? realpathOr(pathArg) : null);
-  if (mountpoint && process.platform === "darwin" && (await isMounted(mountpoint))) {
-    if (!(await unmountPath(mountpoint))) {
-      console.error(`Could not unmount ${mountpoint}. Close files open there and retry, or: sudo umount -f ${mountpoint}`);
-      process.exit(1);
-    }
+  // A server killed hard leaves its mount in the mount table and its state file behind.
+  const dead = state ? null : readDeadNfsState();
+  const mountpoint = state?.mountpoint ?? (pathArg ? realpathOr(pathArg) : (dead?.mountpoint ?? null));
+  const mounted = !!mountpoint && process.platform === "darwin" && (await isMounted(mountpoint));
+  if (mounted && !(await unmountPath(mountpoint!))) {
+    console.error(`Could not unmount ${mountpoint}. Close files open there and retry, or: sudo umount -f ${mountpoint}`);
+    process.exit(1);
   }
-  if (!state && !mountpoint) {
+  if (dead) clearNfsState(dead.pid);
+  if (!state && !mounted) {
     console.log("No agent-fs NFS mount is running.");
     return;
   }
-  console.log(`Unmounted ${mountpoint ?? `NFS server (port ${state?.port})`}`);
+  console.log(`Unmounted ${mountpoint ?? `NFS server (port ${state?.port})`}${state ? "" : " (its server was gone)"}`);
+}
+
+/** A mount whose server died: still in the mount table, so every read of it waits and then fails. */
+export async function deadNfsMount(): Promise<NfsMountState | null> {
+  const dead = readDeadNfsState();
+  return dead?.mountpoint && process.platform === "darwin" && (await isMounted(dead.mountpoint)) ? dead : null;
 }
 
 function realpathOr(path: string): string {

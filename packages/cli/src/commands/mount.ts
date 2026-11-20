@@ -23,7 +23,7 @@ import { buildHelperSpawnArgs } from "../lib/fuse-args.js";
 import { resolveRemoteCreds } from "../lib/remote-config.js";
 import { readNfsState } from "../lib/macos-mount.js";
 import type { ApiClient } from "../api-client.js";
-import { runNfsMount, runNfsUnmount, runOpen } from "./nfs-mount.js";
+import { deadNfsMount, runNfsMount, runNfsUnmount, runOpen } from "./nfs-mount.js";
 
 function getMountPidPath(): string {
   return join(getHome(), "mount.pid");
@@ -169,6 +169,12 @@ export function mountCommand(
         console.log(`NFS mount PID: ${nfs.pid}`);
         console.log(`Mountpoint: ${nfs.mountpoint ?? `(serve-only, port ${nfs.port})`}`);
         console.log(`Drive: ${nfs.driveId} (org ${nfs.orgId})`);
+        return;
+      }
+      const dead = await deadNfsMount();
+      if (dead) {
+        console.log(`Dead mount at ${dead.mountpoint}: its server (PID ${dead.pid}) is gone.`);
+        console.log("Run `agent-fs unmount`, then `agent-fs mount`.");
         return;
       }
       const s = readMountStatus();

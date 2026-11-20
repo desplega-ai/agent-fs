@@ -24,16 +24,36 @@ export function nfsStatePath(): string {
   return join(getHome(), "nfs-mount.json");
 }
 
-export function readNfsState(): NfsMountState | null {
+/** The state file, and whether the server that wrote it still runs. */
+function loadNfsState(): { state: NfsMountState; alive: boolean } | null {
   const p = nfsStatePath();
   if (!existsSync(p)) return null;
+  let state: NfsMountState;
   try {
-    const state = JSON.parse(readFileSync(p, "utf-8")) as NfsMountState;
-    process.kill(state.pid, 0);
-    return state;
+    state = JSON.parse(readFileSync(p, "utf-8")) as NfsMountState;
   } catch {
     return null;
   }
+  try {
+    process.kill(state.pid, 0);
+    return { state, alive: true };
+  } catch {
+    return { state, alive: false };
+  }
+}
+
+export function readNfsState(): NfsMountState | null {
+  const loaded = loadNfsState();
+  return loaded?.alive ? loaded.state : null;
+}
+
+/**
+ * State left by a server that died before it could clean up (kill -9, crash, power loss).
+ * Its mount can still be in the mount table, where Finder waits on it and then times out.
+ */
+export function readDeadNfsState(): NfsMountState | null {
+  const loaded = loadNfsState();
+  return loaded && !loaded.alive ? loaded.state : null;
 }
 
 export function writeNfsState(state: NfsMountState): void {
