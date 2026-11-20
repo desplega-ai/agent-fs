@@ -8,6 +8,10 @@ const MAX_STREAMS_PER_USER = 8;
 const HEARTBEAT_MS = 5000;
 // Writes still waiting on the client; past this the client has stopped reading and the stream closes.
 const MAX_QUEUED_WRITES = 1000;
+// How a stream whose client is behind gets its EOF. On Linux Bun drops a clean end queued behind
+// unsent bytes, so the body is errored. On macOS Bun (1.4.4) never closes a connection whose body
+// errors behind unsent bytes, but a clean end with "Connection: close" does reach the client.
+const CLOSE_BY_ERROR = process.platform !== "darwin";
 
 export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: PresenceRegistry) {
   const router = new Hono<AppEnv>();
@@ -61,9 +65,8 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: Prese
         finish();
       };
       const abort = () => {
-        // Bun drops a clean end queued behind unsent bytes, so a client that is
-        // behind would see no EOF until idleTimeout. Error the body instead.
-        if (queued > 0) failBody();
+        // A client that is behind would see no EOF until idleTimeout: see CLOSE_BY_ERROR.
+        if (queued > 0 && CLOSE_BY_ERROR) failBody();
         stream.abort();
         cleanup();
       };
@@ -130,7 +133,14 @@ export function eventRoutes(db: DB, heartbeatMs = HEARTBEAT_MS, presence?: Prese
       },
       cancel: (reason) => source.cancel(reason),
     });
-    return new Response(body, response);
+    const result = new Response(body, response);
+    if (!CLOSE_BY_ERROR) {
+      // streamSSE sets keep-alive, which makes the clean end a last chunk and not an EOF.
+      // Set it on both: Hono copies the context's headers over the response's when middleware touched c.res.
+      c.header("Connection", "close");
+      result.headers.set("Connection", "close");
+    }
+    return result;
   });
 
   return router;

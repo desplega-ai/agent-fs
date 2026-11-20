@@ -51,7 +51,7 @@ agent-fs umount /mnt/agent-fs
 
 | Scope | Status | Track |
 |---|---|---|
-| macOS host mount | ❌ Not supported in v1 | v2 — macFUSE / fuse-t |
+| macOS host mount | ⚠️ Preview: `agent-fs mount` uses a local NFS server + built-in `mount_nfs` (one drive, no FUSE). See [TEST-ON-MAC.md](./TEST-ON-MAC.md) | — |
 | `xattr` metadata (`user.agent-fs.*`) | ❌ Not exposed | v1.1 |
 | Real POSIX file locking | ❌ Returns `ENOSYS` | v1.1+ |
 | Conflict auto-merge / side-versioning | ❌ Detect-and-error only | v1.x feature flag |

@@ -21,6 +21,9 @@ import { getConfigPath, getHome } from "@/core";
 import { resolveFuseBinary, verifyFuseBinaryHash } from "../lib/fuse-binary.js";
 import { buildHelperSpawnArgs } from "../lib/fuse-args.js";
 import { resolveRemoteCreds } from "../lib/remote-config.js";
+import { readNfsState } from "../lib/macos-mount.js";
+import type { ApiClient } from "../api-client.js";
+import { deadNfsMount, runNfsMount, runNfsUnmount, runOpen } from "./nfs-mount.js";
 
 function getMountPidPath(): string {
   return join(getHome(), "mount.pid");
@@ -116,9 +119,15 @@ function clearMountPid(): void {
   }
 }
 
-export function mountCommand() {
+export function mountCommand(
+  client: ApiClient,
+  getOrgId: () => Promise<string>,
+  getDriveId: (orgId?: string) => Promise<string>
+) {
   const cmd = new Command("mount")
-    .description("FUSE mount commands for agent-fs (Linux only).")
+    .description(
+      "Mount agent-fs as a folder. macOS: one drive over a local NFS server (default ~/agent-fs). Linux: all drives over FUSE."
+    )
     .argument("[path]", "Directory to mount the agent-fs filesystem at")
     .option("--socket <path>", "Path to the daemon's Unix socket (local mode)")
     .option(
@@ -135,7 +144,15 @@ export function mountCommand() {
     )
     .option("--allow-other", "Allow other users to access the mount")
     .option("--foreground", "Run the helper in the foreground (logs to stdout)")
+    .option("--serve-only", "Run the local NFS server without mounting it (any OS; mount it yourself)")
+    .option("--port <port>", "NFS server port (default: a free port)")
+    .option("--install", "macOS: mount at every login (LaunchAgent) and add the Finder \"Open in agent-fs\" Quick Action")
+    .option("--uninstall", "macOS: remove the LaunchAgent and Quick Action, and unmount")
     .action(async (path: string | undefined, opts) => {
+      if (opts.serveOnly || opts.install || opts.uninstall || process.platform === "darwin") {
+        await runNfsMount(path, opts, client, getOrgId, getDriveId);
+        return;
+      }
       if (!path) {
         cmd.help();
         return;
@@ -147,6 +164,19 @@ export function mountCommand() {
     .command("status")
     .description("Show the current mount's PID and mountpoint")
     .action(async () => {
+      const nfs = readNfsState();
+      if (nfs) {
+        console.log(`NFS mount PID: ${nfs.pid}`);
+        console.log(`Mountpoint: ${nfs.mountpoint ?? `(serve-only, port ${nfs.port})`}`);
+        console.log(`Drive: ${nfs.driveId} (org ${nfs.orgId})`);
+        return;
+      }
+      const dead = await deadNfsMount();
+      if (dead) {
+        console.log(`Dead mount at ${dead.mountpoint}: its server (PID ${dead.pid}) is gone.`);
+        console.log("Run `agent-fs unmount`, then `agent-fs mount`.");
+        return;
+      }
       const s = readMountStatus();
       if (!s.running) {
         console.log("Mount is not running");
@@ -170,11 +200,31 @@ export function mountCommand() {
 }
 
 export function umountCommand() {
-  return new Command("umount")
-    .description("Unmount a previously-mounted agent-fs FUSE filesystem")
-    .argument("<path>", "Directory the filesystem is mounted at")
-    .action(async (path: string) => {
+  const cmd = new Command("umount")
+    .alias("unmount")
+    .description("Unmount agent-fs (macOS NFS mount, or a Linux FUSE mount at <path>)")
+    .argument("[path]", "Directory the filesystem is mounted at (optional on macOS)")
+    .action(async (path: string | undefined) => {
+      if (process.platform === "darwin" || readNfsState()) {
+        await runNfsUnmount(path);
+        return;
+      }
+      if (!path) {
+        cmd.help();
+        return;
+      }
       await runUmount(path);
+    });
+  return cmd;
+}
+
+export function openCommand() {
+  return new Command("open")
+    .description("Open a file or folder from the agent-fs mount in the agent-fs web app")
+    .argument("<path>", "Local path inside the mount, e.g. ~/agent-fs/notes/plan.md")
+    .option("--print", "Print the URL instead of opening it")
+    .action(async (path: string, opts: { print?: boolean }) => {
+      await runOpen(path, opts);
     });
 }
 

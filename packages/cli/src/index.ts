@@ -17,7 +17,7 @@ import { memberCommands } from "./commands/member.js";
 import { inviteCommands } from "./commands/invite.js";
 import { membersCommand } from "./commands/members.js";
 import { docsCommand } from "./commands/docs.js";
-import { mountCommand, umountCommand } from "./commands/mount.js";
+import { mountCommand, openCommand, umountCommand } from "./commands/mount.js";
 import { downloadCommand } from "./commands/download.js";
 import { sqlCommand } from "./commands/sql.js";
 import { watchCommand } from "./commands/watch.js";
@@ -130,8 +130,9 @@ program.addCommand(membersCommand(program, client, getOrgId, getDriveId));
 program.addCommand(watchCommand(program, client, getOrgId, getDriveId));
 program.addCommand(memberCommands(client, getOrgId));
 program.addCommand(inviteCommands(client));
-program.addCommand(mountCommand());
+program.addCommand(mountCommand(client, getOrgId, getDriveId));
 program.addCommand(umountCommand());
+program.addCommand(openCommand());
 program.addCommand(updateCommand());
 
 // MCP command
