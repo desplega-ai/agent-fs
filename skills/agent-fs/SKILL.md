@@ -371,6 +371,7 @@ The live UI uses this summary for its star prompt without traversing folders.
 | `daemon start` | `agent-fs daemon start` | Start the background daemon |
 | `daemon stop` | `agent-fs daemon stop` | Stop the daemon |
 | `daemon status` | `agent-fs daemon status` | Check if daemon is running |
+| `update` | `agent-fs update [--check]` | Upgrade the CLI to the latest npm release with the package manager that installed it (bun, npm or pnpm); prints `old -> new`. `--check` only reports. |
 
 ### FUSE Mount (Linux only)
 

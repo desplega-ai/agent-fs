@@ -21,6 +21,7 @@ import { mountCommand, openCommand, umountCommand } from "./commands/mount.js";
 import { downloadCommand } from "./commands/download.js";
 import { sqlCommand } from "./commands/sql.js";
 import { watchCommand } from "./commands/watch.js";
+import { updateCommand } from "./commands/update.js";
 import { shieldDashTokens } from "./lib/dash-tokens.js";
 
 const program = new Command();
@@ -132,6 +133,7 @@ program.addCommand(inviteCommands(client));
 program.addCommand(mountCommand(client, getOrgId, getDriveId));
 program.addCommand(umountCommand());
 program.addCommand(openCommand());
+program.addCommand(updateCommand());
 
 // MCP command
 program
