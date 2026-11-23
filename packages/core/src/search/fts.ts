@@ -1,6 +1,7 @@
 import type { DB } from "../db/index.js";
 import { Database } from "bun:sqlite";
 import { hasLegacyFts, LEGACY_FTS_TABLE } from "../db/fts-migration.js";
+import { likePrefix } from "../ops/paths.js";
 
 function getRawDb(db: DB): Database {
   return (db as any).$client as Database;
@@ -118,9 +119,9 @@ function ftsQueryTable(
   // Step 1: the top rows by rank, with no snippet. drive_id and path come from
   // the content table by rowid: reading them through the FTS table would load
   // each matching document in full. octet_length() reads only the row header.
-  const pathFilter = params.pathPrefix ? " AND d.path LIKE ?" : "";
+  const pathFilter = params.pathPrefix ? " AND d.path LIKE ? ESCAPE '\\'" : "";
   const binds: unknown[] = [params.pattern, params.driveId];
-  if (params.pathPrefix) binds.push(params.pathPrefix + "%");
+  if (params.pathPrefix) binds.push(likePrefix(params.pathPrefix));
   const top = raw
     .prepare(
       `SELECT f.rowid AS id, d.path AS path, f.rank AS rank, octet_length(d.content) AS bytes
@@ -227,7 +228,7 @@ function legacyFtsQuery(
   const table = LEGACY_FTS_TABLE;
   // FTS5 MATCH requires content columns only (not UNINDEXED ones).
   // Filter by drive_id and path prefix after the MATCH.
-  const pathFilter = params.pathPrefix ? " AND path LIKE ?" : "";
+  const pathFilter = params.pathPrefix ? " AND path LIKE ? ESCAPE '\\'" : "";
   const sql = `
     SELECT path, ${FTS5_SNIPPET_SQL(table)} as snippet, rank
     FROM ${table}
@@ -236,7 +237,7 @@ function legacyFtsQuery(
     LIMIT ${MAX_RESULTS}
   `;
   const binds: unknown[] = [params.pattern, params.driveId];
-  if (params.pathPrefix) binds.push(params.pathPrefix + "%");
+  if (params.pathPrefix) binds.push(likePrefix(params.pathPrefix));
   const rows = raw.prepare(sql).all(...(binds as any[])) as FtsMatch[];
   return rows.map((row) => ({ ...row, snippet: markedToHtml(row.snippet ?? "") }));
 }

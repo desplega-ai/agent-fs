@@ -1,4 +1,4 @@
-import { eq, and, or, isNull } from "drizzle-orm";
+import { eq, and, or, isNull, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext } from "./types.js";
 import { getS3Key } from "./versioning.js";
@@ -6,7 +6,7 @@ import { indexFileEmbeddings, readCurrentVersion } from "../search/pipeline.js";
 import { indexFile } from "../search/fts.js";
 import { clearSearchData } from "./search-index.js";
 import { extractIndexableText, detectMimeType } from "./mime.js";
-import { normalizePrefix } from "./paths.js";
+import { likePrefix, normalizePrefix } from "./paths.js";
 import { queueImageEmbeddings } from "../search/image-embedding.js";
 
 export interface ReindexParams {
@@ -29,9 +29,8 @@ export async function reindex(
   ];
 
   if (params.path) {
-    const { like } = await import("drizzle-orm");
     const prefix = normalizePrefix(params.path);
-    fileConditions.push(like(schema.files.path, prefix + "%"));
+    fileConditions.push(sql`${schema.files.path} LIKE ${likePrefix(prefix)} ESCAPE '\\'`);
   }
 
   if (ctx.embeddingProvider?.supportsMime?.("image/png")) {

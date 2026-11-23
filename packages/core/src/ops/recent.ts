@@ -1,7 +1,7 @@
-import { eq, and, desc, gte, like } from "drizzle-orm";
+import { eq, and, desc, gte, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext, RecentParams, RecentResult } from "./types.js";
-import { withLeadingSlash } from "./paths.js";
+import { likePrefix, withLeadingSlash } from "./paths.js";
 
 export async function recent(
   ctx: OpContext,
@@ -20,7 +20,7 @@ export async function recent(
     query = query.where(
       and(
         eq(schema.fileVersions.driveId, ctx.driveId),
-        like(schema.fileVersions.path, prefix + "%")
+        sql`${schema.fileVersions.path} LIKE ${likePrefix(prefix)} ESCAPE '\\'`
       )
     );
   }
