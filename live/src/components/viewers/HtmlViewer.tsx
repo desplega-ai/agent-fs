@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type RefObject } from "react"
 import { Globe, MessageSquare } from "lucide-react"
+import { useNavigate } from "react-router"
 import { useAuth } from "@/contexts/auth"
 import { useHealth } from "@/hooks/use-health"
 import { useCommentAnchors } from "@/hooks/use-comment-anchors"
 import { approveRootHtml, folderOf, isRootHtmlApproved, resolveHtmlViewUrl, supportsHtmlComments, withCommentsFlag, withFragment } from "@/lib/html-view"
 import { captureQuote, resolveAnchor } from "@/lib/comment-anchor"
 import { createHtmlCommentBridge, type HighlightRange, type HtmlCommentBridge } from "@/lib/html-comment-bridge"
+import { listenForFrameLinks } from "@/lib/html-link-bridge"
 import { frameTextSpace, htmlSourceTextSpace } from "@/lib/html-text-space"
 import { commentAnchors, revealComment, useActiveComment, useHoveredComment } from "@/stores/comment-anchors"
 import { toast } from "@/stores/toast"
@@ -91,6 +93,12 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
   const [confirmed, setConfirmed] = useState(() => !atRoot || (!!orgId && !!driveId && isRootHtmlApproved(orgId, driveId, path)))
   const { url, error, isLoading } = useHtmlViewUrl(path, confirmed, reloadKey)
   const hash = useLocationHash(path)
+  const navigate = useNavigate()
+  // Links that leave the page's folder, handed over by the page (`html-link-bridge`).
+  useEffect(() => listenForFrameLinks(() => frameRef.current?.contentWindow, {
+    route: (to) => navigate(to),
+    open: (href) => window.open(href, "_blank", "noopener,noreferrer"),
+  }), [navigate])
 
   if (!confirmed) {
     return (

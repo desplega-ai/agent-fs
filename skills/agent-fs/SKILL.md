@@ -692,6 +692,7 @@ agent-fs share-revoke --path report-site
 - **Pages run in a sandbox with an opaque origin.** Scripts, forms, popups and alerts work, but there is no `localStorage`, `sessionStorage` or cookies.
 - **No view limits.** One page load fetches many files, so `--max-views` and `--one-off` are rejected for folders, and site views record no `share_viewed` events. Use `--expires-in` (max 7 days) and `share-revoke --path <folder>` instead.
 - **A page can read every file under its folder while the link is valid.** Do not put secrets next to HTML you publish, and do not publish a folder whose HTML you did not write. The live UI renders `.html` files the same way, with a 15-minute site link for the file's folder.
+- **Links work in the live UI without `target="_blank"`.** In a page the live UI shows, a link to the live UI's own file, detail or present view (any org and drive) opens there, any other http(s) link opens in a new tab, and links to files under the page's folder open in its frame. A relative link that climbs above the shared folder (`../other/page.html`) is outside the site and returns 404; link to the file's live UI address instead.
 - Each file is served up to 25 MB. Larger files return 413.
 
 ### App URL in responses

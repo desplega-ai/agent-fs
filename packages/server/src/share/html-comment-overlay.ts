@@ -259,15 +259,19 @@ export function isHtmlCommentsRequested(url: URL): boolean {
 }
 
 /**
- * The page with the overlay appended. The HTML parser moves content after
- * `</body>` or `</html>` back into the body, so appending needs no search for
- * the real closing tag (one in a script string or comment would fool it). The
- * page's own bytes are untouched.
+ * The page with `js` appended in a script tag. The HTML parser moves content
+ * after `</body>` or `</html>` back into the body, so appending needs no search
+ * for the real closing tag (one in a script string or comment would fool it).
+ * The page's own bytes are untouched.
  */
-export function injectHtmlCommentOverlay(body: Uint8Array): Uint8Array {
-  const script = new TextEncoder().encode(`<script>${HTML_COMMENT_OVERLAY}</script>`)
+export function appendScript(body: Uint8Array, js: string): Uint8Array {
+  const script = new TextEncoder().encode(`<script>${js}</script>`)
   const out = new Uint8Array(body.length + script.length)
   out.set(body, 0)
   out.set(script, body.length)
   return out
+}
+
+export function injectHtmlCommentOverlay(body: Uint8Array): Uint8Array {
+  return appendScript(body, HTML_COMMENT_OVERLAY)
 }

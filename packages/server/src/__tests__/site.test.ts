@@ -294,6 +294,42 @@ for (const { label, make } of backends) {
       });
     });
 
+    describe("link handler", () => {
+      const stored = '<!doctype html><img src="pic.png"><script>fetch("data.json")</script>';
+      const dest = (d: string) => ({ headers: { "Sec-Fetch-Dest": d } });
+
+      test("is added to an HTML page loaded in a frame, with this share's path; headers are the same", async () => {
+        const plainRes = await get(h, `/site/${site.token}/index.html`);
+        for (const p of ["index.html", "", "sub/"]) {
+          const res = await get(h, `/site/${site.token}/${p}`, dest("iframe"));
+          expect(res.status, p).toBe(200);
+          const body = await res.text();
+          expect(body, p).toContain("agent-fs-links:");
+          expect(body.endsWith(`(${JSON.stringify(`/site/${site.token}/`)});</script>`), p).toBe(true);
+          expect(res.headers.get("content-length"), p).toBe(String(new TextEncoder().encode(body).length));
+          expectSiteHeaders(res, p);
+          expect(res.headers.get("content-type"), p).toBe(plainRes.headers.get("content-type"));
+        }
+        expect((await (await get(h, `/site/${site.token}/index.html`, dest("frame"))).text()).startsWith(stored)).toBe(true);
+      });
+
+      test("comes after the comment overlay when both apply", async () => {
+        const body = await (await get(h, `/site/${site.token}/index.html?__afs_comments=1`, dest("iframe"))).text();
+        expect(body.startsWith(stored)).toBe(true);
+        expect(body.indexOf("agent-fs-comments:")).toBeGreaterThan(stored.length);
+        expect(body.indexOf("agent-fs-links:")).toBeGreaterThan(body.indexOf("agent-fs-comments:"));
+      });
+
+      test("a page opened as a document or fetched, and every other file in a frame, is the stored bytes", async () => {
+        for (const d of ["document", "empty"]) {
+          expect(await (await get(h, `/site/${site.token}/index.html`, dest(d))).text(), d).toBe(stored);
+        }
+        for (const [p, bytes] of [["data.json", '{"ok":true}'], ["app.js", "console.log(1)"], ["noindex/readme.txt", "no index here"]]) {
+          expect(await (await get(h, `/site/${site.token}/${p}`, dest("iframe"))).text(), p).toBe(bytes);
+        }
+      });
+    });
+
     describe("escapes", () => {
       test("positive control: the outside file exists and a drive-root site serves it", async () => {
         const root = await share(h, "/");
