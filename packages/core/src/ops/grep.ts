@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { OpContext } from "./types.js";
-import { normalizePrefix } from "./paths.js";
+import { likePrefix, normalizePrefix } from "./paths.js";
 import { hasLegacyFts, LEGACY_FTS_TABLE } from "../db/fts-migration.js";
 import { legacyRowIsCurrent } from "../search/fts.js";
 import { ValidationError } from "../errors.js";
@@ -80,16 +80,16 @@ export async function grep(
 ): Promise<GrepResult> {
   // Compile here so an invalid pattern throws the same SyntaxError as before.
   new RegExp(params.pattern);
-  const prefix = normalizePrefix(params.path);
+  const pathPattern = likePrefix(normalizePrefix(params.path));
   const raw = (ctx.db as any).$client as Database;
 
   // Read content from the local search index instead of fetching each file
   // from S3. files_fts_docs holds the full text and is indexed by (drive, path).
   const files = raw
     .prepare(
-      "SELECT path, content FROM files_fts_docs WHERE drive_id = ? AND path LIKE ?"
+      "SELECT path, content FROM files_fts_docs WHERE drive_id = ? AND path LIKE ? ESCAPE '\\'"
     )
-    .all(ctx.driveId, prefix + "%") as Array<{ path: string; content: string }>;
+    .all(ctx.driveId, pathPattern) as Array<{ path: string; content: string }>;
 
   // During the one-time index migration, rows not yet copied still live in
   // the legacy table, minus the ones the new layout has superseded.
@@ -97,9 +97,9 @@ export async function grep(
     const legacy = raw
       .prepare(
         `SELECT path, content FROM ${LEGACY_FTS_TABLE}
-         WHERE drive_id = ? AND path LIKE ?${legacyRowIsCurrent(LEGACY_FTS_TABLE)}`
+         WHERE drive_id = ? AND path LIKE ? ESCAPE '\\'${legacyRowIsCurrent(LEGACY_FTS_TABLE)}`
       )
-      .all(ctx.driveId, prefix + "%") as Array<{ path: string; content: string }>;
+      .all(ctx.driveId, pathPattern) as Array<{ path: string; content: string }>;
     files.push(...legacy);
   }
 

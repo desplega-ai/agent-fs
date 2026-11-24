@@ -1,8 +1,8 @@
-import { eq, and, like } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type { OpContext, GlobParams, GlobResult, GlobMatch } from "./types.js";
 import { getS3Key } from "./versioning.js";
-import { normalizePrefix } from "./paths.js";
+import { likePrefix, normalizePrefix } from "./paths.js";
 import { getCachedDriveListing } from "./glob-cache.js";
 
 /**
@@ -80,7 +80,7 @@ export async function glob(
     .where(
       and(
         eq(schema.files.driveId, ctx.driveId),
-        like(schema.files.path, prefix + "%"),
+        sql`${schema.files.path} LIKE ${likePrefix(prefix)} ESCAPE '\\'`,
         eq(schema.files.isDeleted, false)
       )
     )
