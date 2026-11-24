@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { HTML_LINK_HANDLER, injectHtmlLinkHandler, isFrameRequest } from "../share/html-link-handler.js";
+import { HTML_LINK_HANDLER, injectHtmlLinkHandler, mayLoadInFrame } from "../share/html-link-handler.js";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const dec = (b: Uint8Array) => new TextDecoder().decode(b);
@@ -21,12 +21,14 @@ describe("html link handler", () => {
     }
   });
 
-  test("is for frame loads only", () => {
+  test("is for requests that may load in a frame: a frame, or one that does not say", () => {
     const req = (dest?: string) => new Headers(dest ? { "Sec-Fetch-Dest": dest } : {});
-    expect(isFrameRequest(req("iframe"))).toBe(true);
-    expect(isFrameRequest(req("frame"))).toBe(true);
-    for (const dest of ["document", "empty", "script", "object", "embed", undefined]) {
-      expect(isFrameRequest(req(dest)), String(dest)).toBe(false);
+    // Browsers send no Sec-Fetch-Dest to a plain-HTTP server other than localhost.
+    for (const dest of ["iframe", "frame", undefined]) {
+      expect(mayLoadInFrame(req(dest)), String(dest)).toBe(true);
+    }
+    for (const dest of ["document", "empty", "script", "object", "embed"]) {
+      expect(mayLoadInFrame(req(dest)), dest).toBe(false);
     }
   });
 });

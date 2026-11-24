@@ -2500,7 +2500,8 @@ async function runStandardTests(daemonUrl: string) {
   await test("/site with __afs_comments=1 adds the comment overlay to HTML only; without it the bytes are unchanged", async () => {
     const r = runJson("share-create site-e2e");
     const stored = '<!doctype html><title>Site E2E</title><script src="app.js"></script><p>site-e2e-index</p>';
-    const plain = await fetch(`${r.url}index.html`);
+    // A browser opening the page on its own; without the header it gets the link handler.
+    const plain = await fetch(`${r.url}index.html`, { headers: { "Sec-Fetch-Dest": "document" } });
     assert(await plain.text(), stored);
     const flagged = await fetch(`${r.url}index.html?__afs_comments=1`);
     assert(flagged.status, 200);

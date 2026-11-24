@@ -68,6 +68,8 @@ async function share(h: Harness, path: string, extra: Record<string, unknown> = 
 }
 
 const get = (h: Harness, path: string, init?: RequestInit) => h.app.request(path, init);
+/** A browser opening a page on its own, so `/site` adds no link handler. */
+const asDocument: RequestInit = { headers: { "Sec-Fetch-Dest": "document" } };
 const sqlite = (h: Harness) => (h.db as any).$client as import("bun:sqlite").Database;
 
 /** The fixed security headers every /site response carries, whatever its status. */
@@ -196,7 +198,7 @@ for (const { label, make } of backends) {
         expect(res.status).toBe(301);
         expect(res.headers.get("location")).toBe(`/site/${site.token}/sub/?x=1`);
         expectSiteHeaders(res);
-        const index = await get(h, `/site/${site.token}/sub/`);
+        const index = await get(h, `/site/${site.token}/sub/`, asDocument);
         expect(index.status).toBe(200);
         expect(await index.text()).toBe("<p>sub index</p>");
       });
@@ -214,7 +216,7 @@ for (const { label, make } of backends) {
         expect(res.status).toBe(302);
         expect(res.headers.get("location")).toBe("radar.html?x=1");
         expectSiteHeaders(res);
-        const page = await get(h, `/site/${site.token}/lone/radar.html`);
+        const page = await get(h, `/site/${site.token}/lone/radar.html`, asDocument);
         expect(await page.text()).toBe("<p>radar</p>");
       });
 
@@ -265,7 +267,7 @@ for (const { label, make } of backends) {
 
       test("is added to an HTML page only with the flag; headers are the same either way", async () => {
         const stored = '<!doctype html><img src="pic.png"><script>fetch("data.json")</script>';
-        const plainRes = await get(h, `/site/${site.token}/index.html`);
+        const plainRes = await get(h, `/site/${site.token}/index.html`, asDocument);
         expect(await plainRes.text()).toBe(stored);
         expect(plainRes.headers.get("content-length")).toBe(String(stored.length));
 
@@ -289,7 +291,7 @@ for (const { label, make } of backends) {
 
       test("an unflagged page is the stored bytes exactly", async () => {
         await write(h, "/site/uni.html", "<p>Ünïcødé 日本語</p></body>");
-        const res = await get(h, `/site/${site.token}/uni.html?other=1`);
+        const res = await get(h, `/site/${site.token}/uni.html?other=1`, asDocument);
         expect(new Uint8Array(await res.arrayBuffer())).toEqual(new TextEncoder().encode("<p>Ünïcødé 日本語</p></body>"));
       });
     });
@@ -298,17 +300,20 @@ for (const { label, make } of backends) {
       const stored = '<!doctype html><img src="pic.png"><script>fetch("data.json")</script>';
       const dest = (d: string) => ({ headers: { "Sec-Fetch-Dest": d } });
 
-      test("is added to an HTML page loaded in a frame, with this share's path; headers are the same", async () => {
-        const plainRes = await get(h, `/site/${site.token}/index.html`);
-        for (const p of ["index.html", "", "sub/"]) {
-          const res = await get(h, `/site/${site.token}/${p}`, dest("iframe"));
-          expect(res.status, p).toBe(200);
-          const body = await res.text();
-          expect(body, p).toContain("agent-fs-links:");
-          expect(body.endsWith(`(${JSON.stringify(`/site/${site.token}/`)});</script>`), p).toBe(true);
-          expect(res.headers.get("content-length"), p).toBe(String(new TextEncoder().encode(body).length));
-          expectSiteHeaders(res, p);
-          expect(res.headers.get("content-type"), p).toBe(plainRes.headers.get("content-type"));
+      test("is added to an HTML page loaded in a frame or without Sec-Fetch-Dest, with this share's path; headers are the same", async () => {
+        const plainRes = await get(h, `/site/${site.token}/index.html`, asDocument);
+        for (const init of [dest("iframe"), {}]) {
+          for (const p of ["index.html", "", "sub/"]) {
+            const what = `${p} ${JSON.stringify(init)}`;
+            const res = await get(h, `/site/${site.token}/${p}`, init);
+            expect(res.status, what).toBe(200);
+            const body = await res.text();
+            expect(body, what).toContain("agent-fs-links:");
+            expect(body.endsWith(`(${JSON.stringify(`/site/${site.token}/`)});</script>`), what).toBe(true);
+            expect(res.headers.get("content-length"), what).toBe(String(new TextEncoder().encode(body).length));
+            expectSiteHeaders(res, what);
+            expect(res.headers.get("content-type"), what).toBe(plainRes.headers.get("content-type"));
+          }
         }
         expect((await (await get(h, `/site/${site.token}/index.html`, dest("frame"))).text()).startsWith(stored)).toBe(true);
       });
@@ -320,12 +325,13 @@ for (const { label, make } of backends) {
         expect(body.indexOf("agent-fs-links:")).toBeGreaterThan(body.indexOf("agent-fs-comments:"));
       });
 
-      test("a page opened as a document or fetched, and every other file in a frame, is the stored bytes", async () => {
+      test("a page the browser opens as a document or fetches, and every other file, is the stored bytes", async () => {
         for (const d of ["document", "empty"]) {
           expect(await (await get(h, `/site/${site.token}/index.html`, dest(d))).text(), d).toBe(stored);
         }
         for (const [p, bytes] of [["data.json", '{"ok":true}'], ["app.js", "console.log(1)"], ["noindex/readme.txt", "no index here"]]) {
           expect(await (await get(h, `/site/${site.token}/${p}`, dest("iframe"))).text(), p).toBe(bytes);
+          expect(await (await get(h, `/site/${site.token}/${p}`)).text(), p).toBe(bytes);
         }
       });
     });
@@ -524,7 +530,7 @@ for (const { label, make } of backends) {
       await write(h, "/index.html", "<p>root</p>");
       const root = await share(h, "/");
       expect(root.kind).toBe("site");
-      const res = await get(h, `/site/${root.token}/`);
+      const res = await get(h, `/site/${root.token}/`, asDocument);
       expect(res.status).toBe(200);
       expect(await res.text()).toBe("<p>root</p>");
       const nested = await get(h, `/site/${root.token}/site/sub`);
