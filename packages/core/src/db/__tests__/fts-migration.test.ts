@@ -153,6 +153,25 @@ describe("FTS external-content migration", () => {
     expect(g.matches.find((m) => m.path === "/a.md")!.content).toContain("rewritten");
   });
 
+  test("legacy grep and fts treat an underscore in the path prefix literally", async () => {
+    const sqlite = createLegacyDb();
+    try {
+      addLegacyFile(sqlite, "/q_1/a.md", "needle");
+      addLegacyFile(sqlite, "/qX1/b.md", "needle");
+      expect(prepareFtsMigration(sqlite)).toBe(true);
+
+      const db = drizzle(sqlite, { schema });
+      const { ctx } = createTestContext();
+      const grepHits = await grep({ ...ctx, db, driveId: DRIVE }, { pattern: "needle", path: "/q_1" });
+      expect(grepHits.matches.map((m) => m.path)).toEqual(["/q_1/a.md"]);
+
+      const ftsHits = ftsQuery(db, { pattern: "needle", driveId: DRIVE, pathPrefix: "/q_1" });
+      expect(ftsHits.map((m) => m.path)).toEqual(["/q_1/a.md"]);
+    } finally {
+      sqlite.close();
+    }
+  });
+
   test("run copies live rows in batches, skips deleted and rewritten, drops legacy", async () => {
     const sqlite = createLegacyDb();
     for (let i = 0; i < 7; i++) {
