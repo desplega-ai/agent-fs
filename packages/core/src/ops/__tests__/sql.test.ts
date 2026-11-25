@@ -7,6 +7,7 @@ import { createTestContext } from "../../test-utils.js";
 import { write, writeRaw } from "../write.js";
 import { sql, detectSqlFormat } from "../sql.js";
 import type { OpContext } from "../types.js";
+import { NotFoundError, ValidationError } from "../../errors.js";
 
 const CSV = "id,name,amount\n1,alpha,10.5\n2,beta,20.25\n3,gamma,30\n";
 
@@ -378,5 +379,183 @@ describe("sql op", () => {
     const result = await sql(ctx, { query: "SELECT 1 AS id, 2 AS id" });
     expect(result.columns.map((c) => c.name)).toEqual(["id", "id_2"]);
     expect(result.rows).toEqual([{ id: 1, id_2: 2 }]);
+  });
+});
+
+describe("sql glob reads", () => {
+  async function seedTasks(ctx: OpContext) {
+    await write(ctx, { path: "/lake/tasks/a.csv", content: "id,amount\n1,10\n2,20\n" });
+    await write(ctx, { path: "/lake/tasks/b.csv", content: "id,amount\n3,30\n" });
+    // A column only one file has: union_by_name fills it with NULL elsewhere.
+    await write(ctx, { path: "/lake/tasks/c.csv", content: "id,amount,note\n4,40,x\n" });
+  }
+
+  test("a glob literal reads every match as one table", async () => {
+    const { ctx } = createTestContext();
+    await seedTasks(ctx);
+    await write(ctx, { path: "/lake/other/z.csv", content: "id,amount\n9,900\n" });
+    const result = await sql(ctx, {
+      query: "SELECT count(*) AS n, sum(amount) AS total, count(note) AS notes FROM '/lake/tasks/*.csv'",
+    });
+    expect(result.rows).toEqual([{ n: 4, total: 100, notes: 1 }]);
+    expect(result.columns.map((c) => c.name)).toEqual(["n", "total", "notes"]);
+    expect(result.files).toEqual([
+      {
+        table: "doc_1",
+        path: "/lake/tasks/*.csv",
+        format: "csv",
+        matches: ["/lake/tasks/a.csv", "/lake/tasks/b.csv", "/lake/tasks/c.csv"],
+      },
+    ]);
+  });
+
+  test("** crosses folders and ? matches one character", async () => {
+    const { ctx } = createTestContext();
+    await seedTasks(ctx);
+    await write(ctx, { path: "/lake/deep/x/y.csv", content: "id,amount\n5,50\n" });
+    const deep = await sql(ctx, { query: "SELECT sum(amount) AS total FROM '/lake/**/*.csv'" });
+    expect(deep.rows).toEqual([{ total: 150 }]);
+    const one = await sql(ctx, { query: "SELECT sum(amount) AS total FROM '/lake/tasks/?.csv'" });
+    expect(one.rows).toEqual([{ total: 100 }]);
+  });
+
+  test("a glob that matches nothing fails as not found", async () => {
+    const { ctx } = createTestContext();
+    await seedTasks(ctx);
+    try {
+      await sql(ctx, { query: "SELECT * FROM '/lake/tasks/*.parquet'" });
+      throw new Error("expected sql to throw");
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(NotFoundError);
+      expect(err.message).toBe("No files match /lake/tasks/*.parquet");
+    }
+  });
+
+  test("a glob over mixed formats is refused", async () => {
+    const { ctx } = createTestContext();
+    await write(ctx, { path: "/mixed/a.csv", content: "id\n1\n" });
+    await write(ctx, { path: "/mixed/b.json", content: '[{"id":2}]' });
+    try {
+      await sql(ctx, { query: "SELECT * FROM '/mixed/*'" });
+      throw new Error("expected sql to throw");
+    } catch (err: any) {
+      expect(err).toBeInstanceOf(ValidationError);
+      expect(err.message).toMatch(/more than one format \(csv, json\)/);
+    }
+  });
+
+  test("a glob over more files than the cap is refused", async () => {
+    process.env.AGENT_FS_SQL_MAX_GLOB_FILES = "3";
+    try {
+      const { ctx } = createTestContext();
+      for (let i = 0; i < 4; i++) {
+        await write(ctx, { path: `/many/f${i}.csv`, content: `id\n${i}\n` });
+      }
+      await expect(sql(ctx, { query: "SELECT * FROM '/many/*.csv'" })).rejects.toThrow(
+        /Glob \/many\/\*\.csv matches more than 3 files/
+      );
+      process.env.AGENT_FS_SQL_MAX_GLOB_FILES = "4";
+      const ok = await sql(ctx, { query: "SELECT count(*) AS n FROM '/many/*.csv'" });
+      expect(ok.rows).toEqual([{ n: 4 }]);
+    } finally {
+      delete process.env.AGENT_FS_SQL_MAX_GLOB_FILES;
+    }
+  });
+
+  test("the default cap refuses a 201-file glob", async () => {
+    const { ctx } = createTestContext();
+    for (let i = 0; i < 201; i++) {
+      await write(ctx, { path: `/wide/f${i}.csv`, content: `id\n${i}\n` });
+    }
+    await expect(sql(ctx, { query: "SELECT count(*) FROM '/wide/*.csv'" })).rejects.toThrow(
+      /matches more than 200 files/
+    );
+  });
+
+  test("an escape attempt normalizes and stays inside the drive", async () => {
+    const { ctx, s3, orgId } = createTestContext();
+    await write(ctx, { path: "/root.csv", content: "id\n1\n" });
+    // Objects outside this drive, in the same store, must never be read.
+    await s3.putObject(`${orgId}/drives/other-drive/secret.csv`, "id\n999\n");
+    await s3.putObject(`${orgId}/secret.csv`, "id\n999\n");
+    const result = await sql(ctx, { query: "SELECT sum(id) AS s FROM '/../*.csv'" });
+    expect(result.rows).toEqual([{ s: 1 }]);
+    expect(result.files[0].path).toBe("/*.csv");
+    expect(result.files[0].matches).toEqual(["/root.csv"]);
+    const deep = await sql(ctx, { query: "SELECT sum(id) AS s FROM '/../../**/*.csv'" });
+    expect(deep.rows).toEqual([{ s: 1 }]);
+    // `..` behind a backslash separator is refused outright.
+    await expect(sql(ctx, { query: "SELECT * FROM '/..\\*.csv'" })).rejects.toThrow(
+      /'\.' or '\.\.' segments/
+    );
+  });
+
+  test("includeFilename adds drive paths, never temp paths", async () => {
+    const { ctx } = createTestContext();
+    await seedTasks(ctx);
+    const result = await sql(ctx, {
+      query: "SELECT filename, sum(amount) AS total FROM t GROUP BY filename ORDER BY filename",
+      tables: { t: { path: "/lake/tasks/*.csv", includeFilename: true } },
+    });
+    expect(result.rows).toEqual([
+      { filename: "/lake/tasks/a.csv", total: 30 },
+      { filename: "/lake/tasks/b.csv", total: 30 },
+      { filename: "/lake/tasks/c.csv", total: 40 },
+    ]);
+    expect(JSON.stringify(result)).not.toContain(tmpdir());
+  });
+
+  test("without includeFilename a glob adds no filename column", async () => {
+    const { ctx } = createTestContext();
+    await seedTasks(ctx);
+    const result = await sql(ctx, {
+      query: "SELECT * FROM t ORDER BY id",
+      tables: { t: "/lake/tasks/*.csv" },
+    });
+    expect(result.columns.map((c) => c.name)).toEqual(["id", "amount", "note"]);
+  });
+
+  test("xlsx and parquet globs union per file", async () => {
+    const { ctx } = createTestContext();
+    const fixtures = await makeBinaryFixtures();
+    try {
+      await writeRaw(ctx, { path: "/x/a.xlsx", bytes: fixtures.xlsx });
+      await writeRaw(ctx, { path: "/x/b.xlsx", bytes: fixtures.xlsx });
+      await writeRaw(ctx, { path: "/p/a.parquet", bytes: fixtures.parquet });
+      await writeRaw(ctx, { path: "/p/b.parquet", bytes: fixtures.parquet });
+      const xlsx = await sql(ctx, {
+        query: "SELECT filename, sum(num) AS s FROM x GROUP BY 1 ORDER BY 1",
+        tables: { x: { path: "/x/*.xlsx", includeFilename: true } },
+      });
+      expect(xlsx.rows).toEqual([
+        { filename: "/x/a.xlsx", s: 3 },
+        { filename: "/x/b.xlsx", s: 3 },
+      ]);
+      const parquet = await sql(ctx, { query: "SELECT count(*) AS n FROM '/p/*.parquet'" });
+      expect(parquet.rows).toEqual([{ n: 6 }]);
+    } finally {
+      fixtures.cleanup();
+    }
+  });
+
+  test("a glob over databases is refused", async () => {
+    const { ctx } = createTestContext();
+    const fixtures = await makeBinaryFixtures();
+    try {
+      await writeRaw(ctx, { path: "/dbs/a.db", bytes: fixtures.sqlite });
+      await expect(
+        sql(ctx, { query: "SELECT 1", tables: { d: "/dbs/*.db" } })
+      ).rejects.toThrow(/Glob reads support/);
+    } finally {
+      fixtures.cleanup();
+    }
+  });
+
+  test("the sandbox stays locked after a glob read", async () => {
+    const { ctx } = createTestContext();
+    await seedTasks(ctx);
+    await expect(
+      sql(ctx, { query: "SELECT * FROM '/lake/tasks/*.csv'; SELECT * FROM read_csv('/etc/passwd')" })
+    ).rejects.toThrow(/disabled|access/i);
   });
 });
