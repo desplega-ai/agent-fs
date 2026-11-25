@@ -93,12 +93,15 @@ export function HtmlViewer({ path, className, reloadKey = 0, onShowSource, comme
   const [confirmed, setConfirmed] = useState(() => !atRoot || (!!orgId && !!driveId && isRootHtmlApproved(orgId, driveId, path)))
   const { url, error, isLoading } = useHtmlViewUrl(path, confirmed, reloadKey)
   const hash = useLocationHash(path)
+  // Through a ref: `navigate` changes with the route, and the listener must keep its nonce.
   const navigate = useNavigate()
+  const navigateRef = useRef(navigate)
+  navigateRef.current = navigate
   // Links that leave the page's folder, handed over by the page (`html-link-bridge`).
-  useEffect(() => listenForFrameLinks(() => frameRef.current?.contentWindow, {
-    route: (to) => navigate(to),
+  useEffect(() => listenForFrameLinks(() => frameRef.current, {
+    route: (to) => navigateRef.current(to),
     open: (href) => window.open(href, "_blank", "noopener,noreferrer"),
-  }), [navigate])
+  }), [])
 
   if (!confirmed) {
     return (

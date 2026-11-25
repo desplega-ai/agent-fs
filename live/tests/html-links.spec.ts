@@ -61,24 +61,36 @@ const recorder = `<script>window.__clicks = {};
 addEventListener("message", function (e) { if (e.data && e.data.type === "agent-fs-links:host") window.__hosted = true });
 addEventListener("click", function (e) { var a = e.target.closest("a,area"); __clicks[a.id] = e.defaultPrevented; e.preventDefault() })</script>`
 
-/** A parent that frames `page` and, unless `silent`, answers the handler as the viewer does. */
-function parentPage(page: string, silent: boolean) {
+const NONCE = "n-1"
+
+/**
+ * A parent that frames `page` and answers the handler's hello with `reply`:
+ * by default a host with a nonce, as the viewer does. It records the share
+ * path the hello names, and each address handed over with that nonce.
+ */
+function parentPage(page: string, reply: object | null) {
   return `<!doctype html><body><script>
-    window.__navs = []; window.__hello = false;
+    window.__navs = []; window.__hello = null;
     addEventListener("message", function (e) {
       var f = document.getElementById("f").contentWindow;
       if (e.source !== f || !e.data) return;
-      if (e.data.type === "agent-fs-links:hello") { __hello = true; if (!${silent}) f.postMessage({ type: "agent-fs-links:host", v: 1 }, "*"); }
-      if (e.data.type === "agent-fs-links:navigate") __navs.push(e.data.href);
+      if (e.data.type === "agent-fs-links:hello") { __hello = e.data.root; var r = ${JSON.stringify(reply)}; if (r) f.postMessage(r, "*"); }
+      if (e.data.type === "agent-fs-links:navigate") __navs.push(e.data.nonce === "${NONCE}" ? e.data.href : "without the nonce: " + e.data.href);
     });
   </script><iframe id="f" sandbox="${SANDBOX}" src="${SHARE}dir/${page}"></iframe></body>`
+}
+
+const REPLIES: Record<string, object | null> = {
+  host: { type: "agent-fs-links:host", v: 1, nonce: NONCE },
+  none: null,
+  "without a nonce": { type: "agent-fs-links:host", v: 1 },
 }
 
 async function installHarness(page: Page) {
   await page.route(`${DOCS}/**`, async route => {
     const url = new URL(route.request().url())
     if (url.pathname === "/viewer") {
-      const body = parentPage(url.searchParams.get("page") ?? "a.html", url.searchParams.has("silent"))
+      const body = parentPage(url.searchParams.get("page") ?? "a.html", REPLIES[url.searchParams.get("reply") ?? "host"])
       return route.fulfill({ body, contentType: "text/html" })
     }
     const name = url.pathname.slice(`${SHARE}dir/`.length)
@@ -113,6 +125,7 @@ test("the page hands over plain clicks on links that leave its shared folder, an
   await waitForHost(page)
 
   const all = ["same", "sub", "up-in", "hash", "query", "abs-in", "up-out", "docs", "ext", "nested-span", "self", "empty", "blank", "top", "named", "download", "mailto", "js", "handled", "area"]
+  expect(await page.evaluate(() => (window as unknown as { __hello: string }).__hello)).toBe("/site/TOKEN/")
   await clickAll(page, all)
   await expect.poll(() => navs(page)).toEqual([
     `${DOCS}/fs/site/x.html`,
@@ -145,28 +158,51 @@ for (const [name, target] of Object.entries(BASE_TARGETS)) {
   })
 }
 
-test("a parent that never answers keeps the page's links as they were", async ({ page }) => {
-  await installHarness(page)
-  await page.goto(`${DOCS}/viewer?silent`)
-  await expect.poll(() => page.evaluate(() => (window as unknown as { __hello: boolean }).__hello)).toBe(true)
-  await page.waitForTimeout(300)
-  await clickAll(page, ["docs", "ext"])
-  await page.waitForTimeout(300)
-  expect(await navs(page)).toEqual([])
-  expect(await clicks(page)).toEqual({ docs: false, ext: false })
-})
+for (const reply of ["none", "without a nonce"]) {
+  test(`a parent that answers with ${reply === "none" ? "nothing" : "a host without a nonce"} keeps the page's links as they were`, async ({ page }) => {
+    await installHarness(page)
+    await page.goto(`${DOCS}/viewer?reply=${encodeURIComponent(reply)}`)
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __hello: string | null }).__hello)).toBe("/site/TOKEN/")
+    await page.waitForTimeout(300)
+    await clickAll(page, ["docs", "ext"])
+    await page.waitForTimeout(300)
+    expect(await navs(page)).toEqual([])
+    expect(await clicks(page)).toEqual({ docs: false, ext: false })
+  })
+}
 
 // ---------------------------------------------------------------------------
 // The viewer: the app opens what the page hands over.
 // ---------------------------------------------------------------------------
+
+const ELSEWHERE = "http://elsewhere.test/away.html"
 
 function viewerPage(app: string) {
   return `<!doctype html><title>QA page</title>
 <h1 id="hello">Hello from the page</h1>
 <a id="docs" href="${app}/file/QA/QA2/notes/other.html">another drive</a>
 <a id="ext" href="https://external.test/issue/1">external</a>
-<a id="same" href="notes.html">same folder</a>`
+<a id="same" href="notes.html">same folder</a>
+<a id="away" href="${ELSEWHERE}" target="_self">elsewhere, in the frame</a>`
 }
+
+/**
+ * A page on another host that the frame navigates to. It speaks the handler's
+ * protocol without knowing the share path or the nonce: on load and on each
+ * click of `#go`, it says hello and posts addresses. It records any host reply.
+ */
+const awayPage = (app: string) => `<!doctype html><p id="away">Elsewhere</p><a id="go" href="#">go</a><script>
+var P = "agent-fs-links:";
+window.__hosts = [];
+addEventListener("message", function (e) { if (e.data && e.data.type === P + "host") __hosts.push(e.data); });
+function post() {
+  [undefined, "/site/guess/", "/"].forEach(function (root) { parent.postMessage({ type: P + "hello", v: 1, root: root }, "*"); });
+  parent.postMessage({ type: P + "navigate", v: 1, href: "${app}/file/QA/QA2/notes/other.html" }, "*");
+  parent.postMessage({ type: P + "navigate", v: 1, href: "https://external.test/issue/1", nonce: "guess" }, "*");
+}
+post();
+document.getElementById("go").addEventListener("click", function (e) { e.preventDefault(); post(); });
+</script>`
 const notesPage = (app: string) => `<!doctype html><p id="notes">Notes</p><a id="docs" href="${app}/file/QA/QA2/notes/other.html">another drive</a>`
 
 // The real server's `/site` serves the pages. The browser reaches it as
@@ -228,6 +264,17 @@ async function installApp(page: Page, app: string, site: Site) {
 
 const FRAME = 'iframe[title="reports/page.html"]'
 
+/** Waits for two paints of the page in the frame: a click that comes sooner can land on the frame's parent instead. */
+const painted = (page: Page) =>
+  page.frameLocator(FRAME).locator("body").evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+
+/** Opens `path` in the viewer and waits until the page in the frame takes clicks. */
+async function openViewer(page: Page, path: string) {
+  await page.goto(path)
+  await expect(page.frameLocator(FRAME).locator("#hello")).toHaveText("Hello from the page")
+  await painted(page)
+}
+
 test.describe("the viewer", () => {
   let site: Site
 
@@ -247,8 +294,7 @@ test.describe("the viewer", () => {
   for (const view of ["file", "page"]) {
     test(`a docs link in the page opens in the app, from the ${view} view`, async ({ page, baseURL }) => {
       await installApp(page, baseURL!, site)
-      await page.goto(`/${view}/~/org/drive/reports/page.html`)
-      await expect(page.frameLocator(FRAME).locator("#hello")).toHaveText("Hello from the page")
+      await openViewer(page, `/${view}/~/org/drive/reports/page.html`)
       const popups: string[] = []
       page.context().on("page", (p) => popups.push(p.url()))
 
@@ -261,8 +307,7 @@ test.describe("the viewer", () => {
 
   test("an external link opens in a new tab without an opener; the viewer stays", async ({ page, baseURL }) => {
     await installApp(page, baseURL!, site)
-    await page.goto("/file/~/org/drive/reports/page.html")
-    await expect(page.frameLocator(FRAME).locator("#hello")).toHaveText("Hello from the page")
+    await openViewer(page, "/file/~/org/drive/reports/page.html")
 
     const popup = page.context().waitForEvent("page")
     await page.frameLocator(FRAME).locator("#ext").click()
@@ -276,13 +321,41 @@ test.describe("the viewer", () => {
 
   test("a same-folder link stays in the frame, and that page's docs links still open in the app", async ({ page, baseURL }) => {
     await installApp(page, baseURL!, site)
-    await page.goto("/file/~/org/drive/reports/page.html")
+    await openViewer(page, "/file/~/org/drive/reports/page.html")
     await page.frameLocator(FRAME).locator("#same").click()
     await expect(page.frameLocator(FRAME).locator("#notes")).toHaveText("Notes")
+    await painted(page)
     await expect(page).toHaveURL(`${baseURL}/file/QA/QA/reports/page.html`)
 
     await page.frameLocator(FRAME).locator("#docs").click()
     await expect(page).toHaveURL(`${baseURL}/file/QA/QA2/notes/other.html`)
+  })
+
+  test("a page the frame navigated to on another host cannot hand over links", async ({ page, baseURL }) => {
+    await installApp(page, baseURL!, site)
+    let served = false
+    await page.route(ELSEWHERE, route => {
+      served = true
+      return route.fulfill({ body: awayPage(baseURL!), contentType: "text/html" })
+    })
+    await openViewer(page, "/file/~/org/drive/reports/page.html")
+    const popups: string[] = []
+    page.context().on("page", (p) => popups.push(p.url()))
+    const stays = async () => {
+      await page.waitForTimeout(500)
+      await expect(page).toHaveURL(`${baseURL}/file/QA/QA/reports/page.html`)
+      expect(popups).toEqual([])
+    }
+
+    await page.frameLocator(FRAME).locator("#away").click()
+    await expect.poll(() => served).toBe(true)
+    await stays()
+    await expect(page.frameLocator(FRAME).locator("#away")).toHaveText("Elsewhere")
+    await painted(page)
+    // A user's click gives it the activation a new tab needs.
+    await page.frameLocator(FRAME).locator("#go").click()
+    await stays()
+    expect(await page.frameLocator(FRAME).locator("#away").evaluate(() => (window as unknown as { __hosts: unknown[] }).__hosts)).toEqual([])
   })
 
   test("a navigate message from anything but the frame is ignored", async ({ page, baseURL }) => {

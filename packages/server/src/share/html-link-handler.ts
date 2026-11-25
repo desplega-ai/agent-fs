@@ -5,11 +5,12 @@ import { appendScript } from "./html-comment-overlay.js"
  * has no `allow-top-navigation`, so a plain link that leaves the shared folder
  * loads inside the frame: the live UI itself, which cannot start without
  * storage, or a site that refuses to be framed. `/site` adds this script to an
- * HTML page that may load in a frame. Once `window.parent` answers its `hello`
- * with `host`, a plain left click on such a link is cancelled and its address
- * is posted to the parent, which opens it in the app or in a new tab. A page
- * outside a frame, or under a parent that never answers (such as another site
- * framing a public link), keeps its links as they were.
+ * HTML page that may load in a frame. Once `window.parent` answers its `hello`,
+ * which names the share path, with `host` and a nonce, a plain left click on
+ * such a link is cancelled and its address is posted to the parent with that
+ * nonce, and the parent opens it in the app or in a new tab. A page outside a
+ * frame, or under a parent that never answers (such as another site framing a
+ * public link), keeps its links as they were.
  *
  * Links inside the folder, links with any target (`_self` and empty ones too,
  * also from `<base target>`), downloads, clicks with a modifier key and clicks
@@ -24,15 +25,16 @@ export const HTML_LINK_HANDLER = String.raw`(function (root) {
   var at = location.pathname.indexOf(root);
   if (at < 0) return;
   window.__afsLinks = true;
-  var P = "agent-fs-links:", hosted = false;
+  var P = "agent-fs-links:", nonce = null;
   var sharePrefix = location.origin + location.pathname.slice(0, at + root.length);
 
   window.addEventListener("message", function (e) {
-    if (e.source === window.parent && e.data && e.data.v === 1 && e.data.type === P + "host") hosted = true;
+    var d = e.data;
+    if (e.source === window.parent && d && d.v === 1 && d.type === P + "host" && typeof d.nonce === "string") nonce = d.nonce;
   });
 
   window.addEventListener("click", function (e) {
-    if (!hosted || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    if (nonce === null || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     var a = e.target && e.target.closest ? e.target.closest("a[href],area[href]") : null;
     if (!a || a.hasAttribute("download")) return;
     if (a.hasAttribute("target") || document.querySelector("base[target]")) return;
@@ -41,10 +43,10 @@ export const HTML_LINK_HANDLER = String.raw`(function (root) {
     if (url.protocol !== "http:" && url.protocol !== "https:") return;
     if ((url.origin + url.pathname).indexOf(sharePrefix) === 0) return;
     e.preventDefault();
-    window.parent.postMessage({ type: P + "navigate", v: 1, href: url.href }, "*");
+    window.parent.postMessage({ type: P + "navigate", v: 1, href: url.href, nonce: nonce }, "*");
   });
 
-  window.parent.postMessage({ type: P + "hello", v: 1 }, "*");
+  window.parent.postMessage({ type: P + "hello", v: 1, root: root }, "*");
 })`
 
 /**
