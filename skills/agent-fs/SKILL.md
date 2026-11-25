@@ -690,6 +690,7 @@ agent-fs share-revoke --path report-site
 - **`index.html` is the entry point.** `/site/<token>/` serves the folder's `index.html`, and `sub/` serves `sub/index.html`. A folder with no `index.html` opens its only `.html` file (for example `radar.html`), or else lists its HTML pages (never other files or sub-folders). A folder with no HTML page returns 404.
 - **Relative paths work.** `<img src="chart.png">`, `<link href="style.css">`, `<script src="app.js">`, module scripts, `fetch("data.json")` and CSS `url()` all resolve inside the folder. External CDNs and fonts load too.
 - **Pages run in a sandbox with an opaque origin.** Scripts, forms, popups and alerts work, but there is no `localStorage`, `sessionStorage` or cookies.
+- **In a frame, such as the live UI, links that leave the folder open in a new tab.** Links inside the folder stay in the frame.
 - **No view limits.** One page load fetches many files, so `--max-views` and `--one-off` are rejected for folders, and site views record no `share_viewed` events. Use `--expires-in` (max 7 days) and `share-revoke --path <folder>` instead.
 - **A page can read every file under its folder while the link is valid.** Do not put secrets next to HTML you publish, and do not publish a folder whose HTML you did not write. The live UI renders `.html` files the same way, with a 15-minute site link for the file's folder.
 - Each file is served up to 25 MB. Larger files return 413.
