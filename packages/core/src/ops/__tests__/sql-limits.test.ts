@@ -10,6 +10,7 @@ afterEach(() => {
   delete process.env.AGENT_FS_SQL_MAX_RESULT_BYTES;
   delete process.env.AGENT_FS_SQL_MAX_CONCURRENT;
   delete process.env.AGENT_FS_SQL_MAX_TOTAL_BYTES;
+  delete process.env.AGENT_FS_SQL_TIMEOUT_MS;
 });
 
 describe("sql op result size", () => {
@@ -78,6 +79,28 @@ describe("sql op concurrency", () => {
     expect((await first).rows).toEqual([{ n: 1 }]);
     // The slot is released once the running query finishes.
     expect((await sql(ctx, { query: "SELECT 3 AS n" })).rows).toEqual([{ n: 3 }]);
+  });
+});
+
+describe("sql op glob listing deadline", () => {
+  test("a stalled glob listing times out and frees its slot", async () => {
+    process.env.AGENT_FS_SQL_MAX_CONCURRENT = "4";
+    process.env.AGENT_FS_SQL_TIMEOUT_MS = "100";
+    const { ctx } = createTestContext();
+    const realList = ctx.s3.listObjects.bind(ctx.s3);
+    // Storage never answers the listing, as a hung S3 page would.
+    ctx.s3.listObjects = () => new Promise(() => {});
+    const stalled = [1, 2, 3, 4].map((i) =>
+      sql(ctx, { query: `SELECT count(*) FROM '/lake${i}/*.csv'` })
+    );
+    const settled = await Promise.allSettled(stalled);
+    for (const r of settled) {
+      expect(r.status).toBe("rejected");
+      expect(String((r as PromiseRejectedResult).reason)).toMatch(/Query timed out after 100ms/);
+    }
+    ctx.s3.listObjects = realList;
+    // Every slot came back: a new query runs instead of "Too many SQL queries running".
+    expect((await sql(ctx, { query: "SELECT 1 AS n" })).rows).toEqual([{ n: 1 }]);
   });
 });
 

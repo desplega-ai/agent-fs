@@ -579,29 +579,6 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
 
   const maxTotalBytes = envInt("AGENT_FS_SQL_MAX_TOTAL_BYTES", 512 * 1024 * 1024);
 
-  const bindings = await collectBindings(ctx, params);
-  let totalBytes = 0;
-  for (const b of bindings) {
-    for (const s of b.sources) {
-      if (s.size > maxFileBytes) {
-        throw new ValidationError(
-          `File too large for SQL: ${s.path} (${s.size} bytes, limit ${maxFileBytes})`,
-          { suggestion: "Raise AGENT_FS_SQL_MAX_FILE_BYTES on the server if needed" }
-        );
-      }
-      totalBytes += s.size;
-    }
-  }
-  if (totalBytes > maxTotalBytes) {
-    throw new ValidationError(
-      `Documents too large for SQL: ${totalBytes} bytes in total, limit ${maxTotalBytes}`,
-      {
-        suggestion:
-          "Bind fewer or smaller documents (narrow the glob), or raise AGENT_FS_SQL_MAX_TOTAL_BYTES on the server",
-      }
-    );
-  }
-
   const { DuckDBInstance } = await import("@duckdb/node-api");
 
   let tempDir: string | null = null;
@@ -619,8 +596,20 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
   // I/O, where there is no connection to interrupt).
   let timedOut = false;
   const downloadAbort = new AbortController();
+  const timeoutError = () =>
+    new ValidationError(`Query timed out after ${timeoutMs}ms`, {
+      suggestion: "Reduce the amount of data the query loads or scans",
+    });
+  // Rejects at the deadline, so a phase with nothing to interrupt (the glob
+  // listing) still ends the operation and frees its concurrency slot.
+  let rejectAtDeadline: (err: Error) => void = () => {};
+  const deadline = new Promise<never>((_, reject) => {
+    rejectAtDeadline = reject;
+  });
+  deadline.catch(() => {});
   timer = setTimeout(() => {
     timedOut = true;
+    rejectAtDeadline(timeoutError());
     // Abort in-flight S3 downloads and interrupt active DuckDB connections.
     downloadAbort.abort();
     for (const c of [conn, bridgeConn]) {
@@ -632,14 +621,39 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
     }
   }, timeoutMs);
   const checkTimeout = () => {
-    if (timedOut) {
-      throw new ValidationError(`Query timed out after ${timeoutMs}ms`, {
-        suggestion: "Reduce the amount of data the query loads or scans",
-      });
-    }
+    if (timedOut) throw timeoutError();
   };
 
   try {
+    // --- Binding phase: resolve paths and list globs, bounded by the deadline ---
+    // shortcut: the glob op takes no abort signal, so a listing still running
+    // at the deadline is abandoned (its result ignored), not cancelled; thread
+    // an AbortSignal through glob -> listObjects if abandoned listings pile up.
+    const listing = collectBindings(ctx, params);
+    listing.catch(() => {});
+    const bindings = await Promise.race([listing, deadline]);
+    let totalBytes = 0;
+    for (const b of bindings) {
+      for (const s of b.sources) {
+        if (s.size > maxFileBytes) {
+          throw new ValidationError(
+            `File too large for SQL: ${s.path} (${s.size} bytes, limit ${maxFileBytes})`,
+            { suggestion: "Raise AGENT_FS_SQL_MAX_FILE_BYTES on the server if needed" }
+          );
+        }
+        totalBytes += s.size;
+      }
+    }
+    if (totalBytes > maxTotalBytes) {
+      throw new ValidationError(
+        `Documents too large for SQL: ${totalBytes} bytes in total, limit ${maxTotalBytes}`,
+        {
+          suggestion:
+            "Bind fewer or smaller documents (narrow the glob), or raise AGENT_FS_SQL_MAX_TOTAL_BYTES on the server",
+        }
+      );
+    }
+
     // --- Download phase ---
     if (bindings.length > 0) {
       tempDir = await mkdtemp(join(tmpdir(), "agent-fs-sql-"));
