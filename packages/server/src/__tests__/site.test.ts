@@ -8,6 +8,7 @@ import type { StorageAdapter } from "../../../core/src/storage/adapter.js";
 import { generateShareToken } from "../../../core/src/ops/share.js";
 import { createApp } from "../app.js";
 import { SITE_MAX_OBJECT_BYTES } from "../routes/site.js";
+import { HTML_LINK_TARGET } from "../share/html-link-target.js";
 
 // One app per harness, and these tests make far more than the default limits
 // a minute from a single "IP". The limiter has its own test below.
@@ -291,6 +292,36 @@ for (const { label, make } of backends) {
         await write(h, "/site/uni.html", "<p>Ünïcødé 日本語</p></body>");
         const res = await get(h, `/site/${site.token}/uni.html?other=1`);
         expect(new Uint8Array(await res.arrayBuffer())).toEqual(new TextEncoder().encode("<p>Ünïcødé 日本語</p></body>"));
+      });
+    });
+
+    describe("link script", () => {
+      const stored = '<!doctype html><a href="https://example.com/">out</a>';
+      const load = (dest: string | null, query = "") =>
+        get(h, `/site/${site.token}/link.html${query}`, dest ? { headers: { "Sec-Fetch-Dest": dest } } : undefined);
+      const call = () => `(${JSON.stringify(`/site/${site.token}/`)});</script>`;
+      beforeAll(() => write(h, "/site/link.html", stored));
+
+      test("is added to an HTML page loaded in a frame, with the share's path", async () => {
+        for (const dest of ["iframe", "frame"]) {
+          const res = await load(dest);
+          const body = await res.text();
+          expect(body).toBe(`${stored}<script>${HTML_LINK_TARGET}${call()}`);
+          expect(res.headers.get("content-length")).toBe(String(new TextEncoder().encode(body).length));
+          expectSiteHeaders(res);
+        }
+      });
+
+      test("is not added to a page opened on its own, without the header, or to other files", async () => {
+        for (const dest of ["document", null]) expect(await (await load(dest)).text()).toBe(stored);
+        const json = await get(h, `/site/${site.token}/data.json`, { headers: { "Sec-Fetch-Dest": "iframe" } });
+        expect(await json.text()).toBe('{"ok":true}');
+      });
+
+      test("comes after the comment overlay when both apply", async () => {
+        const body = await (await load("iframe", "?__afs_comments=1")).text();
+        expect(body.indexOf("agent-fs-comments:")).toBeGreaterThan(stored.length);
+        expect(body.endsWith(call())).toBe(true);
       });
     });
 
