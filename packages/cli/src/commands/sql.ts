@@ -53,6 +53,7 @@ export function sqlCommand(
       `
 Examples:
   agent-fs sql "SELECT * FROM '/data/sales.csv' LIMIT 10"
+  agent-fs sql "SELECT count(*) FROM '/lake/tasks/*.csv'"   # every match as one table
   agent-fs sql "SELECT s.name, t.tag FROM sales s JOIN tags t ON s.id = t.id" \\
     -t sales=/data/sales.csv -t tags=/data/tags.parquet
   agent-fs sql "SELECT * FROM app.users" -t app=/backups/app.db

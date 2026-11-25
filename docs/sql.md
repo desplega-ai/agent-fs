@@ -34,6 +34,33 @@ agent-fs sql "SELECT a.id FROM '/data/a.parquet' a JOIN '/data/b.ndjson' b USING
 
 Only string literals that resolve to an existing document in the drive are bound — other strings are left untouched, so `WHERE name = 'report.csv'` works as expected.
 
+### Folder reads (globs)
+
+Put a glob in the path literal to read every matching file as one table: `*` matches within one folder, `?` matches one character, and `**` crosses folders.
+
+```bash
+agent-fs sql "SELECT count(*), sum(amount) FROM '/lake/tasks/*.csv'"
+agent-fs sql "SELECT * FROM '/lake/**/*.parquet' WHERE day >= '2026-01-01'"
+```
+
+- Columns are unified by name across files. A column that only some files have is `NULL` in the rows of the others.
+- Every match must have the same format. A glob over `.csv` and `.json` files fails with a `VALIDATION_ERROR`: narrow it to one extension. SQLite and DuckDB databases cannot be globbed; bind each one by name.
+- A glob that matches nothing fails with `NOT_FOUND`, naming the pattern.
+- The glob stays inside the drive: `.` and `..` segments resolve and stop at the drive root, so `'/../*.csv'` reads `/*.csv`.
+- The `files` entry of a glob has its normalized pattern as `path` and the matched drive paths, in read order, as `matches`.
+
+A glob also works as a named binding. With the `{ path, format, includeFilename: true }` form (API/MCP), the table gets a `filename` column with each row's drive path:
+
+```json
+{ "tables": { "tasks": { "path": "/lake/tasks/*.csv", "includeFilename": true } } }
+```
+
+```sql
+SELECT filename, count(*) FROM tasks GROUP BY filename
+```
+
+Without `includeFilename` there is no `filename` column, so a glob returns the same columns as a single file.
+
 ### 2. Named table bindings
 
 Bind documents to table names with `--table` (repeatable). Required for SQLite/DuckDB databases, and useful for readable multi-file queries:
@@ -137,6 +164,8 @@ Server-side knobs (environment variables on the daemon/server):
 |----------|---------|---------|
 | `AGENT_FS_SQL_TIMEOUT_MS` | `30000` | Query timeout (the query is interrupted) |
 | `AGENT_FS_SQL_MAX_FILE_BYTES` | `268435456` (256 MB) | Per-document size cap |
+| `AGENT_FS_SQL_MAX_TOTAL_BYTES` | `536870912` (512 MB) | Total size cap for all documents one query reads, every glob match included |
+| `AGENT_FS_SQL_MAX_GLOB_FILES` | `200` | Files one glob can match; a glob over more fails with a `VALIDATION_ERROR` |
 | `AGENT_FS_SQL_MEMORY_LIMIT` | `512MB` | DuckDB memory limit |
 | `AGENT_FS_SQL_MAX_RESULT_BYTES` | `16777216` (16 MB) | Approximate JSON size cap for the returned rows |
 | `AGENT_FS_SQL_MAX_CONCURRENT` | `4` | SQL queries the server runs at once; extra queries are rejected |

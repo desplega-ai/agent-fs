@@ -512,11 +512,22 @@ export type SqlFormat =
   | "sqlite"
   | "duckdb";
 
-export type SqlTableBinding = string | { path: string; format?: SqlFormat };
+export type SqlTableBinding =
+  | string
+  | {
+      path: string;
+      format?: SqlFormat;
+      /** Add a `filename` column holding each row's drive path (useful with globs). */
+      includeFilename?: boolean;
+    };
 
 export interface SqlParams {
   query: string;
-  /** Named table bindings: table name -> document path (or { path, format } to override format detection). */
+  /**
+   * Named table bindings: table name -> document path or glob (or
+   * { path, format, includeFilename } to override format detection or add a
+   * `filename` column).
+   */
   tables?: Record<string, SqlTableBinding>;
   maxRows?: number;
 }
@@ -528,8 +539,11 @@ export interface SqlColumn {
 
 export interface SqlBoundFile {
   table: string;
+  /** Drive path of the document, or the normalized glob for a folder read. */
   path: string;
   format: SqlFormat;
+  /** Drive paths a glob matched, in read order. Absent for a single document. */
+  matches?: string[];
 }
 
 export interface SqlResult {

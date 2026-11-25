@@ -2722,6 +2722,10 @@ async function runStandardTests(daemonUrl: string) {
     runJson(`write /sql/pets.tsv --file ${join(fixDir, "pets.tsv")}`);
     runJson(`write /sql/events.ndjson --file ${join(fixDir, "events.ndjson")}`);
     runJson(`write /sql/raw.txt --file ${join(fixDir, "raw.txt")}`);
+    writeFileSync(join(fixDir, "lake-a.csv"), "id,amount\n1,10\n2,20\n");
+    writeFileSync(join(fixDir, "lake-b.csv"), "id,amount\n3,30\n");
+    runJson(`write /sql/lake/a.csv --file ${join(fixDir, "lake-a.csv")}`);
+    runJson(`write /sql/lake/b.csv --file ${join(fixDir, "lake-b.csv")}`);
 
     const { DuckDBInstance } = await import("@duckdb/node-api");
     const instance = await DuckDBInstance.create(":memory:");
@@ -2757,6 +2761,14 @@ async function runStandardTests(daemonUrl: string) {
     assert(result.files.length, 1);
     assert(result.files[0].path, "/sql/sales.csv");
     assert(result.files[0].format, "csv");
+  });
+
+  await test("sql: glob literal reads every match as one table", () => {
+    const result = runJson(`sql "SELECT count(*) AS n, sum(amount) AS total FROM '/sql/lake/*.csv'"`);
+    assert(result.rows[0].n, 3);
+    assert(result.rows[0].total, 60);
+    assert(result.files[0].path, "/sql/lake/*.csv");
+    assert(result.files[0].matches.join(","), "/sql/lake/a.csv,/sql/lake/b.csv");
   });
 
   await test("sql: tsv and ndjson via path literal", () => {

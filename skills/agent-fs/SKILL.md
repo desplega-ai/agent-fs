@@ -18,7 +18,8 @@ description: >-
   manage org/drive members, generate presigned URLs, check recent activity, or use
   semantic search across stored files. Also use when the user wants to run SQL
   over stored data files ("query this csv", "sql over my files", "duckdb",
-  "aggregate the parquet file", "query the sqlite db", "join these spreadsheets").
+  "aggregate the parquet file", "query the sqlite db", "join these spreadsheets",
+  "query every csv in a folder").
   Also use when the user wants to mount or
   unmount agent-fs as a Linux FUSE filesystem ("mount agent-fs", "fuse mount",
   "fuse", "remote mount", "sandbox mount", "expose drives as files",
@@ -260,7 +261,9 @@ Glob patterns are case-sensitive. Full-text matches indexed tokens. Neither mode
 |---------|-------|-------------|
 | `sql` | `agent-fs sql <query> [-t name=path[:format]]... [--max-rows <n>]` | Run DuckDB SQL over stored documents |
 
-Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` except parquet/xlsx), sqlite (`.db`/`.sqlite`/`.sqlite3`), and `.duckdb`. Reference file-format documents directly by quoted drive path inside the query, or bind any document to a table name with `-t`. SQLite/DuckDB databases require a `-t` binding and expose their tables as `<name>.<table>`. Append `:format` to a binding to query documents with non-standard extensions (e.g. `-t logs=/raw/data.txt:csv`). Queries are sandboxed — no host filesystem or network access. Results cap at `--max-rows` (default 1000, max 10000) and at a server-side result size limit (16 MB by default); `truncated: true` in JSON output signals more rows exist.
+Supported formats: csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also `.gz` except parquet/xlsx), sqlite (`.db`/`.sqlite`/`.sqlite3`), and `.duckdb`. Reference file-format documents directly by quoted drive path inside the query, or bind any document to a table name with `-t`. A glob in the path (`'/lake/tasks/*.csv'`, `'/lake/**/*.parquet'`; `*`, `?`, `**`) reads every match as one table, columns unified by name: all matches must share one format, no match fails as not found, and a glob is capped at 200 files. Bind it as `{ path, includeFilename: true }` (API/MCP) to add a `filename` column with each row's drive path. SQLite/DuckDB databases require a `-t` binding and expose their tables as `<name>.<table>`. Append `:format` to a binding to query documents with non-standard extensions (e.g. `-t logs=/raw/data.txt:csv`). Queries are sandboxed — no host filesystem or network access. Results cap at `--max-rows` (default 1000, max 10000) and at a server-side result size limit (16 MB by default); `truncated: true` in JSON output signals more rows exist.
+
+Inside the agent swarm, prefer the `data-query` MCP tool (`ctx.data.query` in scripts) over a raw `sql` call: it logs the call and renders the result as cards and sheets.
 
 ### Comments
 
@@ -455,6 +458,9 @@ $ agent-fs search "revenue chart" --limit 3
 ```bash
 # Query a CSV directly by path
 agent-fs sql "SELECT category, sum(amount) AS total FROM '/finance/2026.csv' GROUP BY category" --json
+
+# Read every CSV in a folder as one table
+agent-fs sql "SELECT count(*) AS n, sum(amount) AS total FROM '/lake/tasks/*.csv'"
 
 # Join documents of different formats
 agent-fs sql "SELECT s.name, t.tag FROM sales s JOIN tags t ON s.id = t.id" \

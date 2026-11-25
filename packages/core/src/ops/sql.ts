@@ -1,6 +1,6 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { eq, and } from "drizzle-orm";
 import { schema } from "../db/index.js";
 import type {
@@ -12,7 +12,8 @@ import type {
   SqlFormat,
 } from "./types.js";
 import { getS3Key } from "./versioning.js";
-import { normalizePath } from "./paths.js";
+import { assertPathInsideDrive, normalizePath } from "./paths.js";
+import { glob } from "./glob.js";
 import { NotFoundError, ValidationError } from "../errors.js";
 
 const DEFAULT_MAX_ROWS = 1000;
@@ -91,41 +92,142 @@ function qid(s: string): string {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
-function readerExpr(format: SqlFormat, filePath: string): string {
+/**
+ * A DuckDB reader call. `source` is SQL: one string literal, or a list literal
+ * for the readers that take one (every file format except xlsx).
+ */
+function readerCall(format: SqlFormat, source: string, options: string[] = []): string {
+  const call = (fn: string, extra: string[] = []) =>
+    `${fn}(${[source, ...extra, ...options].join(", ")})`;
   switch (format) {
     case "csv":
-      return `read_csv(${lit(filePath)})`;
+      return call("read_csv");
     case "tsv":
-      return `read_csv(${lit(filePath)}, delim=E'\\t')`;
+      return call("read_csv", ["delim=E'\\t'"]);
     case "parquet":
-      return `read_parquet(${lit(filePath)})`;
+      return call("read_parquet");
     case "json":
     case "ndjson":
-      return `read_json_auto(${lit(filePath)})`;
+      return call("read_json_auto");
     case "xlsx":
-      return `read_xlsx(${lit(filePath)})`;
+      return call("read_xlsx");
     default:
       throw new ValidationError(`Format ${format} is not file-readable`);
   }
 }
 
+/** One stored document behind a binding. */
+interface BoundSource {
+  /** Drive path. */
+  path: string;
+  size: number;
+  gzip: boolean;
+  /** Temp file it was downloaded to. Never shown to the caller. */
+  localFile?: string;
+}
+
 interface Binding {
   table: string;
+  /** Drive path, or the normalized pattern for a glob. */
   path: string;
   format: SqlFormat;
-  gzip: boolean;
   /** True when bound from a FROM/JOIN path literal (rewritten to the table id). */
   autoBound?: boolean;
-  localFile?: string;
-  size: number;
+  /** True when `path` is a glob: every match is read into one table. */
+  glob?: boolean;
+  /** Add a `filename` column with each row's drive path. */
+  includeFilename?: boolean;
+  /** One entry for a document, every match (sorted by path) for a glob. */
+  sources: BoundSource[];
+}
+
+/**
+ * The SELECT that materializes a file-format binding. A glob reads all of its
+ * files as one table with columns unified by name. The optional `filename`
+ * column carries drive paths; the temp paths DuckDB reads never reach it.
+ */
+function bindingSelect(b: Binding): string {
+  const first = b.sources[0];
+  if (!b.glob && !b.includeFilename) {
+    return `SELECT * FROM ${readerCall(b.format, lit(first.localFile!))}`;
+  }
+  if (b.format === "xlsx") {
+    // read_xlsx takes one file only: union the per-file reads by column name.
+    return b.sources
+      .map((s) => {
+        const name = b.includeFilename ? `, ${lit(s.path)} AS filename` : "";
+        return `SELECT *${name} FROM ${readerCall("xlsx", lit(s.localFile!))}`;
+      })
+      .join(" UNION ALL BY NAME ");
+  }
+  const list = `[${b.sources.map((s) => lit(s.localFile!)).join(", ")}]`;
+  if (!b.includeFilename) {
+    return `SELECT * FROM ${readerCall(b.format, list, ["union_by_name=true"])}`;
+  }
+  // No ELSE branch: an unmapped value becomes NULL rather than a temp path.
+  const cases = b.sources
+    .map((s) => `WHEN ${lit(s.localFile!)} THEN ${lit(s.path)}`)
+    .join(" ");
+  return `SELECT * REPLACE (CASE filename ${cases} END AS filename) FROM ${readerCall(
+    b.format,
+    list,
+    ["union_by_name=true", "filename=true"]
+  )}`;
+}
+
+/** Replace temp paths in a DuckDB error with the drive paths they hold. */
+function scrubTempPaths(message: string, b: Binding, tempDir: string | null): string {
+  let out = message;
+  for (const s of b.sources) {
+    if (s.localFile) out = out.split(s.localFile).join(s.path);
+  }
+  return tempDir ? out.split(tempDir).join("<tmp>") : out;
 }
 
 const TABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 // A quoted path literal in table position (after FROM or JOIN), e.g.
 // `FROM '/data/sales.csv'`. Restricting to table position means an ordinary
 // string value like `WHERE source = '/data/sales.csv'` is never rewritten.
+// The second alternative takes a glob without an extension (`'/lake/*'`). Its
+// first class excludes the wildcards, so the split point is unique and the
+// match stays linear in the literal's length.
 const FROM_JOIN_PATH_RE =
-  /\b(from|join)\s+(['"])([^'"]+\.[A-Za-z0-9]+(?:\.gz)?)\2/gi;
+  /\b(from|join)\s+(['"])([^'"]+\.[A-Za-z0-9]+(?:\.gz)?|[^'"*?]*[*?][^'"]*)\2/gi;
+
+const GLOB_CHARS_RE = /[*?]/;
+
+/**
+ * True when a FROM/JOIN literal is a drive glob. It needs a `/` or a known
+ * extension, so a double-quoted identifier like `"t?"` is left alone.
+ */
+function isGlobLiteral(raw: string): boolean {
+  return GLOB_CHARS_RE.test(raw) && (raw.includes("/") || detectSqlFormat(raw) !== null);
+}
+
+/**
+ * Normalize a glob to an absolute drive path. `.` and `..` segments resolve
+ * and stop at the drive root, so `/../*` reads `/*`, never a path outside it.
+ * Returns the pattern and its split at the first segment with a wildcard.
+ */
+function normalizeGlob(raw: string): { pattern: string; prefix: string; rest: string } {
+  let pattern = posix.normalize(`/${raw}`);
+  if (pattern.length > 1 && pattern.endsWith("/")) pattern = pattern.slice(0, -1);
+  // Refuses NUL bytes and `..` hidden behind a backslash separator.
+  assertPathInsideDrive(pattern);
+  const segments = pattern.slice(1).split("/");
+  const idx = segments.findIndex((seg) => GLOB_CHARS_RE.test(seg));
+  const head = segments.slice(0, idx);
+  return {
+    pattern,
+    prefix: head.length > 0 ? `/${head.join("/")}/` : "/",
+    rest: segments.slice(idx).join("/"),
+  };
+}
+
+/** Key a FROM/JOIN literal by the drive path or pattern it binds. */
+function literalKey(raw: string): string {
+  return isGlobLiteral(raw) ? normalizeGlob(raw).pattern : normalizePath(raw);
+}
 
 /** True when `path` is a gzipped file and `format` can read gzip. */
 function isGzip(path: string, format: SqlFormat): boolean {
@@ -150,7 +252,83 @@ function findFileByPath(
   return row ?? null;
 }
 
-function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
+const FILE_FORMAT_LIST = "csv, tsv, parquet, xlsx, json, ndjson";
+
+/**
+ * Resolve a glob through the `glob` op into the live documents it matches, all
+ * of one file format. No match is a NotFoundError; mixed or unknown formats,
+ * database formats and more than AGENT_FS_SQL_MAX_GLOB_FILES matches are
+ * refused.
+ */
+async function resolveGlob(
+  ctx: OpContext,
+  raw: string,
+  explicitFormat: SqlFormat | undefined
+): Promise<{ pattern: string; format: SqlFormat; sources: BoundSource[] }> {
+  const maxFiles = envInt("AGENT_FS_SQL_MAX_GLOB_FILES", 200);
+  const { pattern, prefix, rest } = normalizeGlob(raw);
+  const { matches } = await glob(ctx, { pattern: rest, path: prefix });
+  matches.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+
+  const found: Array<{ path: string; size: number }> = [];
+  for (const m of matches) {
+    // The listing comes from storage; only paths with a live document count.
+    const file = findFileByPath(ctx, m.path);
+    if (!file) continue;
+    found.push({ path: m.path, size: file.size });
+    if (found.length > maxFiles) {
+      throw new ValidationError(`Glob ${pattern} matches more than ${maxFiles} files`, {
+        field: "query",
+        suggestion: "Narrow the pattern, or raise AGENT_FS_SQL_MAX_GLOB_FILES on the server",
+      });
+    }
+  }
+  if (found.length === 0) {
+    throw new NotFoundError(`No files match ${pattern}`, { path: pattern });
+  }
+
+  let format = explicitFormat;
+  if (!format) {
+    const formats = new Set<SqlFormat>();
+    for (const f of found) {
+      const detected = detectSqlFormat(f.path);
+      if (!detected) {
+        throw new ValidationError(
+          `Cannot infer format for ${f.path}, matched by ${pattern}`,
+          {
+            field: "query",
+            suggestion: "Narrow the pattern to one extension (e.g. /lake/*.csv), or bind it via `tables` with an explicit format",
+          }
+        );
+      }
+      formats.add(detected.format);
+    }
+    if (formats.size > 1) {
+      throw new ValidationError(
+        `Glob ${pattern} matches files of more than one format (${[...formats].sort().join(", ")})`,
+        {
+          field: "query",
+          suggestion: "Narrow the pattern to one extension, e.g. /lake/*.csv",
+        }
+      );
+    }
+    format = [...formats][0];
+  }
+  if (!FILE_FORMATS.has(format)) {
+    throw new ValidationError(`Glob reads support ${FILE_FORMAT_LIST} files, not ${format}`, {
+      field: "query",
+      suggestion: "Bind each sqlite or duckdb database by name via `tables`",
+    });
+  }
+  const resolved = format;
+  return {
+    pattern,
+    format: resolved,
+    sources: found.map((f) => ({ path: f.path, size: f.size, gzip: isGzip(f.path, resolved) })),
+  };
+}
+
+async function collectBindings(ctx: OpContext, params: SqlParams): Promise<Binding[]> {
   const bindings: Binding[] = [];
   const usedNames = new Set<string>();
 
@@ -166,8 +344,24 @@ function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
     }
     usedNames.add(name.toLowerCase());
 
-    const path = normalizePath(typeof value === "string" ? value : value.path);
+    const rawPath = typeof value === "string" ? value : value.path;
     const explicitFormat = typeof value === "string" ? undefined : value.format;
+    const includeFilename = typeof value === "string" ? false : value.includeFilename === true;
+
+    if (GLOB_CHARS_RE.test(rawPath)) {
+      const resolved = await resolveGlob(ctx, rawPath, explicitFormat);
+      bindings.push({
+        table: name,
+        path: resolved.pattern,
+        format: resolved.format,
+        glob: true,
+        includeFilename,
+        sources: resolved.sources,
+      });
+      continue;
+    }
+
+    const path = normalizePath(rawPath);
     const detected = detectSqlFormat(path);
     const format = explicitFormat ?? detected?.format;
     if (!format) {
@@ -181,6 +375,12 @@ function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
       );
     }
 
+    if (includeFilename && !FILE_FORMATS.has(format)) {
+      throw new ValidationError(`includeFilename needs a file format, not ${format}`, {
+        field: "tables",
+      });
+    }
+
     const file = findFileByPath(ctx, path);
     if (!file) {
       throw new NotFoundError(`File not found: ${path}`, { path });
@@ -189,21 +389,51 @@ function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
       table: name,
       path,
       format,
-      // Honor a real .gz suffix even when the format is overridden, so the temp
-      // file keeps its .gz extension and DuckDB decompresses it.
-      gzip: isGzip(path, format),
-      size: file.size,
+      includeFilename,
+      sources: [
+        {
+          path,
+          size: file.size,
+          // Honor a real .gz suffix even when the format is overridden, so the
+          // temp file keeps its .gz extension and DuckDB decompresses it.
+          gzip: isGzip(path, format),
+        },
+      ],
     });
   }
 
   // Auto-bind drive-path literals that sit in table position, like
   // `SELECT * FROM '/data/sales.csv'`. Only literals that resolve to an existing
   // document are bound; a path that merely appears as a string value elsewhere
-  // (e.g. `WHERE source = '/data/sales.csv'`) is never matched here.
+  // (e.g. `WHERE source = '/data/sales.csv'`) is never matched here. A glob
+  // literal binds every match, and fails when nothing matches.
   const seenPaths = new Set<string>();
   let docIdx = 1;
+  const nextName = () => {
+    let name = `doc_${docIdx++}`;
+    while (usedNames.has(name)) name = `doc_${docIdx++}`;
+    usedNames.add(name);
+    return name;
+  };
   for (const match of params.query.matchAll(FROM_JOIN_PATH_RE)) {
     const raw = match[3];
+    if (isGlobLiteral(raw)) {
+      const key = literalKey(raw);
+      if (seenPaths.has(key)) continue;
+      seenPaths.add(key);
+      const resolved = await resolveGlob(ctx, raw, undefined);
+      bindings.push({
+        table: nextName(),
+        path: resolved.pattern,
+        format: resolved.format,
+        autoBound: true,
+        glob: true,
+        sources: resolved.sources,
+      });
+      continue;
+    }
+    if (GLOB_CHARS_RE.test(raw)) continue;
+
     const detected = detectSqlFormat(raw);
     if (!detected || !FILE_FORMATS.has(detected.format)) continue;
 
@@ -214,17 +444,12 @@ function collectBindings(ctx: OpContext, params: SqlParams): Binding[] {
     const file = findFileByPath(ctx, path);
     if (!file) continue;
 
-    let name = `doc_${docIdx++}`;
-    while (usedNames.has(name)) name = `doc_${docIdx++}`;
-    usedNames.add(name);
-
     bindings.push({
-      table: name,
+      table: nextName(),
       path,
       format: detected.format,
-      gzip: detected.gzip,
       autoBound: true,
-      size: file.size,
+      sources: [{ path, size: file.size, gzip: detected.gzip }],
     });
   }
 
@@ -352,14 +577,29 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
   const maxFileBytes = envInt("AGENT_FS_SQL_MAX_FILE_BYTES", 256 * 1024 * 1024);
   const maxResultBytes = envInt("AGENT_FS_SQL_MAX_RESULT_BYTES", 16 * 1024 * 1024);
 
-  const bindings = collectBindings(ctx, params);
+  const maxTotalBytes = envInt("AGENT_FS_SQL_MAX_TOTAL_BYTES", 512 * 1024 * 1024);
+
+  const bindings = await collectBindings(ctx, params);
+  let totalBytes = 0;
   for (const b of bindings) {
-    if (b.size > maxFileBytes) {
-      throw new ValidationError(
-        `File too large for SQL: ${b.path} (${b.size} bytes, limit ${maxFileBytes})`,
-        { suggestion: "Raise AGENT_FS_SQL_MAX_FILE_BYTES on the server if needed" }
-      );
+    for (const s of b.sources) {
+      if (s.size > maxFileBytes) {
+        throw new ValidationError(
+          `File too large for SQL: ${s.path} (${s.size} bytes, limit ${maxFileBytes})`,
+          { suggestion: "Raise AGENT_FS_SQL_MAX_FILE_BYTES on the server if needed" }
+        );
+      }
+      totalBytes += s.size;
     }
+  }
+  if (totalBytes > maxTotalBytes) {
+    throw new ValidationError(
+      `Documents too large for SQL: ${totalBytes} bytes in total, limit ${maxTotalBytes}`,
+      {
+        suggestion:
+          "Bind fewer or smaller documents (narrow the glob), or raise AGENT_FS_SQL_MAX_TOTAL_BYTES on the server",
+      }
+    );
   }
 
   const { DuckDBInstance } = await import("@duckdb/node-api");
@@ -405,26 +645,30 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
       tempDir = await mkdtemp(join(tmpdir(), "agent-fs-sql-"));
       for (let i = 0; i < bindings.length; i++) {
         const b = bindings[i];
-        const ext = LOCAL_EXT[b.format] + (b.gzip ? ".gz" : "");
-        const localFile = join(tempDir, `t${i}${ext}`);
-        try {
-          const obj = await ctx.s3.getObject(
-            getS3Key(ctx.orgId, ctx.driveId, b.path),
-            undefined,
-            { abortSignal: downloadAbort.signal }
-          );
-          await writeFile(localFile, obj.body);
-        } catch (err: unknown) {
-          // A timeout aborts the download — surface it as a clean timeout.
-          checkTimeout();
-          const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
-          if (e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404) {
-            throw new NotFoundError(`File not found: ${b.path}`, { path: b.path });
+        // Each document, including every glob match, gets its own temp file.
+        for (let j = 0; j < b.sources.length; j++) {
+          const s = b.sources[j];
+          const ext = LOCAL_EXT[b.format] + (s.gzip ? ".gz" : "");
+          const localFile = join(tempDir, `t${i}_${j}${ext}`);
+          try {
+            const obj = await ctx.s3.getObject(
+              getS3Key(ctx.orgId, ctx.driveId, s.path),
+              undefined,
+              { abortSignal: downloadAbort.signal }
+            );
+            await writeFile(localFile, obj.body);
+          } catch (err: unknown) {
+            // A timeout aborts the download — surface it as a clean timeout.
+            checkTimeout();
+            const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+            if (e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404) {
+              throw new NotFoundError(`File not found: ${s.path}`, { path: s.path });
+            }
+            throw err;
           }
-          throw err;
+          s.localFile = localFile;
+          checkTimeout();
         }
-        b.localFile = localFile;
-        checkTimeout();
       }
     }
 
@@ -464,7 +708,7 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
           }
         } else if (b.format === "duckdb") {
           const alias = `src_${b.table}`;
-          await conn.run(`ATTACH ${lit(b.localFile!)} AS ${qid(alias)} (READ_ONLY)`);
+          await conn.run(`ATTACH ${lit(b.sources[0].localFile!)} AS ${qid(alias)} (READ_ONLY)`);
           const reader = await conn.runAndReadAll(
             `SELECT table_name FROM duckdb_tables() WHERE database_name = ${lit(alias)} AND schema_name = 'main'`
           );
@@ -482,15 +726,17 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
           }
           await conn.run(`DETACH ${qid(alias)}`);
         } else {
-          await conn.run(
-            `CREATE TABLE ${qid(b.table)} AS SELECT * FROM ${readerExpr(b.format, b.localFile!)}`
-          );
+          await conn.run(`CREATE TABLE ${qid(b.table)} AS ${bindingSelect(b)}`);
         }
       } catch (err: unknown) {
         if (err instanceof ValidationError) throw err;
         // A timeout fired mid-materialization surfaces as a clean timeout error.
         checkTimeout();
-        const message = err instanceof Error ? err.message : String(err);
+        const message = scrubTempPaths(
+          err instanceof Error ? err.message : String(err),
+          b,
+          tempDir
+        );
         throw new ValidationError(`Failed to load ${b.path} as ${b.format}: ${message}`);
       }
     }
@@ -517,7 +763,7 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
     const query = params.query.replace(
       FROM_JOIN_PATH_RE,
       (full, kw: string, _q: string, raw: string) => {
-        const table = autoBound.get(normalizePath(raw));
+        const table = autoBound.get(literalKey(raw));
         return table ? `${kw} ${qid(table)}` : full;
       }
     );
@@ -582,6 +828,7 @@ async function runSql(ctx: OpContext, params: SqlParams): Promise<SqlResult> {
         table: b.table,
         path: b.path,
         format: b.format,
+        ...(b.glob ? { matches: b.sources.map((s) => s.path) } : {}),
       }));
 
       return {
@@ -638,7 +885,7 @@ async function bridgeSqliteToParquet(
       const b = bindings[i];
       try {
         checkTimeout();
-        await conn.run(`ATTACH ${lit(b.localFile!)} AS src (TYPE sqlite, READ_ONLY)`);
+        await conn.run(`ATTACH ${lit(b.sources[0].localFile!)} AS src (TYPE sqlite, READ_ONLY)`);
         const reader = await conn.runAndReadAll(
           "SELECT table_name FROM duckdb_tables() WHERE database_name = 'src'"
         );

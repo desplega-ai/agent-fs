@@ -2914,7 +2914,7 @@
                   {
                     "type": "object",
                     "title": "sql",
-                    "description": "Run a DuckDB SQL query over documents stored in the drive. Reference documents directly by path string literal (e.g. SELECT * FROM '/data/sales.csv') or bind them as named tables via `tables` ({ name: path } or { name: { path, format } } to override format detection). Supports csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also .gz except parquet/xlsx), sqlite (.db/.sqlite/.sqlite3, tables exposed as name.tablename), and .duckdb files. Queries run sandboxed: no filesystem or network access beyond the bound documents. Returns { columns, rows, rowCount, truncated, files, elapsedMs }.",
+                    "description": "Run a DuckDB SQL query over documents stored in the drive. Reference documents directly by path string literal (e.g. SELECT * FROM '/data/sales.csv') or bind them as named tables via `tables` ({ name: path } or { name: { path, format, includeFilename } } to override format detection). A glob in a path (`*`, `?`, `**`, e.g. FROM '/lake/tasks/*.csv' or '/lake/**/*.parquet') reads every matching file of one format as one table, columns unified by name; includeFilename: true adds a filename column with each row's drive path. Supports csv, tsv, parquet, xlsx, json, ndjson/jsonl (each also .gz except parquet/xlsx), sqlite (.db/.sqlite/.sqlite3, tables exposed as name.tablename), and .duckdb files. Queries run sandboxed: no filesystem or network access beyond the bound documents. Returns { columns, rows, rowCount, truncated, files, elapsedMs }; a glob's files entry lists its matches.",
                     "required": [
                       "op",
                       "query"
@@ -2956,6 +2956,9 @@
                                     "sqlite",
                                     "duckdb"
                                   ]
+                                },
+                                "includeFilename": {
+                                  "type": "boolean"
                                 }
                               },
                               "required": [
