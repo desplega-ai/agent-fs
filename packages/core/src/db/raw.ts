@@ -165,6 +165,26 @@ CREATE TABLE IF NOT EXISTS storage_intents (
 );
 `;
 
+/**
+ * Multipart uploads in progress: one row per upload-start, keyed by the
+ * storage upload id plus the org, drive and path it was started for, with the
+ * user who started it. upload-part-url, upload-finish and upload-abort accept
+ * an upload only from that user, at that path. The row goes away when the
+ * upload is finished or aborted. created_at is epoch milliseconds.
+ * Shared with runMigrations, which adds the table to older databases.
+ */
+export const MULTIPART_UPLOADS_SQL = `
+CREATE TABLE IF NOT EXISTS multipart_uploads (
+  org_id TEXT NOT NULL,
+  drive_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  upload_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (org_id, drive_id, path, upload_id)
+);
+`;
+
 export const CREATE_TABLES_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
@@ -365,6 +385,8 @@ ${WEBHOOKS_SQL}
 ${WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL}
 
 ${STORAGE_INTENTS_SQL}
+
+${MULTIPART_UPLOADS_SQL}
 
 CREATE TABLE IF NOT EXISTS content_chunks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

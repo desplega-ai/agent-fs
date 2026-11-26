@@ -91,3 +91,78 @@ test("gives up on a part after five attempts and aborts the upload", async () =>
     failures.clear();
   }
 });
+
+test("aborts the upload when finish rejects a stale expectedVersion", async () => {
+  const client = new ApiClient();
+  await client.callOp(orgId, "write", { driveId, path: "/conflict.bin", content: "old" });
+  const abort = spyOn(s3, "abortMultipartUpload");
+  try {
+    await expect(
+      uploadMultipart(client, orgId, driveId, "/conflict.bin", new Blob(["new"]), { expectedVersion: 99, retryDelayMs: 1 })
+    ).rejects.toThrow();
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect((s3 as any).uploads.size).toBe(0);
+    expect((await client.getRaw(orgId, driveId, "/conflict.bin")).version).toBe(1);
+  } finally {
+    abort.mockRestore();
+  }
+});
+
+/** A stub API: start answers `partCount` one-byte parts, each part PUT goes to `server`. */
+function stubClient(server: ReturnType<typeof Bun.serve>, partCount: number, finish: () => Promise<any>, onAbort: () => void) {
+  return {
+    callOp: async (_org: string, op: string, params: any) => {
+      if (op === "upload-start") return { uploadId: "id", partSize: 1, partCount };
+      if (op === "upload-part-url") return { url: `${server.url}?n=${params.partNumber}` };
+      if (op === "upload-finish") return finish();
+      if (op === "upload-abort") {
+        onAbort();
+        return { aborted: true };
+      }
+      throw new Error(`unexpected ${op}`);
+    },
+  } as any;
+}
+
+test("aborts the upload when finish is refused for the drive storage limit", async () => {
+  const parts = Bun.serve({ port: 0, fetch: async (req) => (await req.arrayBuffer(), new Response(null, { status: 200 })) });
+  let aborts = 0;
+  const quota = Object.assign(new Error("Drive storage limit exceeded"), { code: "QUOTA_EXCEEDED" });
+  try {
+    await expect(
+      uploadMultipart(stubClient(parts, 2, async () => { throw quota; }, () => aborts++), "org", "drive", "/f", new Blob(["ab"]), { retryDelayMs: 1 })
+    ).rejects.toBe(quota);
+    expect(aborts).toBe(1);
+  } finally {
+    parts.stop(true);
+  }
+});
+
+test("a failed part lets sibling PUTs finish before the abort, and stops further parts", async () => {
+  let active = 0;
+  let activeAtAbort = -1;
+  const started: number[] = [];
+  const parts = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const n = Number(new URL(req.url).searchParams.get("n"));
+      await req.arrayBuffer();
+      started.push(n);
+      if (n === 1) return new Response("failed", { status: 500 });
+      active++;
+      await Bun.sleep(300);
+      active--;
+      return new Response(null, { status: 200 });
+    },
+  });
+  try {
+    await expect(
+      uploadMultipart(stubClient(parts, 8, async () => { throw new Error("finish must not run"); }, () => (activeAtAbort = active)), "org", "drive", "/file", new Blob(["abcdefgh"]), { retryDelayMs: 1 })
+    ).rejects.toThrow("Part 1 failed");
+    expect(activeAtAbort).toBe(0);
+    // Parts 2-4 were in flight; none of 5-8 started after part 1 gave up.
+    expect(started.filter((n) => n > 4)).toEqual([]);
+  } finally {
+    parts.stop(true);
+  }
+});

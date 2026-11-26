@@ -287,7 +287,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "upload-start": {
-    description: "Start a large upload (for files above the server's raw upload limit, up to 5 GiB) that goes straight to storage. Returns { uploadId, path, size, partSize, partCount, partUrlExpiresIn }. Then, for each partNumber 1..partCount, call upload-part-url and PUT bytes [(partNumber-1)*partSize, partNumber*partSize) to the returned url (no auth header; retry a failed part with a fresh url). Finish with upload-finish, or upload-abort to discard. Needs editor. Storage backends without presigned uploads (local disk) answer UNSUPPORTED_OPERATION.",
+    description: "Start a large upload (for files above the server's raw upload limit, up to 5 GiB) that goes straight to storage. Returns { uploadId, path, size, partSize, partCount, partUrlExpiresIn }. Then, for each partNumber 1..partCount, call upload-part-url and PUT bytes [(partNumber-1)*partSize, partNumber*partSize) to the returned url (no auth header; retry a failed part with a fresh url). Finish with upload-finish, or upload-abort to discard. Only the user who started an upload can sign, finish or abort it. Needs editor. Storage backends without presigned uploads (local disk) answer UNSUPPORTED_OPERATION.",
     handler: uploadStart,
     schema: z.object({
       path: z.string(),
@@ -304,7 +304,7 @@ const opRegistry: Record<string, OpDefinition> = {
     }),
   },
   "upload-finish": {
-    description: "Finish an upload from upload-start: checks that parts 1..N are all there and add up to size, then stores the file as a new version (like write: expectedVersion, message, versioning, search indexing for files up to the raw upload limit). Returns { version, path, size, contentHash }.",
+    description: "Finish an upload from upload-start: checks that parts 1..N are all there and add up to size, then stores the file as a new version (like write: expectedVersion, message, versioning, search indexing for files up to the raw upload limit). Returns { version, path, size, contentHash }. A rejected finish (EDIT_CONFLICT, QUOTA_EXCEEDED) keeps the parts in storage: retry it, or call upload-abort to discard them.",
     handler: uploadFinish,
     schema: z.object({
       path: z.string(),

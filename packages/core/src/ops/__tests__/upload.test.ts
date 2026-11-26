@@ -1,7 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { createUser } from "../../identity/users.js";
-import { setDriveMember } from "../../identity/drives.js";
+import { createDrive, setDriveMember } from "../../identity/drives.js";
 import { createTestContext } from "../../test-utils.js";
 import { dispatchOp } from "../index.js";
 import { getS3Key } from "../versioning.js";
@@ -92,14 +92,69 @@ describe("multipart upload ops", () => {
     const { ctx, s3 } = createTestContext();
     const { uploadId } = await start(ctx, "/mine.txt", 1);
     s3.uploadPart(getS3Key(ctx.orgId, ctx.driveId, "/mine.txt"), uploadId, 1, "x");
-    await expect(dispatchOp(ctx, "upload-finish", { path: "/other.txt", uploadId, size: 1 })).rejects.toMatchObject({ name: "NoSuchUpload" });
+    await expect(dispatchOp(ctx, "upload-finish", { path: "/other.txt", uploadId, size: 1 })).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   test("abort discards the upload", async () => {
-    const { ctx } = createTestContext();
+    const { ctx, s3 } = createTestContext();
     const { uploadId } = await start(ctx, "/d.bin", 1);
+    s3.uploadPart(getS3Key(ctx.orgId, ctx.driveId, "/d.bin"), uploadId, 1, "x");
     expect(await dispatchOp(ctx, "upload-abort", { path: "/d.bin", uploadId })).toMatchObject({ aborted: true });
-    await expect(dispatchOp(ctx, "upload-finish", { path: "/d.bin", uploadId, size: 1 })).rejects.toMatchObject({ name: "NoSuchUpload" });
+    expect((s3 as any).uploads.size).toBe(0);
+    await expect(dispatchOp(ctx, "upload-finish", { path: "/d.bin", uploadId, size: 1 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  test("only the user who started an upload can sign, finish or abort it", async () => {
+    const { ctx, db, s3, driveId } = createTestContext();
+    const other = createUser(db, { email: "other-editor@example.com" }).user;
+    setDriveMember(db, { driveId, userId: other.id, role: "editor" });
+    const otherCtx = { ...ctx, userId: other.id };
+    const { uploadId } = await start(ctx, "/owned.bin", 3);
+    s3.uploadPart(getS3Key(ctx.orgId, driveId, "/owned.bin"), uploadId, 1, "abc");
+    for (const [op, params] of [
+      ["upload-part-url", { path: "/owned.bin", uploadId, partNumber: 1 }],
+      ["upload-finish", { path: "/owned.bin", uploadId, size: 3 }],
+      ["upload-abort", { path: "/owned.bin", uploadId }],
+    ] as const) {
+      await expect(dispatchOp(otherCtx, op, params)).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    }
+    // The other editor's attempts left the upload intact for its owner.
+    expect(await dispatchOp(ctx, "upload-finish", { path: "/owned.bin", uploadId, size: 3 })).toMatchObject({ version: 1, size: 3 });
+  });
+
+  test("a non-member is refused and another drive cannot see the upload", async () => {
+    const { ctx, db, s3, driveId } = createTestContext();
+    const outsider = createUser(db, { email: "outsider@example.com" }).user;
+    const { uploadId } = await start(ctx, "/owned.bin", 3);
+    s3.uploadPart(getS3Key(ctx.orgId, driveId, "/owned.bin"), uploadId, 1, "abc");
+    await expect(dispatchOp({ ...ctx, userId: outsider.id }, "upload-finish", { path: "/owned.bin", uploadId, size: 3 })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    const second = createDrive(db, { orgId: ctx.orgId, name: "second", creatorUserId: ctx.userId });
+    await expect(dispatchOp({ ...ctx, driveId: second.id }, "upload-finish", { path: "/owned.bin", uploadId, size: 3 })).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  test("an abort sent while finish runs waits for it and leaves the committed file", async () => {
+    const { ctx, s3 } = createTestContext();
+    const { uploadId } = await start(ctx, "/late.bin", 3);
+    s3.uploadPart(getS3Key(ctx.orgId, ctx.driveId, "/late.bin"), uploadId, 1, "abc");
+    // Hold finish inside storage's complete call, as a slow 2 GB finish would be.
+    const complete = s3.completeMultipartUpload.bind(s3);
+    let entered!: () => void;
+    const inComplete = new Promise<void>((resolve) => (entered = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const spy = spyOn(s3, "completeMultipartUpload").mockImplementation(async (...args) => {
+      entered();
+      await released;
+      return complete(...args);
+    });
+    const finishing = dispatchOp(ctx, "upload-finish", { path: "/late.bin", uploadId, size: 3 });
+    await inComplete;
+    const aborting = dispatchOp(ctx, "upload-abort", { path: "/late.bin", uploadId });
+    release();
+    spy.mockRestore();
+    expect(await finishing).toMatchObject({ version: 1, size: 3 });
+    await expect(aborting).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect((await dispatchOp(ctx, "cat", { path: "/late.bin" }) as { content: string }).content).toBe("abc");
   });
 
   test("viewers cannot start, sign or finish uploads", async () => {

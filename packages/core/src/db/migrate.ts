@@ -7,6 +7,7 @@ import {
   WEBHOOK_DELIVERIES_PRUNE_INDEX_SQL,
   WEBHOOKS_SQL,
   STORAGE_INTENTS_SQL,
+  MULTIPART_UPLOADS_SQL,
 } from "./raw.js";
 
 /**
@@ -114,6 +115,10 @@ export function runMigrations(sqlite: Database): void {
   // Migration 3l: storage intents, the crash-recovery journal for mutating
   // ops. Same statement as CREATE_TABLES_SQL, IF NOT EXISTS.
   sqlite.exec(STORAGE_INTENTS_SQL);
+
+  // Migration 3m: multipart uploads in progress and who started each one.
+  // Same statement as CREATE_TABLES_SQL, IF NOT EXISTS.
+  sqlite.exec(MULTIPART_UPLOADS_SQL);
 
   // Migration 3h: index for the hourly delivery-log prune (status,
   // created_at). IF NOT EXISTS, so it is a no-op once present.

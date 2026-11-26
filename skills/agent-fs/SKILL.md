@@ -765,10 +765,12 @@ and a failed part is retried on its own (5 attempts, fresh URL each time). The C
 reads the file one part at a time, prints `uploaded N/M parts` on a terminal, and
 checks the stored SHA-256 against the local file. The file gets a normal version
 (message, `--expected-version`, history). Files over the raw limit are not indexed
-for search. The local-filesystem backend has no presigned uploads: there the CLI
+for search. When a part or the finish fails, the CLI aborts the upload so its parts
+do not stay in storage. The local-filesystem backend has no presigned uploads: there the CLI
 falls back to one raw PUT, capped by `AGENT_FS_MAX_UPLOAD_BYTES`.
 
-Without the CLI (MCP or HTTP), use the ops directly. All need editor access:
+Without the CLI (MCP or HTTP), use the ops directly. All need editor access, and
+only the user who started an upload can sign, finish or abort it:
 
 1. `upload-start {path, size}` returns `{uploadId, partSize, partCount}`.
 2. For each part `n` in `1..partCount`: `upload-part-url {path, uploadId, partNumber: n}`
@@ -777,7 +779,8 @@ Without the CLI (MCP or HTTP), use the ops directly. All need editor access:
    part with a fresh URL.
 3. `upload-finish {path, uploadId, size, message?, expectedVersion?}` stores the file
    and returns `{version, size, contentHash}`. Nothing appears at `path` before this.
-4. `upload-abort {path, uploadId}` discards an upload you will not finish.
+4. `upload-abort {path, uploadId}` discards an upload you will not finish. A refused
+   finish (`EDIT_CONFLICT`, `QUOTA_EXCEEDED`) keeps the parts in storage: abort it.
 
 An operator can cap each drive with `AGENT_FS_MAX_DRIVE_BYTES`. A write, `cp`,
 `mv` or `revert` past it fails with `QUOTA_EXCEEDED`; ask the operator to raise it.
