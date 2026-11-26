@@ -36,7 +36,7 @@ export async function write(
 
 /**
  * Internal binary write path used by `PUT /raw` and the FUSE mount. Accepts
- * up to AGENT_FS_MAX_UPLOAD_BYTES (default 50 MiB), unlike the JSON 10 MiB cap. Bytes
+ * up to AGENT_FS_MAX_UPLOAD_BYTES (default 100 MiB), unlike the JSON 10 MiB cap. Bytes
  * are stored unchanged. Search indexes UTF-8 text and extracted PDF text.
  *
  * RBAC: callers reach this directly (not via `dispatchOp`), so the

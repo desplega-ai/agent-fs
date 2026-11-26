@@ -17,6 +17,8 @@ import type { OpContext } from "./ops/types.js";
 import type {
   StorageAdapter,
   StorageCapabilities,
+  MultipartUploadAdapter,
+  UploadedPart,
   PutObjectResult,
   GetObjectResult,
   HeadObjectResult,
@@ -50,7 +52,10 @@ export function createTestDb(): DB {
 /**
  * In-memory mock of AgentS3Client for testing without MinIO.
  */
-export class MockS3Client implements StorageAdapter {
+export class MockS3Client implements StorageAdapter, MultipartUploadAdapter {
+  /** In-flight multipart uploads: uploadId -> key, type and parts. */
+  private uploads = new Map<string, { key: string; contentType?: string; parts: Map<number, Uint8Array> }>();
+
   private store = new Map<string, {
     body: Uint8Array;
     metadata?: Record<string, string>;
@@ -87,6 +92,7 @@ export class MockS3Client implements StorageAdapter {
     return {
       versioning: this.versioningEnabled,
       presignedUrls: true,
+      presignedUploads: true,
       ...this.capabilityOverride,
     };
   }
@@ -238,6 +244,54 @@ export class MockS3Client implements StorageAdapter {
       ? `&cd=${encodeURIComponent(responseContentDisposition)}`
       : "";
     return `https://mock.local/${key}?e=${expiresIn}&X-Amz-Date=${amzDate}&X-Amz-Expires=${expiresIn}${ct}${cd}`;
+  }
+
+  async createMultipartUpload(key: string, contentType?: string): Promise<string> {
+    const uploadId = crypto.randomUUID();
+    this.uploads.set(uploadId, { key, contentType, parts: new Map() });
+    return uploadId;
+  }
+
+  async getPresignedUploadPartUrl(key: string, uploadId: string, partNumber: number, expiresIn: number): Promise<string> {
+    return `https://mock.local/${key}?uploadId=${uploadId}&partNumber=${partNumber}&X-Amz-Expires=${expiresIn}`;
+  }
+
+  private upload(key: string, uploadId: string) {
+    const upload = this.uploads.get(uploadId);
+    if (!upload || upload.key !== key) {
+      const err = new Error(`NoSuchUpload: ${uploadId}`);
+      err.name = "NoSuchUpload";
+      throw err;
+    }
+    return upload;
+  }
+
+  /** Test stand-in for the client's PUT to a presigned part URL. */
+  uploadPart(key: string, uploadId: string, partNumber: number, bytes: Uint8Array | string): void {
+    this.upload(key, uploadId).parts.set(partNumber, typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes);
+  }
+
+  async listUploadedParts(key: string, uploadId: string): Promise<UploadedPart[]> {
+    return [...this.upload(key, uploadId).parts]
+      .sort(([a], [b]) => a - b)
+      .map(([partNumber, body]) => ({ partNumber, size: body.length, etag: `"part-${partNumber}"` }));
+  }
+
+  async completeMultipartUpload(key: string, uploadId: string, parts: UploadedPart[]): Promise<PutObjectResult> {
+    const upload = this.upload(key, uploadId);
+    const body = Buffer.concat(parts.map((p) => upload.parts.get(p.partNumber)!));
+    this.uploads.delete(uploadId);
+    return this.putObject(key, new Uint8Array(body), undefined, upload.contentType);
+  }
+
+  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    this.upload(key, uploadId);
+    this.uploads.delete(uploadId);
+  }
+
+  async hashObject(key: string, versionId?: string): Promise<string> {
+    const { body } = await this.getObject(key, versionId);
+    return new Bun.CryptoHasher("sha256").update(body).digest("hex");
   }
 
   /** Reset all stored objects */

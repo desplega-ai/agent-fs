@@ -5,6 +5,7 @@ description: >-
   an agent-first filesystem backed by S3. Triggers on: "save this to agent-fs",
   "find that file", "find a file by name", "store this document", "search agent-fs", "list my files",
   "show version history", "revert file", "set up agent-fs", "get a signed url",
+  "upload a large file", "upload a video", "file too large", "413", "presigned upload", "multipart upload",
   "share this file", "share link", "public link", "one-off link", "revoke a share link", "list my shared links", "manage shared links",
   "publish a site", "host this html", "share a folder", "manage members", "invite user", "invite to a drive", "add to drive", "give access to drive", "invite someone without an account", "accept an invite", "pending invites", "list members", "remove member",
   "update role", "reset api key", "rotate api key", "lost my api key",
@@ -135,7 +136,7 @@ symlinks are unsupported and throw `EPERM`.
 
 | Command | Usage | Description |
 |---------|-------|-------------|
-| `write` | `agent-fs write <path> [--content <text>] [--file <local-path>] [-m <msg>] [--expected-version <n>]` | Write text or binary bytes |
+| `write` | `agent-fs write <path> [--content <text>] [--file <local-path>] [-m <msg>] [--expected-version <n>]` | Write text or binary bytes. Above 100 MiB the CLI uploads straight to storage in retried parts (up to 5 GiB, S3/MinIO only) |
 | `cat` | `agent-fs cat <path> [--offset <n>] [--limit <n>] [--raw]` | Read text file content |
 | `edit` | `agent-fs edit <path> --old <text> --new <text> [-m <msg>]` | Find-and-replace in file |
 | `append` | `agent-fs append <path> [--content <text>] [-m <msg>]` | Append to file (stdin or --content) |
@@ -750,11 +751,36 @@ See `docs/mounting/` for per-environment guides (sprite, E2B, Hetzner).
 
 ### Upload limit configuration
 
-Raw HTTP uploads default to 50 MiB. Set `AGENT_FS_MAX_UPLOAD_BYTES` on the server
-(e.g. `104857600` for 100 MiB) and restart the daemon to change the limit. Invalid
-values fall back to 50 MiB. The web UI discovers the limit from `/health`.
+Raw HTTP uploads default to 100 MiB. Set `AGENT_FS_MAX_UPLOAD_BYTES` on the server
+(e.g. `209715200` for 200 MiB) and restart the daemon to change the limit. Invalid
+values fall back to 100 MiB. The web UI discovers the limit from `/health`.
 JSON/MCP `write` stays at 10 MiB. FUSE retains a 64 MiB encoded IPC frame ceiling
 including protocol overhead; use HTTP raw uploads for larger files.
+
+### Large files (over 100 MiB, up to 5 GiB)
+
+`agent-fs write <path> --file <local>` switches to a presigned multipart upload
+above 100 MiB: the bytes go straight to S3/MinIO in 32 MiB+ parts, four at a time,
+and a failed part is retried on its own (5 attempts, fresh URL each time). The CLI
+reads the file one part at a time, prints `uploaded N/M parts` on a terminal, and
+checks the stored SHA-256 against the local file. The file gets a normal version
+(message, `--expected-version`, history). Files over the raw limit are not indexed
+for search. When a part or the finish fails, the CLI aborts the upload so its parts
+do not stay in storage. The local-filesystem backend has no presigned uploads: there the CLI
+falls back to one raw PUT, capped by `AGENT_FS_MAX_UPLOAD_BYTES`.
+
+Without the CLI (MCP or HTTP), use the ops directly. All need editor access, and
+only the user who started an upload can sign, finish or abort it:
+
+1. `upload-start {path, size}` returns `{uploadId, partSize, partCount}`.
+2. For each part `n` in `1..partCount`: `upload-part-url {path, uploadId, partNumber: n}`
+   returns a `url` valid for 15 minutes. `PUT` bytes `[(n-1)*partSize, n*partSize)`
+   to it with no auth header, e.g. `curl -T part-n --fail <url>`. Retry a failed
+   part with a fresh URL.
+3. `upload-finish {path, uploadId, size, message?, expectedVersion?}` stores the file
+   and returns `{version, size, contentHash}`. Nothing appears at `path` before this.
+4. `upload-abort {path, uploadId}` discards an upload you will not finish. A refused
+   finish (`EDIT_CONFLICT`, `QUOTA_EXCEEDED`) keeps the parts in storage: abort it.
 
 An operator can cap each drive with `AGENT_FS_MAX_DRIVE_BYTES`. A write, `cp`,
 `mv` or `revert` past it fails with `QUOTA_EXCEEDED`; ask the operator to raise it.

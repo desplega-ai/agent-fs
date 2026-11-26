@@ -145,13 +145,13 @@ describe("configured raw upload limits", () => {
     await expect(writeRaw(ctx, { path: "/too-large.bin", bytes: new Uint8Array(1.5 * MiB + 1) })).rejects.toThrow("1.5MB limit");
   });
 
-  test("unset and invalid preserve the 50 MiB raw cap", async () => {
+  test("unset and invalid use the 100 MiB raw cap", async () => {
     const { ctx, db, s3 } = createTestContext();
     for (const value of [undefined, "invalid"]) {
       if (value === undefined) delete process.env.AGENT_FS_MAX_UPLOAD_BYTES;
       else process.env.AGENT_FS_MAX_UPLOAD_BYTES = value;
-      expect((await (await createApp(db, s3).request("/health")).json()).maxUploadBytes).toBe(50 * MiB);
-      await expect(writeRaw(ctx, { path: "/too-large.bin", bytes: new Uint8Array(50 * MiB + 1) })).rejects.toThrow("50MB limit");
+      expect((await (await createApp(db, s3).request("/health")).json()).maxUploadBytes).toBe(100 * MiB);
+      await expect(writeRaw(ctx, { path: "/too-large.bin", bytes: new Uint8Array(100 * MiB + 1) })).rejects.toThrow("100MB limit");
     }
   });
 

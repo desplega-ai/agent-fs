@@ -30,7 +30,8 @@ export class ApiClient {
   private async request(
     path: string,
     opts?: RequestInit,
-    retryTimeout = (opts?.method ?? "GET").toUpperCase() === "GET"
+    retryTimeout = (opts?.method ?? "GET").toUpperCase() === "GET",
+    timeoutMs = this.timeoutMs
   ): Promise<any> {
     const headers = new Headers(opts?.headers);
     if (this.apiKey) {
@@ -38,7 +39,7 @@ export class ApiClient {
     }
     headers.set("Content-Type", "application/json");
 
-    const res = await this.fetchWithTimeout(`${this.baseUrl}${path}`, { ...opts, headers }, retryTimeout);
+    const res = await this.fetchWithTimeout(`${this.baseUrl}${path}`, { ...opts, headers }, retryTimeout, timeoutMs);
 
     let body: any;
     try {
@@ -50,7 +51,7 @@ export class ApiClient {
     if (!res.ok) {
       const msg = body.message ?? body.error ?? "Request failed";
       const suggestion = body.suggestion ? `\n  Suggestion: ${body.suggestion}` : "";
-      throw new Error(`${msg}${suggestion}`);
+      throw Object.assign(new Error(`${msg}${suggestion}`), { code: body.error, status: res.status });
     }
     return body;
   }
@@ -77,11 +78,12 @@ export class ApiClient {
     return this.request(path, { method: "DELETE" });
   }
 
-  async callOp(orgId: string, op: string, params: Record<string, any>): Promise<any> {
+  async callOp(orgId: string, op: string, params: Record<string, any>, opts: { timeoutMs?: number } = {}): Promise<any> {
     return this.request(
       `/orgs/${orgId}/ops`,
       { method: "POST", body: JSON.stringify({ op, ...params }) },
-      READ_ONLY_OPS.has(op)
+      READ_ONLY_OPS.has(op),
+      opts.timeoutMs
     );
   }
 
@@ -177,14 +179,15 @@ export class ApiClient {
     try {
       body = JSON.parse(text);
     } catch {
-      throw new Error(
+      // Bun answers an over-limit Content-Length with a bare 413 before the app sees it.
+      throw Object.assign(new Error(
         `Unexpected response from daemon (${res.status}): ${text || "empty"}`
-      );
+      ), { status: res.status });
     }
     if (!res.ok) {
       const msg = body.message ?? body.error ?? "Request failed";
       const suggestion = body.suggestion ? `\n  Suggestion: ${body.suggestion}` : "";
-      throw new Error(`${msg}${suggestion}`);
+      throw Object.assign(new Error(`${msg}${suggestion}`), { code: body.error, status: res.status });
     }
     return {
       version: body.version,
@@ -227,7 +230,7 @@ export class ApiClient {
       }
       const msg = body.message ?? body.error ?? "Request failed";
       const suggestion = body.suggestion ? `\n  Suggestion: ${body.suggestion}` : "";
-      throw new Error(`${msg}${suggestion}`);
+      throw Object.assign(new Error(`${msg}${suggestion}`), { code: body.error, status: res.status });
     }
 
     return {
@@ -241,19 +244,20 @@ export class ApiClient {
   private async fetchWithTimeout(
     url: string,
     opts: RequestInit,
-    retryTimeout: boolean
+    retryTimeout: boolean,
+    timeoutMs = this.timeoutMs
   ): Promise<Response> {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         return await fetch(url, {
           ...opts,
-          signal: AbortSignal.timeout(this.timeoutMs),
+          signal: AbortSignal.timeout(timeoutMs),
         });
       } catch (err) {
         const timedOut = (err as { name?: string }).name === "TimeoutError";
         if ((timedOut && !retryTimeout) || attempt === MAX_RETRIES) {
           if (timedOut) {
-            throw new Error(`agent-fs did not answer within ${formatSeconds(this.timeoutMs)} s`);
+            throw new Error(`agent-fs did not answer within ${formatSeconds(timeoutMs)} s`);
           }
           throw new Error(
             `Cannot connect to agent-fs daemon at ${this.baseUrl}. Is it running? Start with: agent-fs daemon start`

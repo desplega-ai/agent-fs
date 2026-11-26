@@ -123,4 +123,29 @@ describe.skipIf(SKIP)("S3 Integration (MinIO)", () => {
 
     await s3.deleteObject(key);
   });
+
+  test("presigned multipart upload: parts PUT by URL, listed, completed, hashed", async () => {
+    const key = `test/multipart-${Date.now()}.bin`;
+    const first = new Uint8Array(5 * 1024 * 1024).fill(7);
+    const second = new TextEncoder().encode("tail");
+    const uploadId = await s3.createMultipartUpload(key, "application/octet-stream");
+    for (const [n, body] of [[1, first], [2, second]] as const) {
+      const res = await fetch(await s3.getPresignedUploadPartUrl(key, uploadId, n, 60), { method: "PUT", body });
+      expect(res.status).toBe(200);
+    }
+    const parts = await s3.listUploadedParts(key, uploadId);
+    expect(parts.map((p) => [p.partNumber, p.size])).toEqual([[1, first.length], [2, 4]]);
+    const done = await s3.completeMultipartUpload(key, uploadId, parts);
+    const expected = new Bun.CryptoHasher("sha256").update(first).update(second).digest("hex");
+    expect(await s3.hashObject(key, done.versionId)).toBe(expected);
+    expect((await s3.headObject(key)).size).toBe(first.length + 4);
+    await s3.deleteObject(key);
+  });
+
+  test("abortMultipartUpload drops the upload", async () => {
+    const key = `test/multipart-abort-${Date.now()}.bin`;
+    const uploadId = await s3.createMultipartUpload(key);
+    await s3.abortMultipartUpload(key, uploadId);
+    await expect(s3.listUploadedParts(key, uploadId)).rejects.toMatchObject({ name: "NoSuchUpload" });
+  });
 });

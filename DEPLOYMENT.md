@@ -321,7 +321,7 @@ All environment variables supported by the server. Priority: env vars > config.j
 
 | Env Var | Config Path | Default | Notes |
 |---------|------------|---------|-------|
-| `AGENT_FS_MAX_UPLOAD_BYTES` | — | `52428800` (50 MiB) | Raw upload and HTTP body limit in bytes; positive safe integer, invalid values use the default. Restart the daemon after changing. |
+| `AGENT_FS_MAX_UPLOAD_BYTES` | — | `104857600` (100 MiB) | Raw upload (`PUT /raw`) limit in bytes; positive safe integer, invalid values use the default. Other routes keep a 50 MiB body limit. Larger files (up to 5 GiB) use presigned multipart uploads on S3/MinIO, which never pass through the server. Restart the daemon after changing. |
 | `AGENT_FS_MAX_DRIVE_BYTES` | — | No limit | Storage limit per drive in bytes. Writes, copies, moves and reverts past it fail with `QUOTA_EXCEEDED`. With bucket versioning or local storage, every kept version counts, so deleting files does not free space. Unset or invalid means no limit. |
 | `AGENT_FS_HOME` | — | `~/.agent-fs` | Data directory (SQLite DB, logs, pid file) |
 | `AWS_ENDPOINT_URL_S3` / `S3_ENDPOINT` | `s3.endpoint` | `http://localhost:9000` | Tigris auto-injects `AWS_ENDPOINT_URL_S3` |
@@ -363,11 +363,20 @@ When both `AWS_*` and `S3_*` variants are set, the `AWS_*` variant takes precede
 
 ### Upload size
 
-Set `AGENT_FS_MAX_UPLOAD_BYTES=104857600` on the server to allow 100 MiB raw
-uploads, then restart the daemon. The HTTP server and embedded `writeRaw` use
+Raw uploads default to 100 MiB. Set `AGENT_FS_MAX_UPLOAD_BYTES=209715200` on the
+server to allow 200 MiB, then restart the daemon. A raw upload is buffered in
+server memory, so keep the limit well under the machine's RAM. The HTTP server and embedded `writeRaw` use
 this env-only setting; `/health` reports `maxUploadBytes` and the web UI fetches
 it at runtime (50 MiB fallback for older/unreachable servers). No UI rebuild is
 needed. JSON/MCP `write` remains capped at 10 MiB for indexing costs.
+
+Files above the raw limit, up to 5 GiB, use presigned multipart uploads
+(`upload-start`, `upload-part-url`, `upload-finish`, `upload-abort`; the CLI
+`write --file` does this on its own above 100 MiB). Parts go straight from the
+client to the bucket, so the bucket endpoint (`S3_PUBLIC_ENDPOINT` when set) must
+be reachable from clients. Part URLs expire after 15 minutes. An upload that is
+never finished or aborted keeps its parts in the bucket: add a lifecycle rule
+that aborts incomplete multipart uploads after a day or so.
 
 FUSE retains its separate **64 MiB encoded IPC frame** cap in both the daemon
 and Rust helper. Protocol overhead means the usable file size is below 64 MiB;

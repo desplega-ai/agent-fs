@@ -1,7 +1,10 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-export const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+/** Raw upload (`PUT /raw`) default. Bigger files go through presigned multipart uploads (ops/upload.ts). */
+export const DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+/** Body limit for every other route (JSON ops, auth); it does not follow AGENT_FS_MAX_UPLOAD_BYTES. */
+export const DEFAULT_MAX_REQUEST_BYTES = 50 * 1024 * 1024;
 
 /** Shared by HTTP configuration and embedded raw writes; no config-file I/O. */
 export function getMaxUploadBytes(): number {

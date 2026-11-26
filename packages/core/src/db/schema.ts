@@ -176,6 +176,22 @@ export const storageIntents = sqliteTable("storage_intents", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+// multipart_uploads: uploads in progress and who started them. See raw.ts.
+export const multipartUploads = sqliteTable(
+  "multipart_uploads",
+  {
+    orgId: text("org_id").notNull(),
+    driveId: text("drive_id").notNull(),
+    path: text("path").notNull(),
+    uploadId: text("upload_id").notNull(),
+    userId: text("user_id").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.orgId, table.driveId, table.path, table.uploadId] }),
+  })
+);
+
 // comments (document comments with threading)
 export const comments = sqliteTable("comments", {
   id: text("id").primaryKey(),

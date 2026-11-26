@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createTestDb, MockS3Client } from "../../../core/src/test-utils.js";
-import { createUser, DEFAULT_MAX_UPLOAD_BYTES, listUserOrgs, StorageUnavailableError } from "@/core";
+import { createUser, DEFAULT_MAX_REQUEST_BYTES, listUserOrgs, StorageUnavailableError } from "@/core";
 import type { GetObjectResult } from "@/core";
 import { createApp } from "../app.js";
 
@@ -66,7 +66,7 @@ describe("POST /orgs/:orgId/ops client errors", () => {
     // No content-length, so bodyLimit counts bytes while the route reads them.
     const body = new ReadableStream({
       pull(controller) {
-        if (sent++ > DEFAULT_MAX_UPLOAD_BYTES / chunk.length) return controller.close();
+        if (sent++ > DEFAULT_MAX_REQUEST_BYTES / chunk.length) return controller.close();
         controller.enqueue(chunk);
       },
     });

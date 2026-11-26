@@ -9,12 +9,20 @@ import {
   ListObjectVersionsCommand,
   GetBucketVersioningCommand,
   PutBucketVersioningCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  ListPartsCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
+import { createHash } from "node:crypto";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { S3StorageConfig } from "../config.js";
 import type {
   StorageAdapter,
   StorageCapabilities,
+  MultipartUploadAdapter,
+  UploadedPart,
   S3Object,
   S3ObjectVersion,
   PutObjectResult,
@@ -68,7 +76,7 @@ function encodeCopySourceKey(key: string): string {
 
 // Every key (or prefix) goes through assertKeyInsideDrive first: S3-compatible
 // providers differ on whether they resolve `..` in a key, so a key must not carry one.
-export class AgentS3Client implements StorageAdapter {
+export class AgentS3Client implements StorageAdapter, MultipartUploadAdapter {
   private client: S3Client;
   private presignClient: S3Client;
   private bucket: string;
@@ -78,7 +86,7 @@ export class AgentS3Client implements StorageAdapter {
 
   /** S3/MinIO supports both bucket versioning and native presigned URLs. */
   get capabilities(): StorageCapabilities {
-    return { versioning: this.versioningEnabled, presignedUrls: true };
+    return { versioning: this.versioningEnabled, presignedUrls: true, presignedUploads: true };
   }
 
   constructor(config: S3StorageConfig) {
@@ -374,5 +382,76 @@ export class AgentS3Client implements StorageAdapter {
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AWS SDK type mismatch between client-s3 and s3-request-presigner
     return getSignedUrl(this.presignClient as any, command, { expiresIn, ...(signingDate && { signingDate }) });
+  }
+
+  async createMultipartUpload(key: string, contentType?: string): Promise<string> {
+    assertKeyInsideDrive(key);
+    const result = await this.call(this.deadlineMs, (abortSignal) => this.client.send(
+      new CreateMultipartUploadCommand({ Bucket: this.bucket, Key: key, ...(contentType && { ContentType: contentType }) }),
+      { abortSignal }
+    ));
+    if (!result.UploadId) throw new Error("Storage returned no multipart upload id");
+    return result.UploadId;
+  }
+
+  async getPresignedUploadPartUrl(key: string, uploadId: string, partNumber: number, expiresIn: number): Promise<string> {
+    assertKeyInsideDrive(key);
+    const command = new UploadPartCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId, PartNumber: partNumber });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AWS SDK type mismatch between client-s3 and s3-request-presigner
+    return getSignedUrl(this.presignClient as any, command, { expiresIn });
+  }
+
+  async listUploadedParts(key: string, uploadId: string): Promise<UploadedPart[]> {
+    assertKeyInsideDrive(key);
+    const parts: UploadedPart[] = [];
+    let marker: string | undefined;
+    while (true) {
+      const result = await this.call(this.deadlineMs, (abortSignal) => this.client.send(
+        new ListPartsCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId, ...(marker && { PartNumberMarker: marker }) }),
+        { abortSignal }
+      ));
+      for (const p of result.Parts ?? []) {
+        parts.push({ partNumber: p.PartNumber!, size: p.Size ?? 0, etag: p.ETag! });
+      }
+      if (!result.IsTruncated || !result.NextPartNumberMarker || result.NextPartNumberMarker === marker) break;
+      marker = result.NextPartNumberMarker;
+    }
+    return parts.sort((a, b) => a.partNumber - b.partNumber);
+  }
+
+  async completeMultipartUpload(key: string, uploadId: string, parts: UploadedPart[]): Promise<PutObjectResult> {
+    assertKeyInsideDrive(key);
+    // No deadline, like putObject: a cut-off complete can still land later.
+    const result = await this.call(null, () => this.client.send(new CompleteMultipartUploadCommand({
+      Bucket: this.bucket,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts.map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })) },
+    })));
+    return { etag: result.ETag, versionId: result.VersionId };
+  }
+
+  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    assertKeyInsideDrive(key);
+    await this.call(this.deadlineMs, (abortSignal) => this.client.send(
+      new AbortMultipartUploadCommand({ Bucket: this.bucket, Key: key, UploadId: uploadId }),
+      { abortSignal }
+    ));
+  }
+
+  async hashObject(key: string, versionId?: string): Promise<string> {
+    assertKeyInsideDrive(key);
+    return this.call(this.deadlineMs, async (abortSignal, rearm) => {
+      const result = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key, ...(versionId && { VersionId: versionId }) }),
+        { abortSignal }
+      );
+      rearm(this.bodyDeadlineMs(result.ContentLength ?? 0));
+      const hash = createHash("sha256");
+      for await (const chunk of result.Body!.transformToWebStream() as unknown as AsyncIterable<Uint8Array>) {
+        hash.update(chunk);
+      }
+      return hash.digest("hex");
+    });
   }
 }

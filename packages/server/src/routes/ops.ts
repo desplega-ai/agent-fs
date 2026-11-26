@@ -50,6 +50,11 @@ export function opsRoutes(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
       apiUrlSource: publicUrl ? ("configured" as const) : ("request" as const),
     };
 
+    // upload-finish streams the whole object back to hash it, silent for longer
+    // than Bun's 60 s idle timeout on a multi-GB file; lift it for this request.
+    if (op === "upload-finish") {
+      (c.env as { timeout?: (req: Request, seconds: number) => void } | undefined)?.timeout?.(c.req.raw, 0);
+    }
     const result = await dispatchOp(ctx, op, params);
     return c.json(result as any);
   });
