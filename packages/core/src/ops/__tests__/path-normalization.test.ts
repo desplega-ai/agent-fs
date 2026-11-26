@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { createTestContext } from "../../test-utils.js";
+import { getS3Key } from "../versioning.js";
 import { subscribeDrive, type DriveEvent } from "../../events/bus.js";
 import {
   dispatchOp,
@@ -104,6 +105,19 @@ describe("exact file operation path normalization", () => {
       expectOnlyCanonicalRows(rawDb(db));
     });
   }
+
+  test("upload ops bind bare and slash paths to one upload and one stored row", async () => {
+    const { ctx, db, s3 } = createTestContext();
+    const start = (await dispatchOp(ctx, "upload-start", { path: "up/big.bin", size: 2 })) as { uploadId: string; path: string };
+    expect(start.path).toBe("/up/big.bin");
+    const { uploadId } = start;
+    await dispatchOp(ctx, "upload-part-url", { path: "/up/big.bin", uploadId, partNumber: 1 });
+    s3.uploadPart(getS3Key(ctx.orgId, ctx.driveId, "up/big.bin"), uploadId, 1, "ok");
+    expect(await dispatchOp(ctx, "upload-finish", { path: "/up/big.bin", uploadId, size: 2 })).toMatchObject({ path: "/up/big.bin", version: 1 });
+    const other = (await dispatchOp(ctx, "upload-start", { path: "/up/other.bin", size: 1 })) as { uploadId: string };
+    expect(await dispatchOp(ctx, "upload-abort", { path: "up/other.bin", uploadId: other.uploadId })).toMatchObject({ path: "/up/other.bin" });
+    expectOnlyCanonicalRows(rawDb(db));
+  });
 
   test("append writes both path forms to one history", async () => {
     const { ctx, db } = createTestContext();
@@ -442,6 +456,10 @@ test("every registered top-level path, from, or to parameter has normalization c
     "stat",
     "tail",
     "tree",
+    "upload-abort",
+    "upload-finish",
+    "upload-part-url",
+    "upload-start",
     "write",
   ]);
   const pathBearing = getRegisteredOps().filter((name) => {
