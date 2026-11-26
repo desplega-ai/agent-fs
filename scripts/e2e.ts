@@ -1898,6 +1898,34 @@ async function runStandardTests(daemonUrl: string) {
     });
   }
 
+  // -- large uploads (presigned multipart) --
+
+  if (localOnly) {
+    await test("upload-start on local storage → HTTP 422 UNSUPPORTED_OPERATION", async () => {
+      const res = await fetch(`${daemonUrl}/orgs/${personalOrgId}/ops`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ op: "upload-start", path: "/big.bin", size: 200 * 1024 * 1024 }),
+      });
+      assert(res.status, 422, `expected 422, got ${res.status}`);
+      assert(((await res.json()) as any).error, "UNSUPPORTED_OPERATION");
+    });
+  } else {
+    await test("write --file above 100 MiB goes through multipart and stores the exact bytes", async () => {
+      const bytes = new Uint8Array(101 * 1024 * 1024);
+      for (let i = 0; i < bytes.length; i += 4096) bytes[i] = i % 253;
+      const file = join(testDir, "big-upload.bin");
+      writeFileSync(file, bytes);
+      const result = runJson(`write /big-upload.bin --file ${shQuote(file)}`);
+      assert(result.size, bytes.length);
+      const expected = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+      assert(result.contentHash, expected);
+      const res = await fetch(runJson("signed-url /big-upload.bin").url);
+      assert(new Bun.CryptoHasher("sha256").update(new Uint8Array(await res.arrayBuffer())).digest("hex"), expected);
+      rmSync(file);
+    });
+  }
+
   await test("signed-url nonexistent file fails", () => {
     try {
       run("signed-url /does-not-exist.txt");

@@ -68,6 +68,34 @@ export interface StorageCapabilities {
   versioning: boolean;
   /** Native presigned download URLs. Backends without this fall back to the daemon `/raw` URL. */
   presignedUrls: boolean;
+  /** Presigned multipart uploads (`MultipartUploadAdapter`). Absent means unsupported. */
+  presignedUploads?: boolean;
+}
+
+export interface UploadedPart {
+  partNumber: number;
+  size: number;
+  etag: string;
+}
+
+/**
+ * Optional multipart surface for large uploads. The client PUTs parts straight
+ * to storage through presigned URLs; the object appears at `key` only when
+ * the server completes the upload.
+ */
+export interface MultipartUploadAdapter {
+  createMultipartUpload(key: string, contentType?: string): Promise<string>;
+  getPresignedUploadPartUrl(key: string, uploadId: string, partNumber: number, expiresIn: number): Promise<string>;
+  /** Every uploaded part, ordered by part number. */
+  listUploadedParts(key: string, uploadId: string): Promise<UploadedPart[]>;
+  completeMultipartUpload(key: string, uploadId: string, parts: UploadedPart[]): Promise<PutObjectResult>;
+  abortMultipartUpload(key: string, uploadId: string): Promise<void>;
+  /** SHA-256 hex of the stored bytes, streamed so a large object never sits in memory. */
+  hashObject(key: string, versionId?: string): Promise<string>;
+}
+
+export function supportsMultipartUpload(adapter: StorageAdapter): adapter is StorageAdapter & MultipartUploadAdapter {
+  return adapter.capabilities.presignedUploads === true;
 }
 
 /**

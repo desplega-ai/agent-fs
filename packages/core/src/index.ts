@@ -12,6 +12,7 @@ export {
   getMaxUploadBytes,
   getRegisterAllowedDomains,
   DEFAULT_MAX_UPLOAD_BYTES,
+  DEFAULT_MAX_REQUEST_BYTES,
   setConfig,
   setConfigValue,
   getConfigPath,

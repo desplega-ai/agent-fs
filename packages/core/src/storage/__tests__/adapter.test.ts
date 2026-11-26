@@ -10,12 +10,14 @@ describe("StorageAdapter contract", () => {
     expect(mock.capabilities).toEqual({
       versioning: false,
       presignedUrls: true,
+      presignedUploads: true,
     });
 
     const mockVersioned = new MockS3Client({ versioningEnabled: true });
     expect(mockVersioned.capabilities).toEqual({
       versioning: true,
       presignedUrls: true,
+      presignedUploads: true,
     });
 
     const url = await mock.getPresignedUrl("k");

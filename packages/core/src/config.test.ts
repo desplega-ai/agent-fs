@@ -650,10 +650,10 @@ describe("Upload size environment configuration", () => {
     else process.env.AGENT_FS_MAX_UPLOAD_BYTES = saved;
     cleanup();
   });
-  test("unset uses exactly 50 MiB on new and existing config", () => {
+  test("unset uses exactly 100 MiB on new and existing config", () => {
     delete process.env.AGENT_FS_MAX_UPLOAD_BYTES;
-    expect(getConfig().server.maxUploadBytes).toBe(52428800);
-    expect(getConfig().server.maxUploadBytes).toBe(52428800);
+    expect(getConfig().server.maxUploadBytes).toBe(104857600);
+    expect(getConfig().server.maxUploadBytes).toBe(104857600);
   });
   test.each(["104857600", "1", " 209715200 "])("accepts positive integer bytes: %s", (value) => {
     process.env.AGENT_FS_MAX_UPLOAD_BYTES = value;
@@ -661,12 +661,12 @@ describe("Upload size environment configuration", () => {
   });
   test.each(["", "nope", "100MB", "1.5", "0", "-1", "1e8", "Infinity", "9007199254740992"])("invalid value falls back: %s", (value) => {
     process.env.AGENT_FS_MAX_UPLOAD_BYTES = value;
-    expect(getConfig().server.maxUploadBytes).toBe(52428800);
+    expect(getConfig().server.maxUploadBytes).toBe(104857600);
   });
   test("setConfigValue does not persist the upload limit env override", () => {
-    process.env.AGENT_FS_MAX_UPLOAD_BYTES = "104857600";
+    process.env.AGENT_FS_MAX_UPLOAD_BYTES = "209715200";
     setConfigValue("server.port", 7433);
     delete process.env.AGENT_FS_MAX_UPLOAD_BYTES;
-    expect(getConfig().server.maxUploadBytes).toBe(52428800);
+    expect(getConfig().server.maxUploadBytes).toBe(104857600);
   });
 });

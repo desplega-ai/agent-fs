@@ -3014,6 +3014,135 @@
                   },
                   {
                     "type": "object",
+                    "title": "upload-start",
+                    "description": "Start a large upload (for files above the server's raw upload limit, up to 5 GiB) that goes straight to storage. Returns { uploadId, path, size, partSize, partCount, partUrlExpiresIn }. Then, for each partNumber 1..partCount, call upload-part-url and PUT bytes [(partNumber-1)*partSize, partNumber*partSize) to the returned url (no auth header; retry a failed part with a fresh url). Finish with upload-finish, or upload-abort to discard. Needs editor. Storage backends without presigned uploads (local disk) answer UNSUPPORTED_OPERATION.",
+                    "required": [
+                      "op",
+                      "path",
+                      "size"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "upload-start"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "upload-part-url",
+                    "description": "Get a presigned PUT url for one part of an upload from upload-start. The url needs no auth and expires in 15 minutes; ask again for each retry. Returns { url, method, partNumber, expiresIn, expiresAt }.",
+                    "required": [
+                      "op",
+                      "path",
+                      "uploadId",
+                      "partNumber"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "upload-part-url"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "uploadId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "partNumber": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 10000
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "upload-finish",
+                    "description": "Finish an upload from upload-start: checks that parts 1..N are all there and add up to size, then stores the file as a new version (like write: expectedVersion, message, versioning, search indexing for files up to the raw upload limit). Returns { version, path, size, contentHash }.",
+                    "required": [
+                      "op",
+                      "path",
+                      "uploadId",
+                      "size"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "upload-finish"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "uploadId": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "size": {
+                        "type": "integer",
+                        "minimum": 1
+                      },
+                      "message": {
+                        "type": "string"
+                      },
+                      "expectedVersion": {
+                        "type": "integer"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "title": "upload-abort",
+                    "description": "Discard an unfinished upload from upload-start and the parts already sent. Returns { aborted, path, uploadId }.",
+                    "required": [
+                      "op",
+                      "path",
+                      "uploadId"
+                    ],
+                    "properties": {
+                      "op": {
+                        "type": "string",
+                        "const": "upload-abort"
+                      },
+                      "driveId": {
+                        "type": "string",
+                        "description": "Target drive ID (optional, uses default drive)"
+                      },
+                      "path": {
+                        "type": "string"
+                      },
+                      "uploadId": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
                     "title": "share-create",
                     "description": "Create a public share link for a file or folder. A file gets an unauthenticated /share/<token> page on the API host with a preview (markdown, text/code, image, PDF, audio, video, and HTML pages rendered in a sandboxed frame with only that file shared) and a Download button. A folder becomes an HTML site (kind \"site\") at /site/<token>/: index.html is the entry page (without one, the only HTML page opens, or else a list of the HTML pages), relative paths resolve inside the folder, and pages run in a sandbox with no cookies or localStorage. A site page can read every file under its folder while the link is valid. Default expiry is 24 hours (max 7 days); expiresIn null makes a link with no time limit, which ends only with share-revoke or at maxViews. Set maxViews to limit how often a file page can be opened (maxViews=1 is a one-off link; folders reject maxViews). Anyone with the link can open it, so share deliberately. Returns { id, kind, url, urlSource, sharePath, path, expiresIn, expiresAt, maxViews } (expiresIn and expiresAt are null for a link that never expires); urlSource (always present) is \"configured\" when url is built on AGENT_FS_PUBLIC_URL, \"request\" when it comes from the request's Host (resolve sharePath against the address you reached the API at). The link is shown only once; keep the id to revoke it.",
                     "required": [

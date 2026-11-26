@@ -28,6 +28,7 @@ import { glob } from "./glob.js";
 import { find } from "./find.js";
 import { sql } from "./sql.js";
 import { signedUrl } from "./signed-url.js";
+import { uploadStart, uploadPartUrl, uploadFinish, uploadAbort } from "./upload.js";
 import { shareCreate, shareRevoke } from "./share.js";
 import { shareList, SHARE_LIST_MAX_LIMIT } from "./share-list.js";
 import { buildAppUrl } from "./urls.js";
@@ -283,6 +284,42 @@ const opRegistry: Record<string, OpDefinition> = {
       path: z.string(),
       expiresIn: z.number().int().min(60).max(604800).optional(),
       disposition: z.enum(["inline", "attachment"]).optional(),
+    }),
+  },
+  "upload-start": {
+    description: "Start a large upload (for files above the server's raw upload limit, up to 5 GiB) that goes straight to storage. Returns { uploadId, path, size, partSize, partCount, partUrlExpiresIn }. Then, for each partNumber 1..partCount, call upload-part-url and PUT bytes [(partNumber-1)*partSize, partNumber*partSize) to the returned url (no auth header; retry a failed part with a fresh url). Finish with upload-finish, or upload-abort to discard. Needs editor. Storage backends without presigned uploads (local disk) answer UNSUPPORTED_OPERATION.",
+    handler: uploadStart,
+    schema: z.object({
+      path: z.string(),
+      size: z.number().int().min(1),
+    }),
+  },
+  "upload-part-url": {
+    description: "Get a presigned PUT url for one part of an upload from upload-start. The url needs no auth and expires in 15 minutes; ask again for each retry. Returns { url, method, partNumber, expiresIn, expiresAt }.",
+    handler: uploadPartUrl,
+    schema: z.object({
+      path: z.string(),
+      uploadId: z.string().min(1),
+      partNumber: z.number().int().min(1).max(10000),
+    }),
+  },
+  "upload-finish": {
+    description: "Finish an upload from upload-start: checks that parts 1..N are all there and add up to size, then stores the file as a new version (like write: expectedVersion, message, versioning, search indexing for files up to the raw upload limit). Returns { version, path, size, contentHash }.",
+    handler: uploadFinish,
+    schema: z.object({
+      path: z.string(),
+      uploadId: z.string().min(1),
+      size: z.number().int().min(1),
+      message: z.string().optional(),
+      expectedVersion: z.number().int().optional(),
+    }),
+  },
+  "upload-abort": {
+    description: "Discard an unfinished upload from upload-start and the parts already sent. Returns { aborted, path, uploadId }.",
+    handler: uploadAbort,
+    schema: z.object({
+      path: z.string(),
+      uploadId: z.string().min(1),
     }),
   },
   "share-create": {
@@ -545,6 +582,7 @@ export function getOpDefinition(name: string): OpDefinition | undefined {
 }
 
 // Re-export individual ops for direct use
+export { uploadStart, uploadPartUrl, uploadFinish, uploadAbort };
 export { write, writeRaw, cat, edit, append, ls, stat, reveal, rm, mv, cp, tail, log, diff, revert, recent, grep, fts, search, vecSearch, reindex, tree, glob, find, sql, signedUrl, shareCreate, shareRevoke, commentAdd, commentList, commentGet, commentUpdate, commentDelete, commentResolve, commentNotificationList, commentNotificationRead, driveMembers, favoriteAdd, favoriteRemove, favoriteList, webhookCreate, webhookList, webhookUpdate, webhookDelete, webhookTest, webhookDeliveries, webhookRedeliver };
 export { shareList };
 export type * from "./types.js";

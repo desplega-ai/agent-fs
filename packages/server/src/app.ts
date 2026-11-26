@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { bodyLimit } from "hono/body-limit";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { VERSION, getConfig, DEFAULT_MAX_UPLOAD_BYTES, PresenceRegistry, getProfile, StorageUnavailableError } from "@/core";
+import { VERSION, getConfig, DEFAULT_MAX_UPLOAD_BYTES, DEFAULT_MAX_REQUEST_BYTES, PresenceRegistry, getProfile, StorageUnavailableError } from "@/core";
 import type { DB, StorageAdapter, EmbeddingProvider } from "@/core";
 import { createMcpServer } from "@/mcp/server.js";
 import type { AppEnv } from "./types.js";
@@ -61,7 +61,7 @@ export function createApp(db: DB, s3: StorageAdapter, embeddingProvider: Embeddi
     // Only raw PUTs need the configurable cap; other routes keep the default.
     const isRawUpload = c.req.method === "PUT"
       && /^\/orgs\/[^/]+\/drives\/[^/]+\/files\/.+\/raw$/.test(c.req.path);
-    const maxSize = isRawUpload ? maxUploadBytes : DEFAULT_MAX_UPLOAD_BYTES;
+    const maxSize = isRawUpload ? maxUploadBytes : DEFAULT_MAX_REQUEST_BYTES;
     return bodyLimit({
       maxSize,
       onError: (c) => c.json({

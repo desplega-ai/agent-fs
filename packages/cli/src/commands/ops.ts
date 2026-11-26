@@ -3,6 +3,7 @@ import type { ApiClient } from "../api-client.js";
 import { getConfig, getOpDefinition } from "@/core";
 import { diffSourceWarning, outputResult, writeLinkWarnings } from "../formatters.js";
 import { stdio } from "../stdio.js";
+import { MULTIPART_THRESHOLD_BYTES, uploadMultipart } from "../lib/multipart-upload.js";
 
 interface OpCommandDef {
   name: string;
@@ -145,7 +146,9 @@ export function registerOpCommands(
     cmd.action(async (...actionArgs: any[]) => {
       const opts = actionArgs[actionArgs.length - 2];
       const params: Record<string, any> = { ...opts };
-      let rawWriteBytes: Uint8Array | null = null;
+      let rawWriteBytes: Uint8Array<ArrayBuffer> | null = null;
+      // Over MULTIPART_THRESHOLD_BYTES: sent in parts, read from disk one part at a time.
+      let largeWrite: Blob | null = null;
 
       // Map positional args
       for (let i = 0; i < def.args.length; i++) {
@@ -161,10 +164,13 @@ export function registerOpCommands(
         }
 
         if (params.file) {
-          rawWriteBytes = new Uint8Array(await Bun.file(params.file).arrayBuffer());
+          const file = Bun.file(params.file);
+          if (file.size > MULTIPART_THRESHOLD_BYTES) largeWrite = file;
+          else rawWriteBytes = new Uint8Array(await file.arrayBuffer());
           delete params.file;
         } else if (params.content === undefined && !process.stdin.isTTY) {
           rawWriteBytes = new Uint8Array(await Bun.stdin.arrayBuffer());
+          if (rawWriteBytes.byteLength > MULTIPART_THRESHOLD_BYTES) largeWrite = new Blob([rawWriteBytes]);
         }
       }
 
@@ -179,7 +185,7 @@ export function registerOpCommands(
         }
       }
 
-      if (def.name === "write" && params.content === undefined && rawWriteBytes === null) {
+      if (def.name === "write" && params.content === undefined && rawWriteBytes === null && largeWrite === null) {
         console.error("Error: --content or --file required (or pipe content via stdin)");
         process.exit(1);
       }
@@ -272,14 +278,37 @@ export function registerOpCommands(
           params.driveId = driveId;
         }
 
-        if (def.name === "write" && rawWriteBytes !== null) {
+        if (def.name === "write" && (rawWriteBytes !== null || largeWrite !== null)) {
           if (!getDriveId) {
             throw new Error("Cannot resolve drive context for raw upload");
           }
-          const result = await client.putRaw(orgId, await getDriveId(orgId), params.path, rawWriteBytes, {
+          const rawDriveId = await getDriveId(orgId);
+          const multipart = (blob: Blob) => uploadMultipart(client, orgId, rawDriveId, params.path, blob, {
+            message: params.message,
+            expectedVersion: params.expectedVersion,
+            onPart: process.stderr.isTTY
+              ? (done, total) => process.stderr.write(`\ruploaded ${done}/${total} parts${done === total ? "\n" : ""}`)
+              : undefined,
+          });
+          const putRaw = (bytes: Uint8Array<ArrayBuffer>) => client.putRaw(orgId, rawDriveId, params.path, bytes, {
             ifMatch: params.expectedVersion,
             message: params.message,
           });
+          let result;
+          if (largeWrite !== null) {
+            result = await multipart(largeWrite).catch(async (err) => {
+              // Local-disk storage has no presigned uploads: fall back to one raw PUT.
+              if (err?.code !== "UNSUPPORTED_OPERATION") throw err;
+              return putRaw(rawWriteBytes ?? new Uint8Array(await largeWrite!.arrayBuffer()));
+            });
+          } else {
+            const bytes = rawWriteBytes!;
+            result = await putRaw(bytes).catch((err) => {
+              // A server with a raw cap below the threshold: retry in parts.
+              if (err?.status !== 413) throw err;
+              return multipart(new Blob([bytes]));
+            });
+          }
           for (const warning of writeLinkWarnings(result)) console.error(warning);
           outputResult(def.name, result, program.opts().json);
           return;
