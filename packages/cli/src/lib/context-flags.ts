@@ -21,9 +21,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * - `--drive` without `--org` also finds the org: the default org first,
  *   then the caller's other orgs.
  *
- * A value that matches nothing, or a lookup the server refuses (an
- * org-scoped key cannot list orgs), passes through unchanged, so the server
- * stays the one that answers "not found". Only an ambiguous name throws.
+ * A drive is looked up among the drives the caller is on, then among those
+ * the caller can manage: an org admin reaches a drive without being on it.
+ *
+ * A value that matches nothing, or a lookup the server refuses with 403 or
+ * 404 (an org-scoped key cannot list orgs), passes through unchanged, so the
+ * server stays the one that answers "not found". An ambiguous name throws,
+ * and so does any other lookup failure: guessing another org after a failed
+ * lookup could send a write to the wrong place.
  */
 export async function resolveContextFlags(flags: ContextFlags, deps: Deps): Promise<ContextFlags> {
   const out: ContextFlags = { ...flags };
@@ -35,14 +40,14 @@ export async function resolveContextFlags(flags: ContextFlags, deps: Deps): Prom
 
   if (out.org) {
     if (!UUID.test(flags.drive)) {
-      out.drive = pick(await listDrives(deps, out.org), flags.drive, "Drive") ?? flags.drive;
+      out.drive = (await findDrive(deps, out.org, flags.drive)) ?? flags.drive;
     }
     return out;
   }
 
   const defaultOrg = await deps.defaultOrgId();
   if (defaultOrg) {
-    const here = pick(await listDrives(deps, defaultOrg), flags.drive, "Drive");
+    const here = await findDrive(deps, defaultOrg, flags.drive);
     if (here) {
       out.drive = here;
       return out;
@@ -52,7 +57,7 @@ export async function resolveContextFlags(flags: ContextFlags, deps: Deps): Prom
   const found: Array<{ org: Named; driveId: string }> = [];
   for (const org of await listOrgs(deps)) {
     if (org.id === defaultOrg) continue;
-    const driveId = pick(await listDrives(deps, org.id), flags.drive, "Drive");
+    const driveId = await findDrive(deps, org.id, flags.drive);
     if (driveId) found.push({ org, driveId });
   }
   if (found.length > 1) {
@@ -77,10 +82,23 @@ function pick(items: Named[], ref: string, kind: "Org" | "Drive"): string | unde
   return byName[0]?.id;
 }
 
-async function listOrgs(deps: Deps): Promise<Named[]> {
-  return (await deps.get("/orgs").catch(() => null))?.orgs ?? [];
+async function findDrive(deps: Deps, orgId: string, ref: string): Promise<string | undefined> {
+  const path = `/orgs/${encodeURIComponent(orgId)}/drives`;
+  return (
+    pick(await list(deps, path, "drives"), ref, "Drive") ??
+    pick(await list(deps, `${path}?scope=manageable`, "drives"), ref, "Drive")
+  );
 }
 
-async function listDrives(deps: Deps, orgId: string): Promise<Named[]> {
-  return (await deps.get(`/orgs/${encodeURIComponent(orgId)}/drives`).catch(() => null))?.drives ?? [];
+function listOrgs(deps: Deps): Promise<Named[]> {
+  return list(deps, "/orgs", "orgs");
+}
+
+async function list(deps: Deps, path: string, key: "orgs" | "drives"): Promise<Named[]> {
+  try {
+    return (await deps.get(path))?.[key] ?? [];
+  } catch (err: any) {
+    if (err?.status === 403 || err?.status === 404) return [];
+    throw err;
+  }
 }

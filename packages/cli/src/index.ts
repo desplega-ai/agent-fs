@@ -122,11 +122,25 @@ async function getDriveId(orgId?: string): Promise<string> {
   return drive.id;
 }
 
+// Commands that take no org or drive context. They must keep working with
+// the API offline, so the flags are left alone for them.
+const LOCAL_COMMANDS = new Set([
+  "docs", "auth", "profile", "daemon", "config", "org", "init", "onboard",
+  "invite", "umount", "open", "update", "mcp", "server",
+]);
+
+function topLevelName(command: Command): string {
+  let current = command;
+  while (current.parent && current.parent !== program) current = current.parent;
+  return current.name();
+}
+
 // --org and --drive take an id or a name. Turn them into ids once, before
 // the command runs, so every command keeps reading ids from the options.
-program.hook("preAction", async () => {
+program.hook("preAction", async (_program, actionCommand) => {
   const { org, drive } = program.opts();
   if (!org && !drive) return;
+  if (LOCAL_COMMANDS.has(topLevelName(actionCommand))) return;
   try {
     const resolved = await resolveContextFlags(
       { org, drive },
