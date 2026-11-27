@@ -5,11 +5,14 @@ import { join } from "node:path";
 
 // A command that needs no org or drive must not call the API to resolve
 // --org or --drive: it has to work while the daemon is down.
-test("a local command ignores --org and --drive with the API offline", async () => {
+test.each([
+  [["config", "get", "server.port"], /^\d+$/],
+  [["mount", "status"], /./],
+])("a local command ignores --org and --drive with the API offline: %p", async (command, expected) => {
   const home = mkdtempSync(join(tmpdir(), "agent-fs-offline-"));
   try {
     const proc = Bun.spawn(
-      [process.execPath, "run", join(import.meta.dir, "../index.ts"), "--org", "acme", "--drive", "notes", "config", "get", "server.port"],
+      [process.execPath, "run", join(import.meta.dir, "../index.ts"), "--org", "acme", "--drive", "notes", ...command],
       {
         env: { ...process.env, AGENT_FS_HOME: home, AGENT_FS_API_URL: "http://127.0.0.1:9", AGENT_FS_API_KEY: "unused" },
         stdout: "pipe",
@@ -23,7 +26,7 @@ test("a local command ignores --org and --drive with the API offline", async () 
     ]);
     expect(stderr).toBe("");
     expect(code).toBe(0);
-    expect(stdout.trim()).toMatch(/^\d+$/);
+    expect(stdout.trim()).toMatch(expected);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

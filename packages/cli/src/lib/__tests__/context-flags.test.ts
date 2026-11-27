@@ -61,8 +61,8 @@ describe("resolveContextFlags", () => {
   test("a drive in the default org leaves --org unset", async () => {
     const d = deps();
     expect(await resolveContextFlags({ drive: "notes" }, d)).toEqual({ drive: DRIVE_A });
-    expect(d.calls).toEqual([`/orgs/${ORG_A}/drives`]);
-    expect(await resolveContextFlags({ drive: DRIVE_A }, deps())).toEqual({ drive: DRIVE_A });
+    expect(await resolveContextFlags({ drive: DRIVE_A }, d)).toEqual({ drive: DRIVE_A });
+    expect(d.calls).toContain(`/orgs/${ORG_A}/drives`);
   });
 
   test("a drive id from another org finds that org", async () => {
@@ -104,6 +104,31 @@ describe("resolveContextFlags", () => {
   test("a failed lookup in the default org is an error, not a search elsewhere", async () => {
     const orgs = [ORGS[0], { ...ORGS[1], drives: [{ id: DRIVE_B, name: "notes" }] }];
     const d = deps(orgs, ORG_A, { drives: { [ORG_A]: 500 } });
+    await expect(resolveContextFlags({ drive: "notes" }, d)).rejects.toThrow("HTTP 500");
+  });
+
+  test("a refused lookup in the default org stops the search", async () => {
+    const orgs = [ORGS[0], { ...ORGS[1], drives: [{ id: DRIVE_B, name: "notes" }] }];
+    const d = deps(orgs, ORG_A, { drives: { [ORG_A]: 403 } });
+    expect(await resolveContextFlags({ drive: "notes" }, d)).toEqual({ drive: "notes" });
+    expect(d.calls).toEqual([`/orgs/${ORG_A}/drives`]);
+  });
+
+  test("a joined drive and a managed drive with one name are ambiguous", async () => {
+    const orgs = [
+      {
+        id: ORG_A,
+        name: "acme",
+        drives: [{ id: DRIVE_A, name: "notes" }],
+        manageable: [{ id: DRIVE_A, name: "notes" }, { id: DRIVE_B, name: "notes" }],
+      },
+    ];
+    await expect(resolveContextFlags({ drive: "notes" }, deps(orgs))).rejects.toThrow(/ambiguous/);
+    expect(await resolveContextFlags({ drive: DRIVE_A }, deps(orgs))).toEqual({ drive: DRIVE_A });
+  });
+
+  test("a failed default-org lookup is an error", async () => {
+    const d = { ...deps(), defaultOrgId: async () => Promise.reject(failure(500)) };
     await expect(resolveContextFlags({ drive: "notes" }, d)).rejects.toThrow("HTTP 500");
   });
 

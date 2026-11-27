@@ -61,8 +61,9 @@ async function getOrgId(): Promise<string> {
 }
 
 // The org used when --org is absent: local config, then the env var, then
-// the account's default.
-async function defaultOrgId(): Promise<{ id: string; fromAccount: boolean } | null> {
+// the account's default. `strict` reports a failed account lookup instead of
+// treating it as "no default".
+async function defaultOrgId(strict = false): Promise<{ id: string; fromAccount: boolean } | null> {
   // Check local config override (set by `org switch`)
   const config = getConfig();
   if (config.defaultOrg) return { id: config.defaultOrg, fromAccount: false };
@@ -75,6 +76,7 @@ async function defaultOrgId(): Promise<{ id: string; fromAccount: boolean } | nu
     const me = await client.getMe();
     if (me.defaultOrgId) return { id: me.defaultOrgId, fromAccount: true };
   } catch (err: any) {
+    if (strict) throw err;
     if (err?.message?.includes("Cannot connect")) {
       console.error(err.message);
       process.exit(1);
@@ -127,12 +129,14 @@ async function getDriveId(orgId?: string): Promise<string> {
 const LOCAL_COMMANDS = new Set([
   "docs", "auth", "profile", "daemon", "config", "org", "init", "onboard",
   "invite", "umount", "open", "update", "mcp", "server",
+  "mount status", "drive current", "drive switch",
 ]);
 
-function topLevelName(command: Command): string {
-  let current = command;
-  while (current.parent && current.parent !== program) current = current.parent;
-  return current.name();
+function isLocalCommand(command: Command): boolean {
+  const names: string[] = [];
+  for (let c: Command | null = command; c && c !== program; c = c.parent) names.unshift(c.name());
+  if (names.join(" ") === "mount" && command.opts().uninstall) return true;
+  return LOCAL_COMMANDS.has(names[0]) || LOCAL_COMMANDS.has(names.join(" "));
 }
 
 // --org and --drive take an id or a name. Turn them into ids once, before
@@ -140,11 +144,11 @@ function topLevelName(command: Command): string {
 program.hook("preAction", async (_program, actionCommand) => {
   const { org, drive } = program.opts();
   if (!org && !drive) return;
-  if (LOCAL_COMMANDS.has(topLevelName(actionCommand))) return;
+  if (isLocalCommand(actionCommand)) return;
   try {
     const resolved = await resolveContextFlags(
       { org, drive },
-      { get: (path) => client.get(path), defaultOrgId: async () => (await defaultOrgId())?.id ?? null }
+      { get: (path) => client.get(path), defaultOrgId: async () => (await defaultOrgId(true))?.id ?? null }
     );
     if (resolved.org) program.setOptionValue("org", resolved.org);
     if (resolved.drive) program.setOptionValue("drive", resolved.drive);
