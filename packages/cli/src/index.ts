@@ -23,6 +23,7 @@ import { sqlCommand } from "./commands/sql.js";
 import { watchCommand } from "./commands/watch.js";
 import { updateCommand } from "./commands/update.js";
 import { shieldDashTokens } from "./lib/dash-tokens.js";
+import { resolveContextFlags } from "./lib/context-flags.js";
 
 const program = new Command();
 
@@ -30,8 +31,8 @@ program
   .name("agent-fs")
   .description("Agent-first filesystem backed by S3")
   .version(VERSION)
-  .option("--org <orgId>", "Override org context")
-  .option("--drive <driveId>", "Override drive context")
+  .option("--org <id-or-name>", "Override org context")
+  .option("--drive <id-or-name>", "Override drive context (finds its org when --org is absent)")
   .option("--json", "Output raw JSON");
 
 const client = new ApiClient();
@@ -49,27 +50,39 @@ async function getOrgId(): Promise<string> {
   const orgId = program.opts().org;
   if (orgId) return orgId;
 
+  const fallback = await defaultOrgId();
+  if (fallback) {
+    if (fallback.fromAccount) warnIfSharedOrgAvailable(fallback.id);
+    return fallback.id;
+  }
+
+  console.error("Error: No org context. Use --org or run 'agent-fs auth register'");
+  process.exit(1);
+}
+
+// The org used when --org is absent: local config, then the env var, then
+// the account's default. `strict` reports a failed account lookup instead of
+// treating it as "no default".
+async function defaultOrgId(strict = false): Promise<{ id: string; fromAccount: boolean } | null> {
   // Check local config override (set by `org switch`)
   const config = getConfig();
-  if (config.defaultOrg) return config.defaultOrg;
+  if (config.defaultOrg) return { id: config.defaultOrg, fromAccount: false };
 
-  if (process.env.AGENT_FS_DEFAULT_ORG_ID) return process.env.AGENT_FS_DEFAULT_ORG_ID;
+  if (process.env.AGENT_FS_DEFAULT_ORG_ID) {
+    return { id: process.env.AGENT_FS_DEFAULT_ORG_ID, fromAccount: false };
+  }
 
   try {
     const me = await client.getMe();
-    if (me.defaultOrgId) {
-      warnIfSharedOrgAvailable(me.defaultOrgId);
-      return me.defaultOrgId;
-    }
+    if (me.defaultOrgId) return { id: me.defaultOrgId, fromAccount: true };
   } catch (err: any) {
+    if (strict) throw err;
     if (err?.message?.includes("Cannot connect")) {
       console.error(err.message);
       process.exit(1);
     }
   }
-
-  console.error("Error: No org context. Use --org or run 'agent-fs auth register'");
-  process.exit(1);
+  return null;
 }
 
 // AGENT_FS_DEFAULT_ORG_ID already covers the common case above. This covers
@@ -110,6 +123,40 @@ async function getDriveId(orgId?: string): Promise<string> {
   }
   return drive.id;
 }
+
+// Commands that take no org or drive context. They must keep working with
+// the API offline, so the flags are left alone for them.
+const LOCAL_COMMANDS = new Set([
+  "docs", "auth", "profile", "daemon", "config", "org", "init", "onboard",
+  "invite", "umount", "open", "update", "mcp", "server",
+  "mount status", "drive current", "drive switch",
+]);
+
+function isLocalCommand(command: Command): boolean {
+  const names: string[] = [];
+  for (let c: Command | null = command; c && c !== program; c = c.parent) names.unshift(c.name());
+  if (names.join(" ") === "mount" && command.opts().uninstall) return true;
+  return LOCAL_COMMANDS.has(names[0]) || LOCAL_COMMANDS.has(names.join(" "));
+}
+
+// --org and --drive take an id or a name. Turn them into ids once, before
+// the command runs, so every command keeps reading ids from the options.
+program.hook("preAction", async (_program, actionCommand) => {
+  const { org, drive } = program.opts();
+  if (!org && !drive) return;
+  if (isLocalCommand(actionCommand)) return;
+  try {
+    const resolved = await resolveContextFlags(
+      { org, drive },
+      { get: (path) => client.get(path), defaultOrgId: async () => (await defaultOrgId(true))?.id ?? null }
+    );
+    if (resolved.org) program.setOptionValue("org", resolved.org);
+    if (resolved.drive) program.setOptionValue("drive", resolved.drive);
+  } catch (err: any) {
+    console.error(`Error: ${err.message}`);
+    process.exit(1);
+  }
+});
 
 // Register commands — docs first so it appears at top of --help
 program.addCommand(docsCommand());
@@ -154,8 +201,8 @@ program
 // Show global options in subcommand help
 const globalHelp = `
 Global Options:
-  --org <orgId>    Override org context
-  --drive <driveId>  Override drive context
+  --org <id-or-name>    Override org context
+  --drive <id-or-name>  Override drive context (finds its org when --org is absent)
   --json           Output raw JSON
 `;
 for (const cmd of program.commands) {

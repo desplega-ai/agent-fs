@@ -1240,6 +1240,14 @@ async function runStandardTests(daemonUrl: string) {
     run(`download /docs/gtm/outreach-queue/queue-ceos.csv -o ${outputPath}`);
 
     assert(readFileSync(outputPath, "utf-8"), content);
+
+    // The local path also works as a second argument; a directory keeps the file's name.
+    const positionalPath = join(fixDir, "positional.csv");
+    run(`download /docs/gtm/outreach-queue/queue-ceos.csv ${positionalPath}`);
+    assert(readFileSync(positionalPath, "utf-8"), content);
+    const intoDir = mkdtempSync(join(tmpdir(), "agent-fs-e2e-download-dir-"));
+    run(`download /docs/gtm/outreach-queue/queue-ceos.csv ${intoDir}`);
+    assert(readFileSync(join(intoDir, "queue-ceos.csv"), "utf-8"), content);
   });
 
   // -- cat truncation regressions (issue #25) --
@@ -3113,6 +3121,18 @@ async function runStandardTests(daemonUrl: string) {
     const out = run(`--org ${secondOrgId} drive list`);
     assertIncludes(out, secondDriveId);
     assertIncludes(out, "(default)");
+  });
+
+  await test("--org takes the org name", () => {
+    const out = run("--org e2e-second-org drive list");
+    assertIncludes(out, secondDriveId);
+  });
+
+  await test("--drive alone finds a drive of another org", () => {
+    runJson(`--drive ${secondDriveId} write /found-by-drive.md --content "found"`);
+    const viaName = runJson(`--org e2e-second-org --drive ${secondDriveId} cat /found-by-drive.md`);
+    assertIncludes(viaName.content, "found");
+    runJson(`--drive ${secondDriveId} rm /found-by-drive.md`);
   });
 
   await test("drive current", () => {
